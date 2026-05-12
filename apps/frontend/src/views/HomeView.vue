@@ -17,7 +17,7 @@
       </div>
       
       <div class="ws-status">
-        <h3>WebSocket Status</h3>
+        <h2>WebSocket Status</h2>
         <div class="status">
           <p>Connection: <strong :class="wsStatusClass">{{ wsStats.status }}</strong></p>
           <p v-if="wsStats.latency !== null">Latency: <strong>{{ wsStats.latency }}ms</strong></p>

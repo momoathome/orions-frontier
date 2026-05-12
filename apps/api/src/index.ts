@@ -2,12 +2,17 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import env from '@fastify/env';
+import autoload from '@fastify/autoload';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { envSchema } from './config/env.js';
 import { errorHandler } from './plugins/error-handler.js';
-import { healthRoutes } from './modules/health/routes.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
 import { initRedis } from './lib/redis.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const start = async () => {
   const fastify = Fastify({
@@ -42,8 +47,15 @@ const start = async () => {
     await initRedis();
     fastify.log.info('Redis connected');
 
-    // Register routes
-    await fastify.register(healthRoutes, { prefix: '/api/v1' });
+    // File-based routing with AutoLoad
+    await fastify.register(autoload, {
+      dir: join(__dirname, 'routes'),
+      options: {
+        prefix: '/api',
+      },
+      dirNameRoutePrefix: true, // Use directory names as route prefixes
+      routeParams: true, // Convert _param folders to :param URL params
+    });
 
     // Start server
     const port = Number(process.env.API_PORT) || 3000;

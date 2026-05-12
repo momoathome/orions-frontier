@@ -83,8 +83,8 @@ export class WebSocketClient {
     this.stopPing();
     this.pingInterval = window.setInterval(() => {
       this.sendPing();
-    }, 10000); // Ping every 10 seconds
-    
+    }, 30000); // Ping every 30 seconds
+
     // Send initial ping
     this.sendPing();
   }
