@@ -32,7 +32,7 @@ const start = async () => {
     });
 
     await fastify.register(cors, {
-      origin: process.env.CORS_ORIGIN || '*',
+      origin: process.env['CORS_ORIGIN'] || '*',
       credentials: true,
     });
 
@@ -58,8 +58,8 @@ const start = async () => {
     });
 
     // Start server
-    const port = Number(process.env.API_PORT) || 3000;
-    const host = process.env.API_HOST || '0.0.0.0';
+    const port = Number(process.env['API_PORT']) || 3000;
+    const host = process.env['API_HOST'] || '0.0.0.0';
 
     await fastify.listen({ port, host });
     fastify.log.info(`🚀 API server is running on http://${host}:${port}`);
