@@ -15,6 +15,15 @@
         <p>Redis: <strong>{{ health.services.redis }}</strong></p>
         <p>Timestamp: {{ new Date(health.timestamp).toLocaleString() }}</p>
       </div>
+      
+      <div class="ws-status">
+        <h3>WebSocket Status</h3>
+        <div class="status">
+          <p>Connection: <strong :class="wsStatusClass">{{ wsStats.status }}</strong></p>
+          <p v-if="wsStats.latency !== null">Latency: <strong>{{ wsStats.latency }}ms</strong></p>
+          <p v-if="wsStats.lastPong">Last Pong: <strong>{{ formatTime(wsStats.lastPong) }}</strong></p>
+        </div>
+      </div>
     </div>
 
     <div class="actions">
@@ -24,8 +33,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { apiClient } from '../lib/api-client';
+import { wsClient, type PingStats } from '../lib/ws-client';
 
 interface HealthResponse {
   status: string;
@@ -39,6 +49,29 @@ interface HealthResponse {
 const health = ref<HealthResponse | null>(null);
 const healthLoading = ref(false);
 const healthError = ref<string | null>(null);
+const wsStats = ref<PingStats>({
+  lastPing: null,
+  lastPong: null,
+  latency: null,
+  status: 'disconnected',
+});
+
+const wsStatusClass = computed(() => {
+  switch (wsStats.value.status) {
+    case 'connected':
+      return 'status-connected';
+    case 'connecting':
+      return 'status-connecting';
+    case 'error':
+      return 'status-error';
+    default:
+      return 'status-disconnected';
+  }
+});
+
+const formatTime = (timestamp: number) => {
+  return new Date(timestamp).toLocaleTimeString();
+};
 
 const fetchHealth = async () => {
   healthLoading.value = true;
@@ -54,8 +87,22 @@ const fetchHealth = async () => {
   }
 };
 
+let unsubscribe: (() => void) | null = null;
+
 onMounted(() => {
   fetchHealth();
+  
+  // Connect to WebSocket and listen for status changes
+  wsClient.connect();
+  unsubscribe = wsClient.onStatusChange((stats) => {
+    wsStats.value = stats;
+  });
+});
+
+onUnmounted(() => {
+  if (unsubscribe) {
+    unsubscribe();
+  }
 });
 </script>
 
@@ -85,6 +132,33 @@ h1 {
 }
 
 .error {
+  color: #ff6b6b;
+}
+
+.ws-status {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ws-status h3 {
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.status-connected {
+  color: #51cf66;
+}
+
+.status-connecting {
+  color: #ffd43b;
+}
+
+.status-disconnected {
+  color: #868e96;
+}
+
+.status-error {
   color: #ff6b6b;
 }
 

@@ -4,8 +4,8 @@ import { handleConnection } from './handlers/connection.js';
 import { logger } from './lib/logger.js';
 
 const start = async () => {
-  const port = Number(process.env.WS_PORT) || 3001;
-  const host = process.env.WS_HOST || '0.0.0.0';
+  const port = Number(process.env['WS_PORT']) || 3001;
+  const host = process.env['WS_HOST'] || '0.0.0.0';
 
   const server = createServer();
   const wss = new WebSocketServer({ server });
