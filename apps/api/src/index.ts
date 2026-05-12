@@ -10,6 +10,7 @@ import { errorHandler } from './plugins/error-handler.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
 import { initRedis } from './lib/redis.js';
+import { startActionWorker } from './queue/workers/action-worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -46,6 +47,10 @@ const start = async () => {
     // Initialize Redis
     await initRedis();
     fastify.log.info('Redis connected');
+
+    // Start job queue workers
+    startActionWorker();
+    fastify.log.info('Queue workers started');
 
     // File-based routing with AutoLoad
     await fastify.register(autoload, {
