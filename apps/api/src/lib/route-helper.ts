@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync } from 'fastify';
-import fp from 'fastify-plugin';
 
 /**
  * Helper function to define file-based routes with proper TypeScript inference.
@@ -13,5 +12,5 @@ import fp from 'fastify-plugin';
  * });
  */
 export const defineRoute = (plugin: FastifyPluginAsync): FastifyPluginAsync => {
-  return fp(plugin);
+  return plugin;
 };

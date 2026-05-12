@@ -53,8 +53,9 @@ const start = async () => {
       options: {
         prefix: '/api',
       },
-      dirNameRoutePrefix: true, // Use directory names as route prefixes
-      routeParams: true, // Convert _param folders to :param URL params
+      dirNameRoutePrefix: true,
+      routeParams: true,
+      ignorePattern: /.*(test|spec).ts/,
     });
 
     // Start server
