@@ -1,0 +1,33 @@
+{
+  "name": "orions-frontier",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Orion's Frontier - Modern TypeScript Browsergame",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --stream dev",
+    "build": "pnpm --recursive --stream build",
+    "lint": "pnpm --recursive --stream lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "typecheck": "pnpm --recursive --stream typecheck",
+    "clean": "pnpm --recursive --stream clean && rm -rf node_modules",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:rebuild": "docker compose up -d --build"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.5",
+    "vue-eslint-parser": "^10.4.0"
+  }
+}

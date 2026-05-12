@@ -1,0 +1,26 @@
+{
+  "name": "@orions-frontier/websocket",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts"
+  },
+  "dependencies": {
+    "@orions-frontier/shared": "workspace:*",
+    "@orions-frontier/types": "workspace:*",
+    "ws": "^8.17.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.10.5",
+    "typescript": "^5.4.5"
+  }
+}

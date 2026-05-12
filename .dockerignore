@@ -1,0 +1,17 @@
+# Docker ignore file
+node_modules
+dist
+build
+.git
+.gitignore
+.env
+.env.local
+*.log
+coverage
+.DS_Store
+README.md
+.vscode
+.idea
+*.md
+postgres-data
+redis-data
