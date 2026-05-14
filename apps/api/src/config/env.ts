@@ -1,11 +1,6 @@
 export const envSchema = {
   type: 'object',
-  required: [
-    'DATABASE_URL',
-    'REDIS_URL',
-    'JWT_SECRET',
-    'SESSION_SECRET',
-  ],
+  required: ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET', 'SESSION_SECRET'],
   properties: {
     NODE_ENV: {
       type: 'string',
@@ -37,6 +32,10 @@ export const envSchema = {
     },
     JWT_SECRET: {
       type: 'string',
+    },
+    JWT_EXPIRES_IN: {
+      type: 'string',
+      default: '7d',
     },
     SESSION_SECRET: {
       type: 'string',

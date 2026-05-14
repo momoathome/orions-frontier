@@ -1,7 +1,8 @@
+import fp from 'fastify-plugin';
 import type { FastifyPluginAsync } from 'fastify';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
-export const errorHandler: FastifyPluginAsync = async (fastify) => {
+const errorHandlerPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.setErrorHandler((error, _request, reply) => {
     if (error instanceof AppError) {
       return reply.status(getStatusCode(error.code)).send({
@@ -33,6 +34,11 @@ export const errorHandler: FastifyPluginAsync = async (fastify) => {
     });
   });
 };
+
+export const errorHandler = fp(errorHandlerPlugin, {
+  name: 'error-handler',
+  fastify: '4.x',
+});
 
 const getStatusCode = (code: ErrorCode): number => {
   switch (code) {

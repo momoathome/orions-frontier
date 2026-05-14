@@ -1,11 +1,24 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    requiresAuth?: boolean;
+    guestOnly?: boolean;
+  }
+}
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    name: 'Home',
-    component: () => import('../views/HomeView.vue'),
+    redirect: '/login',
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('../views/LoginView.vue'),
+    meta: { guestOnly: true },
   },
   {
     path: '/dashboard',
@@ -20,15 +33,16 @@ export const router = createRouter({
   routes,
 });
 
-// Auth guard (to be implemented later)
 router.beforeEach((to, _from, next) => {
-  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
+  const authStore = useAuthStore();
 
-  if (requiresAuth) {
-    // TODO: Check auth state
-    // For now, allow all
-    next();
-  } else {
-    next();
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    return next({ name: 'Login' });
   }
+
+  if (to.meta.guestOnly && authStore.isAuthenticated) {
+    return next({ name: 'Dashboard' });
+  }
+
+  next();
 });

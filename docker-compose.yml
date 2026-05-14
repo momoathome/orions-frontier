@@ -73,6 +73,7 @@ services:
       NODE_ENV: development
       WS_PORT: 3001
       WS_HOST: 0.0.0.0
+      JWT_SECRET: ${JWT_SECRET}
     volumes:
       - ./apps/websocket/src:/app/apps/websocket/src
       - ./packages:/app/packages

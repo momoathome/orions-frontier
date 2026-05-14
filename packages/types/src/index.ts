@@ -87,6 +87,7 @@ export const WsEventTypeSchema = z.enum([
   'ping',
   'pong',
   'error',
+  'authenticate',
   'authenticated',
 ]);
 

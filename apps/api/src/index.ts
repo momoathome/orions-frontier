@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { envSchema } from './config/env.js';
 import { errorHandler } from './plugins/error-handler.js';
+import jwtPlugin from './plugins/jwt.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
 import { initRedis } from './lib/redis.js';
@@ -39,6 +40,7 @@ const start = async () => {
 
     // Custom plugins
     await fastify.register(errorHandler);
+    await fastify.register(jwtPlugin);
 
     // Initialize database
     await initDb();

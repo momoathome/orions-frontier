@@ -3,12 +3,19 @@ import { createPinia } from 'pinia';
 import { VueQueryPlugin } from '@tanstack/vue-query';
 import App from './App.vue';
 import { router } from './router';
+import { useAuthStore } from './stores/auth';
 import './style.css';
 
 const app = createApp(App);
+const pinia = createPinia();
 
-app.use(createPinia());
-app.use(router);
+app.use(pinia);
 app.use(VueQueryPlugin);
 
-app.mount('#app');
+// Restore session BEFORE registering the router so the initial navigation
+// guard already sees the correct isAuthenticated state.
+const authStore = useAuthStore();
+authStore.restoreSession().finally(() => {
+  app.use(router);
+  app.mount('#app');
+});

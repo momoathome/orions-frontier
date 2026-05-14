@@ -1,29 +1,86 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import type { User } from '@orions-frontier/types';
+import { ref, computed } from 'vue';
+import type {
+  AuthenticatedUser,
+  RegisterRequest,
+  LoginRequest,
+  AuthResponse,
+} from '@orions-frontier/shared';
+import { apiClient } from '../lib/api-client.js';
+
+const TOKEN_KEY = 'auth_token';
 
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref<User | null>(null);
+  const user = ref<AuthenticatedUser | null>(null);
   const token = ref<string | null>(null);
-  const isAuthenticated = ref(false);
+  const isLoading = ref(false);
+  const error = ref<string | null>(null);
 
-  const login = async (email: string, password: string) => {
-    // TODO: Implement login logic
-    console.log('Login:', email, password);
+  const isAuthenticated = computed(() => token.value !== null && user.value !== null);
+
+  const _setSession = (response: AuthResponse) => {
+    token.value = response.token;
+    user.value = response.user;
+    localStorage.setItem(TOKEN_KEY, response.token);
+  };
+
+  const _clearSession = () => {
+    token.value = null;
+    user.value = null;
+    localStorage.removeItem(TOKEN_KEY);
+  };
+
+  const login = async (credentials: LoginRequest): Promise<void> => {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const { data } = await apiClient.post<{ success: true; data: AuthResponse }>(
+        '/auth/login',
+        credentials
+      );
+      _setSession(data.data);
+    } catch (err: unknown) {
+      error.value = extractErrorMessage(err);
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+  const register = async (payload: RegisterRequest): Promise<void> => {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      const { data } = await apiClient.post<{ success: true; data: AuthResponse }>(
+        '/auth/register',
+        payload
+      );
+      _setSession(data.data);
+    } catch (err: unknown) {
+      error.value = extractErrorMessage(err);
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
   };
 
   const logout = () => {
-    user.value = null;
-    token.value = null;
-    isAuthenticated.value = false;
-    localStorage.removeItem('auth_token');
+    _clearSession();
   };
 
-  const checkAuth = () => {
-    const storedToken = localStorage.getItem('auth_token');
-    if (storedToken) {
-      token.value = storedToken;
-      // TODO: Validate token and fetch user
+  const restoreSession = async (): Promise<void> => {
+    const storedToken = localStorage.getItem(TOKEN_KEY);
+    if (!storedToken) return;
+
+    token.value = storedToken;
+    isLoading.value = true;
+    try {
+      const { data } = await apiClient.get<{ success: true; data: AuthenticatedUser }>('/auth/me');
+      user.value = data.data;
+    } catch {
+      _clearSession();
+    } finally {
+      isLoading.value = false;
     }
   };
 
@@ -31,8 +88,27 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     token,
     isAuthenticated,
+    isLoading,
+    error,
     login,
+    register,
     logout,
-    checkAuth,
+    restoreSession,
   };
 });
+
+const extractErrorMessage = (err: unknown): string => {
+  if (
+    err &&
+    typeof err === 'object' &&
+    'response' in err &&
+    err.response &&
+    typeof err.response === 'object' &&
+    'data' in err.response
+  ) {
+    const data = (err.response as { data?: { error?: { message?: string } } }).data;
+    return data?.error?.message ?? 'An unexpected error occurred';
+  }
+  return 'An unexpected error occurred';
+};
+

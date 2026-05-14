@@ -1,4 +1,9 @@
-export type ConnectionStatus = 'connected' | 'disconnected' | 'connecting' | 'error';
+export type ConnectionStatus =
+  | 'connected'
+  | 'disconnected'
+  | 'connecting'
+  | 'error'
+  | 'authenticating';
 
 export interface PingStats {
   lastPing: number | null;
@@ -9,6 +14,7 @@ export interface PingStats {
 
 export class WebSocketClient {
   private ws: WebSocket | null = null;
+  private token: string | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
@@ -23,23 +29,37 @@ export class WebSocketClient {
 
   constructor(private url: string) {}
 
-  connect() {
+  connect(token: string) {
+    this.token = token;
+    this._connect();
+  }
+
+  private _connect() {
     try {
       this.updateStatus('connecting');
       this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected');
         this.reconnectAttempts = 0;
-        this.updateStatus('connected');
-        this.startPing();
+        this.updateStatus('authenticating');
+        // First message must be authentication
+        this.send({ type: 'authenticate', payload: { token: this.token }, timestamp: Date.now() });
       };
 
       this.ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data);
-          
-          // Handle pong response
+          const message = JSON.parse(event.data as string) as {
+            type: string;
+            payload?: Record<string, unknown>;
+            timestamp?: number;
+          };
+
+          if (message.type === 'authenticated') {
+            this.updateStatus('connected');
+            this.startPing();
+            return;
+          }
+
           if (message.type === 'pong') {
             const now = Date.now();
             this.pingStats.lastPong = now;
@@ -49,7 +69,7 @@ export class WebSocketClient {
             this.notifyStatusListeners();
             return;
           }
-          
+
           this.handleMessage(message);
         } catch (err) {
           console.error('Failed to parse WebSocket message:', err);
@@ -61,11 +81,13 @@ export class WebSocketClient {
         this.updateStatus('error');
       };
 
-      this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      this.ws.onclose = (event) => {
         this.stopPing();
         this.updateStatus('disconnected');
-        this.attemptReconnect();
+        // Only reconnect on unexpected close (not 4401 Unauthorized)
+        if (event.code !== 4401) {
+          this.attemptReconnect();
+        }
       };
     } catch (err) {
       console.error('Failed to connect WebSocket:', err);
@@ -99,7 +121,7 @@ export class WebSocketClient {
   private sendPing() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.pingStats.lastPing = Date.now();
-      this.send({ type: 'ping' });
+      this.send({ type: 'ping', timestamp: Date.now() });
       this.notifyStatusListeners();
     }
   }
@@ -115,7 +137,7 @@ export class WebSocketClient {
   }
 
   private notifyStatusListeners() {
-    this.statusCallbacks.forEach(callback => callback({ ...this.pingStats }));
+    this.statusCallbacks.forEach((callback) => callback({ ...this.pingStats }));
   }
 
   onStatusChange(callback: (stats: PingStats) => void) {
@@ -130,15 +152,17 @@ export class WebSocketClient {
   }
 
   private attemptReconnect() {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+    if (this.token && this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
-      console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-      
+      console.log(
+        `Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+      );
+
       setTimeout(() => {
-        this.connect();
+        this._connect();
       }, this.reconnectDelay * this.reconnectAttempts);
     } else {
-      console.error('Max reconnect attempts reached');
+      console.error('Max reconnect attempts reached or no token available');
     }
   }
 
@@ -151,6 +175,7 @@ export class WebSocketClient {
   }
 
   disconnect() {
+    this.token = null;
     this.stopPing();
     if (this.ws) {
       this.ws.close();
