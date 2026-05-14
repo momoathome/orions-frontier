@@ -25,9 +25,8 @@
         </div>
       </div>
     </div>
-
     <div class="actions">
-      <router-link to="/dashboard">Go to Dashboard</router-link>
+      <a href="/map">Go to Dashboard</a>
     </div>
   </div>
 </template>
