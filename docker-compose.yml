@@ -101,6 +101,7 @@ services:
     volumes:
       - ./apps/frontend/src:/app/apps/frontend/src
       - ./apps/frontend/index.html:/app/apps/frontend/index.html
+      - ./apps/frontend/public:/app/apps/frontend/public
       - ./packages:/app/packages
       - /app/node_modules
       - /app/apps/frontend/node_modules

@@ -156,3 +156,4 @@ export * from './auth';
 export * from './station';
 export * from './station-spacecraft';
 export * from './station-resource';
+export * from './resource';

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { onClickOutside } from '@vueuse/core';
+import TopHud from '../components/TopHud.vue';
 
 type Section = 'buildings' | 'fleet' | 'mining' | 'defense';
 
@@ -359,44 +360,7 @@ function selectBuilding(b: any) {
     />
 
     <!-- Top HUD -->
-    <div
-      class="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-5 h-9 bg-[#050a14]/90 border-b border-cyan-500/10 font-mono text-[11px]"
-    >
-      <div class="flex items-center gap-5">
-        <div class="flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-amber-400/80" />
-          <span class="text-white/25 uppercase tracking-widest text-[9px]">Metal</span>
-          <span class="text-amber-300 tabular-nums">124,500</span>
-        </div>
-        <div class="h-3 w-px bg-white/10" />
-        <div class="flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-cyan-400/80" />
-          <span class="text-white/25 uppercase tracking-widest text-[9px]">Crystal</span>
-          <span class="text-cyan-300 tabular-nums">87,230</span>
-        </div>
-        <div class="h-3 w-px bg-white/10" />
-        <div class="flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-purple-400/80" />
-          <span class="text-white/25 uppercase tracking-widest text-[9px]">Energy</span>
-          <span class="text-purple-300 tabular-nums">+42/min</span>
-        </div>
-      </div>
-
-      <div class="tracking-[0.5em] text-white/10 uppercase text-[9px]">ORION'S FRONTIER</div>
-
-      <div class="flex items-center gap-4">
-        <span
-          class="flex items-center gap-1.5 text-green-400/60 text-[9px] uppercase tracking-widest"
-        >
-          <span class="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-          Online
-        </span>
-        <div class="h-3 w-px bg-white/10" />
-        <span class="text-white/20 text-[9px]">3 players nearby</span>
-        <div class="h-3 w-px bg-white/10" />
-        <span class="text-amber-400/60 text-[9px]">⚠ Scanner active</span>
-      </div>
-    </div>
+    <TopHud />
 
     <!-- Bottom Command Panel -->
     <transition

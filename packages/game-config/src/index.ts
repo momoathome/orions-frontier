@@ -4,6 +4,8 @@
 // In späteren Phasen wird dies erweitert.
 // ============================================================================
 
+export { resources } from './resources.js';
+
 export interface BuildingConfig {
   id: string;
   name: string;
