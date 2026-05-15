@@ -39,7 +39,7 @@ Moderne TypeScript-basierte Browsergame-Infrastruktur mit Fastify, Vue 3, und Po
    - Frontend: http://localhost:5173
    - API: http://localhost:3000
    - WebSocket: ws://localhost:3001
-   - API Health: http://localhost:3000/api/v1/health
+   - API Health: http://localhost:3000/api/health
 
 **Quick Start (Alternative):**
 ```bash
@@ -226,7 +226,7 @@ pnpm db:studio
 ### Health Check
 
 ```
-GET /api/v1/health
+GET /api/health
 ```
 
 Prüft die Verfügbarkeit aller Services (Database, Redis).

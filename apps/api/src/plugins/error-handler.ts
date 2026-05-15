@@ -1,9 +1,9 @@
 import fp from 'fastify-plugin';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyError } from 'fastify';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 const errorHandlerPlugin: FastifyPluginAsync = async (fastify) => {
-  fastify.setErrorHandler((error, _request, reply) => {
+  fastify.setErrorHandler((error: FastifyError, _request, reply) => {
     if (error instanceof AppError) {
       return reply.status(getStatusCode(error.code)).send({
         success: false,
@@ -18,7 +18,7 @@ const errorHandlerPlugin: FastifyPluginAsync = async (fastify) => {
         error: {
           code: ErrorCode.VALIDATION_ERROR,
           message: 'Validation failed',
-          details: error.validation,
+          details: error.validation as unknown[],
         },
       });
     }
@@ -37,7 +37,7 @@ const errorHandlerPlugin: FastifyPluginAsync = async (fastify) => {
 
 export const errorHandler = fp(errorHandlerPlugin, {
   name: 'error-handler',
-  fastify: '4.x',
+  fastify: '5.x',
 });
 
 const getStatusCode = (code: ErrorCode): number => {

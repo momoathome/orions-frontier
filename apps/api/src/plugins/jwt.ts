@@ -28,5 +28,5 @@ const jwtPlugin: FastifyPluginAsync = async (fastify) => {
 
 export default fp(jwtPlugin, {
   name: 'jwt',
-  fastify: '4.x',
+  fastify: '5.x',
 });

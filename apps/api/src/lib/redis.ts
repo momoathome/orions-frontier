@@ -2,8 +2,8 @@ import { createClient } from 'redis';
 
 let redisClient: ReturnType<typeof createClient> | null = null;
 
-export const initRedis = async () => {
-  const redisUrl = process.env.REDIS_URL;
+export const initRedis = async (): Promise<ReturnType<typeof createClient>> => {
+  const redisUrl = process.env['REDIS_URL'];
 
   if (!redisUrl) {
     throw new Error('REDIS_URL is not defined');
@@ -22,14 +22,14 @@ export const initRedis = async () => {
   return redisClient;
 };
 
-export const getRedis = () => {
+export const getRedis = (): ReturnType<typeof createClient> => {
   if (!redisClient) {
     throw new Error('Redis not initialized. Call initRedis() first.');
   }
   return redisClient;
 };
 
-export const closeRedis = async () => {
+export const closeRedis = async (): Promise<void> => {
   if (redisClient) {
     await redisClient.quit();
   }

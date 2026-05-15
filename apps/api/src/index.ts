@@ -18,7 +18,7 @@ const __dirname = dirname(__filename);
 
 const start = async () => {
   const fastify = Fastify({
-    logger: logger,
+    loggerInstance: logger,
   });
 
   try {

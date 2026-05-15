@@ -313,7 +313,7 @@ docker compose up -d
 
 ### 3. Test Locally
 - Frontend: http://localhost:5173
-- API: http://localhost:3000/api/v1/health
+- API: http://localhost:3000/api/health
 - Database: Via Drizzle Studio
 
 ### 4. Commit

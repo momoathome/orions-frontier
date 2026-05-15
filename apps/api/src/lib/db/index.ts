@@ -5,7 +5,7 @@ import * as schema from './schema/index.js';
 let db: ReturnType<typeof drizzle> | null = null;
 
 export const initDb = async () => {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env['DATABASE_URL'];
 
   if (!connectionString) {
     throw new Error('DATABASE_URL is not defined');

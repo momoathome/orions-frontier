@@ -7,7 +7,7 @@ Fastify-basierte REST API für Orion's Frontier.
 ## Base URL
 
 ```
-http://localhost:3000/api/v1
+http://localhost:3000/api
 ```
 
 ## Authentication
@@ -69,4 +69,4 @@ Alle API-Fehler folgen diesem Schema:
 
 ## Versioning
 
-Die API verwendet URL-basiertes Versioning (`/api/v1/`).
+Die API verwendet URL-basiertes Versioning (`/api`).

@@ -1,4 +1,6 @@
 import { pgTable, uuid, varchar, timestamp } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
+import { stations } from './stations.js';
 
 // Placeholder user table for authentication
 // Will be extended in later phases
@@ -12,6 +14,10 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
+
+export const usersRelations = relations(users, ({ many }) => ({
+  stations: many(stations),
+}));
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

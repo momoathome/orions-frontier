@@ -54,6 +54,9 @@ services:
       - ./packages:/app/packages
       - /app/node_modules
       - /app/apps/api/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/types/node_modules
+      - /app/packages/game-config/node_modules
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,6 +82,9 @@ services:
       - ./packages:/app/packages
       - /app/node_modules
       - /app/apps/websocket/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/types/node_modules
+      - /app/packages/game-config/node_modules
     command: pnpm --filter @orions-frontier/websocket dev
 
   frontend:
@@ -98,6 +104,9 @@ services:
       - ./packages:/app/packages
       - /app/node_modules
       - /app/apps/frontend/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/types/node_modules
+      - /app/packages/game-config/node_modules
     command: pnpm --filter @orions-frontier/frontend dev
     depends_on:
       - api
