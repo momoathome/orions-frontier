@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { onClickOutside } from '@vueuse/core';
 import TopHud from '../components/TopHud.vue';
+import StationPanel from '../components/StationPanel.vue';
 
-type Section = 'buildings' | 'fleet' | 'mining' | 'defense';
+// TODO: load from user's station list
+const STATION_ID = '8a5228e4-6ec2-47a2-9aee-37c0d20cfd44';
 
 const panelOpen = ref(false);
-const selectedSection = ref<Section | null>(null);
-const selectedBuilding = ref<any | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const panelRef = ref<HTMLElement | null>(null);
 const hoveringStation = ref(false);
@@ -20,67 +20,6 @@ let animFrame: number;
 let stars: { x: number; y: number; r: number; a: number; twinkle: number }[] = [];
 let t = 0;
 let stationRect = { x: 0, y: 0, w: 120, h: 78 };
-
-const buildings = ref([
-  {
-    id: 1,
-    name: 'Core',
-    level: 12,
-    nextLevel: 13,
-    description: 'Expands overall station capacity and resource throughput.',
-    buildTime: '2m 14s',
-    queued: true,
-    progress: 65,
-    costs: [
-      { name: 'Metal', amount: '12,000' },
-      { name: 'Crystal', amount: '8,000' },
-    ],
-  },
-  {
-    id: 2,
-    name: 'Hangar',
-    level: 8,
-    nextLevel: 9,
-    description: 'Increases fleet capacity and reduces docking time by 15%.',
-    buildTime: '4m 51s',
-    queued: false,
-    progress: 0,
-    costs: [
-      { name: 'Metal', amount: '22,000' },
-      { name: 'Crystal', amount: '16,000' },
-    ],
-  },
-  {
-    id: 3,
-    name: 'Scanner',
-    level: 5,
-    nextLevel: 6,
-    description: 'Extends detection range for asteroids and hostile ships.',
-    buildTime: '1m 33s',
-    queued: false,
-    progress: 0,
-    costs: [
-      { name: 'Metal', amount: '8,000' },
-      { name: 'Crystal', amount: '4,000' },
-    ],
-  },
-  {
-    id: 4,
-    name: 'Defense Grid',
-    level: 3,
-    nextLevel: 4,
-    description: 'Upgrades station turrets and shielding systems.',
-    buildTime: '6m 12s',
-    queued: false,
-    progress: 0,
-    costs: [
-      { name: 'Metal', amount: '31,000' },
-      { name: 'Crystal', amount: '18,000' },
-    ],
-  },
-]);
-
-const activeBuilding = computed(() => selectedBuilding.value ?? buildings.value[0]);
 
 function initStars(w: number, h: number) {
   stars = Array.from({ length: 200 }, () => ({
@@ -295,8 +234,6 @@ function handleCanvasClick(e: MouseEvent) {
   const { x, y } = toCanvasCoords(canvas, e.clientX, e.clientY);
   if (isOverStation(x, y)) {
     panelOpen.value = true;
-    selectedSection.value = null;
-    selectedBuilding.value = null;
   }
 }
 
@@ -331,17 +268,6 @@ onUnmounted(() => {
 
 function closePanel() {
   panelOpen.value = false;
-  selectedSection.value = null;
-}
-
-function setSection(s: Section) {
-  selectedSection.value = s;
-  if (s === 'buildings') selectedBuilding.value = buildings.value[0];
-  else selectedBuilding.value = null;
-}
-
-function selectBuilding(b: any) {
-  selectedBuilding.value = b;
 }
 </script>
 
@@ -371,233 +297,12 @@ function selectBuilding(b: any) {
       leave-from-class="translate-y-0"
       leave-to-class="translate-y-full"
     >
-      <div
+      <StationPanel
         v-if="panelOpen"
         ref="panelRef"
-        class="absolute bottom-0 left-0 w-full z-20 h-[300px] flex flex-col font-mono"
-      >
-        <!-- Panel background + border -->
-        <div
-          class="absolute inset-0 bg-[#060c1b]/97 backdrop-blur-xl border-t-2 border-cyan-500/40"
-        />
-        <!-- Scanline overlay -->
-        <div class="scanlines absolute inset-0 pointer-events-none z-10 opacity-[0.025]" />
-        <!-- Corner accents -->
-        <div class="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-cyan-400/50 z-10" />
-        <div class="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-cyan-400/50 z-10" />
-
-        <!-- Content -->
-        <div class="relative z-20 flex flex-col h-full">
-          <!-- Header row -->
-          <div
-            class="flex items-center justify-between px-5 h-11 border-b border-white/[0.07] shrink-0"
-          >
-            <div class="flex items-center gap-5">
-              <div class="flex items-center gap-2.5">
-                <span class="text-[9px] text-cyan-400/30 uppercase tracking-[0.4em]">Station</span>
-                <span class="text-sm font-semibold tracking-widest text-white">OMEGA PRIME</span>
-              </div>
-              <div class="hidden md:flex items-center gap-4 text-[10px]">
-                <div class="flex items-center gap-1.5">
-                  <span class="w-1 h-1 rounded-full bg-cyan-400/50" />
-                  <span class="text-white/25">Mining</span>
-                  <span class="text-cyan-300 tabular-nums">+342/min</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="w-1 h-1 rounded-full bg-green-400/60" />
-                  <span class="text-white/25">Missions</span>
-                  <span class="text-green-300">3 active</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="w-1 h-1 rounded-full bg-amber-400/70 animate-pulse" />
-                  <span class="text-white/25">Queue</span>
-                  <span class="text-amber-300">1 active</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="w-1 h-1 rounded-full bg-green-400/60" />
-                  <span class="text-white/25">Threat</span>
-                  <span class="text-green-400 uppercase text-[9px] tracking-widest">LOW</span>
-                </div>
-              </div>
-            </div>
-            <button
-              @click="closePanel"
-              class="w-7 h-7 flex items-center justify-center rounded text-white/60 hover:text-white/80 hover:bg-white/5 transition text-[11px]"
-            >
-              ✕
-            </button>
-          </div>
-
-          <!-- Tab bar -->
-          <div
-            class="flex items-center gap-0.5 px-4 h-8 border-b border-white/5 bg-[#040911]/60 shrink-0"
-          >
-            <button
-              v-for="tab in ['buildings', 'fleet', 'mining', 'defense'] as Section[]"
-              :key="tab"
-              @click="setSection(tab)"
-              class="px-3 h-5 rounded text-[9px] uppercase tracking-[0.25em] transition"
-              :class="
-                selectedSection === tab
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/35'
-                  : 'text-white/25 hover:text-white/55 hover:bg-white/4'
-              "
-            >
-              {{ tab }}
-            </button>
-          </div>
-
-          <!-- Empty state -->
-          <div v-if="!selectedSection" class="flex-1 flex items-center justify-center">
-            <div class="text-center">
-              <div class="text-xl text-cyan-500/15 mb-2 tracking-[0.6em]">◎</div>
-              <p class="text-white/15 text-[9px] uppercase tracking-[0.4em]">
-                Select a command module
-              </p>
-            </div>
-          </div>
-
-          <!-- Buildings -->
-          <div
-            v-if="selectedSection === 'buildings'"
-            class="flex-1 grid grid-cols-[260px_1fr] overflow-hidden"
-          >
-            <!-- Building list -->
-            <div class="border-r border-white/5 overflow-y-auto">
-              <div
-                v-for="b in buildings"
-                :key="b.id"
-                @click="selectBuilding(b)"
-                class="flex items-center gap-3 px-4 py-2.5 border-b border-white/4 cursor-pointer transition-colors"
-                :class="
-                  activeBuilding.id === b.id ? 'bg-cyan-500/8' : 'hover:bg-white/2.5'
-                "
-              >
-                <span
-                  class="w-1.5 h-1.5 rounded-full shrink-0 mt-0.5"
-                  :class="b.queued ? 'bg-amber-400 animate-pulse' : 'bg-cyan-500/40'"
-                />
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[11px] text-white/75">{{ b.name }}</span>
-                    <span class="text-[10px] text-cyan-400/50 tabular-nums">Lv.{{ b.level }}</span>
-                  </div>
-                  <div class="mt-1.5 h-px w-full bg-white/6 rounded-full overflow-hidden">
-                    <div
-                      v-if="b.queued"
-                      class="h-full bg-amber-400/60 rounded-full"
-                      :style="{ width: `${b.progress}%` }"
-                    />
-                  </div>
-                </div>
-                <span class="text-[9px] text-white/15 shrink-0">▶</span>
-              </div>
-            </div>
-
-            <!-- Building detail -->
-            <div class="overflow-y-auto p-4">
-              <div class="flex gap-4 h-full">
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-baseline gap-2.5 mb-1">
-                    <span class="text-[9px] text-cyan-400/35 uppercase tracking-[0.35em]"
-                      >Module</span
-                    >
-                    <span class="text-[15px] font-semibold tracking-wide text-white">{{
-                      activeBuilding.name
-                    }}</span>
-                    <span class="text-[10px] text-white/25 tabular-nums">
-                      Lv.{{ activeBuilding.level }} → {{ activeBuilding.nextLevel }}
-                    </span>
-                  </div>
-
-                  <p class="text-[11px] text-white/35 leading-relaxed mb-4">
-                    {{ activeBuilding.description }}
-                  </p>
-
-                  <div class="flex items-center gap-2 flex-wrap mb-3">
-                    <div
-                      v-for="cost in activeBuilding.costs"
-                      :key="cost.name"
-                      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-white/2.5 border border-white/6"
-                    >
-                      <span class="text-[9px] uppercase tracking-widest text-white/25">{{
-                        cost.name
-                      }}</span>
-                      <span class="text-[11px] text-white/65 tabular-nums">{{ cost.amount }}</span>
-                    </div>
-                    <div
-                      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-white/2.5 border border-white/6"
-                    >
-                      <span class="text-[9px] uppercase tracking-widest text-white/25">Time</span>
-                      <span class="text-[11px] text-cyan-300/70 tabular-nums">{{
-                        activeBuilding.buildTime
-                      }}</span>
-                    </div>
-                  </div>
-
-                  <div v-if="activeBuilding.queued">
-                    <div class="flex items-center justify-between text-[9px] mb-1.5">
-                      <span class="text-white/25 uppercase tracking-widest">Upgrading</span>
-                      <span class="text-amber-300 tabular-nums"
-                        >{{ activeBuilding.progress }}%</span
-                      >
-                    </div>
-                    <div class="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                      <div
-                        class="h-full bg-amber-400/65 rounded-full"
-                        :style="{ width: `${activeBuilding.progress}%` }"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <!-- CTA column -->
-                <div class="shrink-0 w-36 flex flex-col gap-2 justify-end pb-1">
-                  <button
-                    class="w-full py-2.5 rounded border text-[10px] uppercase tracking-[0.2em] font-semibold transition"
-                    :class="
-                      activeBuilding.queued
-                        ? 'border-amber-500/25 bg-amber-500/8 text-amber-400/50 cursor-not-allowed'
-                        : 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200'
-                    "
-                  >
-                    {{ activeBuilding.queued ? 'Upgrading…' : 'Upgrade' }}
-                  </button>
-                  <button
-                    class="w-full py-2 rounded border border-white/5 bg-white/2 hover:bg-white/4 text-[9px] uppercase tracking-widest text-white/25 transition"
-                  >
-                    Details
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Placeholders -->
-          <div
-            v-for="section in ['fleet', 'mining', 'defense'] as Section[]"
-            v-show="selectedSection === section"
-            :key="section"
-            class="flex-1 flex items-center justify-center"
-          >
-            <p class="text-white/15 text-[9px] uppercase tracking-[0.4em]">
-              {{ section }} — coming soon
-            </p>
-          </div>
-        </div>
-      </div>
+        :station-id="STATION_ID"
+        @close="closePanel"
+      />
     </transition>
   </div>
 </template>
-
-<style scoped>
-.scanlines {
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 1) 2px,
-    rgba(0, 0, 0, 1) 4px
-  );
-}
-</style>

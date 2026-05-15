@@ -12,6 +12,8 @@ import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
 import { initRedis } from './lib/redis.js';
 import { startActionWorker } from './queue/workers/action-worker.js';
+import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
+import { seedSpacecraftDefinitions } from './services/spacecraft-definition.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -52,7 +54,12 @@ const start = async () => {
 
     // Start job queue workers
     startActionWorker();
+    startSpacecraftBuildWorker();
     fastify.log.info('Queue workers started');
+
+    // Seed static data
+    await seedSpacecraftDefinitions();
+    fastify.log.info('Spacecraft definitions seeded');
 
     // File-based routing with AutoLoad
     await fastify.register(autoload, {

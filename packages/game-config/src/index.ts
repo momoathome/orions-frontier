@@ -5,6 +5,8 @@
 // ============================================================================
 
 export { resources } from './resources.js';
+export { spacecrafts } from './spacecrafts.js';
+export type { SpacecraftSeedDefinition } from './spacecrafts.js';
 
 export interface BuildingConfig {
   id: string;
