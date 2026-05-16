@@ -16,6 +16,13 @@
       "when": 1747440000000,
       "tag": "0002_spacecraft_definitions",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1747526400000,
+      "tag": "0003_buildings",
+      "breakpoints": true
     }
   ]
 }

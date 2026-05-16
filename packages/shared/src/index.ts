@@ -157,3 +157,4 @@ export * from './station';
 export * from './station-spacecraft';
 export * from './station-resource';
 export * from './resource';
+export * from './building';

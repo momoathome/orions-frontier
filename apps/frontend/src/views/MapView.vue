@@ -3,9 +3,23 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { onClickOutside } from '@vueuse/core';
 import TopHud from '../components/TopHud.vue';
 import StationPanel from '../components/StationPanel.vue';
+import { apiClient } from '../lib/api-client';
 
-// TODO: load from user's station list
-const STATION_ID = '8a5228e4-6ec2-47a2-9aee-37c0d20cfd44';
+const stationId = ref<string | null>(null);
+const stationName = ref<string | undefined>(undefined);
+
+async function loadUserStation() {
+  try {
+    const { data } = await apiClient.get('/stations');
+    const first = data?.data?.[0];
+    if (first) {
+      stationId.value = first.id;
+      stationName.value = first.name;
+    }
+  } catch {
+    // no station yet
+  }
+}
 
 const panelOpen = ref(false);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -232,7 +246,7 @@ function handleCanvasClick(e: MouseEvent) {
   const canvas = canvasRef.value;
   if (!canvas) return;
   const { x, y } = toCanvasCoords(canvas, e.clientX, e.clientY);
-  if (isOverStation(x, y)) {
+  if (isOverStation(x, y) && stationId.value) {
     panelOpen.value = true;
   }
 }
@@ -259,6 +273,7 @@ onMounted(() => {
   initStars(canvas.width, canvas.height);
   draw();
   window.addEventListener('resize', handleResize);
+  loadUserStation();
 });
 
 onUnmounted(() => {
@@ -298,9 +313,10 @@ function closePanel() {
       leave-to-class="translate-y-full"
     >
       <StationPanel
-        v-if="panelOpen"
+        v-if="panelOpen && stationId"
         ref="panelRef"
-        :station-id="STATION_ID"
+        :station-id="stationId"
+        :station-name="stationName"
         @close="closePanel"
       />
     </transition>

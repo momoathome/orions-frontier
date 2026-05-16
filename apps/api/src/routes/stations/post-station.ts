@@ -4,6 +4,7 @@ import { stations } from '../../lib/db/schema/stations.js';
 import { defineRoute } from '../../lib/route-helper.js';
 import { authenticate } from '../../middleware/auth.js';
 import { seedStationResources } from '../../services/station-resource.service.js';
+import { seedStationBuildings } from '../../services/building.service.js';
 
 const CreateStationSchema = z.object({
   name: z.string().min(1).max(128),
@@ -31,6 +32,7 @@ export default defineRoute(async (app) => {
       .returning();
 
     await seedStationResources(station!.id);
+    await seedStationBuildings(station!.id);
 
     return reply.status(201).send({
       success: true,

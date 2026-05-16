@@ -14,6 +14,7 @@ import { initRedis } from './lib/redis.js';
 import { startActionWorker } from './queue/workers/action-worker.js';
 import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
 import { seedSpacecraftDefinitions } from './services/spacecraft-definition.service.js';
+import { seedBuildingDefinitions } from './services/building.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,6 +61,9 @@ const start = async () => {
     // Seed static data
     await seedSpacecraftDefinitions();
     fastify.log.info('Spacecraft definitions seeded');
+
+    await seedBuildingDefinitions();
+    fastify.log.info('Building definitions seeded');
 
     // File-based routing with AutoLoad
     await fastify.register(autoload, {
