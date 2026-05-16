@@ -30,8 +30,15 @@ export interface StationSpacecraft {
   lockedAmount: number;
 }
 
+export interface SpacecraftBuildOrder {
+  id: string;
+  amount: number;
+  endsAt: string; // ISO string
+}
+
 export interface StationSpacecraftWithDefinition {
   definition: SpacecraftDefinition & { costs: SpacecraftDefinitionCost[] };
   amount: number;
   lockedAmount: number;
+  buildOrders: SpacecraftBuildOrder[];
 }

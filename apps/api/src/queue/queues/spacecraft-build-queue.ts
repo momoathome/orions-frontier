@@ -4,8 +4,11 @@ import { bullmqRedis } from '../bullmq.js';
 export type SpacecraftBuildJobName = 'spacecraft-build';
 
 export interface SpacecraftBuildJobData {
+  userId: string;
   stationId: string;
   spacecraftDefinitionId: string;
+  spacecraftKey: string;
+  orderId: string;
   amount: number;
 }
 

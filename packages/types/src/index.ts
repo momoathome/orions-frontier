@@ -90,6 +90,7 @@ export const WsEventTypeSchema = z.enum([
   'authenticate',
   'authenticated',
   'building_upgrade_completed',
+  'spacecraft_build_completed',
 ]);
 
 export type WsEventType = z.infer<typeof WsEventTypeSchema>;

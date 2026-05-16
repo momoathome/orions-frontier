@@ -3,6 +3,7 @@ export * from './stations.js';
 export * from './station-spacecrafts.js';
 export * from './station-resources.js';
 export * from './spacecraft-definitions.js';
+export * from './spacecraft-build-orders.js';
 export * from './building-definitions.js';
 export * from './station-buildings.js';
 
