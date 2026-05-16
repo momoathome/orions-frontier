@@ -175,6 +175,9 @@ importers:
       '@orions-frontier/types':
         specifier: workspace:*
         version: link:../../packages/types
+      ioredis:
+        specifier: ^5.10.1
+        version: 5.10.1
       jsonwebtoken:
         specifier: ^9.0.3
         version: 9.0.3

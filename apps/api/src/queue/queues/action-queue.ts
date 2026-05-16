@@ -5,6 +5,7 @@ export type ActionJobName = 'building-upgrade-finished';
 
 export interface BuildingUpgradeJobData {
   userId: string;
+  stationId: string;
   buildingKey: string;
 }
 

@@ -18,6 +18,7 @@ export class WebSocketClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
   private pingInterval: number | null = null;
   private pingStats: PingStats = {
     lastPing: null,
@@ -97,8 +98,18 @@ export class WebSocketClient {
   }
 
   private handleMessage(message: unknown) {
-    console.log('Received WebSocket message:', message);
-    // TODO: Implement message handling
+    const msg = message as { type?: string; payload?: unknown };
+    if (msg.type) {
+      this.messageHandlers.get(msg.type)?.forEach((cb) => cb(msg.payload));
+    }
+  }
+
+  on(type: string, callback: (payload: unknown) => void): () => void {
+    if (!this.messageHandlers.has(type)) {
+      this.messageHandlers.set(type, new Set());
+    }
+    this.messageHandlers.get(type)!.add(callback);
+    return () => this.messageHandlers.get(type)?.delete(callback);
   }
 
   private startPing() {

@@ -11,6 +11,7 @@ import {
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey, BuildingDefinition } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
+import { actionQueue } from '../queue/queues/action-queue.js';
 
 // ============================================================================
 // Seed station buildings (initialize all buildings at level 1 for new station)
@@ -104,6 +105,7 @@ export const getStationBuildings = async (
 export const startBuildingUpgrade = async (
   stationId: string,
   buildingKey: BuildingKey,
+  userId: string
 ): Promise<StationBuildingWithDefinition> => {
   const db = getDb();
 
@@ -125,8 +127,8 @@ export const startBuildingUpgrade = async (
     .where(
       and(
         eq(stationBuildings.stationId, stationId),
-        eq(stationBuildings.buildingDefinitionId, def.id),
-      ),
+        eq(stationBuildings.buildingDefinitionId, def.id)
+      )
     )
     .limit(1);
 
@@ -158,7 +160,7 @@ export const startBuildingUpgrade = async (
     if (current < cost.amount) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
-        `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${current}`,
+        `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${current}`
       );
     }
   }
@@ -175,8 +177,8 @@ export const startBuildingUpgrade = async (
         .where(
           and(
             eq(stationResources.stationId, stationId),
-            eq(stationResources.resourceKey, cost.resourceKey),
-          ),
+            eq(stationResources.resourceKey, cost.resourceKey)
+          )
         );
     }
 
@@ -185,6 +187,12 @@ export const startBuildingUpgrade = async (
       .set({ upgradeEndsAt, updatedAt: new Date() })
       .where(eq(stationBuildings.id, stationBuilding.id));
   });
+
+  await actionQueue.add(
+    'building-upgrade-finished',
+    { userId, stationId, buildingKey },
+    { delay: buildTimeSeconds * 1000 }
+  );
 
   const allBuildings = await getStationBuildings(stationId);
   const result = allBuildings.find((b) => b.definition.key === buildingKey);

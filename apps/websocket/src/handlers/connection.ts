@@ -4,6 +4,7 @@ import { APP_CONSTANTS } from '@orions-frontier/shared';
 import type { JwtPayload } from '@orions-frontier/shared';
 import jwt from 'jsonwebtoken';
 import { logger } from '../lib/logger.js';
+import { registerClient, unregisterClient } from '../lib/client-registry.js';
 
 const AUTH_TIMEOUT_MS = 10_000; // 10 seconds to send authenticate message
 
@@ -101,6 +102,8 @@ const setupAuthenticatedConnection = (ws: AuthenticatedWebSocket) => {
 
   logger.info(`WebSocket authenticated: userId=${ws.user.userId}`);
 
+  registerClient(ws.user.userId, ws);
+
   send(ws, {
     type: 'authenticated',
     timestamp: Date.now(),
@@ -123,6 +126,7 @@ const setupAuthenticatedConnection = (ws: AuthenticatedWebSocket) => {
   ws.on('close', () => {
     logger.info(`WebSocket closed: userId=${ws.user.userId}`);
     clearInterval(pingInterval);
+    unregisterClient(ws.user.userId, ws);
   });
 };
 

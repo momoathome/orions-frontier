@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import { apiClient } from '../lib/api-client';
+import { wsClient } from '../lib/ws-client';
 import type { StationSpacecraftWithDefinition, SpacecraftRole, StationBuildingWithDefinition } from '@orions-frontier/shared';
 
 type Section = 'buildings' | 'fleet' | 'mining' | 'defense';
@@ -13,6 +14,18 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>();
 
 const selectedSection = ref<Section | null>(null);
+
+// ── WebSocket: auto-reload buildings when upgrade completes ──────────────────
+const unsubscribeUpgrade = wsClient.on('building_upgrade_completed', (payload) => {
+  const p = payload as { stationId?: string };
+  if (p?.stationId === props.stationId) {
+    loadBuildings(true);
+  }
+});
+
+onUnmounted(() => {
+  unsubscribeUpgrade();
+});
 
 // ── Fleet ────────────────────────────────────────────────────────────────────
 const fleet = ref<StationSpacecraftWithDefinition[]>([]);

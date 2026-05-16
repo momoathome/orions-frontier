@@ -14,6 +14,7 @@
   "dependencies": {
     "@orions-frontier/shared": "workspace:*",
     "@orions-frontier/types": "workspace:*",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "ws": "^8.20.1",
     "zod": "^4.4.3"

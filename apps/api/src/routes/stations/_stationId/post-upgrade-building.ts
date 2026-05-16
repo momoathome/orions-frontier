@@ -40,6 +40,7 @@ export default defineRoute(async (app) => {
       const updatedBuilding = await startBuildingUpgrade(
         station.id,
         buildingKey as BuildingKey,
+        request.user.userId
       );
 
       return reply.send({ success: true, data: updatedBuilding });
