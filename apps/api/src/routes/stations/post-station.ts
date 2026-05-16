@@ -1,10 +1,8 @@
 import { z } from 'zod';
-import { getDb } from '../../lib/db/index.js';
-import { stations } from '../../lib/db/schema/stations.js';
 import { defineRoute } from '../../lib/route-helper.js';
 import { authenticate } from '../../middleware/auth.js';
-import { seedStationResources } from '../../services/station-resource.service.js';
-import { seedStationBuildings } from '../../services/building.service.js';
+import { createStation } from '../../services/station.service.js';
+import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 const CreateStationSchema = z.object({
   name: z.string().min(1).max(128),
@@ -20,30 +18,14 @@ export default defineRoute(async (app) => {
   app.post('/', { preHandler: [authenticate] }, async (request, reply) => {
     const parsed = CreateStationSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ success: false, message: 'Invalid request body' });
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid request body', {
+        issues: parsed.error.issues,
+      });
     }
 
     const { name, x, y } = parsed.data;
-    const db = getDb();
+    const station = await createStation(request.user.userId, { name, x, y });
 
-    const [station] = await db
-      .insert(stations)
-      .values({ userId: request.user.userId, name, x, y })
-      .returning();
-
-    await seedStationResources(station!.id);
-    await seedStationBuildings(station!.id);
-
-    return reply.status(201).send({
-      success: true,
-      data: {
-        id: station!.id,
-        userId: station!.userId,
-        name: station!.name,
-        x: station!.x,
-        y: station!.y,
-        createdAt: station!.createdAt.toISOString(),
-      },
-    });
+    return reply.status(201).send({ success: true, data: station });
   });
 });

@@ -1,9 +1,11 @@
-import { getDb } from '../lib/db/index.js';
-import { spacecraftDefinitions, spacecraftDefinitionCosts } from '../lib/db/schema/spacecraft-definitions.js';
-import { spacecrafts } from '@orions-frontier/game-config';
+import { getDb } from './db/index.js';
+import { spacecraftDefinitions, spacecraftDefinitionCosts } from './db/schema/spacecraft-definitions.js';
+import { buildingDefinitions } from './db/schema/building-definitions.js';
+import { spacecrafts, buildings } from '@orions-frontier/game-config';
 
 // ============================================================================
-// Seed spacecraft definitions (idempotent)
+// Seed all static game data from game-config into the database (idempotent).
+// Called once at startup. Changes when game-config schema or DB schema changes.
 // ============================================================================
 
 export const seedSpacecraftDefinitions = async (): Promise<void> => {
@@ -28,10 +30,7 @@ export const seedSpacecraftDefinitions = async (): Promise<void> => {
       .onConflictDoNothing({ target: spacecraftDefinitions.key })
       .returning({ id: spacecraftDefinitions.id, key: spacecraftDefinitions.key });
 
-    if (!inserted) {
-      // Already seeded – skip costs
-      continue;
-    }
+    if (!inserted) continue;
 
     if (def.costs.length > 0) {
       await db.insert(spacecraftDefinitionCosts).values(
@@ -42,5 +41,24 @@ export const seedSpacecraftDefinitions = async (): Promise<void> => {
         })),
       );
     }
+  }
+};
+
+export const seedBuildingDefinitions = async (): Promise<void> => {
+  const db = getDb();
+
+  for (const def of buildings) {
+    await db
+      .insert(buildingDefinitions)
+      .values({
+        key: def.key,
+        name: def.name,
+        description: def.description,
+        image: def.image,
+        baseBuildTime: def.baseBuildTime,
+        maxLevel: def.maxLevel,
+        effectType: def.effectType,
+      })
+      .onConflictDoNothing({ target: buildingDefinitions.key });
   }
 };

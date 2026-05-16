@@ -1,10 +1,7 @@
-import bcrypt from 'bcrypt';
 import { defineRoute } from '../../lib/route-helper.js';
 import { RegisterRequestSchema } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
-import { findUserByEmail, findUserByUsername, createUser } from '../../services/user.service.js';
-
-const BCRYPT_ROUNDS = 12;
+import { registerUser } from '../../services/auth.service.js';
 
 /**
  * POST /api/auth/register
@@ -19,27 +16,9 @@ export default defineRoute(async (app) => {
     }
 
     const { username, email, password } = parsed.data;
-
-    const [existingEmail, existingUsername] = await Promise.all([
-      findUserByEmail(email),
-      findUserByUsername(username),
-    ]);
-
-    if (existingEmail) {
-      throw new AppError(ErrorCode.ALREADY_EXISTS, 'Email already in use');
-    }
-    if (existingUsername) {
-      throw new AppError(ErrorCode.ALREADY_EXISTS, 'Username already taken');
-    }
-
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    const user = await createUser({ username, email, passwordHash });
-
+    const user = await registerUser(username, email, password);
     const token = app.jwt.sign({ userId: user.id, role: user.role });
 
-    return reply.status(201).send({
-      success: true,
-      data: { token, user },
-    });
+    return reply.status(201).send({ success: true, data: { token, user } });
   });
 });

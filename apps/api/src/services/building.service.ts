@@ -4,7 +4,6 @@ import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import {
-  buildings,
   calculateBuildingUpgradeCost,
   calculateBuildingBuildTime,
   calculateBuildingEffect,
@@ -12,29 +11,6 @@ import {
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey, BuildingDefinition } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
-
-// ============================================================================
-// Seed building definitions (idempotent)
-// ============================================================================
-
-export const seedBuildingDefinitions = async (): Promise<void> => {
-  const db = getDb();
-
-  for (const def of buildings) {
-    await db
-      .insert(buildingDefinitions)
-      .values({
-        key: def.key,
-        name: def.name,
-        description: def.description,
-        image: def.image,
-        baseBuildTime: def.baseBuildTime,
-        maxLevel: def.maxLevel,
-        effectType: def.effectType,
-      })
-      .onConflictDoNothing({ target: buildingDefinitions.key });
-  }
-};
 
 // ============================================================================
 // Seed station buildings (initialize all buildings at level 1 for new station)

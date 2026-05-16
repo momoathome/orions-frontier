@@ -3,6 +3,12 @@ import { getDb } from '../lib/db/index.js';
 import { users } from '../lib/db/schema/users.js';
 import type { AuthenticatedUser } from '@orions-frontier/shared';
 
+export const findUserById = async (id: string) => {
+  const db = getDb();
+  const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return user ?? null;
+};
+
 export const findUserByEmail = async (email: string) => {
   const db = getDb();
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);

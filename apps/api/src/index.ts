@@ -13,8 +13,7 @@ import { initDb } from './lib/db/index.js';
 import { initRedis } from './lib/redis.js';
 import { startActionWorker } from './queue/workers/action-worker.js';
 import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
-import { seedSpacecraftDefinitions } from './services/spacecraft-definition.service.js';
-import { seedBuildingDefinitions } from './services/building.service.js';
+import { seedSpacecraftDefinitions, seedBuildingDefinitions } from './lib/seed.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
