@@ -1,6 +1,11 @@
 import { Container, Graphics } from 'pixi.js';
 import type { VisibleAsteroid } from '@orions-frontier/shared';
-import { CHUNK_SIZE, RESOURCE_COLORS, ASTEROID_BASE_RADIUS, ASTEROID_RICHNESS_SCALE } from './constants.js';
+import {
+  CHUNK_SIZE,
+  RESOURCE_COLORS,
+  ASTEROID_SIZE_RADIUS,
+  ASTEROID_DEFAULT_RADIUS,
+} from './constants.js';
 import { chunkKey } from './ChunkStreamer.js';
 import type { ChunkKey } from './ChunkStreamer.js';
 
@@ -16,7 +21,8 @@ export interface AsteroidHit {
   x: number;
   y: number;
   r: number;
-  resourceType: string;
+  primaryResourceKey: string;
+  size: string;
 }
 
 export class AsteroidLayer {
@@ -41,8 +47,8 @@ export class AsteroidLayer {
       // Glow pass — all asteroids, drawn first (back layer)
       const glowG = new Graphics();
       for (const a of asteroids) {
-        const color = RESOURCE_COLORS[a.resourceType] ?? 0x888888;
-        const r = ASTEROID_BASE_RADIUS + a.richness * ASTEROID_RICHNESS_SCALE;
+        const color = RESOURCE_COLORS[a.primaryResourceKey] ?? 0x888888;
+        const r = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS;
         glowG.circle(a.x, a.y, r + 3);
         glowG.fill({ color, alpha: 0.14 });
       }
@@ -51,8 +57,8 @@ export class AsteroidLayer {
       // Body pass — all asteroids, drawn on top
       const bodyG = new Graphics();
       for (const a of asteroids) {
-        const color = RESOURCE_COLORS[a.resourceType] ?? 0x888888;
-        const r = ASTEROID_BASE_RADIUS + a.richness * ASTEROID_RICHNESS_SCALE;
+        const color = RESOURCE_COLORS[a.primaryResourceKey] ?? 0x888888;
+        const r = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS;
         bodyG.circle(a.x, a.y, r);
         bodyG.fill({ color, alpha: 0.88 });
       }
@@ -64,8 +70,9 @@ export class AsteroidLayer {
       id: a.id,
       x: a.x,
       y: a.y,
-      r: ASTEROID_BASE_RADIUS + a.richness * ASTEROID_RICHNESS_SCALE,
-      resourceType: a.resourceType,
+      r: ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS,
+      primaryResourceKey: a.primaryResourceKey,
+      size: a.size,
     }));
     this.chunkAsteroidData.set(key, hitData);
     for (const h of hitData) {

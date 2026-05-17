@@ -3,17 +3,17 @@ import { eq, or } from 'drizzle-orm';
 import { getDb } from './db/index.js';
 import { spacecraftDefinitions, spacecraftDefinitionCosts } from './db/schema/spacecraft-definitions.js';
 import { buildingDefinitions } from './db/schema/building-definitions.js';
-import { asteroidClusters, asteroids } from './db/schema/asteroids.js';
+import { asteroids, asteroidVeins, asteroidResourceStorage } from './db/schema/asteroids.js';
 import { users } from './db/schema/users.js';
 import { stations } from './db/schema/stations.js';
 import { stationBuildings } from './db/schema/station-buildings.js';
 import { stationSpacecrafts } from './db/schema/station-spacecrafts.js';
 import { stationResources } from './db/schema/station-resources.js';
 import { spacecrafts, buildings } from '@orions-frontier/game-config';
-import { worldToChunk, SeededRng, generateClusterPositions } from './world-gen.js';
-import type { AsteroidResourceType } from '@orions-frontier/shared';
+import { generateWorld } from './world-gen.js';
 import { resourceKeys } from '@orions-frontier/shared';
 import { sql } from 'drizzle-orm';
+import { WORLD_CONFIG } from './world-config.js';
 
 // ============================================================================
 // Seed all static game data from game-config into the database (idempotent).
@@ -77,214 +77,107 @@ export const seedBuildingDefinitions = async (): Promise<void> => {
 
 // ============================================================================
 // Asteroid world seeder
-// Seeds clusters and asteroid instances for the initial world.
-// Idempotent: skips if world data already exists.
+// Seeds the full asteroid world procedurally using the zone-based generator.
+// Idempotent: skips if asteroid_veins are already populated.
+// If asteroids exist but have no veins (stale migration state), clears and reseeds.
 // ============================================================================
 
-interface ClusterSeedDef {
-  name: string;
-  centerX: number;
-  centerY: number;
-  radius: number;
-  resourceBias: AsteroidResourceType;
-  seed: string;
-  /** Number of asteroids to spawn in this cluster */
-  count: number;
-  /** Fraction of asteroids using the bias resource (0–1) */
-  biasFraction: number;
-  /** Min hidden_level for asteroids in this cluster */
-  hiddenMin: number;
-  /** Max hidden_level for asteroids in this cluster */
-  hiddenMax: number;
-  /** Min richness */
-  richnessMin: number;
-  /** Max richness */
-  richnessMax: number;
-}
+/**
+ * Player count used for world generation.
+ * Adjust to match your expected concurrent player + AI count.
+ * Higher count → larger world radius.
+ */
+const WORLD_PLAYER_COUNT = 8;
 
-const ALL_RESOURCE_TYPES: AsteroidResourceType[] = [
-  'carbon',
-  'titanium',
-  'hydrogenium',
-  'kyber_crystal',
-  'astatine',
-];
-
-const CLUSTER_DEFS: ClusterSeedDef[] = [
-  {
-    name: 'Carbon Belt',
-    centerX: -1500,
-    centerY: 2000,
-    radius: 1200,
-    resourceBias: 'carbon',
-    seed: 'carbon-belt-alpha',
-    count: 40,
-    biasFraction: 0.75,
-    hiddenMin: 0,
-    hiddenMax: 0,
-    richnessMin: 15,
-    richnessMax: 65,
-  },
-  {
-    name: 'Titanium Fields',
-    centerX: 2000,
-    centerY: 1500,
-    radius: 800,
-    resourceBias: 'titanium',
-    seed: 'titanium-fields-beta',
-    count: 30,
-    biasFraction: 0.7,
-    hiddenMin: 0,
-    hiddenMax: 0,
-    richnessMin: 20,
-    richnessMax: 70,
-  },
-  {
-    name: 'Hydrogenium Clouds',
-    centerX: 3500,
-    centerY: -1000,
-    radius: 600,
-    resourceBias: 'hydrogenium',
-    seed: 'hydrogenium-clouds-gamma',
-    count: 20,
-    biasFraction: 0.65,
-    hiddenMin: 0,
-    hiddenMax: 1,
-    richnessMin: 25,
-    richnessMax: 75,
-  },
-  {
-    name: 'Kyber Crystal Field',
-    centerX: -2500,
-    centerY: -2000,
-    radius: 400,
-    resourceBias: 'kyber_crystal',
-    seed: 'kyber-crystal-field-delta',
-    count: 15,
-    biasFraction: 0.8,
-    hiddenMin: 1,
-    hiddenMax: 3,
-    richnessMin: 40,
-    richnessMax: 90,
-  },
-  {
-    name: 'Astatine Deposits',
-    centerX: 500,
-    centerY: -3000,
-    radius: 500,
-    resourceBias: 'astatine',
-    seed: 'astatine-deposits-epsilon',
-    count: 10,
-    biasFraction: 0.85,
-    hiddenMin: 2,
-    hiddenMax: 4,
-    richnessMin: 50,
-    richnessMax: 95,
-  },
-];
-
-/** Isolated asteroids scattered outside clusters to create sparse regions */
-interface IsolatedAsteroidDef {
-  x: number;
-  y: number;
-  resourceType: AsteroidResourceType;
-  richness: number;
-  hiddenLevel: number;
-  stability: number;
-}
-
-const ISOLATED_ASTEROIDS: IsolatedAsteroidDef[] = [
-  { x: 500, y: 500, resourceType: 'carbon', richness: 20, hiddenLevel: 0, stability: 70 },
-  { x: -800, y: -400, resourceType: 'titanium', richness: 30, hiddenLevel: 0, stability: 75 },
-  { x: 1200, y: -800, resourceType: 'carbon', richness: 18, hiddenLevel: 0, stability: 65 },
-  { x: -200, y: 1800, resourceType: 'hydrogenium', richness: 45, hiddenLevel: 1, stability: 80 },
-  { x: 4000, y: 2000, resourceType: 'titanium', richness: 22, hiddenLevel: 0, stability: 72 },
-  { x: -3000, y: 500, resourceType: 'carbon', richness: 12, hiddenLevel: 0, stability: 68 },
-  { x: 2500, y: -2500, resourceType: 'kyber_crystal', richness: 60, hiddenLevel: 2, stability: 85 },
-  { x: -1000, y: -3500, resourceType: 'astatine', richness: 55, hiddenLevel: 3, stability: 90 },
-  { x: 100, y: 3200, resourceType: 'titanium', richness: 28, hiddenLevel: 0, stability: 72 },
-  { x: -4000, y: -1000, resourceType: 'carbon', richness: 10, hiddenLevel: 0, stability: 68 },
-  { x: 3000, y: 3000, resourceType: 'hydrogenium', richness: 38, hiddenLevel: 1, stability: 80 },
-  { x: -2000, y: 3500, resourceType: 'kyber_crystal', richness: 70, hiddenLevel: 2, stability: 85 },
-  { x: 1500, y: -4000, resourceType: 'astatine', richness: 80, hiddenLevel: 3, stability: 90 },
-  { x: -3500, y: 3000, resourceType: 'carbon', richness: 15, hiddenLevel: 0, stability: 70 },
-  { x: 4500, y: -500, resourceType: 'titanium', richness: 32, hiddenLevel: 0, stability: 75 },
-];
+const ASTEROID_BATCH_SIZE = 500;
 
 export const seedAsteroidWorld = async (): Promise<void> => {
   const db = getDb();
 
-  // Idempotency check — skip if any asteroids already exist
-  const [countRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(asteroids);
-  if ((countRow?.count ?? 0) > 0) return;
+  // Idempotency: skip if veins are already populated
+  const [veinCount] = await db.select({ count: sql<number>`count(*)::int` }).from(asteroidVeins);
 
-  // 1. Insert clusters
-  const insertedClusters = await db
-    .insert(asteroidClusters)
-    .values(
-      CLUSTER_DEFS.map((def) => ({
-        name: def.name,
-        centerX: def.centerX,
-        centerY: def.centerY,
-        radius: def.radius,
-        resourceBias: def.resourceBias,
-        seed: def.seed,
-      })),
-    )
-    .returning();
+  if ((veinCount?.count ?? 0) > 0) return;
 
-  // 2. Insert asteroids for each cluster
-  for (const clusterRow of insertedClusters) {
-    const def = CLUSTER_DEFS.find((d) => d.name === clusterRow.name)!;
-    const rng = new SeededRng(def.seed + ':asteroids');
-    const positions = generateClusterPositions(
-      { centerX: def.centerX, centerY: def.centerY, radius: def.radius, seed: def.seed },
-      def.count,
-    );
+  // Clear stale asteroids (no veins = invalid state from migration)
+  await db.delete(asteroids);
 
-    const asteroidValues = positions.map((pos) => {
-      const useBias = rng.next() < def.biasFraction;
-      const resourceType: AsteroidResourceType = useBias
-        ? def.resourceBias
-        : rng.pick(ALL_RESOURCE_TYPES.filter((r) => r !== def.resourceBias));
-      const { chunkX, chunkY } = worldToChunk(pos.x, pos.y);
+  // Generate world
+  const { generatedAsteroids } = generateWorld(WORLD_PLAYER_COUNT, WORLD_CONFIG.WORLD_SEED);
 
-      return {
-        x: pos.x,
-        y: pos.y,
-        chunkX,
-        chunkY,
-        resourceType,
-        richness: rng.nextInt(def.richnessMin, def.richnessMax),
-        stability: rng.nextInt(60, 99),
-        hiddenLevel: rng.nextInt(def.hiddenMin, def.hiddenMax),
-        clusterId: clusterRow.id,
-      };
-    });
+  if (generatedAsteroids.length === 0) return;
 
-    await db.insert(asteroids).values(asteroidValues);
+  // Batch-insert asteroids and collect IDs
+  const allInsertedAsteroids: { id: string }[] = [];
+
+  for (let i = 0; i < generatedAsteroids.length; i += ASTEROID_BATCH_SIZE) {
+    const batch = generatedAsteroids.slice(i, i + ASTEROID_BATCH_SIZE);
+    const inserted = await db
+      .insert(asteroids)
+      .values(
+        batch.map((a) => ({
+          x: a.x,
+          y: a.y,
+          chunkX: a.chunkX,
+          chunkY: a.chunkY,
+          size: a.size,
+          stability: a.stability,
+          hiddenLevel: a.hiddenLevel,
+          clusterId: null,
+        }))
+      )
+      .returning({ id: asteroids.id });
+
+    allInsertedAsteroids.push(...inserted);
   }
 
-  // 3. Insert isolated asteroids (sparse regions)
-  const isolatedValues = ISOLATED_ASTEROIDS.map((a) => {
-    const { chunkX, chunkY } = worldToChunk(a.x, a.y);
-    return {
-      x: a.x,
-      y: a.y,
-      chunkX,
-      chunkY,
-      resourceType: a.resourceType,
-      richness: a.richness,
-      stability: a.stability,
-      hiddenLevel: a.hiddenLevel,
-      clusterId: null,
-    };
-  });
+  // Build vein + storage inserts
+  const veinValues: {
+    asteroidId: string;
+    veinType: string;
+    resourceKey: string;
+    yieldPerHour: number;
+    purity: number;
+    purityTier: string;
+  }[] = [];
 
-  await db.insert(asteroids).values(isolatedValues);
-};
+  const storageValues: { asteroidId: string; resourceKey: string; amount: number }[] = [];
+  const seenStorage = new Set<string>();
+
+  for (let i = 0; i < allInsertedAsteroids.length; i++) {
+    const asteroidId = allInsertedAsteroids[i]!.id;
+    const generated = generatedAsteroids[i]!;
+
+    for (const vein of generated.veins) {
+      veinValues.push({
+        asteroidId,
+        veinType: vein.veinType,
+        resourceKey: vein.resourceKey,
+        yieldPerHour: vein.yieldPerHour,
+        purity: vein.purity,
+        purityTier: vein.purityTier,
+      });
+
+      const storageKey = `${asteroidId}:${vein.resourceKey}`;
+      if (!seenStorage.has(storageKey)) {
+        seenStorage.add(storageKey);
+        storageValues.push({ asteroidId, resourceKey: vein.resourceKey, amount: 0 });
+      }
+    }
+  }
+
+  // Batch-insert veins
+  for (let i = 0; i < veinValues.length; i += ASTEROID_BATCH_SIZE) {
+    await db.insert(asteroidVeins).values(veinValues.slice(i, i + ASTEROID_BATCH_SIZE));
+  }
+
+  // Batch-insert storage
+  for (let i = 0; i < storageValues.length; i += ASTEROID_BATCH_SIZE) {
+    await db
+      .insert(asteroidResourceStorage)
+      .values(storageValues.slice(i, i + ASTEROID_BATCH_SIZE));
+  }
+};;
 
 // ============================================================================
 // seedDevUser

@@ -25,10 +25,15 @@ export const MAX_CHUNK_AXIS = 15;
 /** Minimum pointer movement (px) to be treated as a pan, not a click */
 export const CLICK_MOVE_THRESHOLD = 6;
 
-/** Asteroid base radius in world units */
-export const ASTEROID_BASE_RADIUS = 5;
-/** Additional world-unit radius added per richness point */
-export const ASTEROID_RICHNESS_SCALE = 0.045;
+/** Asteroid visual radius per size category (world units) */
+export const ASTEROID_SIZE_RADIUS: Record<string, number> = {
+  small:   4,
+  medium:  7,
+  large:   12,
+  massive: 18,
+};
+/** Fallback radius for unknown size */
+export const ASTEROID_DEFAULT_RADIUS = 4;
 
 /** Resource type → hex color mapping */
 export const RESOURCE_COLORS: Record<string, number> = {

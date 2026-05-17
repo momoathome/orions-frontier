@@ -75,7 +75,11 @@ onMounted(async () => {
     stationPanelOpen.value = false;
   };
 
-  await renderer.mount(worldRef.value!, stationInfo, 0);
+  // TODO: derive from station scanner building level once the building system
+  // exposes it. Until then every player starts with scanner level 1 which
+  // reveals hidden_level 0–1 asteroids (landmark core + midRing).
+  const BASE_SCANNER_STRENGTH = 1;
+  await renderer.mount(worldRef.value!, stationInfo, BASE_SCANNER_STRENGTH);
 });
 
 // Sync selected asteroid → renderer selection ring

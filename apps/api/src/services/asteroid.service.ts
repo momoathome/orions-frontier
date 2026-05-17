@@ -1,7 +1,25 @@
-import { and, between, eq, lte } from 'drizzle-orm';
+import { and, between, eq, lte, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
-import { asteroids } from '../lib/db/schema/asteroids.js';
-import type { AsteroidDetail, VisibleAsteroid, AsteroidResourceType } from '@orions-frontier/shared';
+import {
+  asteroids,
+  asteroidVeins,
+  asteroidResourceStorage,
+  asteroidAssignments,
+} from '../lib/db/schema/asteroids.js';
+import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
+import { stations } from '../lib/db/schema/stations.js';
+import type {
+  AsteroidDetail,
+  AsteroidSize,
+  AsteroidVein,
+  AsteroidResourceStorage,
+  PurityTier,
+  VeinType,
+  VisibleAsteroid,
+} from '@orions-frontier/shared';
+import type { ResourceKey } from '@orions-frontier/shared';
+import { tickAsteroidAssignments } from './mining-tick.service.js';
+import { WORLD_CONFIG } from '../lib/world-config.js';
 
 // ============================================================================
 // Asteroid Service
@@ -12,16 +30,15 @@ export interface ChunkQueryParams {
   maxChunkX: number;
   minChunkY: number;
   maxChunkY: number;
-  /** Minimum scanner strength: only returns asteroids with hidden_level <= scannerStrength */
   scannerStrength: number;
 }
 
 /**
  * Returns all visible asteroids within the requested chunk rectangle.
- * Uses chunk indexes for performant queries — no full-world coordinate scans.
+ * Joins asteroid_veins to get the primary resource key for map rendering.
  */
 export const getVisibleChunkAsteroids = async (
-  params: ChunkQueryParams,
+  params: ChunkQueryParams
 ): Promise<VisibleAsteroid[]> => {
   const db = getDb();
   const { minChunkX, maxChunkX, minChunkY, maxChunkY, scannerStrength } = params;
@@ -33,16 +50,20 @@ export const getVisibleChunkAsteroids = async (
       y: asteroids.y,
       chunkX: asteroids.chunkX,
       chunkY: asteroids.chunkY,
-      resourceType: asteroids.resourceType,
-      richness: asteroids.richness,
+      size: asteroids.size,
+      primaryResourceKey: asteroidVeins.resourceKey,
     })
     .from(asteroids)
+    .leftJoin(
+      asteroidVeins,
+      and(eq(asteroidVeins.asteroidId, asteroids.id), eq(asteroidVeins.veinType, 'primary'))
+    )
     .where(
       and(
         between(asteroids.chunkX, minChunkX, maxChunkX),
         between(asteroids.chunkY, minChunkY, maxChunkY),
-        lte(asteroids.hiddenLevel, scannerStrength),
-      ),
+        lte(asteroids.hiddenLevel, scannerStrength)
+      )
     );
 
   return rows.map((row) => ({
@@ -51,52 +72,187 @@ export const getVisibleChunkAsteroids = async (
     y: row.y,
     chunkX: row.chunkX,
     chunkY: row.chunkY,
-    resourceType: row.resourceType as AsteroidResourceType,
-    richness: row.richness,
+    size: row.size as AsteroidSize,
+    primaryResourceKey: (row.primaryResourceKey ?? 'carbon') as ResourceKey,
     isVisible: true as const,
   }));
 };
+
 // ============================================================================
-// getAsteroidById
+// getAsteroidById — triggers lazy tick, returns full detail
 // ============================================================================
 
-/**
- * Returns full asteroid detail for the given id, or null if not found or hidden.
- * Only returns the asteroid when hidden_level <= scannerStrength.
- */
 export const getAsteroidById = async (
   id: string,
-  scannerStrength: number,
+  scannerStrength: number
 ): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
-  const rows = await db
+  const [row] = await db
     .select()
     .from(asteroids)
     .where(and(eq(asteroids.id, id), lte(asteroids.hiddenLevel, scannerStrength)))
     .limit(1);
 
-  if (rows.length === 0) return null;
+  if (!row) return null;
 
-  const row = rows[0]!;
+  // Trigger lazy tick for all assignments (may update stability)
+  await tickAsteroidAssignments(id);
+
+  // Reload asteroid after potential stability update
+  const [refreshed] = await db.select().from(asteroids).where(eq(asteroids.id, id)).limit(1);
+
+  if (!refreshed) return null;
+
+  const [veins, storage, assignmentRows] = await Promise.all([
+    db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, id)),
+    db.select().from(asteroidResourceStorage).where(eq(asteroidResourceStorage.asteroidId, id)),
+    db
+      .select({ id: asteroidAssignments.id })
+      .from(asteroidAssignments)
+      .where(eq(asteroidAssignments.asteroidId, id)),
+  ]);
 
   return {
-    id: row.id,
-    x: row.x,
-    y: row.y,
-    chunkX: row.chunkX,
-    chunkY: row.chunkY,
-    resourceType: row.resourceType as AsteroidResourceType,
-    richness: row.richness,
-    hiddenLevel: row.hiddenLevel,
-    isDepleted: row.isDepleted,
-    clusterId: row.clusterId,
-    stability: row.stability,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-    // Placeholder mining stats (mining system not yet implemented)
-    activeMiningAssignments: 0,
-    currentMiningRate: 0,
-    estimatedYield: Math.round(row.richness * 8.5),
+    id: refreshed.id,
+    x: refreshed.x,
+    y: refreshed.y,
+    chunkX: refreshed.chunkX,
+    chunkY: refreshed.chunkY,
+    size: refreshed.size as AsteroidSize,
+    stability: refreshed.stability,
+    hiddenLevel: refreshed.hiddenLevel,
+    clusterId: refreshed.clusterId,
+    createdAt: refreshed.createdAt.toISOString(),
+    updatedAt: refreshed.updatedAt.toISOString(),
+    veins: veins.map(
+      (v): AsteroidVein => ({
+        id: v.id,
+        asteroidId: v.asteroidId,
+        veinType: v.veinType as VeinType,
+        resourceKey: v.resourceKey as ResourceKey,
+        yieldPerHour: v.yieldPerHour,
+        purity: v.purity,
+        purityTier: v.purityTier as PurityTier,
+      })
+    ),
+    storage: storage.map(
+      (s): AsteroidResourceStorage => ({
+        id: s.id,
+        asteroidId: s.asteroidId,
+        resourceKey: s.resourceKey as ResourceKey,
+        amount: s.amount,
+        updatedAt: s.updatedAt.toISOString(),
+      })
+    ),
+    activeMiningAssignments: assignmentRows.length,
   };
+};
+
+// ============================================================================
+// createAsteroidAssignment
+// ============================================================================
+
+export interface CreateAssignmentParams {
+  asteroidId: string;
+  stationId: string;
+  spacecraftDefinitionId: string;
+  assignedAmount: number;
+}
+
+export interface CreateAssignmentError {
+  code:
+    | 'ASTEROID_NOT_FOUND'
+    | 'SLOTS_FULL'
+    | 'STATION_NOT_FOUND'
+    | 'SPACECRAFT_NOT_FOUND'
+    | 'ALREADY_ASSIGNED';
+  message: string;
+}
+
+export const createAsteroidAssignment = async (
+  params: CreateAssignmentParams
+): Promise<{ id: string } | CreateAssignmentError> => {
+  const db = getDb();
+  const { asteroidId, stationId, spacecraftDefinitionId, assignedAmount } = params;
+
+  // Validate asteroid exists
+  const [asteroid] = await db
+    .select({ id: asteroids.id, size: asteroids.size })
+    .from(asteroids)
+    .where(eq(asteroids.id, asteroidId))
+    .limit(1);
+  if (!asteroid) return { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' };
+
+  // Validate station exists
+  const [station] = await db
+    .select({ id: stations.id })
+    .from(stations)
+    .where(eq(stations.id, stationId))
+    .limit(1);
+  if (!station) return { code: 'STATION_NOT_FOUND', message: 'Station not found' };
+
+  // Validate spacecraft definition exists
+  const [scraft] = await db
+    .select({ id: spacecraftDefinitions.id })
+    .from(spacecraftDefinitions)
+    .where(eq(spacecraftDefinitions.id, spacecraftDefinitionId))
+    .limit(1);
+  if (!scraft) return { code: 'SPACECRAFT_NOT_FOUND', message: 'Spacecraft definition not found' };
+
+  // Check slot capacity
+  const maxSlots = WORLD_CONFIG.MINING_SLOTS[asteroid.size] ?? 1;
+  const [slotRow] = await db
+    .select({ count: sql<number>`count(distinct station_id)::int` })
+    .from(asteroidAssignments)
+    .where(eq(asteroidAssignments.asteroidId, asteroidId));
+  const usedSlots = slotRow?.count ?? 0;
+  if (usedSlots >= maxSlots) {
+    return {
+      code: 'SLOTS_FULL',
+      message: `Asteroid has no free mining slots (${usedSlots}/${maxSlots} used)`,
+    };
+  }
+
+  // Check station not already assigned to this asteroid
+  const [existing] = await db
+    .select({ id: asteroidAssignments.id })
+    .from(asteroidAssignments)
+    .where(
+      and(
+        eq(asteroidAssignments.asteroidId, asteroidId),
+        eq(asteroidAssignments.stationId, stationId)
+      )
+    )
+    .limit(1);
+  if (existing)
+    return {
+      code: 'ALREADY_ASSIGNED',
+      message: 'Station already has miners assigned to this asteroid',
+    };
+
+  const [inserted] = await db
+    .insert(asteroidAssignments)
+    .values({ asteroidId, stationId, spacecraftDefinitionId, assignedAmount })
+    .returning({ id: asteroidAssignments.id });
+
+  return { id: inserted!.id };
+};
+
+// ============================================================================
+// removeAsteroidAssignment
+// ============================================================================
+
+export const removeAsteroidAssignment = async (
+  assignmentId: string,
+  stationId: string
+): Promise<boolean> => {
+  const db = getDb();
+  const result = await db
+    .delete(asteroidAssignments)
+    .where(
+      and(eq(asteroidAssignments.id, assignmentId), eq(asteroidAssignments.stationId, stationId))
+    )
+    .returning({ id: asteroidAssignments.id });
+  return result.length > 0;
 };

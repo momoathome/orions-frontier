@@ -12,53 +12,88 @@ import type { ResourceKey } from './resource.js';
 export const CHUNK_SIZE = 1000;
 
 // ============================================================================
-// Asteroid World Types
+// Asteroid Core Types
 // ============================================================================
 
-/**
- * Resource type found in an asteroid.
- * Uses the same keys as the rest of the resource system.
- */
 export type AsteroidResourceType = ResourceKey;
 
-/**
- * A chunk coordinate in the spatial partitioning grid.
- * Chunks are purely technical — not gameplay sectors.
- */
+export type AsteroidSize = 'small' | 'medium' | 'large' | 'massive';
+
+export type VeinType = 'primary' | 'secondary' | 'trace';
+
+export type PurityTier = 'impure' | 'normal' | 'rich' | 'pure' | 'pristine';
+
 export interface ChunkCoordinate {
   x: number;
   y: number;
 }
 
-/**
- * Persistent asteroid instance in the world.
- */
+// ============================================================================
+// Asteroid Vein
+// ============================================================================
+
+export interface AsteroidVein {
+  id: string;
+  asteroidId: string;
+  veinType: VeinType;
+  resourceKey: ResourceKey;
+  /** Max yield per hour: baseBudget × tierModifier × veinModifier */
+  yieldPerHour: number;
+  /** Purity multiplier 0.4–3.0, applied to actual miner output */
+  purity: number;
+  purityTier: PurityTier;
+}
+
+// ============================================================================
+// Asteroid Resource Storage (local buffer)
+// ============================================================================
+
+export interface AsteroidResourceStorage {
+  id: string;
+  asteroidId: string;
+  resourceKey: ResourceKey;
+  amount: number;
+  updatedAt: string;
+}
+
+// ============================================================================
+// Asteroid Assignment
+// ============================================================================
+
+export interface AsteroidAssignment {
+  id: string;
+  asteroidId: string;
+  stationId: string;
+  spacecraftDefinitionId: string;
+  assignedAmount: number;
+  assignedAt: string;
+  lastTick: string;
+}
+
+// ============================================================================
+// Asteroid
+// ============================================================================
+
 export interface Asteroid {
   id: string;
-  /** Global world coordinate */
   x: number;
-  /** Global world coordinate */
   y: number;
-  /** Derived spatial chunk coordinate */
   chunkX: number;
-  /** Derived spatial chunk coordinate */
   chunkY: number;
-  resourceType: AsteroidResourceType;
-  /** Mining richness 1–100 */
-  richness: number;
-  /** Minimum scanner strength required to detect this asteroid */
+  /** Size category determines yield budget and mining slot count */
+  size: AsteroidSize;
+  /** Stability 0.0–1.0 — degrades on overmining, regens when load < yield */
+  stability: number;
   hiddenLevel: number;
   clusterId: string | null;
-  isDepleted: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-/**
- * Asteroid cluster — a world generation influence zone.
- * Clusters bias asteroid density and resource type in a radius.
- * NOT a gameplay sector.
- */
+// ============================================================================
+// Asteroid Cluster
+// ============================================================================
+
 export interface AsteroidCluster {
   id: string;
   name: string;
@@ -66,47 +101,37 @@ export interface AsteroidCluster {
   centerY: number;
   radius: number;
   resourceBias: AsteroidResourceType;
-  /** Seed string for deterministic procedural generation */
   seed: string;
   createdAt: string;
 }
 
-/**
- * Asteroid as returned by the chunk loading API.
- * Only visible asteroids (scanner_strength >= hidden_level) are included.
- */
+// ============================================================================
+// VisibleAsteroid — returned by the chunk loading API
+// Minimal data for map rendering. Only visible asteroids are included.
+// ============================================================================
+
 export interface VisibleAsteroid {
   id: string;
   x: number;
   y: number;
   chunkX: number;
   chunkY: number;
-  resourceType: AsteroidResourceType;
-  richness: number;
+  size: AsteroidSize;
+  /** Primary vein resource — used for map color rendering */
+  primaryResourceKey: ResourceKey;
   isVisible: true;
 }
 
-/**
- * Full asteroid detail returned by the GET /asteroids/:id API.
- * Includes all fields plus derived mining placeholder values.
- */
-export interface AsteroidDetail {
-  id: string;
-  x: number;
-  y: number;
-  chunkX: number;
-  chunkY: number;
-  resourceType: AsteroidResourceType;
-  richness: number;
-  hiddenLevel: number;
-  isDepleted: boolean;
-  clusterId: string | null;
-  /** Deterministic 0-100 stability score derived from asteroid id */
-  stability: number;
-  createdAt: string;
-  updatedAt: string;
-  /** Placeholder mining stats — not yet implemented */
+// ============================================================================
+// AsteroidDetail — returned by GET /asteroids/:id
+// Full detail including veins, buffer, and assignments.
+// ============================================================================
+
+export interface AsteroidDetail extends Asteroid {
+  veins: AsteroidVein[];
+  storage: AsteroidResourceStorage[];
+  /** Count of active assignment rows */
   activeMiningAssignments: number;
-  currentMiningRate: number;
-  estimatedYield: number;
 }
+
+
