@@ -77,6 +77,7 @@ services:
       WS_PORT: 3001
       WS_HOST: 0.0.0.0
       JWT_SECRET: ${JWT_SECRET}
+      REDIS_URL: redis://redis:6379
     volumes:
       - ./apps/websocket/src:/app/apps/websocket/src
       - ./packages:/app/packages

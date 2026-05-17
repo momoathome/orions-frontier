@@ -13,7 +13,8 @@ import { initDb } from './lib/db/index.js';
 import { initRedis } from './lib/redis.js';
 import { startActionWorker } from './queue/workers/action-worker.js';
 import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
-import { seedSpacecraftDefinitions, seedBuildingDefinitions } from './lib/seed.js';
+import { seedSpacecraftDefinitions, seedBuildingDefinitions, seedAsteroidWorld, seedDevUser } from './lib/seed.js';
+import { runMigrations } from './lib/db/migrate.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,6 +49,10 @@ const start = async () => {
     await initDb();
     fastify.log.info('Database connected');
 
+    // Run migrations before any seeding or queries
+    await runMigrations();
+    fastify.log.info('Migrations applied');
+
     // Initialize Redis
     await initRedis();
     fastify.log.info('Redis connected');
@@ -63,6 +68,12 @@ const start = async () => {
 
     await seedBuildingDefinitions();
     fastify.log.info('Building definitions seeded');
+
+    await seedAsteroidWorld();
+    fastify.log.info('Asteroid world seeded');
+
+    await seedDevUser();
+    fastify.log.info('Dev user seeded');
 
     // File-based routing with AutoLoad
     await fastify.register(autoload, {

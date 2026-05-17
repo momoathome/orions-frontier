@@ -30,6 +30,13 @@
       "when": 1747612800000,
       "tag": "0004_spacecraft_build_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1747699200000,
+      "tag": "0005_asteroids",
+      "breakpoints": true
     }
   ]
 }

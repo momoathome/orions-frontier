@@ -6,6 +6,7 @@ export * from './spacecraft-definitions.js';
 export * from './spacecraft-build-orders.js';
 export * from './building-definitions.js';
 export * from './station-buildings.js';
+export * from './asteroids.js';
 
 // ============================================================================
 // Cross-table relations (defined here to avoid circular imports)

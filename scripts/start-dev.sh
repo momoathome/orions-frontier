@@ -24,17 +24,18 @@ else
 fi
 
 echo ""
-echo "🐳 Starting Docker services..."
-echo ""
-
-# Build shared packages first
-echo "📦 Building shared packages..."
+echo "� Building shared packages..."
 pnpm --filter @orions-frontier/types build
 pnpm --filter @orions-frontier/shared build
 pnpm --filter @orions-frontier/game-config build
 echo "✅ Packages built"
 
 echo ""
+echo "🐳 Building Docker images (cached)..."
+docker compose build
+
+echo ""
+echo "🐳 Starting Docker services..."
 docker compose up -d
 
 echo ""
