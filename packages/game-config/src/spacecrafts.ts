@@ -80,7 +80,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     image: '/assets/spacecrafts/mole.webp',
     attack: 3,
     defense: 3,
-    cargo: 100,
+    cargo: 150,
     speed: 50,
     miningRate: 60,
     buildTime: 50,

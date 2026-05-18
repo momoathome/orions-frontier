@@ -5,7 +5,7 @@ import StationPanel from '../components/StationPanel.vue';
 import AsteroidPanel from '../components/AsteroidPanel.vue';
 import { apiClient } from '../lib/api-client';
 import { WorldRenderer } from '../lib/world/index.js';
-import type { StationInfo } from '../lib/world/index.js';
+import type { StationInfo, AssignedAsteroid } from '../lib/world/index.js';
 import { useSelectionStore } from '../stores/selection';
 
 const selectionStore = useSelectionStore();
@@ -31,6 +31,33 @@ async function loadUserStation(): Promise<StationInfo | null> {
     // no station yet
   }
   return null;
+}
+
+// ── Assignment markers ───────────────────────────────────────────────────
+
+async function loadAssignments(): Promise<void> {
+  if (!renderer || !stationId.value) return;
+  try {
+    const { data } = await apiClient.get(`/stations/${stationId.value}/mining-assignments`);
+    const raw = (data?.data?.assignments ?? []) as Array<{
+      asteroidId: string;
+      asteroidX: number;
+      asteroidY: number;
+      asteroidSize: string;
+    }>;
+    // Deduplicate by asteroid (multiple assignment rows → same asteroid)
+    const seen = new Set<string>();
+    const asteroids: AssignedAsteroid[] = [];
+    for (const a of raw) {
+      if (!seen.has(a.asteroidId)) {
+        seen.add(a.asteroidId);
+        asteroids.push({ asteroidId: a.asteroidId, x: a.asteroidX, y: a.asteroidY, size: a.asteroidSize });
+      }
+    }
+    renderer.setAssignedAsteroids(asteroids);
+  } catch {
+    // non-fatal — markers simply won't show
+  }
 }
 
 // ── PixiJS World Renderer ────────────────────────────────────────────────────
@@ -78,6 +105,9 @@ onMounted(async () => {
   // reveals hidden_level 0–1 asteroids (landmark core + midRing).
   const BASE_SCANNER_STRENGTH = 1;
   await renderer.mount(worldRef.value!, stationInfo, BASE_SCANNER_STRENGTH);
+
+  // Load mining assignment markers after renderer is ready
+  await loadAssignments();
 });
 
 // Sync selected asteroid → renderer selection ring
@@ -148,7 +178,8 @@ function cursorClass() {
         v-if="selectionStore.selected?.type === 'asteroid'"
         :asteroid-id="selectionStore.selected.id"
         :station-id="stationId"
-        @close="selectionStore.deselect()"
+        @close="() => { selectionStore.deselect(); loadAssignments(); }"
+        @refresh="loadAssignments"
       />
     </transition>
   </div>

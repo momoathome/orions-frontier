@@ -2,13 +2,27 @@ import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 
 import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
 import { AsteroidLayer } from './AsteroidLayer.js';
+import { RouteLayer } from './RouteLayer.js';
 import {
   ZOOM_INITIAL,
   ZOOM_STEP,
   CLICK_MOVE_THRESHOLD,
   GRID_WORLD_SIZE,
   GRID_MIN_PX,
+  ASTEROID_SIZE_RADIUS,
+  ASTEROID_DEFAULT_RADIUS,
 } from './constants.js';
+
+// ── Public types ──────────────────────────────────────────────────────────────
+
+/** One assigned mining position — passed to setAssignedAsteroids() */
+export interface AssignedAsteroid {
+  asteroidId: string;
+  x: number;
+  y: number;
+  /** Size category used to derive the visual ring radius */
+  size: string;
+}
 
 // ============================================================================
 // WorldRenderer
@@ -46,6 +60,13 @@ export class WorldRenderer {
   private lastPointerX = 0;
   private lastPointerY = 0;
   private activePointerId: number | null = null;
+
+  // ── Route + assignment layers ─────────────────────────────────────────────
+  private routeLayer!: RouteLayer;
+  private assignmentRingsG!: Graphics;
+  private _assignedAsteroids: AssignedAsteroid[] = [];
+  /** Accumulates each tick — drives dash animation */
+  private _routePhase = 0;
 
   // ── Selection / hover rings ──────────────────────────────────────────────
   private hoverRingG!: Graphics;
@@ -140,6 +161,10 @@ export class WorldRenderer {
     this.worldContainer = new Container();
     this.app.stage.addChild(this.worldContainer);
 
+    // Route lines — drawn BELOW asteroids
+    this.routeLayer = new RouteLayer();
+    this.worldContainer.addChild(this.routeLayer.graphics);
+
     // Asteroid layer lives in world space
     this.worldContainer.addChild(this.asteroidLayer.container);
 
@@ -147,6 +172,10 @@ export class WorldRenderer {
     if (station) {
       this._buildStationMarker(station, stationTexture);
     }
+
+    // Assignment rings — above asteroids, below hover/selection rings
+    this.assignmentRingsG = new Graphics();
+    this.worldContainer.addChild(this.assignmentRingsG);
 
     // Hover and selection rings — drawn on top of asteroids in world space
     this.hoverRingG = new Graphics();
@@ -162,6 +191,36 @@ export class WorldRenderer {
 
     // ── Initial chunk load ──────────────────────────────────────────────────
     this.streamer.immediateUpdate(this.camera);
+  }
+
+  /**
+   * Updates the set of player-owned asteroid assignments.
+   * Redraws the mining rings and route lines from station.
+   */
+  setAssignedAsteroids(asteroids: AssignedAsteroid[]): void {
+    this._assignedAsteroids = asteroids;
+
+    if (this.stationInfo) {
+      // Deduplicate by asteroid id (multiple assignment rows → same asteroid)
+      const seen = new Set<string>();
+      const routes = asteroids
+        .filter((a) => {
+          if (seen.has(a.asteroidId)) return false;
+          seen.add(a.asteroidId);
+          return true;
+        })
+        .map((a) => ({
+          id: a.asteroidId,
+          fromX: this.stationInfo!.x,
+          fromY: this.stationInfo!.y,
+          toX: a.x,
+          toY: a.y,
+          color: 0x00a8cc,
+          alpha: 0.22,
+          width: 1,
+        }));
+      this.routeLayer.setRoutes(routes);
+    }
   }
 
   /** Set the currently selected asteroid (redraws selection ring). Pass null to clear. */
@@ -195,6 +254,31 @@ export class WorldRenderer {
     this.selectionRingG.stroke({ color: 0x00ffcc, alpha: 0.25, width: 1 });
   }
 
+  private _redrawAssignmentRings() {
+    const g = this.assignmentRingsG;
+    g.clear();
+    if (this._assignedAsteroids.length === 0) return;
+
+    // Pulsing alpha — slow sine wave
+    const pulse = 0.45 + 0.2 * Math.sin(Date.now() / 950);
+    const seen = new Set<string>();
+
+    for (const a of this._assignedAsteroids) {
+      if (seen.has(a.asteroidId)) continue;
+      seen.add(a.asteroidId);
+
+      const r = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS;
+
+      // Inner ring — solid
+      g.circle(a.x, a.y, r + 6);
+      g.stroke({ color: 0x00e6c8, alpha: pulse * 0.75, width: 1.2 });
+
+      // Outer ring — fainter halo
+      g.circle(a.x, a.y, r + 12);
+      g.stroke({ color: 0x00e6c8, alpha: pulse * 0.2, width: 0.8 });
+    }
+  }
+
   destroy() {
     this.abortController.abort();
     this.streamer.destroy();
@@ -223,6 +307,13 @@ export class WorldRenderer {
 
     // Redraw dynamic screen-space layers
     this._drawGrid();
+
+    // Animate route lines (dashes move toward destination)
+    this._routePhase += this.app.ticker.deltaTime * 0.45;
+    this.routeLayer.redraw(this._routePhase);
+
+    // Redraw assignment rings with pulse
+    this._redrawAssignmentRings();
   }
 
   // ── Background: world-aligned grid ───────────────────────────────────────

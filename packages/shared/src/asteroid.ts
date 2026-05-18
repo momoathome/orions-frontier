@@ -132,6 +132,9 @@ export interface AsteroidDetailAssignment {
   stationId: string;
   spacecraftDefinitionId: string;
   spacecraftName: string;
+  spacecraftMiningRate: number;
+  /** Cargo capacity per single spacecraft of this type */
+  spacecraftCargo: number;
   assignedAmount: number;
   assignedAt: string;
   lastTick: string;

@@ -200,7 +200,7 @@ export const WORLD_CONFIG = {
   // ── Stability ─────────────────────────────────────────────────────────────
 
   STABILITY_INITIAL: { min: 0.75, max: 1.0 },
-  STABILITY_FLOOR: 0.1,
+  STABILITY_FLOOR: 0,
   /** Per-hour regen when mining load < yield */
   STABILITY_REGEN_PER_HOUR: 0.01,
   /** Base per-hour degradation at 1× overmining ratio */
