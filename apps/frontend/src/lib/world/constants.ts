@@ -23,26 +23,17 @@ export const CHUNK_DEBOUNCE_MS = 150;
 export const MAX_CHUNK_AXIS = 15;
 
 /** Minimum pointer movement (px) to be treated as a pan, not a click */
-export const CLICK_MOVE_THRESHOLD = 6;
+export const CLICK_MOVE_THRESHOLD = 10;
 
 /** Asteroid visual radius per size category (world units) */
 export const ASTEROID_SIZE_RADIUS: Record<string, number> = {
-  small:   4,
-  medium:  7,
-  large:   12,
-  massive: 18,
+  small: 8,
+  medium: 12,
+  large: 24,
+  massive: 36,
 };
 /** Fallback radius for unknown size */
-export const ASTEROID_DEFAULT_RADIUS = 4;
-
-/** Resource type → hex color mapping */
-export const RESOURCE_COLORS: Record<string, number> = {
-  carbon: 0x778899,
-  titanium: 0x6699bb,
-  hydrogenium: 0x22ccee,
-  kyber_crystal: 0xaa33ff,
-  astatine: 0xff5533,
-};
+export const ASTEROID_DEFAULT_RADIUS = 8;
 
 /** Grid line spacing in world units (for the background grid) */
 export const GRID_WORLD_SIZE = 500;

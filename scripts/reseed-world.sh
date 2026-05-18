@@ -37,17 +37,25 @@ POSTGRES_DB="${POSTGRES_DB:-orions_frontier}"
 
 # ── Asteroid-Daten löschen ────────────────────────────────────────────────
 
-echo "🗑️   Lösche Asteroid-Daten..."
+echo "🗑️   Lösche Asteroid-, Spawn-Slot- und Dev-User-Daten..."
 docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 DELETE FROM asteroid_assignments;
 DELETE FROM asteroid_resource_storage;
 DELETE FROM asteroid_veins;
 DELETE FROM asteroids;
+UPDATE spawn_slots SET station_id = NULL;
+DELETE FROM spawn_slots;
+DELETE FROM station_spacecrafts;
+DELETE FROM station_buildings;
+DELETE FROM station_resources;
+DELETE FROM stations;
+DELETE FROM users WHERE email = 'dev@orion.local';
 SELECT
   (SELECT COUNT(*) FROM asteroids)               AS asteroids,
   (SELECT COUNT(*) FROM asteroid_veins)          AS veins,
   (SELECT COUNT(*) FROM asteroid_resource_storage) AS storage,
-  (SELECT COUNT(*) FROM asteroid_assignments)    AS assignments;
+  (SELECT COUNT(*) FROM spawn_slots)             AS spawn_slots,
+  (SELECT COUNT(*) FROM stations)                AS stations;
 SQL
 
 echo ""

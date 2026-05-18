@@ -13,7 +13,13 @@ import { initDb } from './lib/db/index.js';
 import { initRedis } from './lib/redis.js';
 import { startActionWorker } from './queue/workers/action-worker.js';
 import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
-import { seedSpacecraftDefinitions, seedBuildingDefinitions, seedAsteroidWorld, seedDevUser } from './lib/seed.js';
+import {
+  seedSpacecraftDefinitions,
+  seedBuildingDefinitions,
+  seedAsteroidWorld,
+  seedSpawnSlots,
+  seedDevUser,
+} from './lib/seed.js';
 import { runMigrations } from './lib/db/migrate.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -71,6 +77,9 @@ const start = async () => {
 
     await seedAsteroidWorld();
     fastify.log.info('Asteroid world seeded');
+
+    await seedSpawnSlots();
+    fastify.log.info('Spawn slots seeded');
 
     await seedDevUser();
     fastify.log.info('Dev user seeded');

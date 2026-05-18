@@ -6,8 +6,6 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 const CreateStationSchema = z.object({
   name: z.string().min(1).max(128),
-  x: z.number().int(),
-  y: z.number().int(),
 });
 
 /**
@@ -23,8 +21,8 @@ export default defineRoute(async (app) => {
       });
     }
 
-    const { name, x, y } = parsed.data;
-    const station = await createStation(request.user.userId, { name, x, y });
+    const { name } = parsed.data;
+    const station = await createStation(request.user.userId, { name });
 
     return reply.status(201).send({ success: true, data: station });
   });

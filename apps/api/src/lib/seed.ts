@@ -4,6 +4,7 @@ import { getDb } from './db/index.js';
 import { spacecraftDefinitions, spacecraftDefinitionCosts } from './db/schema/spacecraft-definitions.js';
 import { buildingDefinitions } from './db/schema/building-definitions.js';
 import { asteroids, asteroidVeins, asteroidResourceStorage } from './db/schema/asteroids.js';
+import { spawnSlots } from './db/schema/spawn-slots.js';
 import { users } from './db/schema/users.js';
 import { stations } from './db/schema/stations.js';
 import { stationBuildings } from './db/schema/station-buildings.js';
@@ -102,7 +103,7 @@ export const seedAsteroidWorld = async (): Promise<void> => {
   // Clear stale asteroids (no veins = invalid state from migration)
   await db.delete(asteroids);
 
-  // Generate world
+  // Generate world (includes spawn slots — same call, different RNG stream)
   const { generatedAsteroids } = generateWorld(WORLD_PLAYER_COUNT, WORLD_CONFIG.WORLD_SEED);
 
   if (generatedAsteroids.length === 0) return;
@@ -180,6 +181,30 @@ export const seedAsteroidWorld = async (): Promise<void> => {
 };;
 
 // ============================================================================
+// seedSpawnSlots
+// Generates and stores the deterministic spawn slot positions for this world.
+// Idempotent: skips if slots already exist.
+// Must be called before seedDevUser and before any station is created.
+// ============================================================================
+
+export const seedSpawnSlots = async (): Promise<void> => {
+  const db = getDb();
+
+  const [slotCount] = await db.select({ count: sql<number>`count(*)::int` }).from(spawnSlots);
+  if ((slotCount?.count ?? 0) > 0) return;
+
+  const { generatedSpawnSlots } = generateWorld(WORLD_PLAYER_COUNT, WORLD_CONFIG.WORLD_SEED);
+
+  await db.insert(spawnSlots).values(
+    generatedSpawnSlots.map((s) => ({
+      slotIndex: s.slotIndex,
+      x: s.x,
+      y: s.y,
+    })),
+  );
+};
+
+// ============================================================================
 // seedDevUser
 // Creates a developer user with a fully equipped station for local testing.
 // Idempotent: skips if the dev user email already exists.
@@ -217,18 +242,25 @@ export const seedDevUser = async (): Promise<void> => {
 
   if (!devUser) throw new Error('Failed to create dev user');
 
-  // 2. Create station
+  // 2. Create station at spawn slot 0
+  const [slot0] = await db.select().from(spawnSlots).where(eq(spawnSlots.slotIndex, 0)).limit(1);
+
+  if (!slot0) throw new Error('Spawn slot 0 not found — run seedSpawnSlots first');
+
   const [devStation] = await db
     .insert(stations)
     .values({
       userId: devUser.id,
       name: 'Dev Station Alpha',
-      x: 0,
-      y: 0,
+      x: slot0.x,
+      y: slot0.y,
     })
     .returning({ id: stations.id });
 
   if (!devStation) throw new Error('Failed to create dev station');
+
+  // Mark slot 0 as claimed
+  await db.update(spawnSlots).set({ stationId: devStation.id }).where(eq(spawnSlots.id, slot0.id));
 
   // 3. Seed resources (generous amounts for testing)
   await db.insert(stationResources).values(
@@ -236,13 +268,11 @@ export const seedDevUser = async (): Promise<void> => {
       stationId: devStation.id,
       resourceKey: key,
       amount: 50_000,
-    })),
+    }))
   );
 
   // 4. Assign all building definitions at level 1
-  const allBuildings = await db
-    .select({ id: buildingDefinitions.id })
-    .from(buildingDefinitions);
+  const allBuildings = await db.select({ id: buildingDefinitions.id }).from(buildingDefinitions);
 
   if (allBuildings.length > 0) {
     await db.insert(stationBuildings).values(
@@ -250,7 +280,7 @@ export const seedDevUser = async (): Promise<void> => {
         stationId: devStation.id,
         buildingDefinitionId: b.id,
         level: 1,
-      })),
+      }))
     );
   }
 
@@ -266,7 +296,7 @@ export const seedDevUser = async (): Promise<void> => {
         spacecraftDefinitionId: s.id,
         amount: 5,
         lockedAmount: 0,
-      })),
+      }))
     );
   }
-};
+};;

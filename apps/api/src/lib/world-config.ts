@@ -219,6 +219,18 @@ export const WORLD_CONFIG = {
 
   /** Minimum distance between any two asteroids (world units) */
   ASTEROID_MIN_DISTANCE: 80,
+
+  // ── Spawn slots ───────────────────────────────────────────────────────────
+  //
+  // One slot per player, evenly distributed on a circle inside the spawnRing.
+  // No asteroids are placed within SAFE_RADIUS of any slot.
+
+  SPAWN_CONFIG: {
+    /** Fraction of worldRadius at which spawn slots are placed */
+    RING_FRACTION: 0.88,
+    /** No asteroid may be placed within this distance of a spawn slot (world units) */
+    SAFE_RADIUS: 500,
+  },
 } as const;
 
 export type ZoneType = keyof typeof WORLD_CONFIG.ZONES;

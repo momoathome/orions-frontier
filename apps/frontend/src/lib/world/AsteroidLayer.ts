@@ -1,11 +1,6 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Sprite, Texture } from 'pixi.js';
 import type { VisibleAsteroid } from '@orions-frontier/shared';
-import {
-  CHUNK_SIZE,
-  RESOURCE_COLORS,
-  ASTEROID_SIZE_RADIUS,
-  ASTEROID_DEFAULT_RADIUS,
-} from './constants.js';
+import { CHUNK_SIZE, ASTEROID_SIZE_RADIUS, ASTEROID_DEFAULT_RADIUS } from './constants.js';
 import { chunkKey } from './ChunkStreamer.js';
 import type { ChunkKey } from './ChunkStreamer.js';
 
@@ -35,6 +30,13 @@ export class AsteroidLayer {
   private chunkAsteroidData = new Map<ChunkKey, AsteroidHit[]>();
   private asteroidById = new Map<string, AsteroidHit>();
 
+  /** Asteroid textures (index 0–5 → asteroid1.webp–asteroid6.webp) */
+  private textures: Texture[] = [];
+
+  setTextures(textures: Texture[]) {
+    this.textures = textures;
+  }
+
   // ── Public interface ────────────────────────────────────────────────────
 
   addChunk(key: ChunkKey, asteroids: VisibleAsteroid[]) {
@@ -44,25 +46,19 @@ export class AsteroidLayer {
     chunkContainer.label = `chunk-${key}`;
 
     if (asteroids.length > 0) {
-      // Glow pass — all asteroids, drawn first (back layer)
-      const glowG = new Graphics();
+      // Sprite pass — one sprite per asteroid
       for (const a of asteroids) {
-        const color = RESOURCE_COLORS[a.primaryResourceKey] ?? 0x888888;
         const r = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS;
-        glowG.circle(a.x, a.y, r + 3);
-        glowG.fill({ color, alpha: 0.14 });
+        const tex = this._textureFor(a.id);
+        const sprite = new Sprite(tex);
+        sprite.anchor.set(0.5, 0.5);
+        sprite.position.set(a.x, a.y);
+        // diameter = 2 * r, with a slight visual margin
+        const size = r * 2.4;
+        sprite.width = size;
+        sprite.height = size;
+        chunkContainer.addChild(sprite);
       }
-      chunkContainer.addChild(glowG);
-
-      // Body pass — all asteroids, drawn on top
-      const bodyG = new Graphics();
-      for (const a of asteroids) {
-        const color = RESOURCE_COLORS[a.primaryResourceKey] ?? 0x888888;
-        const r = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS;
-        bodyG.circle(a.x, a.y, r);
-        bodyG.fill({ color, alpha: 0.88 });
-      }
-      chunkContainer.addChild(bodyG);
     }
 
     // Store positions for hit-testing
@@ -142,5 +138,15 @@ export class AsteroidLayer {
   /** Look up a loaded asteroid's position data by id. */
   getAsteroidPosition(id: string): AsteroidHit | undefined {
     return this.asteroidById.get(id);
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  /** Deterministically picks one of the 6 asteroid textures from an asteroid id. */
+  private _textureFor(id: string): Texture {
+    if (this.textures.length === 0) return Texture.WHITE;
+    // Use the last 4 hex chars of the UUID for a uniform distribution
+    const n = parseInt(id.replace(/-/g, '').slice(-4), 16);
+    return this.textures[n % this.textures.length]!;
   }
 }

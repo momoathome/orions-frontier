@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Text } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
 import { AsteroidLayer } from './AsteroidLayer.js';
@@ -53,11 +53,22 @@ export class WorldRenderer {
   private _selectedAsteroidId: string | null = null;
   private _hoveredAsteroidId: string | null = null;
 
+  // ── Station hover ─────────────────────────────────────────────────────────
+  private stationInfo: StationInfo | null = null;
+  /** Half the station sprite size in world units — used for hover hit-test */
+  private readonly stationRadius = 50;
+  private _hoveredStation = false;
+  private _selectedStation = false;
+  private _isHoveringEntity = false;
+  private stationOverlay: Container | null = null;
+
   // ── External callbacks ────────────────────────────────────────────────────
   /** Called when the user clicks an asteroid (provides asteroid id) */
   onAsteroidClick: ((id: string) => void) | null = null;
   /** Called when empty world space is clicked (no asteroid hit) */
   onEmptyClick: ((worldX: number, worldY: number) => void) | null = null;
+  /** Called when the user clicks the station */
+  onStationClick: (() => void) | null = null;
   /** Called whenever drag state changes (for cursor updates in Vue) */
   onDragStateChange: ((dragging: boolean) => void) | null = null;
   /** Called when hover enters/leaves an asteroid (for cursor updates) */
@@ -83,7 +94,7 @@ export class WorldRenderer {
   async mount(
     el: HTMLElement,
     station: StationInfo | null = null,
-    scannerStrength = 0,
+    scannerStrength = 0
   ): Promise<void> {
     const w = el.clientWidth || window.innerWidth;
     const h = el.clientHeight || window.innerHeight;
@@ -109,6 +120,13 @@ export class WorldRenderer {
 
     el.appendChild(this.app.canvas);
 
+    // ── Textures ─────────────────────────────────────────────────────────────
+    const asteroidTextures: Texture[] = await Promise.all(
+      [1, 2, 3, 4, 5, 6].map((i) => Assets.load(`/assets/map/asteroid${i}.webp`))
+    );
+    this.asteroidLayer.setTextures(asteroidTextures);
+    const stationTexture: Texture = await Assets.load('/assets/map/station.webp');
+
     // ── Scene graph ─────────────────────────────────────────────────────────
     // Screen-space layer (no camera transform)
     this.screenContainer = new Container();
@@ -127,7 +145,7 @@ export class WorldRenderer {
 
     // Station marker
     if (station) {
-      this._buildStationMarker(station);
+      this._buildStationMarker(station, stationTexture);
     }
 
     // Hover and selection rings — drawn on top of asteroids in world space
@@ -241,44 +259,44 @@ export class WorldRenderer {
 
   // ── Station marker ────────────────────────────────────────────────────────
 
-  private _buildStationMarker(station: StationInfo) {
+  private _buildStationMarker(station: StationInfo, stationTexture: Texture) {
     const { x, y, name } = station;
-    const sw = 120;
-    const sh = 78;
+    this.stationInfo = station;
 
-    const g = new Graphics();
-    // Fill
-    g.rect(x - sw / 2, y - sh / 2, sw, sh);
-    g.fill({ color: 0x002348, alpha: 0.4 });
-    // Border
-    g.rect(x - sw / 2, y - sh / 2, sw, sh);
-    g.stroke({ color: 0x00c8ff, alpha: 0.75, width: 1 / this.camera.zoom });
-    // Center dot
-    g.circle(x, y, 3 / this.camera.zoom);
-    g.fill({ color: 0x00f0c8, alpha: 0.9 });
+    // Sprite — square to preserve 128×128 source aspect ratio
+    const size = this.stationRadius * 2; // 100 world units
+    const sprite = new Sprite(stationTexture);
+    sprite.anchor.set(0.5, 0.5);
+    sprite.position.set(x, y);
+    sprite.width = size;
+    sprite.height = size;
+    this.worldContainer.addChild(sprite);
+
+    // ── Station overlay (brackets + label — visible on hover/active) ───────
+    const overlay = new Container();
+    overlay.visible = false;
+    this.stationOverlay = overlay;
 
     // Corner brackets
-    const bs = 10 / this.camera.zoom;
-    this._drawBracket(g, x - sw / 2, y - sh / 2, bs, 1, 1);
-    this._drawBracket(g, x + sw / 2, y - sh / 2, bs, -1, 1);
-    this._drawBracket(g, x - sw / 2, y + sh / 2, bs, 1, -1);
-    this._drawBracket(g, x + sw / 2, y + sh / 2, bs, -1, -1);
+    const bracketG = new Graphics();
+    const half = this.stationRadius;
+    const bs = 12;
+    this._drawBracket(bracketG, x - half, y - half, bs, 1, 1);
+    this._drawBracket(bracketG, x + half, y - half, bs, -1, 1);
+    this._drawBracket(bracketG, x - half, y + half, bs, 1, -1);
+    this._drawBracket(bracketG, x + half, y + half, bs, -1, -1);
+    overlay.addChild(bracketG);
 
-    this.worldContainer.addChild(g);
-
-    // Name label — always above the station box
+    // Name label
     const label = new Text({
       text: `[ ${name.toUpperCase()} ]`,
-      style: {
-        fontFamily: 'monospace',
-        fontSize: 11 / this.camera.zoom,
-        fill: 0x00c8ff,
-        align: 'center',
-      },
+      style: { fontFamily: 'monospace', fontSize: 11, fill: 0x00c8ff, align: 'center' },
     });
     label.anchor.set(0.5, 1);
-    label.position.set(x, y - sh / 2 - 8 / this.camera.zoom);
-    this.worldContainer.addChild(label);
+    label.position.set(x, y - half - 8);
+    overlay.addChild(label);
+
+    this.worldContainer.addChild(overlay);
   }
 
   private _drawBracket(
@@ -287,12 +305,12 @@ export class WorldRenderer {
     cornerY: number,
     size: number,
     dirX: 1 | -1,
-    dirY: 1 | -1,
+    dirY: 1 | -1
   ) {
     g.moveTo(cornerX + dirX * size, cornerY);
     g.lineTo(cornerX, cornerY);
     g.lineTo(cornerX, cornerY + dirY * size);
-    g.stroke({ color: 0x00e6c8, alpha: 0.85, width: 1.5 / this.camera.zoom });
+    g.stroke({ color: 0x00e6c8, alpha: 0.85, width: 1.5 });
   }
 
   // ── Input handling ────────────────────────────────────────────────────────
@@ -309,7 +327,7 @@ export class WorldRenderer {
         this.camera.zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
         this.streamer.scheduleUpdate(this.camera);
       },
-      { passive: false, signal },
+      { passive: false, signal }
     );
 
     el.addEventListener(
@@ -325,7 +343,7 @@ export class WorldRenderer {
         el.setPointerCapture(e.pointerId);
         this.onDragStateChange?.(true);
       },
-      { signal },
+      { signal }
     );
 
     el.addEventListener(
@@ -343,16 +361,36 @@ export class WorldRenderer {
           const rect = el.getBoundingClientRect();
           const world = this.camera.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
           const tolerance = Math.max(15, 20 / this.camera.zoom);
+
+          // Asteroid hover
           const hit = this.asteroidLayer.hitTest(world.x, world.y, tolerance);
           const newId = hit?.id ?? null;
           if (newId !== this._hoveredAsteroidId) {
             this._hoveredAsteroidId = newId;
             this._redrawHoverRing();
-            this.onHoverEntityChange?.(newId !== null);
+          }
+
+          // Station hover
+          const newHoveredStation = this.stationInfo
+            ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
+              this.stationRadius + 5
+            : false;
+          if (newHoveredStation !== this._hoveredStation) {
+            this._hoveredStation = newHoveredStation;
+            if (this.stationOverlay) {
+              this.stationOverlay.visible = newHoveredStation || this._selectedStation;
+            }
+          }
+
+          // Unified cursor callback
+          const isHovering = newId !== null || newHoveredStation;
+          if (isHovering !== this._isHoveringEntity) {
+            this._isHoveringEntity = isHovering;
+            this.onHoverEntityChange?.(isHovering);
           }
         }
       },
-      { signal },
+      { signal }
     );
 
     const onPointerEnd = (e: PointerEvent) => {
@@ -365,15 +403,24 @@ export class WorldRenderer {
       const moved = Math.hypot(e.clientX - this.pointerDownX, e.clientY - this.pointerDownY);
       if (moved < CLICK_MOVE_THRESHOLD) {
         const rect = el.getBoundingClientRect();
-        const world = this.camera.screenToWorld(
-          e.clientX - rect.left,
-          e.clientY - rect.top,
-        );
+        const world = this.camera.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
         const tolerance = Math.max(15, 20 / this.camera.zoom);
         const hit = this.asteroidLayer.hitTest(world.x, world.y, tolerance);
+        const stationHit = this.stationInfo
+          ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
+            this.stationRadius + 5
+          : false;
         if (hit) {
+          this._selectedStation = false;
+          if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;
           this.onAsteroidClick?.(hit.id);
+        } else if (stationHit) {
+          this._selectedStation = true;
+          if (this.stationOverlay) this.stationOverlay.visible = true;
+          this.onStationClick?.();
         } else {
+          this._selectedStation = false;
+          if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;
           this.onEmptyClick?.(world.x, world.y);
         }
       }
@@ -391,7 +438,7 @@ export class WorldRenderer {
         this.app.renderer.resize(w, h);
         this.streamer.scheduleUpdate(this.camera);
       },
-      { signal },
+      { signal }
     );
   }
 }

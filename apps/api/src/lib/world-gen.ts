@@ -32,6 +32,12 @@ export interface GeneratedAsteroid {
   veins: GeneratedVein[];
 }
 
+export interface GeneratedSpawnSlot {
+  slotIndex: number;
+  x: number;
+  y: number;
+}
+
 // ── Chunk coordinate helper ───────────────────────────────────────────────────
 
 /**
@@ -191,6 +197,7 @@ function buildAsteroid(x: number, y: number, zone: ZoneType, rng: SeededRng): Ge
 export interface GenerateWorldResult {
   worldRadius: number;
   generatedAsteroids: GeneratedAsteroid[];
+  generatedSpawnSlots: GeneratedSpawnSlot[];
 }
 
 /**
@@ -203,9 +210,36 @@ export interface GenerateWorldResult {
  *   frontier (55–80%) → medium/small
  *   spawnRing (80–100%)→ small/medium, always visible
  */
+// ── Spawn slot generation ─────────────────────────────────────────────────────
+// Uses a separate RNG stream so changing spawn config doesn't shift asteroid RNG.
+
+function generateSpawnSlots(
+  playerCount: number,
+  worldRadius: number,
+  worldSeed: string,
+): GeneratedSpawnSlot[] {
+  const rng = new SeededRng(worldSeed + ':spawn');
+  const slotRadius = worldRadius * WORLD_CONFIG.SPAWN_CONFIG.RING_FRACTION;
+  // Random starting angle so different seeds give different orientations
+  const startAngle = rng.next() * 2 * Math.PI;
+
+  return Array.from({ length: playerCount }, (_, i) => {
+    const angle = startAngle + (2 * Math.PI * i) / playerCount;
+    return {
+      slotIndex: i,
+      x: Math.round(Math.cos(angle) * slotRadius),
+      y: Math.round(Math.sin(angle) * slotRadius),
+    };
+  });
+}
+
 export const generateWorld = (playerCount: number, worldSeed: string): GenerateWorldResult => {
   const worldRadius = WORLD_CONFIG.BASE_RADIUS + playerCount * WORLD_CONFIG.RADIUS_PER_PLAYER;
   const rng = new SeededRng(worldSeed);
+
+  // Generate spawn slots first (independent RNG stream)
+  const generatedSpawnSlots = generateSpawnSlots(playerCount, worldRadius, worldSeed);
+  const spawnSafeRadiusSq = WORLD_CONFIG.SPAWN_CONFIG.SAFE_RADIUS ** 2;
 
   const placedPositions: Array<{ x: number; y: number }> = [];
   const generatedAsteroids: GeneratedAsteroid[] = [];
@@ -241,9 +275,24 @@ export const generateWorld = (playerCount: number, worldSeed: string): GenerateW
           for (const p of placedPositions) {
             const dx = p.x - x;
             const dy = p.y - y;
-            if (dx * dx + dy * dy < minDistSq) { tooClose = true; break; }
+            if (dx * dx + dy * dy < minDistSq) {
+              tooClose = true;
+              break;
+            }
           }
           if (tooClose) continue;
+
+          // Safe-zone check: no asteroid within SAFE_RADIUS of any spawn slot
+          let inSpawnZone = false;
+          for (const slot of generatedSpawnSlots) {
+            const dx = slot.x - x;
+            const dy = slot.y - y;
+            if (dx * dx + dy * dy < spawnSafeRadiusSq) {
+              inSpawnZone = true;
+              break;
+            }
+          }
+          if (inSpawnZone) continue;
 
           placedPositions.push({ x, y });
           generatedAsteroids.push(buildAsteroid(x, y, zone, rng));
@@ -257,6 +306,6 @@ export const generateWorld = (playerCount: number, worldSeed: string): GenerateW
     }
   }
 
-  return { worldRadius, generatedAsteroids };
-};
+  return { worldRadius, generatedAsteroids, generatedSpawnSlots };
+};;
 

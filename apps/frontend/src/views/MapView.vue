@@ -61,16 +61,14 @@ onMounted(async () => {
     selectionStore.select({ type: 'asteroid', id });
   };
 
-  // Empty space clicked → check station hit, else deselect all
-  renderer.onEmptyClick = (wx, wy) => {
-    const station = stationInfo;
-    if (station && stationId.value) {
-      if (Math.abs(wx - station.x) <= 60 && Math.abs(wy - station.y) <= 39) {
-        selectionStore.deselect();
-        stationPanelOpen.value = true;
-        return;
-      }
-    }
+  // Station clicked → open station panel
+  renderer.onStationClick = () => {
+    selectionStore.deselect();
+    stationPanelOpen.value = true;
+  };
+
+  // Empty space clicked → deselect all
+  renderer.onEmptyClick = () => {
     selectionStore.deselect();
     stationPanelOpen.value = false;
   };
