@@ -12,7 +12,7 @@ export const WORLD_CONFIG = {
   /** Base world radius regardless of player count (world units) */
   BASE_RADIUS: 2000,
   /** Additional radius per player entity (human + AI) */
-  RADIUS_PER_PLAYER: 600,
+  RADIUS_PER_PLAYER: 500,
   /** Deterministic seed for world generation. Change = new world layout. */
   WORLD_SEED: 'orions-frontier-v1',
 
@@ -35,10 +35,10 @@ export const WORLD_CONFIG = {
   // ── Asteroid density (asteroids per chunk, min–max) ───────────────────────
 
   ZONE_DENSITY: {
-    core: { min: 2, max: 4 },
-    midRing: { min: 3, max: 6 },
-    frontier: { min: 4, max: 8 },
-    spawnRing: { min: 6, max: 12 },
+    core: { min: 2, max: 3 },
+    midRing: { min: 3, max: 5 },
+    frontier: { min: 4, max: 6 },
+    spawnRing: { min: 5, max: 8 },
   },
 
   // ── Size weights per zone (unitless, higher = more likely) ───────────────
@@ -46,7 +46,7 @@ export const WORLD_CONFIG = {
   ZONE_SIZE_WEIGHTS: {
     core: { small: 0, medium: 0, large: 40, massive: 60 },
     midRing: { small: 0, medium: 30, large: 60, massive: 10 },
-    frontier: { small: 30, medium: 60, large: 10, massive: 0 },
+    frontier: { small: 35, medium: 65, large: 0, massive: 0 },
     spawnRing: { small: 70, medium: 30, large: 0, massive: 0 },
   },
 
@@ -229,7 +229,7 @@ export const WORLD_CONFIG = {
     /** Fraction of worldRadius at which spawn slots are placed */
     RING_FRACTION: 0.88,
     /** No asteroid may be placed within this distance of a spawn slot (world units) */
-    SAFE_RADIUS: 500,
+    SAFE_RADIUS: 250,
   },
 } as const;
 

@@ -35,7 +35,6 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { apiClient } from '../lib/api-client';
 import { wsClient, type PingStats } from '../lib/ws-client';
-import { useAuthStore } from '../stores/auth';
 
 interface HealthResponse {
   status: string;
@@ -91,11 +90,6 @@ let unsubscribe: (() => void) | null = null;
 
 onMounted(() => {
   fetchHealth();
-
-  const authStore = useAuthStore();
-  if (authStore.token) {
-    wsClient.connect(authStore.token);
-  }
 
   unsubscribe = wsClient.onStatusChange((stats) => {
     wsStats.value = stats;

@@ -9,7 +9,7 @@ export { CHUNK_SIZE };
 export const ZOOM_MIN = 0.06;
 export const ZOOM_MAX = 4.0;
 /** Starting zoom: gives a good overview of the immediate world */
-export const ZOOM_INITIAL = 0.14;
+export const ZOOM_INITIAL = 0.5;
 /** Zoom multiplier per mouse wheel tick */
 export const ZOOM_STEP = 0.12;
 
