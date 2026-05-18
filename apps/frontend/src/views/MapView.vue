@@ -147,6 +147,7 @@ function cursorClass() {
       <AsteroidPanel
         v-if="selectionStore.selected?.type === 'asteroid'"
         :asteroid-id="selectionStore.selected.id"
+        :station-id="stationId"
         @close="selectionStore.deselect()"
       />
     </transition>

@@ -10,6 +10,7 @@ import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.j
 import { stations } from '../lib/db/schema/stations.js';
 import type {
   AsteroidDetail,
+  AsteroidDetailAssignment,
   AsteroidSize,
   AsteroidVein,
   AsteroidResourceStorage,
@@ -108,8 +109,21 @@ export const getAsteroidById = async (
     db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, id)),
     db.select().from(asteroidResourceStorage).where(eq(asteroidResourceStorage.asteroidId, id)),
     db
-      .select({ id: asteroidAssignments.id })
+      .select({
+        id: asteroidAssignments.id,
+        asteroidId: asteroidAssignments.asteroidId,
+        stationId: asteroidAssignments.stationId,
+        spacecraftDefinitionId: asteroidAssignments.spacecraftDefinitionId,
+        spacecraftName: spacecraftDefinitions.name,
+        assignedAmount: asteroidAssignments.assignedAmount,
+        assignedAt: asteroidAssignments.assignedAt,
+        lastTick: asteroidAssignments.lastTick,
+      })
       .from(asteroidAssignments)
+      .innerJoin(
+        spacecraftDefinitions,
+        eq(spacecraftDefinitions.id, asteroidAssignments.spacecraftDefinitionId)
+      )
       .where(eq(asteroidAssignments.asteroidId, id)),
   ]);
 
@@ -145,6 +159,18 @@ export const getAsteroidById = async (
         updatedAt: s.updatedAt.toISOString(),
       })
     ),
+    assignments: assignmentRows.map(
+      (a): AsteroidDetailAssignment => ({
+        id: a.id,
+        asteroidId: a.asteroidId,
+        stationId: a.stationId,
+        spacecraftDefinitionId: a.spacecraftDefinitionId,
+        spacecraftName: a.spacecraftName,
+        assignedAmount: a.assignedAmount,
+        assignedAt: a.assignedAt.toISOString(),
+        lastTick: a.lastTick.toISOString(),
+      })
+    ),
     activeMiningAssignments: assignmentRows.length,
   };
 };
@@ -161,12 +187,7 @@ export interface CreateAssignmentParams {
 }
 
 export interface CreateAssignmentError {
-  code:
-    | 'ASTEROID_NOT_FOUND'
-    | 'SLOTS_FULL'
-    | 'STATION_NOT_FOUND'
-    | 'SPACECRAFT_NOT_FOUND'
-    | 'ALREADY_ASSIGNED';
+  code: 'ASTEROID_NOT_FOUND' | 'SLOTS_FULL' | 'STATION_NOT_FOUND' | 'SPACECRAFT_NOT_FOUND';
   message: string;
 }
 
@@ -200,22 +221,10 @@ export const createAsteroidAssignment = async (
     .limit(1);
   if (!scraft) return { code: 'SPACECRAFT_NOT_FOUND', message: 'Spacecraft definition not found' };
 
-  // Check slot capacity
+  // Slots begrenzen die Anzahl unterschiedlicher Spieler (Stationen) pro Asteroid.
+  // Ein Spieler der bereits präsent ist kann beliebig viele weitere Miner zuweisen.
   const maxSlots = WORLD_CONFIG.MINING_SLOTS[asteroid.size] ?? 1;
-  const [slotRow] = await db
-    .select({ count: sql<number>`count(distinct station_id)::int` })
-    .from(asteroidAssignments)
-    .where(eq(asteroidAssignments.asteroidId, asteroidId));
-  const usedSlots = slotRow?.count ?? 0;
-  if (usedSlots >= maxSlots) {
-    return {
-      code: 'SLOTS_FULL',
-      message: `Asteroid has no free mining slots (${usedSlots}/${maxSlots} used)`,
-    };
-  }
-
-  // Check station not already assigned to this asteroid
-  const [existing] = await db
+  const [existingStation] = await db
     .select({ id: asteroidAssignments.id })
     .from(asteroidAssignments)
     .where(
@@ -225,11 +234,43 @@ export const createAsteroidAssignment = async (
       )
     )
     .limit(1);
-  if (existing)
-    return {
-      code: 'ALREADY_ASSIGNED',
-      message: 'Station already has miners assigned to this asteroid',
-    };
+
+  if (!existingStation) {
+    // Neuer Spieler — prüfe ob noch ein Slot frei ist
+    const [slotRow] = await db
+      .select({ count: sql<number>`count(distinct station_id)::int` })
+      .from(asteroidAssignments)
+      .where(eq(asteroidAssignments.asteroidId, asteroidId));
+    const usedSlots = slotRow?.count ?? 0;
+    if (usedSlots >= maxSlots) {
+      return {
+        code: 'SLOTS_FULL',
+        message: `Asteroid is already claimed by ${usedSlots}/${maxSlots} player(s)`,
+      };
+    }
+  }
+
+  // Gleicher Spacecraft-Typ bereits vorhanden — Menge erhöhen statt neue Row
+  const [existingByType] = await db
+    .select({ id: asteroidAssignments.id, assignedAmount: asteroidAssignments.assignedAmount })
+    .from(asteroidAssignments)
+    .where(
+      and(
+        eq(asteroidAssignments.asteroidId, asteroidId),
+        eq(asteroidAssignments.stationId, stationId),
+        eq(asteroidAssignments.spacecraftDefinitionId, spacecraftDefinitionId)
+      )
+    )
+    .limit(1);
+
+  if (existingByType) {
+    const [updated] = await db
+      .update(asteroidAssignments)
+      .set({ assignedAmount: existingByType.assignedAmount + assignedAmount })
+      .where(eq(asteroidAssignments.id, existingByType.id))
+      .returning({ id: asteroidAssignments.id });
+    return { id: updated!.id };
+  }
 
   const [inserted] = await db
     .insert(asteroidAssignments)
@@ -237,7 +278,7 @@ export const createAsteroidAssignment = async (
     .returning({ id: asteroidAssignments.id });
 
   return { id: inserted!.id };
-};
+};;
 
 // ============================================================================
 // removeAsteroidAssignment
@@ -255,4 +296,77 @@ export const removeAsteroidAssignment = async (
     )
     .returning({ id: asteroidAssignments.id });
   return result.length > 0;
+};
+
+// ============================================================================
+// updateAsteroidAssignment — change assignedAmount
+// ============================================================================
+
+export const updateAsteroidAssignment = async (
+  assignmentId: string,
+  stationId: string,
+  assignedAmount: number
+): Promise<{ id: string } | null> => {
+  const db = getDb();
+  const result = await db
+    .update(asteroidAssignments)
+    .set({ assignedAmount })
+    .where(
+      and(eq(asteroidAssignments.id, assignmentId), eq(asteroidAssignments.stationId, stationId))
+    )
+    .returning({ id: asteroidAssignments.id });
+  return result[0] ?? null;
+};
+
+// ============================================================================
+// getStationMiningAssignments — all assignments for a station with asteroid info
+// ============================================================================
+
+export interface StationMiningAssignment {
+  id: string;
+  asteroidId: string;
+  asteroidX: number;
+  asteroidY: number;
+  asteroidSize: AsteroidSize;
+  asteroidStability: number;
+  spacecraftDefinitionId: string;
+  assignedAmount: number;
+  assignedAt: string;
+  lastTick: string;
+}
+
+export const getStationMiningAssignments = async (
+  stationId: string
+): Promise<StationMiningAssignment[]> => {
+  const db = getDb();
+
+  const rows = await db
+    .select({
+      id: asteroidAssignments.id,
+      asteroidId: asteroidAssignments.asteroidId,
+      spacecraftDefinitionId: asteroidAssignments.spacecraftDefinitionId,
+      assignedAmount: asteroidAssignments.assignedAmount,
+      assignedAt: asteroidAssignments.assignedAt,
+      lastTick: asteroidAssignments.lastTick,
+      asteroidX: asteroids.x,
+      asteroidY: asteroids.y,
+      asteroidSize: asteroids.size,
+      asteroidStability: asteroids.stability,
+    })
+    .from(asteroidAssignments)
+    .innerJoin(asteroids, eq(asteroids.id, asteroidAssignments.asteroidId))
+    .where(eq(asteroidAssignments.stationId, stationId));
+
+  return rows.map((r) => ({
+    id: r.id,
+    asteroidId: r.asteroidId,
+    asteroidX: r.asteroidX,
+    asteroidY: r.asteroidY,
+    asteroidSize: r.asteroidSize as AsteroidSize,
+    asteroidStability: r.asteroidStability,
+    spacecraftDefinitionId: r.spacecraftDefinitionId,
+    assignedAmount: r.assignedAmount,
+    assignedAt: r.assignedAt.toISOString(),
+    lastTick: r.lastTick.toISOString(),
+  }));
 };

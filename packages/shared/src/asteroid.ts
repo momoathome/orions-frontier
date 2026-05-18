@@ -123,6 +123,21 @@ export interface VisibleAsteroid {
 }
 
 // ============================================================================
+// AsteroidDetailAssignment — extended assignment row returned inside AsteroidDetail
+// ============================================================================
+
+export interface AsteroidDetailAssignment {
+  id: string;
+  asteroidId: string;
+  stationId: string;
+  spacecraftDefinitionId: string;
+  spacecraftName: string;
+  assignedAmount: number;
+  assignedAt: string;
+  lastTick: string;
+}
+
+// ============================================================================
 // AsteroidDetail — returned by GET /asteroids/:id
 // Full detail including veins, buffer, and assignments.
 // ============================================================================
@@ -130,6 +145,7 @@ export interface VisibleAsteroid {
 export interface AsteroidDetail extends Asteroid {
   veins: AsteroidVein[];
   storage: AsteroidResourceStorage[];
+  assignments: AsteroidDetailAssignment[];
   /** Count of active assignment rows */
   activeMiningAssignments: number;
 }

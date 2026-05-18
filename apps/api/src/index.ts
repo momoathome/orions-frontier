@@ -13,6 +13,8 @@ import { initDb } from './lib/db/index.js';
 import { initRedis } from './lib/redis.js';
 import { startActionWorker } from './queue/workers/action-worker.js';
 import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
+import { startMiningTickWorker } from './queue/workers/mining-tick-worker.js';
+import { scheduleMiningTickCron } from './queue/queues/mining-tick-queue.js';
 import {
   seedSpacecraftDefinitions,
   seedBuildingDefinitions,
@@ -43,8 +45,9 @@ const start = async () => {
     });
 
     await fastify.register(cors, {
-      origin: process.env['CORS_ORIGIN'] || '*',
+      origin: process.env['CORS_ORIGIN'] || true,
       credentials: true,
+      methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     });
 
     // Custom plugins
@@ -66,6 +69,8 @@ const start = async () => {
     // Start job queue workers
     startActionWorker();
     startSpacecraftBuildWorker();
+    startMiningTickWorker();
+    await scheduleMiningTickCron();
     fastify.log.info('Queue workers started');
 
     // Seed static data

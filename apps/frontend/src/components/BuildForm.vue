@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { apiClient } from '../lib/api-client';
 import { ALL_RESOURCES, formatBuildTime } from '../lib/spacecraft-utils';
@@ -15,6 +15,20 @@ const buildAmount = ref(1);
 const buildSubmitting = ref(false);
 const buildError = ref<string | null>(null);
 const buildSuccess = ref(false);
+const playerResources = ref<Record<string, number>>({});
+
+async function fetchPlayerResources() {
+  try {
+    const { data } = await apiClient.get<{ success: true; data: Record<string, number> }>(
+      '/me/resources',
+    );
+    playerResources.value = data.data;
+  } catch {
+    // silently ignore – Max button simply won't work without fresh data
+  }
+}
+
+onMounted(() => fetchPlayerResources());
 
 // Reset state when selected ship changes
 watch(
@@ -23,8 +37,21 @@ watch(
     buildAmount.value = 1;
     buildError.value = null;
     buildSuccess.value = false;
+    fetchPlayerResources();
   },
 );
+
+function setMaxAmount() {
+  const costs = props.ship.definition.costs;
+  if (costs.length === 0) return;
+  const max = Math.min(
+    ...costs.map((c) => {
+      const have = playerResources.value[c.resourceKey] ?? 0;
+      return c.amount > 0 ? Math.floor(have / c.amount) : Infinity;
+    }),
+  );
+  buildAmount.value = Math.max(1, isFinite(max) ? max : 1);
+}
 
 function costFor(resourceKey: string): number {
   return props.ship.definition.costs.find((c) => c.resourceKey === resourceKey)?.amount ?? 0;
@@ -82,6 +109,12 @@ async function submitBuild() {
           class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
         >
           +
+        </button>
+        <button
+          @click="setMaxAmount"
+          class="px-2 h-7 flex items-center justify-center rounded border border-white/10 text-white/35 hover:bg-white/8 hover:text-white/70 transition text-[9px] uppercase tracking-widest"
+        >
+          Max
         </button>
       </div>
     </div>

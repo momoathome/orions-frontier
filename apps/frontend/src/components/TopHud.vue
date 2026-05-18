@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { apiClient } from '../lib/api-client.js';
 import type { ResourceKey } from '@orions-frontier/shared';
+import { ALL_RESOURCES } from '../lib/spacecraft-utils';
 
 type ResourceEntry = {
   key: ResourceKey;
@@ -21,15 +22,17 @@ async function fetchResources() {
     const { data } = await apiClient.get<{ success: true; data: Record<ResourceKey, number> }>(
       '/me/resources'
     );
-    resourceEntries.value = Object.entries(data.data).map(([key, amount]) => {
-      const def = resources[key as ResourceKey];
-      return {
-        key: key as ResourceKey,
-        name: def.name,
-        image: def.image,
-        amount: amount as number,
-      };
-    });
+    resourceEntries.value = ALL_RESOURCES
+      .filter((key) => data.data[key] !== undefined)
+      .map((key) => {
+        const def = resources[key as ResourceKey];
+        return {
+          key: key as ResourceKey,
+          name: def.name,
+          image: def.image,
+          amount: data.data[key] as number,
+        };
+      });
     isOnline.value = true;
   } catch {
     isOnline.value = false;
