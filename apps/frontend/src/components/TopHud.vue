@@ -38,7 +38,7 @@ async function fetchResources() {
 
 onMounted(() => {
   fetchResources();
-  pollInterval = setInterval(fetchResources, 10_000);
+  pollInterval = setInterval(fetchResources, 30_000);
 });
 
 onUnmounted(() => {

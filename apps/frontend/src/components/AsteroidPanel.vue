@@ -191,9 +191,9 @@ function veinTotalYield(vein: AsteroidVein) {
               :style="`background:${resourceColor(vein.resourceKey)}`"
             />
             <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-[9px] text-white/25 uppercase tracking-widest">{{
-                VEIN_LABELS[vein.veinType]
-              }}</span>
+              <span class="text-[9px] text-white/25 uppercase tracking-widest">
+                {{ VEIN_LABELS[vein.veinType] }}
+              </span>
               <div class="flex items-baseline gap-2 flex-wrap">
                 <span
                   class="text-[12px] font-medium"
@@ -209,8 +209,9 @@ function veinTotalYield(vein: AsteroidVein) {
                 <span
                   class="text-[9px] uppercase tracking-widest font-semibold"
                   :style="`color:${purityColor(vein.purityTier)}`"
-                  >{{ vein.purityTier }}</span
                 >
+                  {{ vein.purityTier }}
+                </span>
                 <span class="text-[9px] text-white/30 tabular-nums"
                   >×{{ vein.purity.toFixed(2) }}</span
                 >

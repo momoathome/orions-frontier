@@ -26,7 +26,7 @@ export const buildings: BuildingSeedDefinition[] = [
     name: 'Core',
     description:
       'The heart of your station. Increases overall station capacity and unlocks advanced systems.',
-    image: '/assets/buildings/core.png',
+    image: '/assets/buildings/core.webp',
     baseBuildTime: 60,
     maxLevel: 20,
     effectType: 'station_progression',
@@ -34,9 +34,8 @@ export const buildings: BuildingSeedDefinition[] = [
   {
     key: 'shipyard',
     name: 'Shipyard',
-    description:
-      'Constructs and upgrades spacecraft. Higher levels unlock advanced ship classes.',
-    image: '/assets/buildings/shipyard.png',
+    description: 'Constructs and upgrades spacecraft. Higher levels unlock advanced ship classes.',
+    image: '/assets/buildings/shipyard.webp',
     baseBuildTime: 90,
     maxLevel: 15,
     effectType: 'spacecraft_unlock',
@@ -44,9 +43,8 @@ export const buildings: BuildingSeedDefinition[] = [
   {
     key: 'warehouse',
     name: 'Warehouse',
-    description:
-      'Expands resource storage capacity and protects stored goods from raids.',
-    image: '/assets/buildings/warehouse.png',
+    description: 'Expands resource storage capacity and protects stored goods from raids.',
+    image: '/assets/buildings/warehouse.webp',
     baseBuildTime: 45,
     maxLevel: 20,
     effectType: 'storage_capacity',
@@ -56,7 +54,7 @@ export const buildings: BuildingSeedDefinition[] = [
     name: 'Scanner',
     description:
       'Extends detection range for asteroids and hostile vessels in surrounding sectors.',
-    image: '/assets/buildings/scanner.png',
+    image: '/assets/buildings/scanner.webp',
     baseBuildTime: 60,
     maxLevel: 15,
     effectType: 'scanner_strength',
@@ -64,9 +62,8 @@ export const buildings: BuildingSeedDefinition[] = [
   {
     key: 'guardian',
     name: 'Guardian',
-    description:
-      'Reinforces station turrets and shielding systems against hostile attacks.',
-    image: '/assets/buildings/guardian.png',
+    description: 'Reinforces station turrets and shielding systems against hostile attacks.',
+    image: '/assets/buildings/guardian.webp',
     baseBuildTime: 120,
     maxLevel: 15,
     effectType: 'defense_power',
@@ -74,9 +71,8 @@ export const buildings: BuildingSeedDefinition[] = [
   {
     key: 'laboratory',
     name: 'Laboratory',
-    description:
-      'Generates research points used for unlocking advanced technologies.',
-    image: '/assets/buildings/laboratory.png',
+    description: 'Generates research points used for unlocking advanced technologies.',
+    image: '/assets/buildings/laboratory.webp',
     baseBuildTime: 90,
     maxLevel: 15,
     effectType: 'research_points',
