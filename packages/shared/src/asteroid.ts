@@ -151,6 +151,8 @@ export interface AsteroidDetail extends Asteroid {
   assignments: AsteroidDetailAssignment[];
   /** Count of active assignment rows */
   activeMiningAssignments: number;
+  /** Resources currently in traveling transport/recall trips from this asteroid */
+  inTransit: Record<string, number>;
 }
 
 

@@ -24,11 +24,11 @@ export interface ActiveTrip {
 
 /** Color per purpose */
 const PURPOSE_COLOR: Record<ActiveTrip['purpose'], number> = {
-  mine: 0x44aaff,
-  transport: 0x44ff88,
-  recall: 0xffaa22,
-  return: 0x44aaff,
-  combat: 0xff4444,
+  mine: 0x44aaff, // blue
+  transport: 0x44ff88, // green
+  recall: 0xffaa22, // orange
+  return: 0x44aaff, // blue (same as mine, but could be different if desired)
+  combat: 0xff4444, // red
 };
 
 export class TripLayer {
@@ -58,8 +58,15 @@ export class TripLayer {
       const duration = trip.arrivesAt - trip.departedAt;
       if (duration <= 0) continue;
 
+      // Not started yet (pre-created return leg) — skip until its time comes
+      if (trip.departedAt > now) continue;
+
       const elapsed = now - trip.departedAt;
       const progress = Math.max(0, Math.min(1, elapsed / duration));
+
+      // Already arrived — skip (avoid frozen dot at destination)
+      if (progress >= 1) continue;
+
       const x = trip.fromX + (trip.toX - trip.fromX) * progress;
       const y = trip.fromY + (trip.toY - trip.fromY) * progress;
 

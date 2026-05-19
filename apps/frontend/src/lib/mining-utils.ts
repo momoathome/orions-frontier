@@ -8,6 +8,9 @@ export const VEIN_ALLOCATION: Record<string, number> = {
   trace: 0.05,
 };
 
+/** Must stay in sync with WORLD_CONFIG.MINING_RATE_MULTIPLIER in world-config.ts */
+export const MINING_RATE_MULTIPLIER = 1;
+
 export const STABILITY_DEGRADATION_PER_HOUR = 0.05;
 export const STABILITY_REGEN_PER_HOUR = 0.01;
 
@@ -64,7 +67,8 @@ export function calcEffectiveRateByResource(
   for (const vein of veins) {
     const allocation = VEIN_ALLOCATION[vein.veinType] ?? 0.70;
     const cappedRate = Math.min(totalMiningPower * allocation * vein.purity, vein.yieldPerHour);
-    result[vein.resourceKey] = (result[vein.resourceKey] ?? 0) + cappedRate;
+    result[vein.resourceKey] =
+      (result[vein.resourceKey] ?? 0) + cappedRate * MINING_RATE_MULTIPLIER;
   }
   return result;
 }

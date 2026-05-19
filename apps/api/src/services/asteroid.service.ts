@@ -21,12 +21,9 @@ import type {
   VisibleAsteroid,
 } from '@orions-frontier/shared';
 import type { ResourceKey } from '@orions-frontier/shared';
+import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { tickAsteroidAssignments } from './mining-tick.service.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
-
-// ============================================================================
-// Asteroid Service
-// ============================================================================
 
 export interface ChunkQueryParams {
   minChunkX: number;
@@ -85,10 +82,7 @@ export const getVisibleChunkAsteroids = async (
 // getAsteroidById — triggers lazy tick, returns full detail
 // ============================================================================
 
-export const getAsteroidById = async (
-  id: string,
-  scannerStrength: number
-): Promise<AsteroidDetail | null> => {
+export const getAsteroidById = async (id: string, scannerStrength: number): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
   const [row] = await db
@@ -107,7 +101,7 @@ export const getAsteroidById = async (
 
   if (!refreshed) return null;
 
-  const [veins, storage, assignmentRows] = await Promise.all([
+  const [veins, storage, assignmentRows, travelingTrips] = await Promise.all([
     db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, id)),
     db.select().from(asteroidResourceStorage).where(eq(asteroidResourceStorage.asteroidId, id)),
     db
@@ -129,7 +123,27 @@ export const getAsteroidById = async (
         eq(spacecraftDefinitions.id, asteroidAssignments.spacecraftDefinitionId)
       )
       .where(eq(asteroidAssignments.asteroidId, id)),
+    // Traveling trips departing FROM this asteroid carrying cargo
+    db
+      .select({ cargoManifest: spacecraftTrips.cargoManifest })
+      .from(spacecraftTrips)
+      .where(
+        and(
+          eq(spacecraftTrips.fromId, id),
+          eq(spacecraftTrips.fromType, 'asteroid'),
+          eq(spacecraftTrips.status, 'traveling')
+        )
+      ),
   ]);
+
+  // Sum cargoManifest amounts across all traveling trips from this asteroid
+  const inTransit: Record<string, number> = {};
+  for (const trip of travelingTrips) {
+    if (!trip.cargoManifest) continue;
+    for (const [key, amount] of Object.entries(trip.cargoManifest as Record<string, number>)) {
+      inTransit[key] = (inTransit[key] ?? 0) + amount;
+    }
+  }
 
   return {
     id: refreshed.id,
@@ -178,8 +192,9 @@ export const getAsteroidById = async (
       })
     ),
     activeMiningAssignments: assignmentRows.length,
+    inTransit,
   };
-};
+};;
 
 // ============================================================================
 // createAsteroidAssignment

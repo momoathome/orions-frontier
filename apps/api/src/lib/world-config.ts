@@ -37,8 +37,8 @@ export const WORLD_CONFIG = {
   ZONE_DENSITY: {
     core: { min: 2, max: 3 },
     midRing: { min: 2, max: 4 },
-    frontier: { min: 3, max: 5 },
-    spawnRing: { min: 4, max: 6 },
+    frontier: { min: 3, max: 4 },
+    spawnRing: { min: 3, max: 5 },
   },
 
   // ── Size weights per zone (unitless, higher = more likely) ───────────────
@@ -75,10 +75,10 @@ export const WORLD_CONFIG = {
   // ── Yield budget per hour per size (before modifiers) ────────────────────
 
   YIELD_BUDGET: {
-    small: { min: 100, max: 180 },
-    medium: { min: 240, max: 360 },
-    large: { min: 600, max: 1100 },
-    massive: { min: 2200, max: 5000 },
+    small: { min: 300, max: 500 },
+    medium: { min: 800, max: 1100 },
+    large: { min: 1500, max: 2000 },
+    massive: { min: 2700, max: 3500 },
   },
 
   // ── Vein type modifier — fraction of budget this vein receives ───────────
@@ -243,9 +243,6 @@ export const WORLD_CONFIG = {
   //   speed=120 Fighter→ ~2.9h
   //   SpawnRing asteroids (≈3080 units from center) take proportionally less.
 
-  /** Multiplier: world-units per speed-unit per hour. Higher = faster travel. */
-  TRAVEL_SPEED_FACTOR: 1000,
-
   // ── Game Speed (dev tuning) ───────────────────────────────────────────────
   //
   // Central knobs for adjusting the pace of the game during development.
@@ -264,14 +261,17 @@ export const WORLD_CONFIG = {
   //   TRANSPORT_TICK_INTERVAL_MS  60_000 → check arrivals every 1 min (normal)
   //   TRANSPORT_TICK_INTERVAL_MS  10_000 → check every 10 s (fast debug)
 
+  /** Multiplier: world-units per speed-unit per hour. Higher = faster travel. */
+  TRAVEL_SPEED_FACTOR: 80,
+
   /** Global multiplier applied to all mined resource output. */
-  MINING_RATE_MULTIPLIER: 100,
+  MINING_RATE_MULTIPLIER: 1,
 
   /** How often the mining-tick BullMQ job runs (milliseconds). */
-  MINING_TICK_INTERVAL_MS: 15_000,
+  MINING_TICK_INTERVAL_MS: 60_000,
 
   /** How often the transport-tick BullMQ job runs (milliseconds). */
-  TRANSPORT_TICK_INTERVAL_MS: 10_000,
+  TRANSPORT_TICK_INTERVAL_MS: 30_000,
 } as const;
 
 export type ZoneType = keyof typeof WORLD_CONFIG.ZONES;

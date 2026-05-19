@@ -123,6 +123,10 @@ const totalBuffer = computed(() =>
   asteroid.value?.storage.reduce((s, r) => s + r.amount, 0) ?? 0,
 );
 
+const totalInTransit = computed(() =>
+  Object.values(asteroid.value?.inTransit ?? {}).reduce((s, n) => s + n, 0),
+);
+
 const stabilityChangePerHour = computed(() =>
   calcStabilityChangePerHour(
     totalMiningPowerRaw.value,
@@ -270,20 +274,43 @@ function formatCoord(n: number) { return n.toFixed(1); }
           <!-- Cap bar -->
           <div v-if="totalMinerCargo > 0" class="flex flex-col gap-1">
             <div class="flex justify-between text-[9px]">
-              <span class="text-white/25">{{ totalBuffer.toFixed(0) }} / {{ totalMinerCargo.toFixed(0) }}</span>
+              <span class="text-white/25">
+                {{ totalBuffer.toFixed(0) }}
+                <span v-if="totalInTransit > 0" class="text-amber-300/50"> +{{ totalInTransit.toFixed(0) }}↑</span>
+                / {{ totalMinerCargo.toFixed(0) }}
+              </span>
               <span
                 class="tabular-nums"
                 :class="totalBuffer >= totalMinerCargo ? 'text-amber-400/80' : 'text-white/20'"
               >{{ totalMinerCargo > 0 ? ((totalBuffer / totalMinerCargo) * 100).toFixed(0) : 0 }}%</span>
             </div>
-            <div class="h-1 rounded-full bg-white/6 overflow-hidden">
+            <!-- Bar: solid = in buffer, striped = in transit -->
+            <div class="h-1 rounded-full bg-white/6 overflow-hidden relative">
+              <!-- Solid fill (in buffer) -->
               <div
-                class="h-full rounded-full transition-all duration-700"
+                class="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
                 :class="totalBuffer >= totalMinerCargo ? 'bg-amber-400/70' : 'bg-cyan-400/40'"
-                :style="`width:${Math.min(100, totalMinerCargo > 0 ? (totalBuffer / totalMinerCargo) * 100 : 0).toFixed(0)}%`"
+                :style="`width:${Math.min(100, totalMinerCargo > 0 ? (totalBuffer / totalMinerCargo) * 100 : 0).toFixed(1)}%`"
+              />
+              <!-- Striped fill (in transit) -->
+              <div
+                v-if="totalInTransit > 0"
+                class="absolute top-0 h-full transition-all duration-700"
+                :style="`
+                  left:${Math.min(100, totalMinerCargo > 0 ? (totalBuffer / totalMinerCargo) * 100 : 0).toFixed(1)}%;
+                  width:${Math.min(100 - (totalMinerCargo > 0 ? (totalBuffer / totalMinerCargo) * 100 : 0), totalMinerCargo > 0 ? (totalInTransit / totalMinerCargo) * 100 : 0).toFixed(1)}%;
+                  background: repeating-linear-gradient(
+                    45deg,
+                    rgba(251,191,36,0.45) 0px,
+                    rgba(251,191,36,0.45) 2px,
+                    transparent 2px,
+                    transparent 5px
+                  );
+                `"
               />
             </div>
             <span v-if="totalBuffer >= totalMinerCargo" class="text-[8px] text-amber-400/70 uppercase tracking-widest">auto-recall pending</span>
+            <span v-else-if="totalInTransit > 0" class="text-[8px] text-amber-300/50 uppercase tracking-widest">in transit</span>
           </div>
 
           <div class="flex flex-col gap-1.5 mt-1">

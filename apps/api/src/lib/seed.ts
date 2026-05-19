@@ -214,6 +214,7 @@ export const seedSpawnSlots = async (): Promise<void> => {
 
 const DEV_EMAIL = 'dev@orion.local';
 const DEV_PASSWORD = 'dev123';
+const DEV_RESOURCE_AMOUNT = 200;
 
 export const seedDevUser = async (): Promise<void> => {
   const db = getDb();
@@ -247,14 +248,80 @@ export const seedDevUser = async (): Promise<void> => {
     devUserId = devUser.id;
   }
 
-  // Skip station setup if station already exists for this user
+  // Check if station already exists for this user
   const existingStation = await db
     .select({ id: stations.id })
     .from(stations)
     .where(eq(stations.userId, devUserId))
     .limit(1);
 
-  if (existingStation.length > 0) return;
+  let devStationId: string;
+
+  if (existingStation.length > 0) {
+    // Station exists — check if it's fully equipped and fill in any missing parts
+    devStationId = existingStation[0]!.id;
+
+    const [existingResources, existingBuildings, existingSpacecrafts] = await Promise.all([
+      db
+        .select({ id: stationResources.resourceKey })
+        .from(stationResources)
+        .where(eq(stationResources.stationId, devStationId))
+        .limit(1),
+      db
+        .select({ id: stationBuildings.id })
+        .from(stationBuildings)
+        .where(eq(stationBuildings.stationId, devStationId))
+        .limit(1),
+      db
+        .select({ id: stationSpacecrafts.id })
+        .from(stationSpacecrafts)
+        .where(eq(stationSpacecrafts.stationId, devStationId))
+        .limit(1),
+    ]);
+
+    if (existingResources.length === 0) {
+      await db.insert(stationResources).values(
+        resourceKeys.map((key) => ({
+          stationId: devStationId,
+          resourceKey: key,
+          amount: DEV_RESOURCE_AMOUNT,
+        }))
+      );
+    }
+
+    if (existingBuildings.length === 0) {
+      const allBuildings = await db
+        .select({ id: buildingDefinitions.id })
+        .from(buildingDefinitions);
+      if (allBuildings.length > 0) {
+        await db.insert(stationBuildings).values(
+          allBuildings.map((b) => ({
+            stationId: devStationId,
+            buildingDefinitionId: b.id,
+            level: 1,
+          }))
+        );
+      }
+    }
+
+    if (existingSpacecrafts.length === 0) {
+      const allSpacecraftDefs = await db
+        .select({ id: spacecraftDefinitions.id })
+        .from(spacecraftDefinitions);
+      if (allSpacecraftDefs.length > 0) {
+        await db.insert(stationSpacecrafts).values(
+          allSpacecraftDefs.map((s) => ({
+            stationId: devStationId,
+            spacecraftDefinitionId: s.id,
+            amount: 5,
+            lockedAmount: 0,
+          }))
+        );
+      }
+    }
+
+    return;
+  }
 
   // 2. Create station at spawn slot 0
   const [slot0] = await db.select().from(spawnSlots).where(eq(spawnSlots.slotIndex, 0)).limit(1);
@@ -273,15 +340,17 @@ export const seedDevUser = async (): Promise<void> => {
 
   if (!devStation) throw new Error('Failed to create dev station');
 
-  // Mark slot 0 as claimed
-  await db.update(spawnSlots).set({ stationId: devStation.id }).where(eq(spawnSlots.id, slot0.id));
+  devStationId = devStation.id;
 
-  // 3. Seed resources (generous amounts for testing)
+  // Mark slot 0 as claimed
+  await db.update(spawnSlots).set({ stationId: devStationId }).where(eq(spawnSlots.id, slot0.id));
+
+  // 3. Seed resources
   await db.insert(stationResources).values(
     resourceKeys.map((key) => ({
-      stationId: devStation.id,
+      stationId: devStationId,
       resourceKey: key,
-      amount: 50_000,
+      amount: DEV_RESOURCE_AMOUNT,
     }))
   );
 
@@ -291,7 +360,7 @@ export const seedDevUser = async (): Promise<void> => {
   if (allBuildings.length > 0) {
     await db.insert(stationBuildings).values(
       allBuildings.map((b) => ({
-        stationId: devStation.id,
+        stationId: devStationId,
         buildingDefinitionId: b.id,
         level: 1,
       }))
@@ -306,11 +375,11 @@ export const seedDevUser = async (): Promise<void> => {
   if (allSpacecraftDefs.length > 0) {
     await db.insert(stationSpacecrafts).values(
       allSpacecraftDefs.map((s) => ({
-        stationId: devStation.id,
+        stationId: devStationId,
         spacecraftDefinitionId: s.id,
         amount: 5,
         lockedAmount: 0,
       }))
     );
   }
-};
+};;

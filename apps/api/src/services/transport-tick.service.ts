@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, lte, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import {
   asteroids,
@@ -12,7 +12,6 @@ import { spacecraftTrips, type CargoManifest } from '../lib/db/schema/spacecraft
 import { stations } from '../lib/db/schema/stations.js';
 import { calcDistance, calcArrivesAt } from '../lib/travel.js';
 
-
 // ============================================================================
 // Transport Tick Service
 //
@@ -24,9 +23,14 @@ import { calcDistance, calcArrivesAt } from '../lib/travel.js';
 // ============================================================================
 
 // ── Priority score weights (tunable) ────────────────────────────────────────
-const W_FILL = 1.0;     // raw buffer amount
-const W_RATE = 60.0;    // mining rate/h advantage (1 unit/h = 60 score points)
+const W_FILL = 0.9; // raw buffer amount
+const W_RATE = 60.0; // mining rate/h advantage (1 unit/h = 60 score points)
 const W_DISTANCE = 0.1; // distance cost per world unit
+
+// Minimum fill ratio before a transporter is dispatched.
+// 0.5 = dispatch when buffer >= 50% of the transporter's cargo capacity.
+// Lower values = more frequent trips (partially loaded), higher = more efficient but slower.
+const MIN_FILL_RATIO = 0.5;
 
 // ============================================================================
 // processTripArrivals
@@ -47,12 +51,7 @@ export const processTripArrivals = async (): Promise<number> => {
   const arrivedTrips = await db
     .select()
     .from(spacecraftTrips)
-    .where(
-      and(
-        eq(spacecraftTrips.status, 'traveling'),
-        lte(spacecraftTrips.arrivesAt, now)
-      )
-    );
+    .where(and(eq(spacecraftTrips.status, 'traveling'), lte(spacecraftTrips.arrivesAt, now)));
 
   let settled = 0;
   for (const trip of arrivedTrips) {
@@ -64,8 +63,16 @@ export const processTripArrivals = async (): Promise<number> => {
       console.error({ tripId: trip.id, err }, 'Failed to settle trip arrival');
     }
   }
+
+  // Delete arrived trips older than 24h — keeps the table small while
+  // still covering the 1h window used by getTransportEffectiveRates.
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  await db
+    .delete(spacecraftTrips)
+    .where(and(eq(spacecraftTrips.status, 'arrived'), lt(spacecraftTrips.arrivesAt, cutoff)));
+
   return settled;
-};
+};;
 
 async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Promise<void> {
   const db = getDb();
@@ -128,7 +135,8 @@ async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Pro
         );
     } else if (trip.purpose === 'transport' && trip.toType === 'asteroid') {
       // ── Transporter arrived at asteroid (outbound leg) ─────────────────────
-      // Return trip was already created at dispatch time — nothing to do here. else if (trip.purpose === 'return' && trip.toType === 'station') {
+      // Return trip was already created at dispatch time — nothing to do here.
+    } else if (trip.purpose === 'return' && trip.toType === 'station') {
       // ── Transporter return leg arrived at station ───────────────────────────
       if (trip.cargoManifest) {
         for (const [resourceKey, amount] of Object.entries(trip.cargoManifest)) {
@@ -200,9 +208,7 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
   if (transporterRows.length === 0) return 0;
 
   // Track idle count per transporter row (mutable, decremented as we dispatch)
-  const idleByTransporter = new Map(
-    transporterRows.map((t) => [t.id, t.amount - t.lockedAmount])
-  );
+  const idleByTransporter = new Map(transporterRows.map((t) => [t.id, t.amount - t.lockedAmount]));
   // Sort transporter types by cargo descending so we prefer larger ones first
   const sortedTransporters = [...transporterRows].sort((a, b) => b.cargo - a.cargo);
 
@@ -278,15 +284,13 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
     const resources = bufferByAsteroid.get(aRow.id) ?? [];
     const totalBuffer = resources.reduce((s, r) => s + r.amount, 0);
 
-    // Only consider asteroids where at least one transporter type can be filled
+    // Only consider asteroids where the buffer meets the minimum fill threshold
+    // for at least the smallest transporter type.
     const smallestCargo = sortedTransporters[sortedTransporters.length - 1]?.cargo ?? Infinity;
-    if (totalBuffer < smallestCargo) continue;
+    if (totalBuffer < smallestCargo * MIN_FILL_RATIO) continue;
 
     const { totalMiningRate } = asteroidMap.get(aRow.id)!;
-    const distance = calcDistance(
-      { x: station.x, y: station.y },
-      { x: aRow.x, y: aRow.y }
-    );
+    const distance = calcDistance({ x: station.x, y: station.y }, { x: aRow.x, y: aRow.y });
 
     const score = totalBuffer * W_FILL + totalMiningRate * W_RATE - distance * W_DISTANCE;
 
@@ -306,10 +310,11 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
   let dispatched = 0;
 
   for (const candidate of scored) {
-    // Pick the largest transporter type that can be filled by this asteroid's buffer
-    // AND still has idle ships
+    // Pick the largest transporter type where the buffer meets MIN_FILL_RATIO
+    // AND idle ships are available. Prefers larger transporters (sorted desc by cargo).
     const transporter = sortedTransporters.find(
-      (t) => candidate.totalBuffer >= t.cargo && (idleByTransporter.get(t.id) ?? 0) > 0
+      (t) =>
+        candidate.totalBuffer >= t.cargo * MIN_FILL_RATIO && (idleByTransporter.get(t.id) ?? 0) > 0
     );
     if (!transporter) continue;
 
@@ -331,7 +336,7 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
           .for('update');
 
         const currentTotal = lockedBuffer.reduce((s, r) => s + r.amount, 0);
-        if (currentTotal < transporter.cargo) return; // raced out, skip
+        if (currentTotal < transporter.cargo * MIN_FILL_RATIO) return; // raced out, skip
 
         // Calculate how much each transporter takes
         const totalToLoad = Math.min(currentTotal, groupSize * transporter.cargo);
