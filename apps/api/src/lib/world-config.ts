@@ -45,7 +45,7 @@ export const WORLD_CONFIG = {
 
   ZONE_SIZE_WEIGHTS: {
     core: { small: 0, medium: 0, large: 40, massive: 60 },
-    midRing: { small: 0, medium: 30, large: 60, massive: 10 },
+    midRing: { small: 10, medium: 35, large: 50, massive: 5 },
     frontier: { small: 40, medium: 60, large: 0, massive: 0 },
     spawnRing: { small: 70, medium: 30, large: 0, massive: 0 },
   },
