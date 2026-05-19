@@ -1,5 +1,6 @@
 import { eq, inArray, max, and, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
+import { getRedis } from '../lib/redis.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import {
   spacecraftDefinitions,
@@ -109,7 +110,7 @@ export interface BuildOrder {
 export const buildSpacecrafts = async (
   stationId: string,
   userId: string,
-  orders: BuildOrder[],
+  orders: BuildOrder[]
 ): Promise<void> => {
   const db = getDb();
 
@@ -139,13 +140,12 @@ export const buildSpacecrafts = async (
     .from(spacecraftDefinitionCosts)
     .where(inArray(spacecraftDefinitionCosts.spacecraftDefinitionId, defIds));
 
-  const costsByDefId = costs.reduce<Record<string, typeof spacecraftDefinitionCosts.$inferSelect[]>>(
-    (acc, c) => {
-      (acc[c.spacecraftDefinitionId] ??= []).push(c);
-      return acc;
-    },
-    {},
-  );
+  const costsByDefId = costs.reduce<
+    Record<string, (typeof spacecraftDefinitionCosts.$inferSelect)[]>
+  >((acc, c) => {
+    (acc[c.spacecraftDefinitionId] ??= []).push(c);
+    return acc;
+  }, {});
 
   // Load shipyard level
   const [shipyardDef] = await db
@@ -164,8 +164,8 @@ export const buildSpacecrafts = async (
     .where(
       and(
         eq(stationBuildings.stationId, stationId),
-        eq(stationBuildings.buildingDefinitionId, shipyardDef.id),
-      ),
+        eq(stationBuildings.buildingDefinitionId, shipyardDef.id)
+      )
     )
     .limit(1);
 
@@ -184,7 +184,7 @@ export const buildSpacecrafts = async (
     if (!unlockedKeys.has(order.spacecraftKey)) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
-        `Spacecraft '${order.spacecraftKey}' is not unlocked at current shipyard level`,
+        `Spacecraft '${order.spacecraftKey}' is not unlocked at current shipyard level`
       );
     }
     if (order.amount <= 0) {
@@ -198,7 +198,10 @@ export const buildSpacecrafts = async (
     const def = defByKey.get(order.spacecraftKey)!;
     const defCosts = costsByDefId[def.id] ?? [];
     for (const cost of defCosts) {
-      totalCosts.set(cost.resourceKey, (totalCosts.get(cost.resourceKey) ?? 0) + cost.amount * order.amount);
+      totalCosts.set(
+        cost.resourceKey,
+        (totalCosts.get(cost.resourceKey) ?? 0) + cost.amount * order.amount
+      );
     }
   }
 
@@ -215,7 +218,7 @@ export const buildSpacecrafts = async (
     if (current < needed) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
-        `Insufficient ${resourceKey}: need ${needed}, have ${current}`,
+        `Insufficient ${resourceKey}: need ${needed}, have ${current}`
       );
     }
   }
@@ -231,8 +234,8 @@ export const buildSpacecrafts = async (
       .where(
         and(
           eq(spacecraftBuildOrders.stationId, stationId),
-          eq(spacecraftBuildOrders.spacecraftDefinitionId, def.id),
-        ),
+          eq(spacecraftBuildOrders.spacecraftDefinitionId, def.id)
+        )
       );
     if (row?.maxEndsAt) {
       endsAtByDefId.set(def.id, row.maxEndsAt);
@@ -242,10 +245,7 @@ export const buildSpacecrafts = async (
   // Calculate endsAt for each order
   const orderEndsAt = orders.map((order) => {
     const def = defByKey.get(order.spacecraftKey)!;
-    const baseline = Math.max(
-      (endsAtByDefId.get(def.id) ?? new Date(0)).getTime(),
-      Date.now(),
-    );
+    const baseline = Math.max((endsAtByDefId.get(def.id) ?? new Date(0)).getTime(), Date.now());
     const endsAt = new Date(baseline + order.amount * def.buildTime * 1000);
     // Update running baseline for next order of same type (within same request)
     endsAtByDefId.set(def.id, endsAt);
@@ -253,7 +253,12 @@ export const buildSpacecrafts = async (
   });
 
   // Transaction: deduct resources, insert build orders, upsert stationSpacecrafts
-  const insertedOrders: { orderId: string; def: typeof defs[0]; order: BuildOrder; endsAt: Date }[] = [];
+  const insertedOrders: {
+    orderId: string;
+    def: (typeof defs)[0];
+    order: BuildOrder;
+    endsAt: Date;
+  }[] = [];
 
   await db.transaction(async (tx) => {
     // Deduct resources
@@ -264,8 +269,8 @@ export const buildSpacecrafts = async (
         .where(
           and(
             eq(stationResources.stationId, stationId),
-            eq(stationResources.resourceKey, resourceKey),
-          ),
+            eq(stationResources.resourceKey, resourceKey)
+          )
         );
     }
 
@@ -309,7 +314,21 @@ export const buildSpacecrafts = async (
         orderId,
         amount: order.amount,
       },
-      { delay },
+      { delay }
     );
   }
-};
+
+  // Publish resource update so the frontend HUD reflects the deduction immediately
+  // Reuse the already-loaded Map and apply deductions to avoid an extra DB query
+  for (const [resourceKey, amount] of totalCosts.entries()) {
+    resourceMap.set(resourceKey, (resourceMap.get(resourceKey) ?? 0) - amount);
+  }
+  await getRedis().publish(
+    `user:${userId}:events`,
+    JSON.stringify({
+      type: 'resources_updated',
+      payload: { stationId, resources: Object.fromEntries(resourceMap) },
+      timestamp: Date.now(),
+    })
+  );
+};;

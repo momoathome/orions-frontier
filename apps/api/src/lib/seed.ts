@@ -218,29 +218,43 @@ const DEV_PASSWORD = 'dev123';
 export const seedDevUser = async (): Promise<void> => {
   const db = getDb();
 
-  // Skip if dev user already exists (check both email and username)
+  // Check if dev user exists
   const existing = await db
     .select({ id: users.id })
     .from(users)
     .where(or(eq(users.email, DEV_EMAIL), eq(users.username, 'dev')))
     .limit(1);
 
-  if (existing.length > 0) return;
+  let devUserId: string;
 
-  // 1. Create user
-  const passwordHash = await bcrypt.hash(DEV_PASSWORD, 10);
-  const [devUser] = await db
-    .insert(users)
-    .values({
-      username: 'dev',
-      email: DEV_EMAIL,
-      passwordHash,
-      role: 'admin',
-      status: 'active',
-    })
-    .returning({ id: users.id });
+  if (existing.length > 0) {
+    devUserId = existing[0]!.id;
+  } else {
+    // 1. Create user
+    const passwordHash = await bcrypt.hash(DEV_PASSWORD, 10);
+    const [devUser] = await db
+      .insert(users)
+      .values({
+        username: 'dev',
+        email: DEV_EMAIL,
+        passwordHash,
+        role: 'admin',
+        status: 'active',
+      })
+      .returning({ id: users.id });
 
-  if (!devUser) throw new Error('Failed to create dev user');
+    if (!devUser) throw new Error('Failed to create dev user');
+    devUserId = devUser.id;
+  }
+
+  // Skip station setup if station already exists for this user
+  const existingStation = await db
+    .select({ id: stations.id })
+    .from(stations)
+    .where(eq(stations.userId, devUserId))
+    .limit(1);
+
+  if (existingStation.length > 0) return;
 
   // 2. Create station at spawn slot 0
   const [slot0] = await db.select().from(spawnSlots).where(eq(spawnSlots.slotIndex, 0)).limit(1);
@@ -250,7 +264,7 @@ export const seedDevUser = async (): Promise<void> => {
   const [devStation] = await db
     .insert(stations)
     .values({
-      userId: devUser.id,
+      userId: devUserId,
       name: 'Dev Station Alpha',
       x: slot0.x,
       y: slot0.y,
@@ -299,4 +313,4 @@ export const seedDevUser = async (): Promise<void> => {
       }))
     );
   }
-};;
+};

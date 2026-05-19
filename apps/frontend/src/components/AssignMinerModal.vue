@@ -149,7 +149,7 @@ async function submit() {
               class="bg-white/5 border border-white/10 rounded px-2 h-7 text-[11px] text-white/80 focus:outline-none focus:border-cyan-400/40"
             >
               <option v-for="m in miners" :key="m.definition.id" :value="m.definition.id">
-                {{ m.definition.name }} ({{ m.definition.miningRate }}/h per ship · ×{{ m.amount - m.lockedAmount }} avail.)
+                {{ m.definition.name }} (×{{ m.amount - m.lockedAmount }})
               </option>
             </select>
           </div>

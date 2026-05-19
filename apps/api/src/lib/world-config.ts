@@ -10,7 +10,7 @@ import type { ResourceKey } from '@orions-frontier/shared';
 
 export const WORLD_CONFIG = {
   /** Base world radius regardless of player count (world units) */
-  BASE_RADIUS: 2000,
+  BASE_RADIUS: 3500,
   /** Additional radius per player entity (human + AI) */
   RADIUS_PER_PLAYER: 500,
   /** Deterministic seed for world generation. Change = new world layout. */
@@ -26,19 +26,19 @@ export const WORLD_CONFIG = {
    *  spawnRing → small/medium, safe starter resources
    */
   ZONES: {
-    core: { min: 0.0, max: 0.15 },
-    midRing: { min: 0.15, max: 0.45 },
-    frontier: { min: 0.45, max: 0.75 },
-    spawnRing: { min: 0.75, max: 1.0 },
+    core: { min: 0.0, max: 0.1 },
+    midRing: { min: 0.1, max: 0.4 },
+    frontier: { min: 0.4, max: 0.70 },
+    spawnRing: { min: 0.70, max: 1.0 },
   },
 
   // ── Asteroid density (asteroids per chunk, min–max) ───────────────────────
 
   ZONE_DENSITY: {
     core: { min: 2, max: 3 },
-    midRing: { min: 3, max: 5 },
-    frontier: { min: 4, max: 6 },
-    spawnRing: { min: 5, max: 8 },
+    midRing: { min: 2, max: 4 },
+    frontier: { min: 3, max: 5 },
+    spawnRing: { min: 4, max: 6 },
   },
 
   // ── Size weights per zone (unitless, higher = more likely) ───────────────
@@ -46,7 +46,7 @@ export const WORLD_CONFIG = {
   ZONE_SIZE_WEIGHTS: {
     core: { small: 0, medium: 0, large: 40, massive: 60 },
     midRing: { small: 0, medium: 30, large: 60, massive: 10 },
-    frontier: { small: 35, medium: 65, large: 0, massive: 0 },
+    frontier: { small: 40, medium: 60, large: 0, massive: 0 },
     spawnRing: { small: 70, medium: 30, large: 0, massive: 0 },
   },
 
@@ -104,7 +104,7 @@ export const WORLD_CONFIG = {
   TIER_YIELD_MODIFIER: {
     low_value: 1,
     medium_value: 0.5,
-    high_value: 0.20,
+    high_value: 0.2,
     extreme_value: 0.05,
   } as Record<string, number>,
 
@@ -130,8 +130,9 @@ export const WORLD_CONFIG = {
       { resource: 'kyber_crystal', weight: 5 },
     ],
     spawnRing: [
-      { resource: 'carbon', weight: 60 },
+      { resource: 'carbon', weight: 50 },
       { resource: 'titanium', weight: 40 },
+      { resource: 'hydrogenium', weight: 10 },
     ],
   } as Record<string, { resource: string; weight: number }[]>,
 
@@ -156,8 +157,9 @@ export const WORLD_CONFIG = {
       { resource: 'hydrogenium', weight: 15 },
     ],
     spawnRing: [
-      { resource: 'carbon', weight: 60 },
+      { resource: 'carbon', weight: 50 },
       { resource: 'titanium', weight: 40 },
+      { resource: 'hydrogenium', weight: 10 },
     ],
   } as Record<string, { resource: string; weight: number }[]>,
 

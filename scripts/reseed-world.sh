@@ -37,7 +37,7 @@ POSTGRES_DB="${POSTGRES_DB:-orions_frontier}"
 
 # ── Asteroid-Daten löschen ────────────────────────────────────────────────
 
-echo "🗑️   Lösche Asteroid-, Spawn-Slot- und Dev-User-Daten..."
+echo "🗑️   Lösche Asteroid-, Spawn-Slot- und Station-Daten (User bleibt erhalten)..."
 docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 DELETE FROM asteroid_assignments;
 DELETE FROM asteroid_resource_storage;
@@ -49,7 +49,10 @@ DELETE FROM station_spacecrafts;
 DELETE FROM station_buildings;
 DELETE FROM station_resources;
 DELETE FROM stations;
-DELETE FROM users WHERE email = 'dev@orion.local';
+-- Dev-User wird NICHT gelöscht, damit bestehende JWTs weiter gültig bleiben.
+-- Stattdessen wird die Station beim API-Restart neu erstellt (seedDevUser
+-- prüft ob der User existiert, überspringt die User-Erstellung, erstellt
+-- aber Station + Buildings + Resources neu wenn keine Station vorhanden ist).
 SELECT
   (SELECT COUNT(*) FROM asteroids)               AS asteroids,
   (SELECT COUNT(*) FROM asteroid_veins)          AS veins,

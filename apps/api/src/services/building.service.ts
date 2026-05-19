@@ -1,4 +1,5 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, asc } from 'drizzle-orm';
+import { getRedis } from '../lib/redis.js';
 import { getDb } from '../lib/db/index.js';
 import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
@@ -9,7 +10,11 @@ import {
   calculateBuildingEffect,
   getBuildingUnlockMilestones,
 } from '@orions-frontier/game-config';
-import type { StationBuildingWithDefinition, BuildingKey, BuildingDefinition } from '@orions-frontier/shared';
+import type {
+  StationBuildingWithDefinition,
+  BuildingKey,
+  BuildingDefinition,
+} from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { actionQueue } from '../queue/queues/action-queue.js';
 
@@ -30,7 +35,7 @@ export const seedStationBuildings = async (stationId: string): Promise<void> => 
         stationId,
         buildingDefinitionId: def.id,
         level: 1,
-      })),
+      }))
     )
     .onConflictDoNothing();
 };
@@ -40,7 +45,7 @@ export const seedStationBuildings = async (stationId: string): Promise<void> => 
 // ============================================================================
 
 export const getStationBuildings = async (
-  stationId: string,
+  stationId: string
 ): Promise<StationBuildingWithDefinition[]> => {
   const db = getDb();
 
@@ -61,8 +66,12 @@ export const getStationBuildings = async (
       definition: buildingDefinitions,
     })
     .from(stationBuildings)
-    .innerJoin(buildingDefinitions, eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id))
-    .where(eq(stationBuildings.stationId, stationId));
+    .innerJoin(
+      buildingDefinitions,
+      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+    )
+    .where(eq(stationBuildings.stationId, stationId))
+    .orderBy(asc(buildingDefinitions.key));
 
   const now = new Date();
 
@@ -192,6 +201,20 @@ export const startBuildingUpgrade = async (
     'building-upgrade-finished',
     { userId, stationId, buildingKey },
     { delay: buildTimeSeconds * 1000 }
+  );
+
+  // Publish resource update so the frontend HUD reflects the deduction immediately
+  // Re-use the already-loaded rows but apply the deducted costs to avoid an extra DB query
+  for (const cost of costs) {
+    resourceMap.set(cost.resourceKey, (resourceMap.get(cost.resourceKey) ?? 0) - cost.amount);
+  }
+  await getRedis().publish(
+    `user:${userId}:events`,
+    JSON.stringify({
+      type: 'resources_updated',
+      payload: { stationId, resources: Object.fromEntries(resourceMap) },
+      timestamp: Date.now(),
+    })
   );
 
   const allBuildings = await getStationBuildings(stationId);

@@ -39,16 +39,14 @@ export const router = createRouter({
   routes,
 });
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach((to) => {
   const authStore = useAuthStore();
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    return next({ name: 'Login' });
+    return { name: 'Login' };
   }
 
   if (to.meta.guestOnly && authStore.isAuthenticated) {
-    return next({ name: 'Dashboard' });
+    return { name: 'Dashboard' };
   }
-
-  next();
 });

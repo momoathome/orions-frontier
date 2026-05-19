@@ -34,7 +34,6 @@ onMounted(() => fetchPlayerResources());
 watch(
   () => props.ship,
   () => {
-    buildAmount.value = 1;
     buildError.value = null;
     buildSuccess.value = false;
     fetchPlayerResources();

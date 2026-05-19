@@ -56,7 +56,7 @@ const totalMiningRatePerHour = ref(0);
                 class="text-cyan-300 tabular-nums"
                 :class="totalMiningRatePerHour === 0 ? 'text-white/25' : ''"
               >
-                +{{ Math.round(totalMiningRatePerHour / 60) }}/min
+                +{{ Math.round(totalMiningRatePerHour) }}/h
               </span>
             </div>
             <div class="flex items-center gap-1.5">

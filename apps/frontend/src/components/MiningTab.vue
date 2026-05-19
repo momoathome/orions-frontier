@@ -48,8 +48,16 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 
 const activeAsteroidId = ref<string | null>(null);
-const activeDetail = ref<AsteroidDetail | null>(null);
-const detailLoading = ref(false);
+/** All fetched asteroid details keyed by asteroidId */
+const allDetails = ref<Record<string, AsteroidDetail>>({});
+/** The currently selected asteroid's detail — null while loading */
+const activeDetail = computed<AsteroidDetail | null>(() =>
+  activeAsteroidId.value ? (allDetails.value[activeAsteroidId.value] ?? null) : null,
+);
+/** True while the selected asteroid's detail has not yet arrived */
+const detailLoading = computed(() =>
+  activeAsteroidId.value != null && !(activeAsteroidId.value in allDetails.value),
+);
 
 // ── Grouping ─────────────────────────────────────────────────────────────────
 
@@ -116,6 +124,22 @@ const VEIN_ALLOCATION: Record<string, number> = { primary: 0.70, secondary: 0.25
 const STABILITY_DEGRADATION_PER_HOUR = 0.05;
 const STABILITY_REGEN_PER_HOUR = 0.01;
 
+/** Compute the true effective mining rate (units/h) for an asteroid given its detail and the
+ *  list of assignment rows currently mining it. */
+function computeEffectiveRate(detail: AsteroidDetail, groupAssignments: StationMiningAssignment[]): number {
+  const miningPower = groupAssignments.reduce(
+    (sum, a) => sum + a.assignedAmount * a.spacecraftMiningRate,
+    0,
+  );
+  let total = 0;
+  for (const vein of detail.veins) {
+    const allocation = VEIN_ALLOCATION[vein.veinType] ?? 0.70;
+    const cappedRate = Math.min(miningPower * allocation * vein.purity, vein.yieldPerHour);
+    total += cappedRate * detail.stability;
+  }
+  return total;
+}
+
 const totalMiningPowerRaw = computed(() =>
   activeDetail.value?.assignments.reduce(
     (sum, a) => sum + a.assignedAmount * a.spacecraftMiningRate,
@@ -177,9 +201,12 @@ const activeGroupedShips = computed(() => {
 // ── Total mining rate emitted to parent (HUD) ─────────────────────────────────
 
 const globalTotalRatePerHour = computed(() => {
-  // Sum over all asteroid groups using raw mining power as approximation
-  // (exact rate requires vein data which we only fetch on demand)
-  return assignments.value.reduce((sum, a) => sum + a.assignedAmount * a.spacecraftMiningRate, 0);
+  let total = 0;
+  for (const group of asteroidGroups.value) {
+    const detail = allDetails.value[group.asteroidId];
+    if (detail) total += computeEffectiveRate(detail, group.assignments);
+  }
+  return total;
 });
 
 watch(globalTotalRatePerHour, (rate) => emit('totalMiningRate', rate), { immediate: true });
@@ -196,8 +223,11 @@ async function loadAssignments(force = false) {
     assignments.value = data.data.assignments;
     // Auto-select first asteroid
     if (!activeAsteroidId.value && asteroidGroups.value.length > 0) {
-      selectAsteroid(asteroidGroups.value[0]!.asteroidId);
+      activeAsteroidId.value = asteroidGroups.value[0]!.asteroidId;
     }
+    // Prefetch details for all asteroids (background — no spinner)
+    const ids = [...new Set(assignments.value.map((a) => a.asteroidId))];
+    await Promise.all(ids.map((id) => loadDetail(id)));
   } catch {
     error.value = 'Failed to load mining assignments';
   } finally {
@@ -206,28 +236,30 @@ async function loadAssignments(force = false) {
 }
 
 async function loadDetail(asteroidId: string) {
-  detailLoading.value = true;
-  activeDetail.value = null;
   try {
     const { data } = await apiClient.get(`/asteroids/${asteroidId}`, {
       params: { scannerStrength: 100 },
     });
-    activeDetail.value = data.data.asteroid;
-  } finally {
-    detailLoading.value = false;
+    allDetails.value = { ...allDetails.value, [asteroidId]: data.data.asteroid };
+  } catch {
+    // silently ignore per-asteroid failures
   }
 }
 
 function selectAsteroid(id: string) {
   activeAsteroidId.value = id;
-  loadDetail(id);
+  // Only fetch if not already cached
+  if (!(id in allDetails.value)) {
+    loadDetail(id);
+  }
 }
 
 loadAssignments();
 
 const unsubscribe = wsClient.on('mining_tick_completed', () => {
+  // Reload assignments and all details on each mining tick
+  allDetails.value = {};
   loadAssignments(true);
-  if (activeAsteroidId.value) loadDetail(activeAsteroidId.value);
 });
 
 onUnmounted(() => unsubscribe());
@@ -310,6 +342,16 @@ onUnmounted(() => unsubscribe());
           <span class="text-[8px] text-white/25 uppercase tracking-wider">Ships</span>
           <span class="text-[9px] font-semibold text-white/60 tabular-nums">×{{ group.totalShips }}</span>
         </div>
+
+        <!-- Effective rate (shown once detail is loaded) -->
+        <div
+          v-if="allDetails[group.asteroidId]"
+          class="text-[8px] tabular-nums font-semibold text-right leading-none"
+          :style="{ color: resourceColor(group.asteroidPrimaryResourceKey) + 'cc' }"
+        >
+          +{{ Math.round(computeEffectiveRate(allDetails[group.asteroidId]!, group.assignments)) }}/h
+        </div>
+        <div v-else class="h-3" />
       </div>
       </div>
     </div>

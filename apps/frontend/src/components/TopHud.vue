@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { apiClient } from '../lib/api-client.js';
+import { wsClient } from '../lib/ws-client.js';
 import type { ResourceKey } from '@orions-frontier/shared';
 import { ALL_RESOURCES } from '../lib/spacecraft-utils';
 
@@ -17,35 +18,47 @@ const isOnline = ref(true);
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
+function applyResourceMap(map: Record<ResourceKey, number>) {
+  resourceEntries.value = ALL_RESOURCES
+    .filter((key) => map[key] !== undefined)
+    .map((key) => {
+      const def = resources[key as ResourceKey];
+      return {
+        key: key as ResourceKey,
+        name: def.name,
+        image: def.image,
+        amount: map[key] as number,
+      };
+    });
+}
+
 async function fetchResources() {
   try {
     const { data } = await apiClient.get<{ success: true; data: Record<ResourceKey, number> }>(
       '/me/resources'
     );
-    resourceEntries.value = ALL_RESOURCES
-      .filter((key) => data.data[key] !== undefined)
-      .map((key) => {
-        const def = resources[key as ResourceKey];
-        return {
-          key: key as ResourceKey,
-          name: def.name,
-          image: def.image,
-          amount: data.data[key] as number,
-        };
-      });
+    applyResourceMap(data.data);
     isOnline.value = true;
   } catch {
     isOnline.value = false;
   }
 }
 
+// Listen for server-push resource updates (building upgrade / spacecraft build start)
+const unsubscribe = wsClient.on('resources_updated', (payload) => {
+  const p = payload as { resources?: Record<ResourceKey, number> };
+  if (p?.resources) applyResourceMap(p.resources);
+});
+
 onMounted(() => {
   fetchResources();
+  // Keep a slow poll as fallback for mining ticks and other passive changes
   pollInterval = setInterval(fetchResources, 30_000);
 });
 
 onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval);
+  unsubscribe();
 });
 
 function fmt(n: number): string {
