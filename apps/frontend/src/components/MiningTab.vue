@@ -3,6 +3,15 @@ import { ref, computed, watch, onUnmounted } from 'vue';
 import { apiClient } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import type { AsteroidDetail } from '@orions-frontier/shared';
+import {
+  resourceColor,
+  resourceName,
+  stabilityColor,
+  SIZE_LABELS,
+  calcEffectiveRateByResource,
+  calcTotalEffectiveRate,
+  calcStabilityChangePerHour,
+} from '../lib/mining-utils';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,59 +94,17 @@ const asteroidGroups = computed<AsteroidGroup[]>(() => {
 
 // ── Display helpers ───────────────────────────────────────────────────────────
 
-const RESOURCE_COLORS: Record<string, string> = {
-  carbon: '#778899',
-  titanium: '#6699bb',
-  hydrogenium: '#22ccee',
-  kyber_crystal: '#aa33ff',
-  astatine: '#ff5533',
-};
-const RESOURCE_NAMES: Record<string, string> = {
-  carbon: 'Carbon',
-  titanium: 'Titanium',
-  hydrogenium: 'Hydrogenium',
-  kyber_crystal: 'Kyber Crystal',
-  astatine: 'Astatine',
-};
-const SIZE_LABELS: Record<string, string> = {
-  small: 'S',
-  medium: 'M',
-  large: 'L',
-  massive: 'X',
-};
 
-function resourceColor(key: string | null) {
-  return key ? (RESOURCE_COLORS[key] ?? '#888888') : '#888888';
-}
-function resourceName(key: string) {
-  return RESOURCE_NAMES[key] ?? key.toUpperCase();
-}
-function stabilityColor(s: number) {
-  if (s >= 0.8) return '#44ddaa';
-  if (s >= 0.5) return '#ffdd00';
-  return '#ff5533';
-}
 
-// ── Rate calculations (identical to AsteroidPanel logic) ──────────────────────
+// ── Rate calculations ─────────────────────────────────────────────────────────
 
-const VEIN_ALLOCATION: Record<string, number> = { primary: 0.70, secondary: 0.25, trace: 0.05 };
-const STABILITY_DEGRADATION_PER_HOUR = 0.05;
-const STABILITY_REGEN_PER_HOUR = 0.01;
-
-/** Compute the true effective mining rate (units/h) for an asteroid given its detail and the
- *  list of assignment rows currently mining it. */
+/** Effective total mining rate (units/h) for an asteroid given its detail and assignments. */
 function computeEffectiveRate(detail: AsteroidDetail, groupAssignments: StationMiningAssignment[]): number {
   const miningPower = groupAssignments.reduce(
     (sum, a) => sum + a.assignedAmount * a.spacecraftMiningRate,
     0,
   );
-  let total = 0;
-  for (const vein of detail.veins) {
-    const allocation = VEIN_ALLOCATION[vein.veinType] ?? 0.70;
-    const cappedRate = Math.min(miningPower * allocation * vein.purity, vein.yieldPerHour);
-    total += cappedRate * detail.stability;
-  }
-  return total;
+  return calcTotalEffectiveRate(miningPower, detail.veins);
 }
 
 const totalMiningPowerRaw = computed(() =>
@@ -147,37 +114,21 @@ const totalMiningPowerRaw = computed(() =>
   ) ?? 0,
 );
 
-const effectiveRateByResource = computed<Record<string, number>>(() => {
-  if (!activeDetail.value || totalMiningPowerRaw.value === 0) return {};
-  const result: Record<string, number> = {};
-  for (const vein of activeDetail.value.veins) {
-    const allocation = VEIN_ALLOCATION[vein.veinType] ?? 0.70;
-    const cappedRate = Math.min(
-      totalMiningPowerRaw.value * allocation * vein.purity,
-      vein.yieldPerHour,
-    );
-    result[vein.resourceKey] = (result[vein.resourceKey] ?? 0) + cappedRate * activeDetail.value.stability;
-  }
-  return result;
-});
+const effectiveRateByResource = computed(() =>
+  calcEffectiveRateByResource(totalMiningPowerRaw.value, activeDetail.value?.veins ?? []),
+);
 
 const sortedEffectiveRates = computed(() =>
   Object.entries(effectiveRateByResource.value).sort((a, b) => b[1] - a[1]),
 );
 
-const stabilityChangePerHour = computed<number | null>(() => {
-  if (!activeDetail.value || activeDetail.value.assignments.length === 0) return null;
-  let totalMiningLoad = 0;
-  let totalYieldCap = 0;
-  for (const vein of activeDetail.value.veins) {
-    totalMiningLoad += totalMiningPowerRaw.value * (VEIN_ALLOCATION[vein.veinType] ?? 0.70);
-    totalYieldCap += vein.yieldPerHour;
-  }
-  if (totalYieldCap === 0) return null;
-  return totalMiningLoad > totalYieldCap
-    ? -STABILITY_DEGRADATION_PER_HOUR * (totalMiningLoad / totalYieldCap)
-    : STABILITY_REGEN_PER_HOUR;
-});
+const stabilityChangePerHour = computed(() =>
+  calcStabilityChangePerHour(
+    totalMiningPowerRaw.value,
+    activeDetail.value?.veins ?? [],
+    (activeDetail.value?.assignments.length ?? 0) > 0,
+  ),
+);
 
 // ── Grouped ships in detail panel ─────────────────────────────────────────────
 

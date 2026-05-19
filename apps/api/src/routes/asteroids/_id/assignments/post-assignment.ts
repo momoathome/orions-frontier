@@ -1,6 +1,7 @@
 import { defineRoute } from '../../../../lib/route-helper.js';
 import { authenticate } from '../../../../middleware/auth.js';
 import { createAsteroidAssignment } from '../../../../services/asteroid.service.js';
+import { getRedis } from '../../../../lib/redis.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 // POST /api/asteroids/:id/assignments
@@ -32,6 +33,11 @@ export default defineRoute(async (app) => {
         result.code === 'SLOTS_FULL' ? 409 : result.code === 'ASTEROID_NOT_FOUND' ? 404 : 400;
       return reply.status(status).send({ message: result.message });
     }
+
+    await getRedis().publish(
+      `user:${request.user.userId}:events`,
+      JSON.stringify({ type: 'mining_tick_completed', payload: {}, timestamp: Date.now() })
+    );
 
     return reply.status(201).send({ data: { assignmentId: result.id } });
   });

@@ -6,6 +6,13 @@ import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import AsteroidVeinList from './AsteroidVeinList.vue';
 import AssignMinerModal from './AssignMinerModal.vue';
 import RecallMinerModal, { type AssignmentGroup } from './RecallMinerModal.vue';
+import {
+  resourceColor,
+  resourceName,
+  stabilityColor,
+  calcEffectiveRateByResource,
+  calcStabilityChangePerHour,
+} from '../lib/mining-utils';
 
 const props = defineProps<{
   asteroidId: string;
@@ -100,24 +107,13 @@ const groupedAssignments = computed<AssignmentGroup[]>(() => {
   return [...groups.values()];
 });
 
-const VEIN_ALLOCATION: Record<string, number> = { primary: 0.70, secondary: 0.25, trace: 0.05 };
-const STABILITY_DEGRADATION_PER_HOUR = 0.05;
-const STABILITY_REGEN_PER_HOUR = 0.01;
-
 const totalMiningPowerRaw = computed(() =>
   asteroid.value?.assignments.reduce((sum, a) => sum + a.assignedAmount * a.spacecraftMiningRate, 0) ?? 0,
 );
 
-const effectiveRateByResource = computed<Record<string, number>>(() => {
-  if (!asteroid.value || totalMiningPowerRaw.value === 0) return {};
-  const result: Record<string, number> = {};
-  for (const vein of asteroid.value.veins) {
-    const allocation = VEIN_ALLOCATION[vein.veinType] ?? 0.70;
-    const cappedRate = Math.min(totalMiningPowerRaw.value * allocation * vein.purity, vein.yieldPerHour);
-    result[vein.resourceKey] = (result[vein.resourceKey] ?? 0) + cappedRate * asteroid.value.stability;
-  }
-  return result;
-});
+const effectiveRateByResource = computed(() =>
+  calcEffectiveRateByResource(totalMiningPowerRaw.value, asteroid.value?.veins ?? []),
+);
 
 const totalMinerCargo = computed(() =>
   asteroid.value?.assignments.reduce((s, a) => s + a.assignedAmount * a.spacecraftCargo, 0) ?? 0,
@@ -127,32 +123,15 @@ const totalBuffer = computed(() =>
   asteroid.value?.storage.reduce((s, r) => s + r.amount, 0) ?? 0,
 );
 
-const stabilityChangePerHour = computed<number | null>(() => {
-  if (!asteroid.value || asteroid.value.assignments.length === 0) return null;
-  let totalMiningLoad = 0;
-  let totalYieldCap = 0;
-  for (const vein of asteroid.value.veins) {
-    totalMiningLoad += totalMiningPowerRaw.value * (VEIN_ALLOCATION[vein.veinType] ?? 0.70);
-    totalYieldCap += vein.yieldPerHour;
-  }
-  if (totalYieldCap === 0) return null;
-  return totalMiningLoad > totalYieldCap
-    ? -STABILITY_DEGRADATION_PER_HOUR * (totalMiningLoad / totalYieldCap)
-    : STABILITY_REGEN_PER_HOUR;
-});
+const stabilityChangePerHour = computed(() =>
+  calcStabilityChangePerHour(
+    totalMiningPowerRaw.value,
+    asteroid.value?.veins ?? [],
+    (asteroid.value?.assignments.length ?? 0) > 0,
+  ),
+);
 
 // ── Display helpers ───────────────────────────────────────────────────────────
-
-const RESOURCE_NAMES: Record<string, string> = {
-  carbon: 'Carbon', titanium: 'Titanium', hydrogenium: 'Hydrogenium',
-  kyber_crystal: 'Kyber Crystal', astatine: 'Astatine',
-};
-const RESOURCE_COLORS: Record<string, string> = {
-  carbon: '#778899', titanium: '#6699bb', hydrogenium: '#22ccee',
-  kyber_crystal: '#aa33ff', astatine: '#ff5533',
-};
-function resourceName(key: string) { return RESOURCE_NAMES[key] ?? key.toUpperCase(); }
-function resourceColor(key: string) { return RESOURCE_COLORS[key] ?? '#888888'; }
 
 const SIZE_LABELS: Record<string, string> = {
   small: 'SMALL', medium: 'MEDIUM', large: 'LARGE', massive: 'MASSIVE',
@@ -165,11 +144,6 @@ const panelAccentColor = computed(() =>
   primaryVein.value ? resourceColor(primaryVein.value.resourceKey) : '#00c8ff',
 );
 
-function stabilityColor(s: number) {
-  if (s >= 0.8) return '#44ddaa';
-  if (s >= 0.5) return '#ffdd00';
-  return '#ff5533';
-}
 function formatCoord(n: number) { return n.toFixed(1); }
 </script>
 
@@ -320,7 +294,7 @@ function formatCoord(n: number) { return n.toFixed(1); }
             >
               <span :style="`color:${resourceColor(s.resourceKey)}`">{{ resourceName(s.resourceKey) }}</span>
               <div class="flex items-baseline gap-2">
-                <span v-if="effectiveRateByResource[s.resourceKey]" class="text-[9px] text-white/25 tabular-nums">
+                <span v-if="effectiveRateByResource[s.resourceKey]" class="text-[9px] text-cyan-400/50 tabular-nums">
                   +{{ effectiveRateByResource[s.resourceKey]!.toFixed(1) }}/h
                 </span>
                 <span class="text-white/50 tabular-nums">{{ s.amount.toFixed(1) }}</span>

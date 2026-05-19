@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { apiClient } from '../lib/api-client.js';
 import { wsClient } from '../lib/ws-client.js';
-import type { ResourceKey } from '@orions-frontier/shared';
+import type { ResourceKey, UserResourceSummary } from '@orions-frontier/shared';
 import { ALL_RESOURCES } from '../lib/spacecraft-utils';
 
 type ResourceEntry = {
@@ -11,6 +11,7 @@ type ResourceEntry = {
   name: string;
   image: string;
   amount: number;
+  ratePerHour: number;
 };
 
 const resourceEntries = ref<ResourceEntry[]>([]);
@@ -18,53 +19,71 @@ const isOnline = ref(true);
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
-function applyResourceMap(map: Record<ResourceKey, number>) {
+function applyResourceSummary(summary: UserResourceSummary) {
   resourceEntries.value = ALL_RESOURCES
-    .filter((key) => map[key] !== undefined)
+    .filter((key) => summary.resources[key] !== undefined)
     .map((key) => {
       const def = resources[key as ResourceKey];
       return {
         key: key as ResourceKey,
         name: def.name,
         image: def.image,
-        amount: map[key] as number,
+        amount: summary.resources[key] as number,
+        ratePerHour: summary.rates[key] ?? 0,
       };
     });
 }
 
 async function fetchResources() {
   try {
-    const { data } = await apiClient.get<{ success: true; data: Record<ResourceKey, number> }>(
+    const { data } = await apiClient.get<{ success: true; data: UserResourceSummary }>(
       '/me/resources'
     );
-    applyResourceMap(data.data);
+    applyResourceSummary(data.data);
     isOnline.value = true;
   } catch {
     isOnline.value = false;
   }
 }
 
-// Listen for server-push resource updates (building upgrade / spacecraft build start)
-const unsubscribe = wsClient.on('resources_updated', (payload) => {
-  const p = payload as { resources?: Record<ResourceKey, number> };
-  if (p?.resources) applyResourceMap(p.resources);
+// Instant update when resources are deducted (building upgrade / spacecraft build)
+const unsubscribeResources = wsClient.on('resources_updated', (payload) => {
+  const p = payload as { resources?: UserResourceSummary['resources'] };
+  if (p?.resources) {
+    // Merge amounts only — rates remain until next full fetch
+    resourceEntries.value = resourceEntries.value.map((e) => ({
+      ...e,
+      amount: p.resources![e.key] ?? e.amount,
+    }));
+  }
+});
+
+// Refetch rates after every mining tick
+const unsubscribeTick = wsClient.on('mining_tick_completed', () => {
+  fetchResources();
 });
 
 onMounted(() => {
   fetchResources();
-  // Keep a slow poll as fallback for mining ticks and other passive changes
+  // Slow poll as fallback for any passive changes not covered by WS
   pollInterval = setInterval(fetchResources, 30_000);
 });
 
 onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval);
-  unsubscribe();
+  unsubscribeResources();
+  unsubscribeTick();
 });
 
 function fmt(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
   if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
   return String(n);
+}
+
+function fmtRate(n: number): string {
+  if (n >= 1_000) return '+' + (n / 1_000).toFixed(1) + 'k';
+  return '+' + Math.round(n).toString();
 }
 </script>
 
@@ -85,6 +104,10 @@ function fmt(n: number): string {
           />
           <span class="text-white/25 uppercase tracking-widest text-[9px]">{{ entry.name }}</span>
           <span class="text-white/80 tabular-nums">{{ fmt(entry.amount) }}</span>
+          <span
+            v-if="entry.ratePerHour > 0"
+            class="text-cyan-400/50 tabular-nums text-[9px]"
+          >{{ fmtRate(entry.ratePerHour) }}/h</span>
         </div>
       </template>
 

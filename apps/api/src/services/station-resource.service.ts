@@ -2,7 +2,10 @@ import { eq, inArray } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
+import { asteroidAssignments, asteroidVeins } from '../lib/db/schema/asteroids.js';
+import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
 import type { ResourceKey, ResourceMap } from '@orions-frontier/shared';
+import { calcVeinRate } from './mining-tick.service.js';
 
 // ============================================================================
 // Initial resource amounts for new stations
@@ -80,4 +83,42 @@ export const getUserAggregatedResources = async (userId: string): Promise<Resour
     acc[key] = (acc[key] ?? 0) + row.amount;
     return acc;
   }, {});
+};
+
+// ============================================================================
+// Get theoretical mining rates (units/h) per resource across all stations
+// of a user — single JOIN query, no N+1.
+// ============================================================================
+
+export const getUserMiningRates = async (userId: string): Promise<ResourceMap> => {
+  const db = getDb();
+
+  // One query: assignments → stations (filter userId) → spacecraft_definitions
+  //            → asteroid_veins → asteroids (stability)
+  const rows = await db
+    .select({
+      assignedAmount: asteroidAssignments.assignedAmount,
+      miningRate: spacecraftDefinitions.miningRate,
+      veinType: asteroidVeins.veinType,
+      purity: asteroidVeins.purity,
+      yieldPerHour: asteroidVeins.yieldPerHour,
+      resourceKey: asteroidVeins.resourceKey,
+    })
+    .from(asteroidAssignments)
+    .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
+    .innerJoin(
+      spacecraftDefinitions,
+      eq(asteroidAssignments.spacecraftDefinitionId, spacecraftDefinitions.id),
+    )
+    .innerJoin(asteroidVeins, eq(asteroidAssignments.asteroidId, asteroidVeins.asteroidId))
+    .where(eq(stations.userId, userId));
+
+  const rates: ResourceMap = {};
+  for (const row of rows) {
+    const totalMiningRate = row.miningRate * row.assignedAmount;
+    const ratePerHour = calcVeinRate(totalMiningRate, row);
+    const key = row.resourceKey as ResourceKey;
+    rates[key] = (rates[key] ?? 0) + ratePerHour;
+  }
+  return rates;
 };

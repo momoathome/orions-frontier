@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { apiClient } from '../lib/api-client';
-import type { AsteroidDetail, AsteroidVein } from '@orions-frontier/shared';
+import type { AsteroidDetail } from '@orions-frontier/shared';
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
+import {
+  resourceColor,
+  resourceName,
+  calcEffectiveRateByResource,
+  calcStabilityChangePerHour,
+} from '../lib/mining-utils';
 
 const props = defineProps<{
   show: boolean;
@@ -49,46 +55,21 @@ const assignTotalPower = computed(() =>
   (assignAmount.value ?? 0) * (selectedMiner.value?.definition.miningRate ?? 0),
 );
 
-const VEIN_ALLOCATION: Record<string, number> = { primary: 0.70, secondary: 0.25, trace: 0.05 };
-const STABILITY_DEGRADATION_PER_HOUR = 0.05;
-const STABILITY_REGEN_PER_HOUR = 0.01;
-
-const RESOURCE_NAMES: Record<string, string> = {
-  carbon: 'Carbon', titanium: 'Titanium', hydrogenium: 'Hydrogenium',
-  kyber_crystal: 'Kyber Crystal', astatine: 'Astatine',
-};
-const RESOURCE_COLORS: Record<string, string> = {
-  carbon: '#778899', titanium: '#6699bb', hydrogenium: '#22ccee',
-  kyber_crystal: '#aa33ff', astatine: '#ff5533',
-};
-function resourceName(key: string) { return RESOURCE_NAMES[key] ?? key.toUpperCase(); }
-function resourceColor(key: string) { return RESOURCE_COLORS[key] ?? '#888888'; }
-
 const assignPreviewRates = computed<Record<string, number>>(() => {
   if (!selectedMiner.value || assignAmount.value < 1) return {};
-  const newTotalRate = props.totalMiningPowerRaw + assignTotalPower.value;
-  const result: Record<string, number> = {};
-  for (const vein of props.asteroid.veins) {
-    const allocation = VEIN_ALLOCATION[vein.veinType] ?? 0.70;
-    const cappedRate = Math.min(newTotalRate * allocation * vein.purity, vein.yieldPerHour);
-    result[vein.resourceKey] = (result[vein.resourceKey] ?? 0) + cappedRate * props.asteroid.stability;
-  }
-  return result;
+  return calcEffectiveRateByResource(
+    props.totalMiningPowerRaw + assignTotalPower.value,
+    props.asteroid.veins,
+  );
 });
 
 const assignPreviewStabilityChange = computed<number | null>(() => {
   if (!selectedMiner.value || assignAmount.value < 1) return null;
-  const newTotalRate = props.totalMiningPowerRaw + assignTotalPower.value;
-  let totalMiningLoad = 0;
-  let totalYieldCap = 0;
-  for (const vein of props.asteroid.veins) {
-    totalMiningLoad += newTotalRate * (VEIN_ALLOCATION[vein.veinType] ?? 0.70);
-    totalYieldCap += vein.yieldPerHour;
-  }
-  if (totalYieldCap === 0) return null;
-  return totalMiningLoad > totalYieldCap
-    ? -STABILITY_DEGRADATION_PER_HOUR * (totalMiningLoad / totalYieldCap)
-    : STABILITY_REGEN_PER_HOUR;
+  return calcStabilityChangePerHour(
+    props.totalMiningPowerRaw + assignTotalPower.value,
+    props.asteroid.veins,
+    true,
+  );
 });
 
 // ── Actions ───────────────────────────────────────────────────────────────────

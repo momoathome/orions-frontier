@@ -36,6 +36,34 @@ const VEIN_ALLOCATION = {
 const MIN_DELTA_HOURS = 0.001;
 
 // ============================================================================
+// calcVeinRate — shared rate formula, exported for reuse in resource summary
+//
+// Returns the effective yield per hour for a single vein given:
+//   miningPower = totalMiningRate × veinAllocation (already applied by caller)
+//   purity      = vein.purity
+//   yieldPerHour = vein.yieldPerHour (cap)
+//   stability   = asteroid.stability
+// ============================================================================
+
+export interface VeinRateInput {
+  veinType: string;
+  purity: number;
+  yieldPerHour: number;
+  resourceKey: string;
+}
+
+export function calcVeinRate(
+  totalMiningRate: number,
+  vein: VeinRateInput,
+): number {
+  const allocation =
+    VEIN_ALLOCATION[vein.veinType as keyof typeof VEIN_ALLOCATION] ??
+    WORLD_CONFIG.VEIN_MODIFIER.primary;
+  const miningPower = totalMiningRate * allocation;
+  return Math.min(miningPower * vein.purity, vein.yieldPerHour);
+}
+
+// ============================================================================
 // destroyAsteroid — called when stability reaches 0
 // Distributes buffer resources to stations proportional to cargo capacity,
 // then cascade-deletes the asteroid.
@@ -170,15 +198,8 @@ export const calculateMiningTick = async (assignmentId: string): Promise<TickRes
   const producedResources: Record<string, number> = {};
 
   for (const vein of veins) {
-    const veinKey = vein.veinType as keyof typeof VEIN_ALLOCATION;
-    const allocation = VEIN_ALLOCATION[veinKey] ?? WORLD_CONFIG.VEIN_MODIFIER.primary;
-
-    const miningPower = totalMiningRate * allocation;
-    const rawOutput = miningPower * vein.purity * deltaHours;
-    const yieldCap = vein.yieldPerHour * deltaHours;
-    const cappedOutput = Math.min(rawOutput, yieldCap);
-    const effective = cappedOutput * asteroid.stability;
-
+    const ratePerHour = calcVeinRate(totalMiningRate, vein);
+    const effective = ratePerHour * deltaHours;
     producedResources[vein.resourceKey] = (producedResources[vein.resourceKey] ?? 0) + effective;
   }
 
