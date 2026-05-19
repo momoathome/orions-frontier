@@ -75,8 +75,8 @@ export const WORLD_CONFIG = {
   // ── Yield budget per hour per size (before modifiers) ────────────────────
 
   YIELD_BUDGET: {
-    small: { min: 60, max: 120 },
-    medium: { min: 180, max: 320 },
+    small: { min: 100, max: 180 },
+    medium: { min: 240, max: 360 },
     large: { min: 600, max: 1100 },
     massive: { min: 2200, max: 5000 },
   },
@@ -102,9 +102,9 @@ export const WORLD_CONFIG = {
   // ── Yield modifier per tier (rarer = lower base yield) ───────────────────
 
   TIER_YIELD_MODIFIER: {
-    low_value: 0.6,
-    medium_value: 0.45,
-    high_value: 0.15,
+    low_value: 1,
+    medium_value: 0.5,
+    high_value: 0.20,
     extreme_value: 0.05,
   } as Record<string, number>,
 
@@ -190,7 +190,7 @@ export const WORLD_CONFIG = {
   // ── Purity system ─────────────────────────────────────────────────────────
 
   PURITY_TIERS: [
-    { tier: 'impure', roll: [1, 30], multiplier: [0.4, 0.7] },
+    { tier: 'impure', roll: [1, 30], multiplier: [0.5, 0.8] },
     { tier: 'normal', roll: [31, 75], multiplier: [0.9, 1.4] },
     { tier: 'rich', roll: [76, 93], multiplier: [1.5, 1.9] },
     { tier: 'pure', roll: [94, 99], multiplier: [2.0, 2.5] },
@@ -199,7 +199,7 @@ export const WORLD_CONFIG = {
 
   // ── Stability ─────────────────────────────────────────────────────────────
 
-  STABILITY_INITIAL: { min: 0.75, max: 1.0 },
+  STABILITY_INITIAL: { min: 0.8, max: 1.0 },
   STABILITY_FLOOR: 0,
   /** Per-hour regen when mining load < yield */
   STABILITY_REGEN_PER_HOUR: 0.01,

@@ -27,10 +27,10 @@ export const CLICK_MOVE_THRESHOLD = 10;
 
 /** Asteroid visual radius per size category (world units) */
 export const ASTEROID_SIZE_RADIUS: Record<string, number> = {
-  small: 8,
-  medium: 12,
-  large: 24,
-  massive: 36,
+  small: 10,
+  medium: 18,
+  large: 30,
+  massive: 48,
 };
 /** Fallback radius for unknown size */
 export const ASTEROID_DEFAULT_RADIUS = 8;

@@ -229,7 +229,7 @@ onUnmounted(() => unsubscribe());
         </div>
 
         <!-- Right: scrollable queue -->
-        <div class="w-56 shrink-0 overflow-y-auto border-l border-white/5 pl-4">
+        <div class="w-52 shrink-0 overflow-y-auto border-l border-white/5 pl-4">
           <BuildQueue :orders="allBuildOrders" />
         </div>
       </div>

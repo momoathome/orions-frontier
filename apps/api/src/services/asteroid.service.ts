@@ -566,7 +566,10 @@ export interface StationMiningAssignment {
   asteroidY: number;
   asteroidSize: AsteroidSize;
   asteroidStability: number;
+  asteroidPrimaryResourceKey: string | null;
   spacecraftDefinitionId: string;
+  spacecraftName: string;
+  spacecraftMiningRate: number;
   assignedAmount: number;
   assignedAt: string;
   lastTick: string;
@@ -589,9 +592,23 @@ export const getStationMiningAssignments = async (
       asteroidY: asteroids.y,
       asteroidSize: asteroids.size,
       asteroidStability: asteroids.stability,
+      asteroidPrimaryResourceKey: asteroidVeins.resourceKey,
+      spacecraftName: spacecraftDefinitions.name,
+      spacecraftMiningRate: spacecraftDefinitions.miningRate,
     })
     .from(asteroidAssignments)
     .innerJoin(asteroids, eq(asteroids.id, asteroidAssignments.asteroidId))
+    .innerJoin(
+      spacecraftDefinitions,
+      eq(spacecraftDefinitions.id, asteroidAssignments.spacecraftDefinitionId)
+    )
+    .leftJoin(
+      asteroidVeins,
+      and(
+        eq(asteroidVeins.asteroidId, asteroidAssignments.asteroidId),
+        eq(asteroidVeins.veinType, 'primary')
+      )
+    )
     .where(eq(asteroidAssignments.stationId, stationId));
 
   return rows.map((r) => ({
@@ -601,7 +618,10 @@ export const getStationMiningAssignments = async (
     asteroidY: r.asteroidY,
     asteroidSize: r.asteroidSize as AsteroidSize,
     asteroidStability: r.asteroidStability,
+    asteroidPrimaryResourceKey: r.asteroidPrimaryResourceKey ?? null,
     spacecraftDefinitionId: r.spacecraftDefinitionId,
+    spacecraftName: r.spacecraftName,
+    spacecraftMiningRate: r.spacecraftMiningRate,
     assignedAmount: r.assignedAmount,
     assignedAt: r.assignedAt.toISOString(),
     lastTick: r.lastTick.toISOString(),

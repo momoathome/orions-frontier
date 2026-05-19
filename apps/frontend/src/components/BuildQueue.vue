@@ -48,7 +48,7 @@ function timeUntil(isoStr: string): string {
         :class="roleTheme(order.spacecraftRole).amount"
         >×{{ order.amount }}</span
       >
-      <span class="text-[10px] text-white/30 tabular-nums shrink-0 w-10 text-right">
+      <span class="text-[10px] text-white/30 tabular-nums shrink-0 w-16 text-right">
         {{ timeUntil(order.endsAt) }}
       </span>
     </div>

@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import BuildingsTab from './BuildingsTab.vue';
 import FleetTab from './FleetTab.vue';
+import MiningTab from './MiningTab.vue';
 
 type Section = 'buildings' | 'fleet' | 'mining' | 'defense';
 
@@ -16,6 +17,7 @@ const selectedSection = ref<Section | null>(null);
 const buildingsQueueCount = ref(0);
 const fleetQueueCount = ref(0);
 const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.value);
+const totalMiningRatePerHour = ref(0);
 </script>
 
 <template>
@@ -45,19 +47,29 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
           </div>
           <div class="hidden md:flex items-center gap-4 text-[10px]">
             <div class="flex items-center gap-1.5">
-              <span class="w-1 h-1 rounded-full bg-cyan-400/50" />
+              <span
+                class="w-1 h-1 rounded-full bg-cyan-400/50"
+                :class="totalMiningRatePerHour > 0 ? 'animate-pulse' : 'opacity-30'"
+              />
               <span class="text-white/25">Mining</span>
-              <span class="text-cyan-300 tabular-nums">+342/min</span>
+              <span
+                class="text-cyan-300 tabular-nums"
+                :class="totalMiningRatePerHour === 0 ? 'text-white/25' : ''"
+              >
+                +{{ Math.round(totalMiningRatePerHour / 60) }}/min
+              </span>
             </div>
             <div class="flex items-center gap-1.5">
-              <span class="w-1 h-1 rounded-full bg-amber-400/70" :class="totalQueue > 0 ? 'animate-pulse' : 'opacity-30'" />
+              <span
+                class="w-1 h-1 rounded-full bg-amber-400/70"
+                :class="totalQueue > 0 ? 'animate-pulse' : 'opacity-30'"
+              />
               <span class="text-white/25">Queue</span>
-              <span class="tabular-nums" :class="totalQueue > 0 ? 'text-amber-300' : 'text-white/25'">{{ totalQueue }} active</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="w-1 h-1 rounded-full bg-green-400/60" />
-              <span class="text-white/25">Threat</span>
-              <span class="text-green-400 uppercase text-[9px] tracking-widest">LOW</span>
+              <span
+                class="tabular-nums"
+                :class="totalQueue > 0 ? 'text-amber-300' : 'text-white/25'"
+                >{{ totalQueue }} active</span
+              >
             </div>
           </div>
         </div>
@@ -109,16 +121,15 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         class="flex-1 overflow-hidden flex flex-col"
         @queue-count="fleetQueueCount = $event"
       />
+      <MiningTab
+        v-show="selectedSection === 'mining'"
+        :station-id="stationId"
+        class="flex-1 overflow-hidden flex flex-col"
+        @total-mining-rate="totalMiningRatePerHour = $event"
+      />
       <!-- ── Placeholder tabs ───────────────────────────────────────────────── -->
-      <div
-        v-for="section in ['mining', 'defense'] as Section[]"
-        v-show="selectedSection === section"
-        :key="section"
-        class="flex-1 flex items-center justify-center"
-      >
-        <p class="text-white/15 text-[9px] uppercase tracking-[0.4em]">
-          {{ section }} — coming soon
-        </p>
+      <div v-show="selectedSection === 'defense'" class="flex-1 flex items-center justify-center">
+        <p class="text-white/15 text-[9px] uppercase tracking-[0.4em]">defense — coming soon</p>
       </div>
     </div>
   </div>
