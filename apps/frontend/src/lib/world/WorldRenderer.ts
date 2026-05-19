@@ -3,6 +3,7 @@ import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
 import { AsteroidLayer } from './AsteroidLayer.js';
 import { RouteLayer } from './RouteLayer.js';
+import { TripLayer, type ActiveTrip } from './TripLayer.js';
 import {
   ZOOM_INITIAL,
   ZOOM_STEP,
@@ -67,6 +68,9 @@ export class WorldRenderer {
   private _assignedAsteroids: AssignedAsteroid[] = [];
   /** Accumulates each tick — drives dash animation */
   private _routePhase = 0;
+
+  // ── Trip layer (in-flight spacecraft) ────────────────────────────────────
+  private tripLayer!: TripLayer;
 
   // ── Selection / hover rings ──────────────────────────────────────────────
   private hoverRingG!: Graphics;
@@ -177,6 +181,10 @@ export class WorldRenderer {
     this.assignmentRingsG = new Graphics();
     this.worldContainer.addChild(this.assignmentRingsG);
 
+    // Trip layer — animated ship markers, above assignment rings
+    this.tripLayer = new TripLayer();
+    this.worldContainer.addChild(this.tripLayer.container);
+
     // Hover and selection rings — drawn on top of asteroids in world space
     this.hoverRingG = new Graphics();
     this.worldContainer.addChild(this.hoverRingG);
@@ -227,6 +235,23 @@ export class WorldRenderer {
   setSelectedAsteroid(id: string | null) {
     this._selectedAsteroidId = id;
     this._redrawSelectionRing();
+  }
+
+  /**
+   * Updates the active trip data used for animated ship markers on the map.
+   * Call this after fetching /me/trips and after each transport_tick_completed event.
+   */
+  setActiveTrips(trips: ActiveTrip[]): void {
+    this.tripLayer.setTrips(trips);
+  }
+
+  /**
+   * Returns world coordinates for a loaded asteroid, or null if the chunk
+   * isn't loaded yet. Used to resolve trip endpoint coordinates.
+   */
+  getAsteroidWorldPos(id: string): { x: number; y: number } | null {
+    const hit = this.asteroidLayer.getAsteroidPosition(id);
+    return hit ? { x: hit.x, y: hit.y } : null;
   }
 
   /** Called by WorldRenderer internals when hover changes. */
@@ -311,6 +336,9 @@ export class WorldRenderer {
     // Animate route lines (dashes move toward destination)
     this._routePhase += this.app.ticker.deltaTime * 0.45;
     this.routeLayer.redraw(this._routePhase);
+
+    // Animate in-flight spacecraft dots
+    this.tripLayer.redraw();
 
     // Redraw assignment rings with pulse
     this._redrawAssignmentRings();

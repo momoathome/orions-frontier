@@ -81,7 +81,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     attack: 3,
     defense: 3,
     cargo: 150,
-    speed: 50,
+    speed: 70,
     miningRate: 60,
     buildTime: 50,
     costs: [
@@ -99,7 +99,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     attack: 5,
     defense: 10,
     cargo: 500,
-    speed: 30,
+    speed: 40,
     miningRate: 200,
     buildTime: 120,
     costs: [
@@ -120,7 +120,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     attack: 2,
     defense: 5,
     cargo: 300,
-    speed: 70,
+    speed: 100,
     miningRate: 0,
     buildTime: 40,
     costs: [
@@ -137,7 +137,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     attack: 5,
     defense: 15,
     cargo: 1200,
-    speed: 40,
+    speed: 80,
     miningRate: 0,
     buildTime: 90,
     costs: [

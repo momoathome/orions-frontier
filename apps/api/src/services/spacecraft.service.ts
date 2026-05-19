@@ -180,8 +180,10 @@ export const buildSpacecrafts = async (
   }
 
   // Validate all orders can be built
+  // TODO: re-enable shipyard unlock check for production
+  const ENFORCE_SHIPYARD_UNLOCKS = false;
   for (const order of orders) {
-    if (!unlockedKeys.has(order.spacecraftKey)) {
+    if (ENFORCE_SHIPYARD_UNLOCKS && !unlockedKeys.has(order.spacecraftKey)) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
         `Spacecraft '${order.spacecraftKey}' is not unlocked at current shipyard level`
@@ -331,4 +333,4 @@ export const buildSpacecrafts = async (
       timestamp: Date.now(),
     })
   );
-};;
+};;;

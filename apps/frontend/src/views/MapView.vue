@@ -4,8 +4,9 @@ import TopHud from '../components/TopHud.vue';
 import StationPanel from '../components/StationPanel.vue';
 import AsteroidPanel from '../components/AsteroidPanel.vue';
 import { apiClient } from '../lib/api-client';
+import { wsClient } from '../lib/ws-client';
 import { WorldRenderer } from '../lib/world/index.js';
-import type { StationInfo, AssignedAsteroid } from '../lib/world/index.js';
+import type { StationInfo, AssignedAsteroid, ActiveTrip } from '../lib/world/index.js';
 import { useSelectionStore } from '../stores/selection';
 
 const selectionStore = useSelectionStore();
@@ -29,6 +30,60 @@ async function loadUserStation(): Promise<StationInfo | null> {
     }
   } catch {
     // no station yet
+  }
+  return null;
+}
+
+// ── Active trips (in-flight spacecraft) ─────────────────────────────────────
+
+async function loadTrips(): Promise<void> {
+  if (!renderer) return;
+  try {
+    const { data } = await apiClient.get('/me/trips');
+    const raw = (data?.data ?? []) as Array<{
+      id: string;
+      fromType: string;
+      fromId: string;
+      toType: string;
+      toId: string;
+      departedAt: string;
+      arrivesAt: string;
+      purpose: string;
+      groupSize: number;
+    }>;
+
+    // We need world coordinates for from/to — look them up from loaded map data
+    // For now, map fromId/toId → coordinates using stationInfo and asteroid positions
+    const trips: ActiveTrip[] = [];
+    for (const t of raw) {
+      const fromPos = resolveEndpointCoords(t.fromType, t.fromId);
+      const toPos = resolveEndpointCoords(t.toType, t.toId);
+      if (!fromPos || !toPos) continue;
+      trips.push({
+        id: t.id,
+        fromX: fromPos.x,
+        fromY: fromPos.y,
+        toX: toPos.x,
+        toY: toPos.y,
+        departedAt: new Date(t.departedAt).getTime(),
+        arrivesAt: new Date(t.arrivesAt).getTime(),
+        purpose: t.purpose as ActiveTrip['purpose'],
+        groupSize: t.groupSize,
+      });
+    }
+    renderer.setActiveTrips(trips);
+  } catch {
+    // non-fatal
+  }
+}
+
+/** Resolve world coordinates for a trip endpoint. */
+function resolveEndpointCoords(type: string, id: string): { x: number; y: number } | null {
+  if (type === 'station' && stationInfo && stationId.value === id) {
+    return { x: stationInfo.x, y: stationInfo.y };
+  }
+  if (type === 'asteroid' && renderer) {
+    return renderer.getAsteroidWorldPos(id);
   }
   return null;
 }
@@ -65,6 +120,9 @@ async function loadAssignments(): Promise<void> {
 const worldRef = ref<HTMLDivElement | null>(null);
 let renderer: WorldRenderer | null = null;
 let stationInfo: StationInfo | null = null;
+
+let unsubTransportTick: (() => void) | null = null;
+let unsubMiningTick: (() => void) | null = null;
 
 onMounted(async () => {
   stationInfo = await loadUserStation();
@@ -108,6 +166,14 @@ onMounted(async () => {
 
   // Load mining assignment markers after renderer is ready
   await loadAssignments();
+
+  // Load active trips (in-flight spacecraft)
+  await loadTrips();
+
+  // Refresh trips whenever the transport tick reports changes
+  unsubTransportTick = wsClient.on('transport_tick_completed', () => { loadTrips(); });
+  // Also refresh on mining tick (miners may have started self-recall)
+  unsubMiningTick = wsClient.on('mining_tick_completed', () => { loadTrips(); });
 });
 
 // Sync selected asteroid → renderer selection ring
@@ -124,6 +190,8 @@ watch(
 );
 
 onUnmounted(() => {
+  unsubTransportTick?.();
+  unsubMiningTick?.();
   renderer?.destroy();
   renderer = null;
   selectionStore.deselect();

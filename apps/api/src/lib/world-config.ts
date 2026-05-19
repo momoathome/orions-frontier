@@ -28,8 +28,8 @@ export const WORLD_CONFIG = {
   ZONES: {
     core: { min: 0.0, max: 0.1 },
     midRing: { min: 0.1, max: 0.4 },
-    frontier: { min: 0.4, max: 0.70 },
-    spawnRing: { min: 0.70, max: 1.0 },
+    frontier: { min: 0.4, max: 0.7 },
+    spawnRing: { min: 0.7, max: 1.0 },
   },
 
   // ── Asteroid density (asteroids per chunk, min–max) ───────────────────────
@@ -233,6 +233,45 @@ export const WORLD_CONFIG = {
     /** No asteroid may be placed within this distance of a spawn slot (world units) */
     SAFE_RADIUS: 250,
   },
+
+  // ── Travel system ──────────────────────────────────────────────────────────
+  //
+  // Travel time formula: travelHours = distance / (speed × TRAVEL_SPEED_FACTOR)
+  // With BASE_RADIUS=3500 and TRAVEL_SPEED_FACTOR=10:
+  //   speed=50  Miner  → ~7h to cross the full world
+  //   speed=70  Nomad  → ~5h
+  //   speed=120 Fighter→ ~2.9h
+  //   SpawnRing asteroids (≈3080 units from center) take proportionally less.
+
+  /** Multiplier: world-units per speed-unit per hour. Higher = faster travel. */
+  TRAVEL_SPEED_FACTOR: 1000,
+
+  // ── Game Speed (dev tuning) ───────────────────────────────────────────────
+  //
+  // Central knobs for adjusting the pace of the game during development.
+  // All timing values reference these constants — change here, affects everything.
+  //
+  // Cheat sheet:
+  //   TRAVEL_SPEED_FACTOR 10   → realistic (hours per trip)
+  //   TRAVEL_SPEED_FACTOR 1000 → ~20× faster (minutes per trip)
+  //
+  //   MINING_RATE_MULTIPLIER 1   → normal
+  //   MINING_RATE_MULTIPLIER 10  → 10× more resources per tick
+  //
+  //   MINING_TICK_INTERVAL_MS  300_000 → tick every 5 min (normal)
+  //   MINING_TICK_INTERVAL_MS   10_000 → tick every 10 s (fast debug)
+  //
+  //   TRANSPORT_TICK_INTERVAL_MS  60_000 → check arrivals every 1 min (normal)
+  //   TRANSPORT_TICK_INTERVAL_MS  10_000 → check every 10 s (fast debug)
+
+  /** Global multiplier applied to all mined resource output. */
+  MINING_RATE_MULTIPLIER: 100,
+
+  /** How often the mining-tick BullMQ job runs (milliseconds). */
+  MINING_TICK_INTERVAL_MS: 15_000,
+
+  /** How often the transport-tick BullMQ job runs (milliseconds). */
+  TRANSPORT_TICK_INTERVAL_MS: 10_000,
 } as const;
 
 export type ZoneType = keyof typeof WORLD_CONFIG.ZONES;

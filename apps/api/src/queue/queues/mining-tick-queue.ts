@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq';
 import { bullmqRedis } from '../bullmq.js';
+import { WORLD_CONFIG } from '../../lib/world-config.js';
 
 export const miningTickQueue = new Queue('mining-tick', {
   connection: bullmqRedis,
@@ -18,8 +19,8 @@ export const scheduleMiningTickCron = async (): Promise<void> => {
     'tick-all-assignments',
     {},
     {
-      repeat: { every: 5 * 60 * 1000 }, // every 5 minutes
+      repeat: { every: WORLD_CONFIG.MINING_TICK_INTERVAL_MS },
       jobId: 'mining-tick-cron',
-    },
+    }
   );
 };

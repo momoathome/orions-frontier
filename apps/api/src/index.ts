@@ -14,7 +14,9 @@ import { initRedis } from './lib/redis.js';
 import { startActionWorker } from './queue/workers/action-worker.js';
 import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
 import { startMiningTickWorker } from './queue/workers/mining-tick-worker.js';
+import { startTransportTickWorker } from './queue/workers/transport-tick-worker.js';
 import { scheduleMiningTickCron } from './queue/queues/mining-tick-queue.js';
+import { scheduleTransportTickCron } from './queue/queues/transport-tick-queue.js';
 import {
   seedSpacecraftDefinitions,
   seedBuildingDefinitions,
@@ -70,7 +72,9 @@ const start = async () => {
     startActionWorker();
     startSpacecraftBuildWorker();
     startMiningTickWorker();
+    startTransportTickWorker();
     await scheduleMiningTickCron();
+    await scheduleTransportTickCron();
     fastify.log.info('Queue workers started');
 
     // Seed static data

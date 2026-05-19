@@ -7,10 +7,17 @@ import {
   timestamp,
   index,
   uniqueIndex,
+  pgEnum,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { stations } from './stations.js';
 import { spacecraftDefinitions } from './spacecraft-definitions.js';
+
+export const assignmentStatusEnum = pgEnum('assignment_status', [
+  'traveling_to_asteroid', // Miner flying to asteroid for the first time or returning after recall
+  'at_asteroid', // Miner present and mining (default)
+  'traveling_to_station', // Miner self-recall: carrying full buffer back to station
+]);
 
 // ============================================================================
 // asteroid_clusters — World generation influence zones (optional overlay)
@@ -140,11 +147,13 @@ export const asteroidAssignments = pgTable(
     assignedAt: timestamp('assigned_at').notNull().defaultNow(),
     /** Last production tick timestamp — used for lazy tick delta calculation */
     lastTick: timestamp('last_tick').notNull().defaultNow(),
+    /** Current status of the miner group for this assignment */
+    status: assignmentStatusEnum('status').notNull().default('at_asteroid'),
   },
   (table) => ({
     asteroidIdIdx: index('asteroid_assignments_asteroid_id_idx').on(table.asteroidId),
     stationIdIdx: index('asteroid_assignments_station_id_idx').on(table.stationId),
-  }),
+  })
 );
 
 // ============================================================================

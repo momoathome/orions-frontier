@@ -8,7 +8,9 @@ import { inArray } from 'drizzle-orm';
 import {
   calculateMiningTick,
   applyAsteroidStabilityTick,
+  checkAndDispatchMinerRecall,
 } from '../../services/mining-tick.service.js';
+import { checkAndDispatchTransports } from '../../services/transport-tick.service.js';
 import { getRedis } from '../../lib/redis.js';
 
 const logger = rootLogger.child({ name: 'mining-tick-worker' });
@@ -53,6 +55,24 @@ async function processMiningTickJob(job: { name: string }) {
       await applyAsteroidStabilityTick(asteroidId);
     } catch (err) {
       logger.error({ asteroidId, err }, 'Failed to apply stability tick');
+    }
+  }
+
+  // First: give transporters a chance to pick up resources before miner recall
+  for (const stationId of stationIds) {
+    try {
+      await checkAndDispatchTransports(stationId);
+    } catch (err) {
+      logger.error({ stationId, err }, 'Failed to dispatch transporters after mining tick');
+    }
+  }
+
+  // Check for miner self-recall (buffer full) per affected asteroid
+  for (const asteroidId of asteroidIds) {
+    try {
+      await checkAndDispatchMinerRecall(asteroidId);
+    } catch (err) {
+      logger.error({ asteroidId, err }, 'Failed to check miner recall');
     }
   }
 

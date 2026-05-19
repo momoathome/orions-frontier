@@ -4,6 +4,7 @@ export * from './station-spacecrafts.js';
 export * from './station-resources.js';
 export * from './spacecraft-definitions.js';
 export * from './spacecraft-build-orders.js';
+export * from './spacecraft-trips.js';
 export * from './building-definitions.js';
 export * from './station-buildings.js';
 export * from './asteroids.js';
@@ -19,6 +20,7 @@ import { stationSpacecrafts } from './station-spacecrafts.js';
 import { stationResources } from './station-resources.js';
 import { spacecraftDefinitions, spacecraftDefinitionCosts } from './spacecraft-definitions.js';
 import { stationBuildings } from './station-buildings.js';
+import { spacecraftTrips } from './spacecraft-trips.js';
 
 export const stationsManyRelations = relations(stations, ({ many }) => ({
   spacecrafts: many(stationSpacecrafts),
@@ -26,7 +28,7 @@ export const stationsManyRelations = relations(stations, ({ many }) => ({
   buildings: many(stationBuildings),
 }));
 
-export const stationSpacecraftsRelations = relations(stationSpacecrafts, ({ one }) => ({
+export const stationSpacecraftsRelations = relations(stationSpacecrafts, ({ one, many }) => ({
   station: one(stations, {
     fields: [stationSpacecrafts.stationId],
     references: [stations.id],
@@ -35,6 +37,7 @@ export const stationSpacecraftsRelations = relations(stationSpacecrafts, ({ one 
     fields: [stationSpacecrafts.spacecraftDefinitionId],
     references: [spacecraftDefinitions.id],
   }),
+  trips: many(spacecraftTrips),
 }));
 
 export const spacecraftDefinitionsManyRelations = relations(spacecraftDefinitions, ({ many }) => ({

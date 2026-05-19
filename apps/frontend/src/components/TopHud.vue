@@ -12,6 +12,7 @@ type ResourceEntry = {
   image: string;
   amount: number;
   ratePerHour: number;
+  effectiveRatePerHour: number;
 };
 
 const resourceEntries = ref<ResourceEntry[]>([]);
@@ -30,6 +31,7 @@ function applyResourceSummary(summary: UserResourceSummary) {
         image: def.image,
         amount: summary.resources[key] as number,
         ratePerHour: summary.rates[key] ?? 0,
+        effectiveRatePerHour: summary.effectiveRates?.[key] ?? 0,
       };
     });
 }
@@ -63,16 +65,22 @@ const unsubscribeTick = wsClient.on('mining_tick_completed', () => {
   fetchResources();
 });
 
+// Refetch after transport tick (effective rates + resource amounts change on delivery)
+const unsubscribeTransport = wsClient.on('transport_tick_completed', () => {
+  fetchResources();
+});
+
 onMounted(() => {
   fetchResources();
   // Slow poll as fallback for any passive changes not covered by WS
-  pollInterval = setInterval(fetchResources, 30_000);
+  // pollInterval = setInterval(fetchResources, 30_000);
 });
 
 onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval);
   unsubscribeResources();
   unsubscribeTick();
+  unsubscribeTransport();
 });
 
 function fmt(n: number): string {
@@ -89,7 +97,7 @@ function fmtRate(n: number): string {
 
 <template>
   <div
-    class="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-5 h-9 bg-[#050a14]/90 border-b border-cyan-500/10 font-mono text-[11px]"
+    class="absolute top-0 left-0 right-0 z-10 cursor-default flex items-center justify-between px-5 h-9 bg-[#050a14]/90 border-b border-cyan-500/10 font-mono text-[11px]"
   >
     <!-- Resources -->
     <div class="flex items-center gap-1">
@@ -108,6 +116,12 @@ function fmtRate(n: number): string {
             v-if="entry.ratePerHour > 0"
             class="text-cyan-400/50 tabular-nums text-[9px]"
           >{{ fmtRate(entry.ratePerHour) }}/h</span>
+          <!-- Effective delivery rate — shown only when it differs from theoretical -->
+          <span
+            v-if="entry.effectiveRatePerHour > 0 && Math.abs(entry.effectiveRatePerHour - entry.ratePerHour) > 1"
+            class="text-amber-400/60 tabular-nums text-[9px]"
+            :title="`Delivered last hour: ${Math.round(entry.effectiveRatePerHour)}/h (theoretical: ${Math.round(entry.ratePerHour)}/h)`"
+          >↓{{ fmtRate(entry.effectiveRatePerHour) }}</span>
         </div>
       </template>
 
