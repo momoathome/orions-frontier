@@ -1,12 +1,10 @@
 import type { AsteroidVein } from '@orions-frontier/shared';
+import { VEIN_MODIFIER } from '@orions-frontier/shared';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-export const VEIN_ALLOCATION: Record<string, number> = {
-  primary: 0.70,
-  secondary: 0.25,
-  trace: 0.05,
-};
+/** Single source of truth: imported from @orions-frontier/shared (same as backend). */
+export const VEIN_ALLOCATION: Record<string, number> = VEIN_MODIFIER;
 
 /** Must stay in sync with WORLD_CONFIG.MINING_RATE_MULTIPLIER in world-config.ts */
 export const MINING_RATE_MULTIPLIER = 1;
@@ -63,9 +61,10 @@ export function calcEffectiveRateByResource(
   veins: AsteroidVein[],
 ): Record<string, number> {
   if (totalMiningPower === 0) return {};
+  const allocSum = veins.reduce((s, v) => s + (VEIN_ALLOCATION[v.veinType] ?? 0.7), 0);
   const result: Record<string, number> = {};
   for (const vein of veins) {
-    const allocation = VEIN_ALLOCATION[vein.veinType] ?? 0.70;
+    const allocation = (VEIN_ALLOCATION[vein.veinType] ?? 0.7) / (allocSum || 1);
     const cappedRate = Math.min(totalMiningPower * allocation * vein.purity, vein.yieldPerHour);
     result[vein.resourceKey] =
       (result[vein.resourceKey] ?? 0) + cappedRate * MINING_RATE_MULTIPLIER;
@@ -96,10 +95,12 @@ export function calcStabilityChangePerHour(
   hasAssignments: boolean,
 ): number | null {
   if (!hasAssignments) return null;
+  const allocSum = veins.reduce((s, v) => s + (VEIN_ALLOCATION[v.veinType] ?? 0.7), 0);
   let totalMiningLoad = 0;
   let totalYieldCap = 0;
   for (const vein of veins) {
-    totalMiningLoad += totalMiningPower * (VEIN_ALLOCATION[vein.veinType] ?? 0.70);
+    const allocation = (VEIN_ALLOCATION[vein.veinType] ?? 0.7) / (allocSum || 1);
+    totalMiningLoad += totalMiningPower * allocation;
     totalYieldCap += vein.yieldPerHour;
   }
   if (totalYieldCap === 0) return null;

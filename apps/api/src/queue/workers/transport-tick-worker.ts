@@ -3,7 +3,8 @@ import { bullmqRedis } from '../bullmq.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { getDb } from '../../lib/db/index.js';
 import { stations } from '../../lib/db/schema/stations.js';
-import { processTripArrivals, checkAndDispatchTransports } from '../../services/transport-tick.service.js';
+import { processTripArrivals } from '../../services/transport/trip-arrivals.service.js';
+import { checkAndDispatchTransports } from '../../services/transport/transport-dispatch.service.js';
 import { getRedis } from '../../lib/redis.js';
 
 const logger = rootLogger.child({ name: 'transport-tick-worker' });

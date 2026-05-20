@@ -5,6 +5,7 @@
 // ============================================================================
 
 import type { ResourceKey } from '@orions-frontier/shared';
+import { VEIN_MODIFIER } from '@orions-frontier/shared';
 
 // ── World Size ────────────────────────────────────────────────────────────────
 
@@ -82,12 +83,9 @@ export const WORLD_CONFIG = {
   },
 
   // ── Vein type modifier — fraction of budget this vein receives ───────────
+  // Imported from @orions-frontier/shared — single source of truth for frontend + backend.
 
-  VEIN_MODIFIER: {
-    primary: 0.7,
-    secondary: 0.25,
-    trace: 0.05,
-  },
+  VEIN_MODIFIER,
 
   // ── Resource tier (determines how rare and yield-limited a resource is) ───
 
@@ -272,6 +270,26 @@ export const WORLD_CONFIG = {
 
   /** How often the transport-tick BullMQ job runs (milliseconds). */
   TRANSPORT_TICK_INTERVAL_MS: 60_000,
+
+  // ── Transport dispatch scoring ────────────────────────────────────────────
+  //
+  // Controls how transporters are prioritised and dispatched.
+  // Tune these values to change pickup aggressiveness without touching service code.
+
+  TRANSPORT_DISPATCH: {
+    /** Projected fill fraction contribution to dispatch score */
+    W_FILL: 0.9,
+    /** Mining rate/h contribution to dispatch score */
+    W_RATE: 0.6,
+    /** Distance cost per world unit subtracted from score */
+    W_DISTANCE: 0.12,
+    /** Ideal projected fill ratio at arrival (1.0 = completely full) */
+    TARGET_FILL: 0.85,
+    /** Opportunistic fallback minimum fill when asteroid has been starved */
+    SOFT_MIN_FILL: 0.3,
+    /** How long (ms) an asteroid may go without a dispatch before fallback triggers */
+    STARVATION_MS: 20 * 60 * 1000,
+  },
 } as const;
 
 export type ZoneType = keyof typeof WORLD_CONFIG.ZONES;

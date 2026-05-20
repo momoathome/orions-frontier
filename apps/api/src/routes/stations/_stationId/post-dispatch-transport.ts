@@ -1,7 +1,7 @@
 import { defineRoute } from '../../../lib/route-helper.js';
 import { authenticate } from '../../../middleware/auth.js';
 import { requireStation } from '../../../middleware/require-station.js';
-import { checkAndDispatchTransports } from '../../../services/transport-tick.service.js';
+import { checkAndDispatchTransports } from '../../../services/transport/transport-dispatch.service.js';
 
 /**
  * POST /api/stations/:stationId/dispatch-transport

@@ -3,8 +3,8 @@ import { defineRoute } from '../../../lib/route-helper.js';
 import { authenticate } from '../../../middleware/auth.js';
 import { getDb } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
-import { getStationMiningAssignments } from '../../../services/asteroid.service.js';
-import { tickStationAssignments } from '../../../services/mining-tick.service.js';
+import { getStationMiningAssignments } from '../../../services/mining/assignment.service.js';
+import { tickStationAssignments } from '../../../services/mining/mining-tick.service.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 /**

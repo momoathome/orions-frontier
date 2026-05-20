@@ -5,12 +5,10 @@ import { getDb } from '../../lib/db/index.js';
 import { asteroidAssignments } from '../../lib/db/schema/asteroids.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { inArray } from 'drizzle-orm';
-import {
-  calculateMiningTick,
-  applyAsteroidStabilityTick,
-  checkAndDispatchMinerRecall,
-} from '../../services/mining-tick.service.js';
-import { checkAndDispatchTransports } from '../../services/transport-tick.service.js';
+import { calculateMiningTick } from '../../services/mining/mining-tick.service.js';
+import { applyAsteroidStabilityTick } from '../../services/mining/asteroid-lifecycle.service.js';
+import { checkAndDispatchMinerRecall } from '../../services/mining/miner-recall.service.js';
+import { checkAndDispatchTransports } from '../../services/transport/transport-dispatch.service.js';
 import { getRedis } from '../../lib/redis.js';
 
 const logger = rootLogger.child({ name: 'mining-tick-worker' });

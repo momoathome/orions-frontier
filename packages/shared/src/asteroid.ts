@@ -12,6 +12,19 @@ import type { ResourceKey } from './resource.js';
 export const CHUNK_SIZE = 1000;
 
 // ============================================================================
+// Vein Allocation
+//
+// Fraction of a miner's power directed at each vein type.
+// Single source of truth — imported by API (world-config) and frontend (mining-utils).
+// ============================================================================
+
+export const VEIN_MODIFIER = {
+  primary: 0.70,
+  secondary: 0.25,
+  trace: 0.05,
+} as const;
+
+// ============================================================================
 // Asteroid Core Types
 // ============================================================================
 

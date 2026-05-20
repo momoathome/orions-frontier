@@ -1,6 +1,6 @@
 import { defineRoute } from '../../../../../lib/route-helper.js';
 import { authenticate } from '../../../../../middleware/auth.js';
-import { removeAsteroidAssignment } from '../../../../../services/asteroid.service.js';
+import { removeAsteroidAssignment } from '../../../../../services/mining/assignment.service.js';
 import { getRedis } from '../../../../../lib/redis.js';
 import { requireStation } from '../../../../../middleware/require-station.js';
 

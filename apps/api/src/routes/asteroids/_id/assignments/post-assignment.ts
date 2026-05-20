@@ -1,6 +1,6 @@
 import { defineRoute } from '../../../../lib/route-helper.js';
 import { authenticate } from '../../../../middleware/auth.js';
-import { createAsteroidAssignment } from '../../../../services/asteroid.service.js';
+import { createAsteroidAssignment } from '../../../../services/mining/assignment.service.js';
 import { getRedis } from '../../../../lib/redis.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 

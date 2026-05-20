@@ -7,7 +7,7 @@ import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.j
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import type { ResourceKey, ResourceMap } from '@orions-frontier/shared';
-import { calcVeinRate } from './mining-tick.service.js';
+import { calcMiningRatesByResource } from '../lib/vein-rates.js';
 
 // ============================================================================
 // Initial resource amounts for new stations
@@ -96,9 +96,10 @@ export const getUserMiningRates = async (userId: string): Promise<ResourceMap> =
   const db = getDb();
 
   // One query: assignments → stations (filter userId) → spacecraft_definitions
-  //            → asteroid_veins → asteroids (stability)
+  //            → asteroid_veins
   const rows = await db
     .select({
+      asteroidId: asteroidAssignments.asteroidId,
       assignedAmount: asteroidAssignments.assignedAmount,
       miningRate: spacecraftDefinitions.miningRate,
       veinType: asteroidVeins.veinType,
@@ -115,15 +116,40 @@ export const getUserMiningRates = async (userId: string): Promise<ResourceMap> =
     .innerJoin(asteroidVeins, eq(asteroidAssignments.asteroidId, asteroidVeins.asteroidId))
     .where(eq(stations.userId, userId));
 
-  const rates: ResourceMap = {};
+  // Group by asteroid so we can:
+  //  a) sum combined mining rate across all assignment rows for the same asteroid
+  //  b) normalize vein allocations across only the veins actually present
+  // This mirrors calculateMiningTick / calcEffectiveRateByResource exactly.
+  type VeinData = { veinType: string; purity: number; yieldPerHour: number; resourceKey: string };
+  const byAsteroid = new Map<string, { combinedRate: number; veins: Map<string, VeinData> }>();
+
   for (const row of rows) {
-    const totalMiningRate = row.miningRate * row.assignedAmount;
-    const ratePerHour = calcVeinRate(totalMiningRate, row);
-    const key = row.resourceKey as ResourceKey;
-    rates[key] = (rates[key] ?? 0) + ratePerHour;
+    let entry = byAsteroid.get(row.asteroidId);
+    if (!entry) {
+      entry = { combinedRate: 0, veins: new Map() };
+      byAsteroid.set(row.asteroidId, entry);
+    }
+    entry.combinedRate += row.miningRate * row.assignedAmount;
+    // Veins are repeated for each assignment row — deduplicate by resourceKey+veinType
+    if (!entry.veins.has(row.veinType + ':' + row.resourceKey)) {
+      entry.veins.set(row.veinType + ':' + row.resourceKey, {
+        veinType: row.veinType,
+        purity: row.purity,
+        yieldPerHour: row.yieldPerHour,
+        resourceKey: row.resourceKey,
+      });
+    }
+  }
+
+  const rates: ResourceMap = {};
+  for (const { combinedRate, veins } of byAsteroid.values()) {
+    const ratesByResource = calcMiningRatesByResource(combinedRate, [...veins.values()]);
+    for (const [key, rate] of Object.entries(ratesByResource)) {
+      rates[key as ResourceKey] = (rates[key as ResourceKey] ?? 0) + rate;
+    }
   }
   return rates;
-};
+};;
 
 // ============================================================================
 // Get effective transport delivery rate (units/h) per resource.
