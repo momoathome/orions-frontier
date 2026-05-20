@@ -20,7 +20,7 @@ import type {
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 export const getStationSpacecrafts = async (
-  stationId: string,
+  stationId: string
 ): Promise<StationSpacecraftWithDefinition[]> => {
   const db = getDb();
 
@@ -29,7 +29,7 @@ export const getStationSpacecrafts = async (
     .from(stationSpacecrafts)
     .innerJoin(
       spacecraftDefinitions,
-      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id),
+      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
     )
     .where(eq(stationSpacecrafts.stationId, stationId));
 
@@ -44,7 +44,7 @@ export const getStationSpacecrafts = async (
       : [];
 
   const costsByDefinitionId = costs.reduce<
-    Record<string, typeof spacecraftDefinitionCosts.$inferSelect[]>
+    Record<string, (typeof spacecraftDefinitionCosts.$inferSelect)[]>
   >((acc, cost) => {
     (acc[cost.spacecraftDefinitionId] ??= []).push(cost);
     return acc;
@@ -60,11 +60,27 @@ export const getStationSpacecrafts = async (
       : [];
 
   const buildOrdersByDefId = buildOrderRows.reduce<
-    Record<string, typeof spacecraftBuildOrders.$inferSelect[]>
+    Record<string, (typeof spacecraftBuildOrders.$inferSelect)[]>
   >((acc, o) => {
     (acc[o.spacecraftDefinitionId] ??= []).push(o);
     return acc;
   }, {});
+
+  // Sort rows by role (fighter, miner, transporter, salvager)
+  // and then by cumulative attack+defense (descending)
+  const ROLE_ORDER = ['miner', 'transporter', 'salvager', 'fighter'];
+
+  rows.sort((a, b) => {
+    const ra = ROLE_ORDER.indexOf(a.spacecraft_definitions.role as string);
+    const rb = ROLE_ORDER.indexOf(b.spacecraft_definitions.role as string);
+    const ia = ra === -1 ? Number.MAX_SAFE_INTEGER : ra;
+    const ib = rb === -1 ? Number.MAX_SAFE_INTEGER : rb;
+    if (ia !== ib) return ia - ib;
+
+    const sa = (a.spacecraft_definitions.attack ?? 0) + (a.spacecraft_definitions.defense ?? 0);
+    const sb = (b.spacecraft_definitions.attack ?? 0) + (b.spacecraft_definitions.defense ?? 0);
+    return sa - sb; // lower combined stats first
+  });
 
   return rows.map((row) => {
     const def = row.spacecraft_definitions;
@@ -96,7 +112,7 @@ export const getStationSpacecrafts = async (
       })),
     };
   });
-};
+};;;
 
 // ============================================================================
 // Build spacecrafts

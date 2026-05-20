@@ -140,10 +140,10 @@ onUnmounted(() => unsubscribe());
     </div>
 
     <!-- Main: icon grid + detail -->
-    <div class="flex-1 grid grid-cols-[330px_1fr] overflow-hidden">
+    <div class="flex-1 grid grid-cols-[33%_1fr] overflow-hidden">
       <!-- Icon grid -->
       <div class="border-r border-white/5 overflow-y-auto p-3">
-        <div class="grid grid-cols-4 gap-1.5">
+        <div class="grid grid-cols-7 gap-1.5">
           <div
             v-for="entry in filteredFleet"
             :key="entry.definition.id"
@@ -159,7 +159,7 @@ onUnmounted(() => unsubscribe());
               class="w-full h-0.5 rounded-full"
               :class="roleTheme(entry.definition.role).topBar"
             />
-            <div class="w-9 h-9 relative flex items-center justify-center mt-1">
+            <div class="w-9 h-9 relative flex items-center justify-center">
               <span class="text-white/10 text-[20px] absolute select-none pointer-events-none"
                 >◈</span
               >

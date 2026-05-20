@@ -74,6 +74,11 @@ const assignPreviewStabilityChange = computed<number | null>(() => {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
+function setMaxAmount() {
+  const max = (selectedMiner.value?.amount ?? 0) - (selectedMiner.value?.lockedAmount ?? 0);
+  assignAmount.value = Math.max(1, isFinite(max) ? max : 1);
+}
+
 async function submit() {
   if (!selectedDefId.value) return;
   const maxAmount = (selectedMiner.value?.amount ?? 0) - (selectedMiner.value?.lockedAmount ?? 0);
@@ -138,13 +143,35 @@ async function submit() {
           <!-- Amount -->
           <div class="flex flex-col gap-1.5">
             <label class="text-[9px] text-white/25 uppercase tracking-wider">Amount</label>
-            <input
-              v-model.number="assignAmount"
-              type="number"
-              min="1"
-              :max="selectedMiner ? selectedMiner.amount - selectedMiner.lockedAmount : 1"
-              class="bg-white/5 border border-white/10 rounded px-2 h-7 text-[11px] text-white/80 focus:outline-none focus:border-cyan-400/40 tabular-nums"
-            />
+            <div class="flex items-center gap-1 w-full">
+              <button
+                @click="assignAmount = Math.max(1, assignAmount - 1)"
+                class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+              >
+                −
+              </button>
+              <input
+                v-model.number="assignAmount"
+                type="number"
+                min="1"
+                step="1"
+                :max="selectedMiner ? selectedMiner.amount - selectedMiner.lockedAmount : 1"
+                @change="assignAmount = Math.max(1, Math.floor(assignAmount || 1))"
+                class="flex-1 h-7 text-center text-[12px] text-white/80 bg-white/5 border border-white/12 rounded tabular-nums focus:outline-none focus:border-cyan-500/50"
+              />
+              <button
+                @click="assignAmount = assignAmount + 1"
+                class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+              >
+                +
+              </button>
+              <button
+                @click="setMaxAmount()"
+                class="px-2 h-7 flex items-center justify-center rounded border border-white/10 text-white/35 hover:bg-white/8 hover:text-white/70 transition text-[9px] uppercase tracking-widest"
+              >
+                Max
+              </button>
+            </div>
             <span
               v-if="selectedMiner && assignAmount > selectedMiner.amount - selectedMiner.lockedAmount"
               class="text-[9px] text-red-400/80"

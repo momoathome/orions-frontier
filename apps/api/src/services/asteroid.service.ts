@@ -494,7 +494,7 @@ export const updateAsteroidAssignment = async (
   assignmentId: string,
   stationId: string,
   assignedAmount: number
-): Promise<{ id: string } | null> => {
+): Promise<{ id: string } | { code: 'INSUFFICIENT_SPACECRAFT'; message: string } | null> => {
   const db = getDb();
 
   // Load old assignment + cargo
@@ -514,6 +514,37 @@ export const updateAsteroidAssignment = async (
       and(eq(asteroidAssignments.id, assignmentId), eq(asteroidAssignments.stationId, stationId))
     )
     .limit(1);
+
+  // If increasing assignment, ensure station has enough available spacecraft
+  if (old && assignedAmount > old.assignedAmount) {
+    const delta = assignedAmount - old.assignedAmount;
+    const [stationScraft] = await db
+      .select({
+        id: stationSpacecrafts.id,
+        amount: stationSpacecrafts.amount,
+        lockedAmount: stationSpacecrafts.lockedAmount,
+      })
+      .from(stationSpacecrafts)
+      .where(
+        and(
+          eq(stationSpacecrafts.stationId, stationId),
+          eq(stationSpacecrafts.spacecraftDefinitionId, old.spacecraftDefinitionId)
+        )
+      )
+      .limit(1);
+
+    if (!stationScraft) {
+      return { code: 'INSUFFICIENT_SPACECRAFT', message: 'No spacecraft of this type at station' };
+    }
+
+    const available = stationScraft.amount - stationScraft.lockedAmount;
+    if (available < delta) {
+      return {
+        code: 'INSUFFICIENT_SPACECRAFT',
+        message: `Only ${available} spacecraft available (${delta} requested)`,
+      };
+    }
+  }
 
   const result = await db
     .update(asteroidAssignments)

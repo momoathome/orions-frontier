@@ -26,6 +26,11 @@ export default defineRoute(async (app) => {
         .send({ message: 'Assignment not found or not owned by your station' });
     }
 
+    if ('code' in updated) {
+      const status = updated.code === 'INSUFFICIENT_SPACECRAFT' ? 400 : 400;
+      return reply.status(status).send({ message: updated.message });
+    }
+
     await getRedis().publish(
       `user:${request.user.userId}:events`,
       JSON.stringify({ type: 'mining_tick_completed', payload: {}, timestamp: Date.now() })

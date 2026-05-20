@@ -89,8 +89,18 @@ const previewStabilityChange = computed<number | null>(() => {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
+function setMaxRecall() {
+  const max = selectedGroup.value?.totalAmount ?? 1;
+  recallAmount.value = Math.max(1, isFinite(max) ? max : 1);
+}
+
 async function submit() {
   if (!selectedGroup.value) return;
+  const maxAmount = selectedGroup.value.totalAmount;
+  if (recallAmount.value < 1 || recallAmount.value > maxAmount) {
+    recallError.value = `Only ${maxAmount} ${selectedGroup.value.spacecraftName ?? 'spacecraft'} available.`;
+    return;
+  }
   const group = selectedGroup.value;
   recalling.value = true;
   recallError.value = null;
@@ -160,14 +170,39 @@ async function submit() {
           <!-- Amount -->
           <div class="flex flex-col gap-1.5">
             <label class="text-[9px] text-white/25 uppercase tracking-wider">Amount to Recall</label>
-            <input
-              v-model.number="recallAmount"
-              type="number"
-              min="1"
-              :max="selectedGroup?.totalAmount ?? 1"
-              class="bg-white/5 border border-white/10 rounded px-2 h-7 text-[11px] text-white/80 focus:outline-none focus:border-red-400/30 tabular-nums"
-            />
-            <span v-if="recallPower > 0" class="text-[9px] text-white/25">
+            <div class="flex items-center gap-1 w-full">
+              <button
+                @click="recallAmount = Math.max(1, recallAmount - 1)"
+                class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+              >
+                −
+              </button>
+              <input
+                v-model.number="recallAmount"
+                type="number"
+                min="1"
+                step="1"
+                :max="selectedGroup?.totalAmount ?? 1"
+                @change="recallAmount = Math.max(1, Math.floor(recallAmount || 1))"
+                class="flex-1 h-7 text-center text-[12px] text-white/80 bg-white/5 border border-white/12 rounded tabular-nums focus:outline-none focus:border-red-400/30"
+              />
+              <button
+                @click="recallAmount = recallAmount + 1"
+                class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+              >
+                +
+              </button>
+              <button
+                @click="setMaxRecall()"
+                class="px-2 h-7 flex items-center justify-center rounded border border-white/10 text-white/35 hover:bg-white/8 hover:text-white/70 transition text-[9px] uppercase tracking-widest"
+              >
+                Max
+              </button>
+            </div>
+            <span v-if="selectedGroup && recallAmount > selectedGroup.totalAmount" class="text-[9px] text-red-400/80">
+              Max available: {{ selectedGroup.totalAmount }}
+            </span>
+            <span v-else-if="recallPower > 0" class="text-[9px] text-white/25">
               Removes {{ recallPower.toFixed(0) }}/h mining power
             </span>
           </div>

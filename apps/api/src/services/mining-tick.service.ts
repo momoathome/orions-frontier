@@ -7,7 +7,6 @@ import {
   asteroidResourceStorage,
 } from '../lib/db/schema/asteroids.js';
 import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
-import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -55,11 +54,16 @@ export interface VeinRateInput {
   resourceKey: string;
 }
 
-export function calcVeinRate(totalMiningRate: number, vein: VeinRateInput): number {
-  const allocation =
+export function calcVeinRate(
+  totalMiningRate: number,
+  vein: VeinRateInput,
+  allocation?: number
+): number {
+  const resolvedAllocation =
+    allocation ??
     VEIN_ALLOCATION[vein.veinType as keyof typeof VEIN_ALLOCATION] ??
     WORLD_CONFIG.VEIN_MODIFIER.primary;
-  const miningPower = totalMiningRate * allocation;
+  const miningPower = totalMiningRate * resolvedAllocation;
   return (
     Math.min(miningPower * vein.purity, vein.yieldPerHour) * WORLD_CONFIG.MINING_RATE_MULTIPLIER
   );
@@ -74,13 +78,23 @@ export function calcVeinRate(totalMiningRate: number, vein: VeinRateInput): numb
 export const destroyAsteroid = async (asteroidId: string): Promise<void> => {
   const db = getDb();
 
-  // Load all assignments with cargo capacity
+  // Load asteroid position for travel-time calculation
+  const [asteroidRow] = await db
+    .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
+    .from(asteroids)
+    .where(eq(asteroids.id, asteroidId))
+    .limit(1);
+  if (!asteroidRow) return;
+
+  // Load all assignments with the data needed for recall trips
   const assignments = await db
     .select({
       stationId: asteroidAssignments.stationId,
       assignedAmount: asteroidAssignments.assignedAmount,
       spacecraftDefinitionId: asteroidAssignments.spacecraftDefinitionId,
+      status: asteroidAssignments.status,
       cargo: spacecraftDefinitions.cargo,
+      speed: spacecraftDefinitions.speed,
     })
     .from(asteroidAssignments)
     .innerJoin(
@@ -95,39 +109,84 @@ export const destroyAsteroid = async (asteroidId: string): Promise<void> => {
     .from(asteroidResourceStorage)
     .where(eq(asteroidResourceStorage.asteroidId, asteroidId));
 
-  // Cargo capacity per station (sum across all assignment rows)
-  const cargoByStation = new Map<string, number>();
-  for (const a of assignments) {
-    cargoByStation.set(
-      a.stationId,
-      (cargoByStation.get(a.stationId) ?? 0) + a.assignedAmount * a.cargo
-    );
-  }
-  const totalCargo = [...cargoByStation.values()].reduce((s, v) => s + v, 0);
+  const now = new Date();
 
-  // Distribute buffer resources to stations proportional to their cargo share
-  if (totalCargo > 0 && buffer.length > 0) {
-    await db.transaction(async (tx) => {
+  // ── Recall trips for miners currently at the asteroid ────────────────────
+  // Instead of teleporting resources, send miners home with the buffer.
+  // Miners already traveling to the station (status='traveling_to_station')
+  // already have a recall trip in flight — we skip them here.
+  const atAsteroid = assignments.filter((a) => a.status === 'at_asteroid');
+
+  if (atAsteroid.length > 0) {
+    const totalCargo = atAsteroid.reduce((s, a) => s + a.assignedAmount * a.cargo, 0);
+
+    const stationIds = [...new Set(atAsteroid.map((a) => a.stationId))];
+    const stationRows = await db
+      .select({ id: stations.id, x: stations.x, y: stations.y })
+      .from(stations)
+      .where(inArray(stations.id, stationIds));
+    const stationMap = new Map(stationRows.map((s) => [s.id, s]));
+
+    for (const assignment of atAsteroid) {
+      const station = stationMap.get(assignment.stationId);
+      if (!station) continue;
+
+      // Find the stationSpacecrafts row (needed as foreign key on the trip)
+      const [ssRow] = await db
+        .select({ id: stationSpacecrafts.id })
+        .from(stationSpacecrafts)
+        .where(
+          and(
+            eq(stationSpacecrafts.stationId, assignment.stationId),
+            eq(stationSpacecrafts.spacecraftDefinitionId, assignment.spacecraftDefinitionId)
+          )
+        )
+        .limit(1);
+      if (!ssRow) continue;
+
+      // Proportional share of the buffer for this assignment group
+      const assignmentCargo = assignment.assignedAmount * assignment.cargo;
+      const cargoShare = totalCargo > 0 ? assignmentCargo / totalCargo : 0;
+
+      const cargoManifest: Record<string, number> = {};
       for (const resource of buffer) {
-        for (const [stationId, stationCargo] of cargoByStation.entries()) {
-          // Each station receives its proportional share; excess is lost
-          const rawAmount = resource.amount * (stationCargo / totalCargo);
-          const amount = Math.floor(rawAmount);
-          if (amount <= 0) continue;
-          await tx
-            .insert(stationResources)
-            .values({ stationId, resourceKey: resource.resourceKey, amount })
-            .onConflictDoUpdate({
-              target: [stationResources.stationId, stationResources.resourceKey],
-              set: { amount: sql`${stationResources.amount} + ${amount}` },
-            });
-        }
+        const amount = Math.floor(resource.amount * cargoShare);
+        if (amount > 0) cargoManifest[resource.resourceKey] = amount;
       }
-    });
+
+      const distance = calcDistance(
+        { x: asteroidRow.x, y: asteroidRow.y },
+        { x: station.x, y: station.y }
+      );
+      const arrivesAt = calcArrivesAt(now, distance, assignment.speed);
+
+      // Recall trip only — no return trip since the asteroid is destroyed.
+      // When this trip arrives, the transport tick credits the cargoManifest
+      // to the station and tries to update the assignment status (no-op since
+      // assignments are cascade-deleted with the asteroid below).
+      await db.insert(spacecraftTrips).values({
+        stationSpacecraftId: ssRow.id,
+        groupSize: assignment.assignedAmount,
+        fromType: 'asteroid',
+        fromId: asteroidId,
+        toType: 'station',
+        toId: assignment.stationId,
+        departedAt: now,
+        arrivesAt,
+        purpose: 'recall',
+        cargoManifest,
+        status: 'traveling',
+      });
+    }
   }
 
-  // Release spacecraft locks for all assignments before cascade-delete
-  for (const a of assignments) {
+  // ── Release locks for miners whose outbound trip we just cancelled ────────
+  // Only traveling_to_asteroid miners are freed immediately — their trip is
+  // deleted and they'll never arrive. at_asteroid and traveling_to_station
+  // miners keep their lock; the transport tick releases it when their recall
+  // trip arrives at the station and detects the asteroid is gone.
+  const travelingToAsteroid = assignments.filter((a) => a.status === 'traveling_to_asteroid');
+  for (const a of travelingToAsteroid) {
     await db
       .update(stationSpacecrafts)
       .set({
@@ -140,6 +199,57 @@ export const destroyAsteroid = async (asteroidId: string): Promise<void> => {
         )
       );
   }
+
+  // ── Cancel transporter return trips (asteroid → station) immediately ─────
+  // Pre-created at dispatch time. Miner recall trips (purpose='recall') are
+  // intentionally NOT cancelled — they deliver the cargo and release the lock
+  // via the transport tick asteroid-existence check.
+  const transporterReturnTrips = await db
+    .select({
+      stationSpacecraftId: spacecraftTrips.stationSpacecraftId,
+      groupSize: spacecraftTrips.groupSize,
+    })
+    .from(spacecraftTrips)
+    .where(
+      and(
+        eq(spacecraftTrips.fromType, 'asteroid'),
+        eq(spacecraftTrips.fromId, asteroidId),
+        eq(spacecraftTrips.purpose, 'return'),
+        eq(spacecraftTrips.status, 'traveling')
+      )
+    );
+
+  for (const trip of transporterReturnTrips) {
+    await db
+      .update(stationSpacecrafts)
+      .set({
+        lockedAmount: sql`GREATEST(0, ${stationSpacecrafts.lockedAmount} - ${trip.groupSize})`,
+      })
+      .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId));
+  }
+
+  await db
+    .delete(spacecraftTrips)
+    .where(
+      and(
+        eq(spacecraftTrips.fromType, 'asteroid'),
+        eq(spacecraftTrips.fromId, asteroidId),
+        eq(spacecraftTrips.purpose, 'return'),
+        eq(spacecraftTrips.status, 'traveling')
+      )
+    );
+
+  // ── Cancel all trips still flying toward this asteroid ───────────────────
+  // Covers: initial mine trips and miner-return trips (station → asteroid).
+  await db
+    .delete(spacecraftTrips)
+    .where(
+      and(
+        eq(spacecraftTrips.toType, 'asteroid'),
+        eq(spacecraftTrips.toId, asteroidId),
+        eq(spacecraftTrips.status, 'traveling')
+      )
+    );
 
   // Cascade-delete: veins, storage, assignments are deleted automatically
   await db.delete(asteroids).where(eq(asteroids.id, asteroidId));
@@ -202,8 +312,21 @@ export const calculateMiningTick = async (assignmentId: string): Promise<TickRes
   const totalMiningRate = scraft.miningRate * assignment.assignedAmount;
   const producedResources: Record<string, number> = {};
 
+  // Normalize allocations to the veins actually present so miners don't
+  // waste power when an asteroid has fewer than 3 veins.
+  const rawAllocSum = veins.reduce(
+    (s, v) =>
+      s +
+      (VEIN_ALLOCATION[v.veinType as keyof typeof VEIN_ALLOCATION] ??
+        WORLD_CONFIG.VEIN_MODIFIER.primary),
+    0
+  );
+
   for (const vein of veins) {
-    const ratePerHour = calcVeinRate(totalMiningRate, vein);
+    const rawAlloc =
+      VEIN_ALLOCATION[vein.veinType as keyof typeof VEIN_ALLOCATION] ??
+      WORLD_CONFIG.VEIN_MODIFIER.primary;
+    const ratePerHour = calcVeinRate(totalMiningRate, vein, rawAlloc / (rawAllocSum || 1));
     const effective = ratePerHour * deltaHours;
     producedResources[vein.resourceKey] = (producedResources[vein.resourceKey] ?? 0) + effective;
   }
@@ -233,7 +356,7 @@ export const calculateMiningTick = async (assignmentId: string): Promise<TickRes
   });
 
   return { asteroidId: asteroid.id, producedResources };
-};;
+};
 
 /**
  * Applies a single stability tick for one asteroid based on ALL assignments combined.
@@ -278,10 +401,18 @@ export const applyAsteroidStabilityTick = async (asteroidId: string): Promise<vo
 
   let totalMiningLoad = 0;
   let totalYieldCap = 0;
+  const stabilityAllocSum = veins.reduce(
+    (s, v) =>
+      s +
+      (VEIN_ALLOCATION[v.veinType as keyof typeof VEIN_ALLOCATION] ??
+        WORLD_CONFIG.VEIN_MODIFIER.primary),
+    0
+  );
   for (const vein of veins) {
-    const allocation =
+    const rawAlloc =
       VEIN_ALLOCATION[vein.veinType as keyof typeof VEIN_ALLOCATION] ??
       WORLD_CONFIG.VEIN_MODIFIER.primary;
+    const allocation = rawAlloc / (stabilityAllocSum || 1);
     totalMiningLoad += combinedMiningRate * allocation;
     totalYieldCap += vein.yieldPerHour;
   }

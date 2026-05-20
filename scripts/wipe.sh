@@ -82,6 +82,8 @@ echo ""
 # ── API neu starten → kompletter Seed läuft beim Start ───────────────────
 
 echo "🔄  Starte API neu (Seed läuft beim Start automatisch)..."
+echo "🔧  Baue @orions-frontier/game-config im Container..."
+docker compose exec api pnpm --filter @orions-frontier/game-config build
 docker compose restart api
 
 echo ""

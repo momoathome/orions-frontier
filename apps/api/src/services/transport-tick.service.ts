@@ -129,20 +129,40 @@ async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Pro
         }
       }
 
-      // Return trip was already created at recall dispatch time.
-      // Just update assignment status to traveling_to_asteroid.
-      await tx
-        .update(asteroidAssignments)
-        .set({ status: 'traveling_to_asteroid' })
-        .where(
-          and(
-            eq(asteroidAssignments.asteroidId, trip.fromId),
-            sql`${asteroidAssignments.stationId} = ${trip.toId}`,
-            sql`${asteroidAssignments.spacecraftDefinitionId} = (
-              SELECT spacecraft_definition_id FROM station_spacecrafts WHERE id = ${trip.stationSpacecraftId}
-            )`
-          )
-        );
+      // Check if the source asteroid still exists.
+      // If it was destroyed, the assignment was cascade-deleted and no return trip exists —
+      // release the miner lock here so the ships become available immediately on landing.
+      // If the asteroid is still alive this is a normal recall: update assignment so miners fly back.
+      const [sourceAsteroid] = await tx
+        .select({ id: asteroids.id })
+        .from(asteroids)
+        .where(eq(asteroids.id, trip.fromId))
+        .limit(1);
+
+      if (!sourceAsteroid) {
+        // Asteroid destroyed → miners are done, release lock on arrival at station
+        await tx
+          .update(stationSpacecrafts)
+          .set({
+            lockedAmount: sql`GREATEST(0, ${stationSpacecrafts.lockedAmount} - ${trip.groupSize})`,
+          })
+          .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId));
+      } else {
+        // Normal recall: return trip was already created at dispatch time.
+        // Just update assignment status so miners fly back.
+        await tx
+          .update(asteroidAssignments)
+          .set({ status: 'traveling_to_asteroid' })
+          .where(
+            and(
+              eq(asteroidAssignments.asteroidId, trip.fromId),
+              sql`${asteroidAssignments.stationId} = ${trip.toId}`,
+              sql`${asteroidAssignments.spacecraftDefinitionId} = (
+                SELECT spacecraft_definition_id FROM station_spacecrafts WHERE id = ${trip.stationSpacecraftId}
+              )`
+            )
+          );
+      }
     } else if (trip.purpose === 'transport' && trip.toType === 'asteroid') {
       // ── Transporter arrived at asteroid (outbound leg) ─────────────────────
       // Load resources from the asteroid buffer now (at arrival), then update

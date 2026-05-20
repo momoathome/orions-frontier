@@ -202,7 +202,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
       { resourceKey: 'carbon', amount: 250 },
       { resourceKey: 'titanium', amount: 240 },
       { resourceKey: 'hydrogenium', amount: 150 },
-      { resourceKey: 'kyber_crystal', amount: 20 },
+      { resourceKey: 'kyber_crystal', amount: 50 },
     ],
   },
   // ── Transporters ─────────────────────────────────────────────────────────────
@@ -276,7 +276,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
       { resourceKey: 'carbon', amount: 300 },
       { resourceKey: 'titanium', amount: 350 },
       { resourceKey: 'hydrogenium', amount: 150 },
-      { resourceKey: 'kyber_crystal', amount: 40 },
+      { resourceKey: 'kyber_crystal', amount: 100 },
     ],
   },
 ];
