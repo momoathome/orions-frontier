@@ -19,10 +19,11 @@ const playerResources = ref<Record<string, number>>({});
 
 async function fetchPlayerResources() {
   try {
-    const { data } = await apiClient.get<{ success: true; data: Record<string, number> }>(
-      '/me/resources',
-    );
-    playerResources.value = data.data;
+    const { data } = await apiClient.get<{
+      success: true;
+      data: { resources: Record<string, number> };
+    }>('/me/resources');
+    playerResources.value = data.data.resources;
   } catch {
     // silently ignore – Max button simply won't work without fresh data
   }

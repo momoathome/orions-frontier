@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import BuildingsTab from './BuildingsTab.vue';
 import FleetTab from './FleetTab.vue';
 import MiningTab from './MiningTab.vue';
-type Section = 'buildings' | 'fleet' | 'mining' | 'defense';
+type Section = 'buildings' | 'fleet' | 'logistics' | 'defense';
 
 const props = defineProps<{
   stationId: string;
@@ -12,7 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>();
 
-const selectedSection = ref<Section | null>(null);
+const selectedSection = ref<Section | null>('logistics');
 const buildingsQueueCount = ref(0);
 const fleetQueueCount = ref(0);
 const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.value);
@@ -86,7 +86,7 @@ const totalMiningRatePerHour = ref(0);
         class="flex items-center gap-0.5 px-4 h-8 border-b border-white/5 bg-[#040911]/60 shrink-0"
       >
         <button
-          v-for="tab in ['buildings', 'fleet', 'mining', 'defense'] as Section[]"
+          v-for="tab in ['buildings', 'fleet', 'logistics', 'defense'] as Section[]"
           :key="tab"
           @click="selectedSection = tab"
           class="px-3 h-5 rounded text-[9px] uppercase tracking-[0.25em] transition"
@@ -122,7 +122,7 @@ const totalMiningRatePerHour = ref(0);
         @queue-count="fleetQueueCount = $event"
       />
       <MiningTab
-        v-show="selectedSection === 'mining'"
+        v-show="selectedSection === 'logistics'"
         :station-id="stationId"
         class="flex-1 overflow-hidden flex flex-col"
         @total-mining-rate="totalMiningRatePerHour = $event"
