@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import BuildingsTab from './BuildingsTab.vue';
 import FleetTab from './FleetTab.vue';
-import MiningTab from './MiningTab.vue';
+import LogisticsTab from './LogisticsTab.vue';
 type Section = 'buildings' | 'fleet' | 'logistics' | 'defense';
 
 const props = defineProps<{
@@ -121,7 +121,7 @@ const totalMiningRatePerHour = ref(0);
         class="flex-1 overflow-hidden flex flex-col"
         @queue-count="fleetQueueCount = $event"
       />
-      <MiningTab
+      <LogisticsTab
         v-show="selectedSection === 'logistics'"
         :station-id="stationId"
         class="flex-1 overflow-hidden flex flex-col"

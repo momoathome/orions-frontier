@@ -25,7 +25,7 @@ export const seedSpacecraftDefinitions = async (): Promise<void> => {
   const db = getDb();
 
   for (const def of spacecrafts) {
-    const [inserted] = await db
+    const [upserted] = await db
       .insert(spacecraftDefinitions)
       .values({
         key: def.key,
@@ -40,18 +40,36 @@ export const seedSpacecraftDefinitions = async (): Promise<void> => {
         miningRate: def.miningRate,
         buildTime: def.buildTime,
       })
-      .onConflictDoNothing({ target: spacecraftDefinitions.key })
+      .onConflictDoUpdate({
+        target: spacecraftDefinitions.key,
+        set: {
+          name: def.name,
+          description: def.description,
+          role: def.role,
+          image: def.image,
+          attack: def.attack,
+          defense: def.defense,
+          cargo: def.cargo,
+          speed: def.speed,
+          miningRate: def.miningRate,
+          buildTime: def.buildTime,
+        },
+      })
       .returning({ id: spacecraftDefinitions.id, key: spacecraftDefinitions.key });
 
-    if (!inserted) continue;
+    if (!upserted) continue;
 
     if (def.costs.length > 0) {
+      // Replace costs entirely so removed/changed costs are cleaned up.
+      await db
+        .delete(spacecraftDefinitionCosts)
+        .where(eq(spacecraftDefinitionCosts.spacecraftDefinitionId, upserted.id));
       await db.insert(spacecraftDefinitionCosts).values(
         def.costs.map((cost) => ({
-          spacecraftDefinitionId: inserted.id,
+          spacecraftDefinitionId: upserted.id,
           resourceKey: cost.resourceKey,
           amount: cost.amount,
-        })),
+        }))
       );
     }
   }
@@ -72,7 +90,17 @@ export const seedBuildingDefinitions = async (): Promise<void> => {
         maxLevel: def.maxLevel,
         effectType: def.effectType,
       })
-      .onConflictDoNothing({ target: buildingDefinitions.key });
+      .onConflictDoUpdate({
+        target: buildingDefinitions.key,
+        set: {
+          name: def.name,
+          description: def.description,
+          image: def.image,
+          baseBuildTime: def.baseBuildTime,
+          maxLevel: def.maxLevel,
+          effectType: def.effectType,
+        },
+      });
   }
 };
 

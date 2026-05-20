@@ -11,6 +11,7 @@ import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { spacecraftTrips, type CargoManifest } from '../lib/db/schema/spacecraft-trips.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { calcDistance, calcArrivesAt } from '../lib/travel.js';
+import { WORLD_CONFIG } from '../lib/world-config.js';
 
 // ============================================================================
 // Transport Tick Service
@@ -23,14 +24,23 @@ import { calcDistance, calcArrivesAt } from '../lib/travel.js';
 // ============================================================================
 
 // ── Priority score weights (tunable) ────────────────────────────────────────
-const W_FILL = 0.9; // raw buffer amount
-const W_RATE = 60.0; // mining rate/h advantage (1 unit/h = 60 score points)
-const W_DISTANCE = 0.1; // distance cost per world unit
+const W_FILL = 0.9; // projected fill fraction contribution
+const W_RATE = 0.6; // mining rate/h advantage
+const W_DISTANCE = 0.12; // distance cost per world unit
 
-// Minimum fill ratio before a transporter is dispatched.
-// 0.5 = dispatch when buffer >= 50% of the transporter's cargo capacity.
-// Lower values = more frequent trips (partially loaded), higher = more efficient but slower.
-const MIN_FILL_RATIO = 0.5;
+// ── Predictive dispatch thresholds ───────────────────────────────────────────
+//
+// TARGET_FILL   — ideal projected fill ratio at arrival (0.85 = ship arrives ~85% full)
+// SOFT_MIN_FILL — opportunistic fallback when the asteroid has been starved long enough
+// STARVATION_MS — how long an asteroid may go without a dispatch before fallback triggers
+const TARGET_FILL = 0.85;
+const SOFT_MIN_FILL = 0.3;
+const STARVATION_MS = 20 * 60 * 1000; // 20 minutes
+
+// ── Starvation tracker ───────────────────────────────────────────────────────
+// Keeps the last successful dispatch timestamp per asteroid (module-level so it
+// persists across ticks within the same process lifetime).
+const lastDispatchedAt = new Map<string, number>();
 
 // ============================================================================
 // processTripArrivals
@@ -44,7 +54,7 @@ const MIN_FILL_RATIO = 0.5;
 //   'transport-return' (purpose='return' from transporter) → credit station resources
 // ============================================================================
 
-export const processTripArrivals = async (): Promise<number> => {
+export async function processTripArrivals(): Promise<number> {
   const db = getDb();
   const now = new Date();
 
@@ -72,7 +82,7 @@ export const processTripArrivals = async (): Promise<number> => {
     .where(and(eq(spacecraftTrips.status, 'arrived'), lt(spacecraftTrips.arrivesAt, cutoff)));
 
   return settled;
-};;
+}
 
 async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Promise<void> {
   const db = getDb();
@@ -135,7 +145,89 @@ async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Pro
         );
     } else if (trip.purpose === 'transport' && trip.toType === 'asteroid') {
       // ── Transporter arrived at asteroid (outbound leg) ─────────────────────
-      // Return trip was already created at dispatch time — nothing to do here.
+      // Load resources from the asteroid buffer now (at arrival), then update
+      // the pre-created return trip with the real cargoManifest.
+      // This ensures the transporter carries what is actually present at arrival,
+      // not what was in the buffer when it was dispatched (predictive dispatch).
+      const asteroidId = trip.toId;
+      const stationId = trip.fromId;
+
+      const lockedBuffer = await tx
+        .select({
+          resourceKey: asteroidResourceStorage.resourceKey,
+          amount: asteroidResourceStorage.amount,
+        })
+        .from(asteroidResourceStorage)
+        .where(eq(asteroidResourceStorage.asteroidId, asteroidId))
+        .for('update');
+
+      const currentTotal = lockedBuffer.reduce((s, r) => s + r.amount, 0);
+
+      if (currentTotal > 0) {
+        // Determine the cargo capacity of this transporter so we don't overload.
+        const [defRow] = await tx
+          .select({ cargo: spacecraftDefinitions.cargo })
+          .from(stationSpacecrafts)
+          .innerJoin(
+            spacecraftDefinitions,
+            eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
+          )
+          .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId))
+          .limit(1);
+
+        const maxLoad = defRow ? trip.groupSize * defRow.cargo : currentTotal;
+        const totalToLoad = Math.min(currentTotal, maxLoad);
+        const loadFraction = totalToLoad / currentTotal;
+
+        const cargoManifest: CargoManifest = {};
+        for (const resource of lockedBuffer) {
+          const amount = Math.floor(resource.amount * loadFraction);
+          if (amount > 0) cargoManifest[resource.resourceKey] = amount;
+        }
+
+        // Decrement asteroid buffer
+        for (const resource of lockedBuffer) {
+          const deduct = Math.floor(resource.amount * loadFraction);
+          if (deduct <= 0) continue;
+          const newAmount = resource.amount - deduct;
+          if (newAmount <= 0) {
+            await tx
+              .delete(asteroidResourceStorage)
+              .where(
+                and(
+                  eq(asteroidResourceStorage.asteroidId, asteroidId),
+                  eq(asteroidResourceStorage.resourceKey, resource.resourceKey)
+                )
+              );
+          } else {
+            await tx
+              .update(asteroidResourceStorage)
+              .set({ amount: newAmount })
+              .where(
+                and(
+                  eq(asteroidResourceStorage.asteroidId, asteroidId),
+                  eq(asteroidResourceStorage.resourceKey, resource.resourceKey)
+                )
+              );
+          }
+        }
+
+        // Update the pre-created return trip with the real cargoManifest
+        await tx
+          .update(spacecraftTrips)
+          .set({ cargoManifest })
+          .where(
+            and(
+              eq(spacecraftTrips.stationSpacecraftId, trip.stationSpacecraftId),
+              eq(spacecraftTrips.purpose, 'return'),
+              eq(spacecraftTrips.fromType, 'asteroid'),
+              eq(spacecraftTrips.fromId, asteroidId),
+              eq(spacecraftTrips.toType, 'station'),
+              eq(spacecraftTrips.toId, stationId),
+              eq(spacecraftTrips.status, 'traveling')
+            )
+          );
+      }
     } else if (trip.purpose === 'return' && trip.toType === 'station') {
       // ── Transporter return leg arrived at station ───────────────────────────
       if (trip.cargoManifest) {
@@ -171,7 +263,7 @@ async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Pro
 // UPDATE equivalent via transaction) to prevent double-loading race conditions.
 // ============================================================================
 
-export const checkAndDispatchTransports = async (stationId: string): Promise<number> => {
+export async function checkAndDispatchTransports(stationId: string): Promise<number> {
   const db = getDb();
 
   // Load station position
@@ -252,6 +344,33 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
     .from(asteroids)
     .where(inArray(asteroids.id, asteroidIds));
 
+  // Count active outbound transport trips per asteroid so we can calculate
+  // how much transport capacity is already en-route (throughput saturation).
+  const activeTripRows = await db
+    .select({
+      asteroidId: spacecraftTrips.toId,
+      stationSpacecraftId: spacecraftTrips.stationSpacecraftId,
+      groupSize: spacecraftTrips.groupSize,
+    })
+    .from(spacecraftTrips)
+    .where(
+      and(
+        eq(spacecraftTrips.status, 'traveling'),
+        eq(spacecraftTrips.toType, 'asteroid'),
+        eq(spacecraftTrips.purpose, 'transport'),
+        inArray(spacecraftTrips.toId, asteroidIds)
+      )
+    );
+
+  // Map asteroidId → total active groupSize for capacity calculation
+  const activeGroupByAsteroid = new Map<string, number>();
+  for (const row of activeTripRows) {
+    activeGroupByAsteroid.set(
+      row.asteroidId,
+      (activeGroupByAsteroid.get(row.asteroidId) ?? 0) + row.groupSize
+    );
+  }
+
   const bufferRows = await db
     .select({
       asteroidId: asteroidResourceStorage.asteroidId,
@@ -277,22 +396,44 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
     totalBuffer: number;
     bufferByResource: Array<{ resourceKey: string; amount: number }>;
     score: number;
+    // Throughput info forwarded to dispatch loop
+    totalMiningRate: number;
+    distance: number;
   };
 
+  const now = new Date();
   const scored: ScoredAsteroid[] = [];
+
   for (const aRow of asteroidRows) {
     const resources = bufferByAsteroid.get(aRow.id) ?? [];
     const totalBuffer = resources.reduce((s, r) => s + r.amount, 0);
-
-    // Only consider asteroids where the buffer meets the minimum fill threshold
-    // for at least the smallest transporter type.
-    const smallestCargo = sortedTransporters[sortedTransporters.length - 1]?.cargo ?? Infinity;
-    if (totalBuffer < smallestCargo * MIN_FILL_RATIO) continue;
-
     const { totalMiningRate } = asteroidMap.get(aRow.id)!;
     const distance = calcDistance({ x: station.x, y: station.y }, { x: aRow.x, y: aRow.y });
 
-    const score = totalBuffer * W_FILL + totalMiningRate * W_RATE - distance * W_DISTANCE;
+    // ── Predictive eligibility ─────────────────────────────────────────────
+    // Check eligibility per transporter type using that type's own speed.
+    // sortedTransporters is ordered by cargo desc, so larger types are preferred.
+    const timeSinceDispatch = now.getTime() - (lastDispatchedAt.get(aRow.id) ?? 0);
+
+    const eligibleTransporter = sortedTransporters.find((t) => {
+      const travelHours = distance / (t.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
+      const projected = totalBuffer + totalMiningRate * travelHours;
+      const isIdeal = projected >= t.cargo * TARGET_FILL;
+      const isOpportunistic =
+        timeSinceDispatch >= STARVATION_MS && projected >= t.cargo * SOFT_MIN_FILL;
+
+      return (isIdeal || isOpportunistic) && (idleByTransporter.get(t.id) ?? 0) > 0;
+    });
+
+    if (!eligibleTransporter) continue;
+
+    // Score uses the projected fill for the eligible transporter type so that
+    // distant, high-rate asteroids are ranked correctly against nearby ones.
+    const eligibleTravelHours =
+      distance / (eligibleTransporter.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
+    const projectedBuffer = totalBuffer + totalMiningRate * eligibleTravelHours;
+    const projectedFill = projectedBuffer / eligibleTransporter.cargo;
+    const score = projectedFill * W_FILL + totalMiningRate * W_RATE - distance * W_DISTANCE;
 
     scored.push({
       asteroidId: aRow.id,
@@ -301,6 +442,8 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
       totalBuffer,
       bufferByResource: resources,
       score,
+      totalMiningRate,
+      distance,
     });
   }
 
@@ -310,17 +453,38 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
   let dispatched = 0;
 
   for (const candidate of scored) {
-    // Pick the largest transporter type where the buffer meets MIN_FILL_RATIO
-    // AND idle ships are available. Prefers larger transporters (sorted desc by cargo).
-    const transporter = sortedTransporters.find(
-      (t) =>
-        candidate.totalBuffer >= t.cargo * MIN_FILL_RATIO && (idleByTransporter.get(t.id) ?? 0) > 0
-    );
+    // ── Transporter selection ──────────────────────────────────────────────
+    // Pick the best transporter type based on throughput demand:
+    // how many ships does this route need vs. how many are already active?
+    const transporter = sortedTransporters.find((t) => {
+      const idle = idleByTransporter.get(t.id) ?? 0;
+      if (idle <= 0) return false;
+
+      // Projected fill for this specific transporter
+      const travelHours = candidate.distance / (t.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
+      const projected = candidate.totalBuffer + candidate.totalMiningRate * travelHours;
+      return (
+        projected >= t.cargo * TARGET_FILL ||
+        (now.getTime() - (lastDispatchedAt.get(candidate.asteroidId) ?? 0) >= STARVATION_MS &&
+          projected >= t.cargo * SOFT_MIN_FILL)
+      );
+    });
     if (!transporter) continue;
 
+    // ── Throughput-based groupSize ─────────────────────────────────────────
+    // How many transporters does this route need to clear mining output?
+    const roundTripHours =
+      (candidate.distance / (transporter.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR)) * 2;
+    const throughputPerShip = transporter.cargo / roundTripHours; // units/h per ship
+    const activeGroups = activeGroupByAsteroid.get(candidate.asteroidId) ?? 0;
+    const activeCapacity = activeGroups * throughputPerShip;
+    const demandGap = Math.max(0, candidate.totalMiningRate - activeCapacity);
+    const additionalNeeded = Math.ceil(demandGap / throughputPerShip);
+
     const idleCount = idleByTransporter.get(transporter.id)!;
-    const n = Math.ceil(candidate.totalBuffer / transporter.cargo);
-    const groupSize = Math.min(n, idleCount);
+    // Send at most 1 additional ship per tick-iteration to avoid dispatch bursts.
+    const groupSize = Math.min(additionalNeeded, idleCount, 1);
+    if (groupSize <= 0) continue;
 
     try {
       await db.transaction(async (tx) => {
@@ -336,44 +500,16 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
           .for('update');
 
         const currentTotal = lockedBuffer.reduce((s, r) => s + r.amount, 0);
-        if (currentTotal < transporter.cargo * MIN_FILL_RATIO) return; // raced out, skip
+        // Guard: if another concurrent dispatch drained the buffer below the
+        // opportunistic minimum since our eligibility check, skip this trip.
+        if (currentTotal < transporter.cargo * SOFT_MIN_FILL) return;
 
-        // Calculate how much each transporter takes
-        const totalToLoad = Math.min(currentTotal, groupSize * transporter.cargo);
-        const loadFraction = totalToLoad / currentTotal;
-
-        const cargoManifest: CargoManifest = {};
-        for (const resource of lockedBuffer) {
-          const amount = Math.floor(resource.amount * loadFraction);
-          if (amount > 0) cargoManifest[resource.resourceKey] = amount;
-        }
-
-        // Decrement buffer
-        for (const resource of lockedBuffer) {
-          const deduct = Math.floor(resource.amount * loadFraction);
-          if (deduct <= 0) continue;
-          const newAmount = resource.amount - deduct;
-          if (newAmount <= 0) {
-            await tx
-              .delete(asteroidResourceStorage)
-              .where(
-                and(
-                  eq(asteroidResourceStorage.asteroidId, candidate.asteroidId),
-                  eq(asteroidResourceStorage.resourceKey, resource.resourceKey)
-                )
-              );
-          } else {
-            await tx
-              .update(asteroidResourceStorage)
-              .set({ amount: newAmount })
-              .where(
-                and(
-                  eq(asteroidResourceStorage.asteroidId, candidate.asteroidId),
-                  eq(asteroidResourceStorage.resourceKey, resource.resourceKey)
-                )
-              );
-          }
-        }
+        // ── Load at arrival, not at dispatch ────────────────────────
+        // Buffer is NOT deducted here. The transporter departs with an empty
+        // cargoManifest (null). When it arrives at the asteroid, settleTripArrival
+        // loads the actual buffer, deducts it, and updates the return trip's
+        // cargoManifest. This ensures the transporter carries what is truly
+        // available at arrival time (predictive dispatch correctness).
 
         const distance = calcDistance(
           { x: station.x, y: station.y },
@@ -383,7 +519,8 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
         const outboundArrivesAt = calcArrivesAt(now, distance, transporter.speed);
         const returnArrivesAt = calcArrivesAt(outboundArrivesAt, distance, transporter.speed);
 
-        // Create both legs up front so the client can animate the full round trip immediately
+        // Create both legs up front so the client can animate the full round trip.
+        // cargoManifest is null on both legs — filled in at asteroid arrival.
         await tx.insert(spacecraftTrips).values([
           {
             stationSpacecraftId: transporter.id,
@@ -395,7 +532,7 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
             departedAt: now,
             arrivesAt: outboundArrivesAt,
             purpose: 'transport',
-            cargoManifest,
+            cargoManifest: null,
             status: 'traveling',
           },
           {
@@ -408,7 +545,7 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
             departedAt: outboundArrivesAt,
             arrivesAt: returnArrivesAt,
             purpose: 'return',
-            cargoManifest,
+            cargoManifest: null,
             status: 'traveling',
           },
         ]);
@@ -423,6 +560,11 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
 
         dispatched += groupSize;
         idleByTransporter.set(transporter.id, idleCount - groupSize);
+        activeGroupByAsteroid.set(
+          candidate.asteroidId,
+          (activeGroupByAsteroid.get(candidate.asteroidId) ?? 0) + groupSize
+        );
+        lastDispatchedAt.set(candidate.asteroidId, now.getTime());
       });
     } catch (err) {
       console.error({ asteroidId: candidate.asteroidId, err }, 'Transport dispatch failed');
@@ -430,4 +572,4 @@ export const checkAndDispatchTransports = async (stationId: string): Promise<num
   }
 
   return dispatched;
-};
+}

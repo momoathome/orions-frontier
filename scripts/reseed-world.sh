@@ -1,7 +1,6 @@
 #!/bin/bash
-# Lösche alle Asteroid-Daten und generiere die Welt neu.
-# Die asteroid_veins, asteroid_resource_storage und asteroid_assignments
-# werden automatisch per FK CASCADE gelöscht wenn asteroids geleert wird.
+# Löscht alle Welt-Daten (Asteroiden + Spawn-Slots) und generiert die Welt neu.
+# Stations, User und Definitionen werden NICHT angetastet.
 
 set -e
 
@@ -35,37 +34,29 @@ fi
 POSTGRES_USER="${POSTGRES_USER:-orions}"
 POSTGRES_DB="${POSTGRES_DB:-orions_frontier}"
 
-# ── Asteroid-Daten löschen ────────────────────────────────────────────────
+# ── Welt-Daten löschen ───────────────────────────────────────────────────
 
-echo "🗑️   Lösche Asteroid-, Spawn-Slot- und Station-Daten (User bleibt erhalten)..."
+echo "🗑️   Lösche Asteroiden + Spawn-Slots (Stations, User, Definitionen bleiben)..."
 docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 DELETE FROM asteroid_assignments;
 DELETE FROM asteroid_resource_storage;
 DELETE FROM asteroid_veins;
 DELETE FROM asteroids;
+-- Spawn-Slot → Station-Referenz lösen, dann Slots löschen (Stations bleiben).
 UPDATE spawn_slots SET station_id = NULL;
 DELETE FROM spawn_slots;
-DELETE FROM station_spacecrafts;
-DELETE FROM station_buildings;
-DELETE FROM station_resources;
-DELETE FROM stations;
--- Dev-User wird NICHT gelöscht, damit bestehende JWTs weiter gültig bleiben.
--- Stattdessen wird die Station beim API-Restart neu erstellt (seedDevUser
--- prüft ob der User existiert, überspringt die User-Erstellung, erstellt
--- aber Station + Buildings + Resources neu wenn keine Station vorhanden ist).
 SELECT
-  (SELECT COUNT(*) FROM asteroids)               AS asteroids,
-  (SELECT COUNT(*) FROM asteroid_veins)          AS veins,
+  (SELECT COUNT(*) FROM asteroids)                 AS asteroids,
+  (SELECT COUNT(*) FROM asteroid_veins)            AS veins,
   (SELECT COUNT(*) FROM asteroid_resource_storage) AS storage,
-  (SELECT COUNT(*) FROM spawn_slots)             AS spawn_slots,
-  (SELECT COUNT(*) FROM stations)                AS stations;
+  (SELECT COUNT(*) FROM spawn_slots)               AS spawn_slots;
 SQL
 
 echo ""
 
-# ── API neu starten → Seed läuft beim Start automatisch ──────────────────
+# ── API neu starten → World-Gen läuft beim Start automatisch ─────────────
 
-echo "🔄  Starte API neu (Seed läuft beim Start automatisch)..."
+echo "🔄  Starte API neu (World-Gen läuft beim Start automatisch)..."
 docker compose restart api
 
 echo ""
@@ -90,8 +81,8 @@ echo ""
 echo "📊  Generierungsergebnis:"
 docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 SELECT
-  (SELECT COUNT(*) FROM asteroids)               AS asteroids,
-  (SELECT COUNT(*) FROM asteroid_veins)          AS veins,
+  (SELECT COUNT(*) FROM asteroids)                 AS asteroids,
+  (SELECT COUNT(*) FROM asteroid_veins)            AS veins,
   (SELECT COUNT(*) FROM asteroid_resource_storage) AS storage;
 
 SELECT

@@ -75,7 +75,7 @@ export const WORLD_CONFIG = {
   // ── Yield budget per hour per size (before modifiers) ────────────────────
 
   YIELD_BUDGET: {
-    small: { min: 300, max: 500 },
+    small: { min: 400, max: 600 },
     medium: { min: 800, max: 1100 },
     large: { min: 1500, max: 2000 },
     massive: { min: 2700, max: 3500 },
@@ -103,7 +103,7 @@ export const WORLD_CONFIG = {
 
   TIER_YIELD_MODIFIER: {
     low_value: 1,
-    medium_value: 0.5,
+    medium_value: 0.75,
     high_value: 0.2,
     extreme_value: 0.05,
   } as Record<string, number>,
@@ -271,7 +271,7 @@ export const WORLD_CONFIG = {
   MINING_TICK_INTERVAL_MS: 60_000,
 
   /** How often the transport-tick BullMQ job runs (milliseconds). */
-  TRANSPORT_TICK_INTERVAL_MS: 30_000,
+  TRANSPORT_TICK_INTERVAL_MS: 60_000,
 } as const;
 
 export type ZoneType = keyof typeof WORLD_CONFIG.ZONES;
