@@ -84,6 +84,9 @@ const error = ref<string | null>(null);
 const tableExpanded = ref(false);
 const selectedAsteroidId = ref<string | null>(null);
 
+const recallTrips24h = ref(0);
+const recallShips24h = ref(0);
+
 // ── Grouping (reused logic) ───────────────────────────────────────────────────
 
 const asteroidGroups = computed<AsteroidGroup[]>(() => {
@@ -114,7 +117,10 @@ function groupMiningPower(groupAssignments: StationMiningAssignment[]): number {
   return groupAssignments.reduce((sum, a) => sum + a.assignedAmount * a.spacecraftMiningRate, 0);
 }
 
-function computeEffectiveRate(detail: AsteroidDetail, groupAssignments: StationMiningAssignment[]): number {
+function computeEffectiveRate(
+  detail: AsteroidDetail,
+  groupAssignments: StationMiningAssignment[]
+): number {
   return calcTotalEffectiveRate(groupMiningPower(groupAssignments), detail.veins);
 }
 
@@ -150,15 +156,15 @@ emit('queueCount', 0);
 // ── Fleet KPIs ────────────────────────────────────────────────────────────────
 
 const transporterFleet = computed(() =>
-  fleet.value.filter((e) => e.definition.role === 'transporter'),
+  fleet.value.filter((e) => e.definition.role === 'transporter')
 );
 
 const totalTransporters = computed(() =>
-  transporterFleet.value.reduce((sum, e) => sum + e.amount, 0),
+  transporterFleet.value.reduce((sum, e) => sum + e.amount, 0)
 );
 
 const lockedTransporters = computed(() =>
-  transporterFleet.value.reduce((sum, e) => sum + e.lockedAmount, 0),
+  transporterFleet.value.reduce((sum, e) => sum + e.lockedAmount, 0)
 );
 
 const idleTransporters = computed(() => totalTransporters.value - lockedTransporters.value);
@@ -166,17 +172,71 @@ const idleTransporters = computed(() => totalTransporters.value - lockedTranspor
 const transportUtilization = computed(() =>
   totalTransporters.value > 0
     ? Math.round((lockedTransporters.value / totalTransporters.value) * 100)
-    : 0,
+    : 0
 );
 
 // ── Trip KPIs ─────────────────────────────────────────────────────────────────
 
 const transporterTrips = computed(() =>
-  trips.value.filter(
+  stationTrips.value.filter(
     (t) =>
-      (t.purpose === 'transport' || t.purpose === 'return') &&
-      t.spacecraft?.role === 'transporter',
-  ),
+      (t.purpose === 'transport' || t.purpose === 'return') && t.spacecraft?.role === 'transporter'
+  )
+);
+
+const transportLoad = computed(() => {
+  if (transportCapacity.value <= 0) return 0;
+
+  return Math.round((globalMiningOutput.value / transportCapacity.value) * 100);
+});
+
+// ── Miner fleet state counts ──────────────────────────────────────────────────
+
+const minerFleet = computed(() => fleet.value.filter((e) => e.definition.role === 'miner'));
+
+const totalMiners = computed(() => minerFleet.value.reduce((sum, e) => sum + e.amount, 0));
+const lockedMiners = computed(() => minerFleet.value.reduce((sum, e) => sum + e.lockedAmount, 0));
+const idleMiners = computed(() => totalMiners.value - lockedMiners.value);
+
+const travelingMiners = computed(() =>
+  stationTrips.value
+    .filter((t) => t.purpose === 'mine' && t.spacecraft?.role === 'miner')
+    .reduce((sum, t) => sum + t.groupSize, 0)
+);
+
+const recallingMiners = computed(() =>
+  stationTrips.value
+    .filter((t) => t.purpose === 'recall' && t.spacecraft?.role === 'miner')
+    .reduce((sum, t) => sum + t.groupSize, 0)
+);
+
+const activeMiningMiners = computed(() =>
+  assignments.value.reduce((sum, a) => sum + a.assignedAmount, 0)
+);
+
+const minerUtilization = computed(() =>
+  totalMiners.value > 0
+    ? Math.round(
+        ((lockedMiners.value + travelingMiners.value + recallingMiners.value) / totalMiners.value) *
+          100
+      )
+    : 0
+);
+
+// ── Station-scoped trips ─────────────────────────────────────────────────────
+
+/** Only trips that originate from or return to this station. */
+const stationTrips = computed(() =>
+  trips.value.filter((t) => t.fromId === props.stationId || t.toId === props.stationId)
+);
+
+const transportersReturning = computed(() =>
+  stationTrips.value
+    .filter(
+      (t) =>
+        t.purpose === 'return' && t.spacecraft?.role === 'transporter' && t.cargoManifest !== null
+    )
+    .reduce((sum, t) => sum + t.groupSize, 0)
 );
 
 /**
@@ -189,8 +249,7 @@ const transportCapacity = computed(() => {
   let total = 0;
   for (const t of transporterTrips.value) {
     const cargo = t.spacecraft?.cargo ?? 0;
-    const durationMs =
-      new Date(t.arrivesAt).getTime() - new Date(t.departedAt).getTime();
+    const durationMs = new Date(t.arrivesAt).getTime() - new Date(t.departedAt).getTime();
     const durationHours = durationMs / 3_600_000;
     if (durationHours > 0 && cargo > 0) {
       total += (t.groupSize * cargo) / (2 * durationHours);
@@ -201,12 +260,15 @@ const transportCapacity = computed(() => {
 
 /** Sum of all resources physically in transit right now (return trips with cargo). */
 const cargoInTransit = computed(() =>
-  trips.value
-    .filter((t) => t.purpose === 'return' && t.spacecraft?.role === 'transporter')
+  stationTrips.value
+    .filter(
+      (t) =>
+        t.purpose === 'return' && t.spacecraft?.role === 'transporter' && t.cargoManifest !== null
+    )
     .reduce((sum, t) => {
       if (!t.cargoManifest) return sum;
       return sum + Object.values(t.cargoManifest).reduce((s, v) => s + v, 0);
-    }, 0),
+    }, 0)
 );
 
 const bufferDelta = computed(() => globalMiningOutput.value - transportCapacity.value);
@@ -233,9 +295,7 @@ const asteroidRows = computed<AsteroidRow[]>(() =>
     const detail = allDetails.value[group.asteroidId] ?? null;
     const miningRate = detail ? computeEffectiveRate(detail, group.assignments) : 0;
 
-    const bufferTotal = detail
-      ? detail.storage.reduce((sum, s) => sum + s.amount, 0)
-      : 0;
+    const bufferTotal = detail ? detail.storage.reduce((sum, s) => sum + s.amount, 0) : 0;
 
     // Real threshold: buffer >= miner cargo cap → self-recall triggers
     const recallThreshold = detail
@@ -256,10 +316,10 @@ const asteroidRows = computed<AsteroidRow[]>(() =>
         : null;
 
     // Count transporter trips targeting this asteroid
-    const transporterCount = trips.value.filter(
+    const transporterCount = stationTrips.value.filter(
       (t) =>
         (t.purpose === 'transport' && t.toId === group.asteroidId) ||
-        (t.purpose === 'return' && t.fromId === group.asteroidId),
+        (t.purpose === 'return' && t.fromId === group.asteroidId)
     ).length;
 
     const miningPower = groupMiningPower(group.assignments);
@@ -286,51 +346,7 @@ const asteroidRows = computed<AsteroidRow[]>(() =>
       stabilityChange,
       status,
     };
-  }),
-);
-
-// ── Critical buffers count ────────────────────────────────────────────────────
-
-const criticalBufferCount = computed(
-  () => asteroidRows.value.filter((r) => r.bufferFillPct >= 80).length,
-);
-
-// ── Miner fleet state counts ──────────────────────────────────────────────────
-
-const minerFleet = computed(() => fleet.value.filter((e) => e.definition.role === 'miner'));
-
-const totalMiners = computed(() => minerFleet.value.reduce((sum, e) => sum + e.amount, 0));
-const lockedMiners = computed(() => minerFleet.value.reduce((sum, e) => sum + e.lockedAmount, 0));
-const idleMiners = computed(() => totalMiners.value - lockedMiners.value);
-
-const travelingMiners = computed(() =>
-  trips.value
-    .filter((t) => t.purpose === 'mine' && t.spacecraft?.role === 'miner')
-    .reduce((sum, t) => sum + t.groupSize, 0),
-);
-
-const recallingMiners = computed(() =>
-  trips.value
-    .filter((t) => t.purpose === 'recall' && t.spacecraft?.role === 'miner')
-    .reduce((sum, t) => sum + t.groupSize, 0),
-);
-
-const activeMiningMiners = computed(() =>
-  assignments.value.reduce((sum, a) => sum + a.assignedAmount, 0),
-);
-
-// ── Transporter trip state counts ─────────────────────────────────────────────
-
-const transportersOutbound = computed(() =>
-  trips.value
-    .filter((t) => t.purpose === 'transport' && t.spacecraft?.role === 'transporter')
-    .reduce((sum, t) => sum + t.groupSize, 0),
-);
-
-const transportersReturning = computed(() =>
-  trips.value
-    .filter((t) => t.purpose === 'return' && t.spacecraft?.role === 'transporter')
-    .reduce((sum, t) => sum + t.groupSize, 0),
+  })
 );
 
 // ── Alerts ────────────────────────────────────────────────────────────────────
@@ -338,19 +354,19 @@ const transportersReturning = computed(() =>
 const alerts = computed<LogisticsAlert[]>(() => {
   const list: LogisticsAlert[] = [];
 
-  // Buffers near full or filling fast
-  const soonFull = asteroidRows.value.filter(
-    (r) => r.fillEtaHours !== null && r.fillEtaHours < 1,
+    // Unstable asteroids
+  const degrading = asteroidRows.value.filter(
+    (r) => r.stabilityChange !== null && r.stabilityChange < 0 && r.group.asteroidStability < 0.4
   ).length;
-  if (soonFull > 0) {
+  if (degrading > 0) {
     list.push({
       severity: 'critical',
-      message: `${soonFull} asteroid${soonFull > 1 ? 's' : ''} will reach max buffer in < 1h`,
+      message: `${degrading} asteroid${degrading > 1 ? 's' : ''} critically unstable`,
     });
   }
 
   const nearFull = asteroidRows.value.filter(
-    (r) => r.bufferFillPct >= 80 && (r.fillEtaHours === null || r.fillEtaHours >= 1),
+    (r) => r.bufferFillPct >= 80 && (r.fillEtaHours === null || r.fillEtaHours >= 1)
   ).length;
   if (nearFull > 0) {
     list.push({
@@ -368,22 +384,6 @@ const alerts = computed<LogisticsAlert[]>(() => {
     });
   }
 
-  // Idle transporters
-  if (idleTransporters.value > 0 && asteroidGroups.value.length > 0) {
-    list.push({
-      severity: 'warning',
-      message: `${idleTransporters.value} transporter${idleTransporters.value > 1 ? 's' : ''} idle`,
-    });
-  }
-
-  // Idle miners
-  if (idleMiners.value > 0 && asteroidGroups.value.length > 0) {
-    list.push({
-      severity: 'warning',
-      message: `${idleMiners.value} miner${idleMiners.value > 1 ? 's' : ''} idle`,
-    });
-  }
-
   // Traveling miners
   if (travelingMiners.value > 0) {
     list.push({
@@ -397,17 +397,6 @@ const alerts = computed<LogisticsAlert[]>(() => {
     list.push({
       severity: 'warning',
       message: `${recallingMiners.value} miner${recallingMiners.value > 1 ? 's' : ''} returning from asteroid`,
-    });
-  }
-
-  // Unstable asteroids
-  const degrading = asteroidRows.value.filter(
-    (r) => r.stabilityChange !== null && r.stabilityChange < 0 && r.group.asteroidStability < 0.4,
-  ).length;
-  if (degrading > 0) {
-    list.push({
-      severity: 'critical',
-      message: `${degrading} asteroid${degrading > 1 ? 's' : ''} critically unstable`,
     });
   }
 
@@ -454,15 +443,18 @@ async function loadAll(force = false) {
   if (!force) loading.value = true;
   error.value = null;
   try {
-    const [assignmentsRes, fleetRes, tripsRes] = await Promise.all([
+    const [assignmentsRes, fleetRes, tripsRes, recallRes] = await Promise.all([
       apiClient.get(`/stations/${props.stationId}/mining-assignments`),
       apiClient.get(`/stations/${props.stationId}/spacecrafts`),
       apiClient.get('/me/trips'),
+      apiClient.get(`/stations/${props.stationId}/recall-stats`),
     ]);
 
     assignments.value = assignmentsRes.data.data.assignments;
     fleet.value = fleetRes.data.data.spacecrafts;
     trips.value = tripsRes.data.data ?? [];
+    recallTrips24h.value = recallRes.data.data.recallTrips;
+    recallShips24h.value = recallRes.data.data.recallShips;
 
     // Prefetch details for all assigned asteroids
     const ids = [...new Set(assignments.value.map((a) => a.asteroidId))];
@@ -489,11 +481,12 @@ onUnmounted(() => {
 
 <template>
   <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-
     <!-- ── Loading ──────────────────────────────────────────────────────────── -->
     <div v-if="loading" class="flex-1 flex items-center justify-center">
       <div class="flex items-center gap-2 text-cyan-400/50 text-[10px] uppercase tracking-widest">
-        <span class="inline-block w-3 h-3 border border-cyan-400/50 border-t-cyan-400 rounded-full animate-spin" />
+        <span
+          class="inline-block w-3 h-3 border border-cyan-400/50 border-t-cyan-400 rounded-full animate-spin"
+        />
         Loading…
       </div>
     </div>
@@ -505,13 +498,13 @@ onUnmounted(() => {
 
     <!-- ── Dashboard ─────────────────────────────────────────────────────────── -->
     <div v-else class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-3">
-
       <!-- ── 1. Summary Bar ──────────────────────────────────────────────────── -->
       <div class="grid grid-cols-6 gap-1.5">
-
         <!-- Mining Output -->
         <div class="bg-white/3 border border-white/6 rounded px-2 py-1.5 flex flex-col gap-0.5">
-          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">Mining</span>
+          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">
+            Mining
+          </span>
           <span class="text-[13px] font-bold tabular-nums text-amber-300 leading-tight">
             +{{ fmtNum(globalMiningOutput) }}/h
           </span>
@@ -526,10 +519,7 @@ onUnmounted(() => {
                 borderColor: resourceColor(key) + '44',
               }"
             >
-              <img
-                :src="`/assets/resources/${key}.png`"
-                class="w-3 h-3 shrink-0 object-contain"
-              />
+              <img :src="`/assets/resources/${key}.png`" class="w-3 h-3 shrink-0 object-contain" />
               <span
                 class="text-[8px] tabular-nums font-semibold leading-none"
                 :style="{ color: resourceColor(key) }"
@@ -542,82 +532,136 @@ onUnmounted(() => {
 
         <!-- Transport Capacity -->
         <div class="bg-white/3 border border-white/6 rounded px-2 py-1.5 flex flex-col gap-0.5">
-          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">Transport</span>
-          <span class="text-[13px] font-bold tabular-nums text-sky-300 leading-tight">
-            {{ fmtNum(cargoInTransit) }}
+          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">
+            Transport
           </span>
-          <span class="text-[7px] text-white/20 leading-none">im Transit</span>
-          <span class="text-[8px] tabular-nums text-white/30 leading-none mt-0.5">
-            ~ {{ fmtNum(transportCapacity) }}/h
-          </span>
+          <div class="flex items-center justify-center gap-2">
+            <span class="text-[14px] font-bold tabular-nums text-sky-300 leading-tight">
+              {{ fmtNum(cargoInTransit) }}
+            </span>
+          </div>
+          <span class="text-[8px] text-white/20 leading-none mt-1">in Transit</span>
         </div>
 
-        <!-- Buffer Trend -->
-        <div
-          class="border rounded px-2 py-1.5 flex flex-col gap-0.5"
-          :class="bufferDelta > 0 ? 'bg-rose-500/5 border-rose-500/20' : 'bg-emerald-500/5 border-emerald-500/15'"
-        >
-          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">Buffer Trend</span>
-          <span
-            class="text-[13px] font-bold tabular-nums leading-tight"
-            :class="bufferDelta > 0 ? 'text-rose-400' : 'text-emerald-400'"
-          >
-            {{ bufferDelta > 0 ? '↑' : '↓' }} {{ fmtNum(Math.abs(bufferDelta)) }}/h
-          </span>
-        </div>
-
-        <!-- Critical Buffers -->
-        <div
-          class="border rounded px-2 py-1.5 flex flex-col gap-0.5"
-          :class="criticalBufferCount > 0 ? 'bg-rose-500/5 border-rose-500/20' : 'bg-white/3 border-white/6'"
-        >
-          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">Crit. Buf.</span>
-          <span
-            class="text-[13px] font-bold tabular-nums leading-tight"
-            :class="criticalBufferCount > 0 ? 'text-rose-400' : 'text-white/50'"
-          >
-            {{ criticalBufferCount }}
-          </span>
-          <span class="text-[7px] text-white/20 leading-none">≥ 80% full</span>
-        </div>
-
-        <!-- Idle Transporters -->
-        <div
-          class="border rounded px-2 py-1.5 flex flex-col gap-0.5"
-          :class="
-            idleTransporters > 0 && asteroidGroups.length > 0
-              ? 'bg-amber-500/5 border-amber-500/20'
-              : 'bg-white/3 border-white/6'
-          "
-        >
-          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">Idle Trans.</span>
-          <span
-            class="text-[13px] font-bold tabular-nums leading-tight"
-            :class="idleTransporters > 0 && asteroidGroups.length > 0 ? 'text-amber-300' : 'text-white/50'"
-          >
-            {{ idleTransporters }}
-          </span>
-          <span class="text-[7px] text-white/20 leading-none">of {{ totalTransporters }}</span>
-        </div>
-
-        <!-- Transport Utilization -->
-        <div class="bg-white/3 border border-white/6 rounded px-2 py-1.5 flex flex-col gap-0.5">
-          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">Utilization</span>
-          <span
-            class="text-[13px] font-bold tabular-nums leading-tight"
-            :class="transportUtilization >= 80 ? 'text-amber-300' : 'text-sky-300'"
-          >
-            {{ transportUtilization }}%
-          </span>
-          <div class="w-full h-0.5 bg-white/8 rounded-full overflow-hidden mt-0.5">
+        <!-- Miners -->
+        <div class="bg-amber-500/5 border border-amber-500/20 rounded px-2 py-2">
+          <div class="flex items-end justify-between">
+            <div>
+              <div class="text-[7px] uppercase tracking-[0.25em] text-white/25">Miners</div>
+              <div class="text-[14px] leading-none font-bold text-amber-300 tabular-nums">
+                {{ activeMiningMiners }}
+              </div>
+            </div>
+            <div class="text-[10px] text-white/30 tabular-nums">/ {{ totalMiners }}</div>
+          </div>
+          <!-- Utilization bar -->
+          <div class="mt-2 h-1 rounded-full bg-white/6 overflow-hidden">
             <div
-              class="h-full rounded-full"
-              :class="transportUtilization >= 80 ? 'bg-amber-400' : 'bg-sky-400'"
-              :style="{ width: transportUtilization + '%' }"
+              class="h-full bg-amber-400 rounded-full"
+              :style="{ width: minerUtilization + '%' }"
             />
+          </div>
+          <div class="flex items-center justify-between mt-2 text-[8px]">
+            <span class="text-white/20"> {{ travelingMiners }} travel </span>
+            <span :class="idleMiners > 0 ? 'text-amber-300/80' : 'text-white/20'">
+              {{ idleMiners }} idle
+            </span>
           </div>
         </div>
 
+        <!-- Transporters -->
+        <div class="bg-sky-500/5 border border-sky-500/20 rounded px-2 py-2">
+          <div class="flex items-end justify-between">
+            <div>
+              <div class="text-[7px] uppercase tracking-[0.25em] text-white/25">Trans.</div>
+              <div class="text-[14px] leading-none font-bold text-sky-300 tabular-nums">
+                {{ lockedTransporters }}
+              </div>
+            </div>
+            <div class="text-[10px] text-white/30 tabular-nums">/ {{ totalTransporters }}</div>
+          </div>
+          <!-- Utilization bar -->
+          <div class="mt-2 h-1 rounded-full bg-white/6 overflow-hidden">
+            <div
+              class="h-full bg-sky-400 rounded-full"
+              :style="{ width: transportUtilization + '%' }"
+            />
+          </div>
+          <div class="flex items-center justify-between mt-2 text-[8px]">
+            <span class="text-white/20">{{ transportersReturning }} return</span>
+            <span
+              :class="
+                idleTransporters > 0 && asteroidGroups.length > 0
+                  ? 'text-amber-300/80'
+                  : 'text-white/20'
+              "
+            >
+              {{ idleTransporters }} idle
+            </span>
+          </div>
+        </div>
+
+        <!-- Network Load -->
+        <div
+          class="border rounded px-2 py-1.5 flex flex-col gap-0.5"
+          :class="
+            transportLoad >= 100
+              ? 'bg-rose-500/5 border-rose-500/20'
+              : transportLoad >= 80
+                ? 'bg-amber-500/5 border-amber-500/20'
+                : 'bg-emerald-500/5 border-emerald-500/20'
+          "
+        >
+          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em]"> Network Load </span>
+
+          <span
+            class="text-[14px] font-bold tabular-nums"
+            :class="
+              transportLoad >= 100
+                ? 'text-rose-300'
+                : transportLoad >= 80
+                  ? 'text-amber-300'
+                  : 'text-emerald-300'
+            "
+          >
+            {{ transportLoad }}%
+          </span>
+
+          <span class="text-[8px] text-white/20"> transporter saturation </span>
+        </div>
+
+        <!-- Recalls 24h -->
+        <div
+          class="border rounded px-2 py-1.5 flex flex-col gap-0.5"
+          :class="
+            recallTrips24h > 0 ? 'bg-amber-500/5 border-amber-500/20' : 'bg-white/3 border-white/6'
+          "
+        >
+          <span class="text-[7px] text-white/25 uppercase tracking-[0.25em] leading-none">
+            Recalls 24h
+          </span>
+
+          <span
+            class="text-[13px] font-bold tabular-nums leading-tight"
+            :class="
+              recallTrips24h > 3
+                ? 'text-rose-300'
+                : recallTrips24h > 0
+                  ? 'text-amber-300'
+                  : 'text-emerald-300'
+            "
+          >
+            {{ recallTrips24h }}
+          </span>
+
+          <span class="text-[8px] leading-none text-white/20">
+            {{
+              recallTrips24h > 0
+                ? recallShips24h + ' ship' + (recallShips24h !== 1 ? 's' : '')
+                : 'no self-recalls'
+            }}
+          </span>
+        </div>
       </div>
 
       <!-- ── 2. Alerts ────────────────────────────────────────────────────────── -->
@@ -646,7 +690,9 @@ onUnmounted(() => {
           class="flex items-center gap-2 text-left w-full group"
           @click="tableExpanded = !tableExpanded"
         >
-          <p class="text-[8px] text-white/25 uppercase tracking-[0.3em] group-hover:text-white/40 transition-colors">
+          <p
+            class="text-[8px] text-white/25 uppercase tracking-[0.3em] group-hover:text-white/40 transition-colors"
+          >
             Operations
           </p>
           <span class="text-[8px] text-white/20 group-hover:text-white/35 transition-colors">
@@ -657,8 +703,10 @@ onUnmounted(() => {
 
         <div v-if="tableExpanded" class="rounded border border-white/6 overflow-hidden">
           <!-- Header -->
-          <div class="grid text-[7px] text-white/20 uppercase tracking-[0.3em] px-2 py-1.5 bg-white/2 border-b border-white/5"
-               style="grid-template-columns: 1fr 1fr 1.2fr 1.4fr 1fr 1fr 1fr 1fr">
+          <div
+            class="grid text-[7px] text-white/20 uppercase tracking-[0.3em] px-2 py-1.5 bg-white/2 border-b border-white/5"
+            style="grid-template-columns: 1fr 1fr 1.2fr 1.4fr 1fr 1fr 1fr 1fr"
+          >
             <span>Asteroid</span>
             <span>Resource</span>
             <span class="text-right">Mining/h</span>
@@ -683,7 +731,9 @@ onUnmounted(() => {
                 {{ shortId(row.group.asteroidId) }}
               </span>
               <span class="text-[7px] text-white/20 tabular-nums leading-none">
-                {{ SIZE_LABELS[row.group.asteroidSize] ?? row.group.asteroidSize[0]!.toUpperCase() }}
+                {{
+                  SIZE_LABELS[row.group.asteroidSize] ?? row.group.asteroidSize[0]!.toUpperCase()
+                }}
               </span>
             </div>
 
@@ -694,7 +744,11 @@ onUnmounted(() => {
                 :style="{ backgroundColor: resourceColor(row.group.asteroidPrimaryResourceKey) }"
               />
               <span class="text-[8px] text-white/40 truncate">
-                {{ row.group.asteroidPrimaryResourceKey ? resourceName(row.group.asteroidPrimaryResourceKey).slice(0, 4) : '–' }}
+                {{
+                  row.group.asteroidPrimaryResourceKey
+                    ? resourceName(row.group.asteroidPrimaryResourceKey).slice(0, 4)
+                    : '–'
+                }}
               </span>
             </div>
 
@@ -720,8 +774,11 @@ onUnmounted(() => {
                 <div
                   class="h-full rounded-full"
                   :class="
-                    row.bufferFillPct >= 80 ? 'bg-rose-400' :
-                    row.bufferFillPct >= 60 ? 'bg-amber-400' : 'bg-white/20'
+                    row.bufferFillPct >= 80
+                      ? 'bg-rose-400'
+                      : row.bufferFillPct >= 60
+                        ? 'bg-amber-400'
+                        : 'bg-white/20'
                   "
                   :style="{ width: (row.recallThreshold > 0 ? row.bufferFillPct : 0) + '%' }"
                 />
@@ -757,8 +814,11 @@ onUnmounted(() => {
             <span
               class="text-[7px] uppercase tracking-wider text-right font-semibold"
               :class="
-                row.status === 'critical' ? 'text-rose-400' :
-                row.status === 'warning' ? 'text-amber-400' : 'text-green-400/60'
+                row.status === 'critical'
+                  ? 'text-rose-400'
+                  : row.status === 'warning'
+                    ? 'text-amber-400'
+                    : 'text-green-400/60'
               "
             >
               {{ row.status }}
@@ -771,71 +831,6 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-
-      <!-- ── 4. Fleet Status ──────────────────────────────────────────────────── -->
-      <div class="flex flex-col gap-1.5">
-        <p class="text-[8px] text-white/25 uppercase tracking-[0.3em]">Fleet Status</p>
-        <div class="grid grid-cols-2 gap-2">
-
-          <!-- Miners -->
-          <div class="bg-white/3 border border-white/6 rounded p-2.5 flex flex-col gap-2">
-            <div class="flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-amber-400/70" />
-              <span class="text-[8px] text-white/30 uppercase tracking-[0.3em]">Miners</span>
-              <span class="text-[9px] text-amber-300/60 ml-auto tabular-nums">{{ totalMiners }} total</span>
-            </div>
-            <div class="flex flex-col gap-1">
-              <div class="flex justify-between">
-                <span class="text-[8px] text-white/25">Mining</span>
-                <span class="text-[8px] tabular-nums text-amber-300/70">{{ activeMiningMiners }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-[8px] text-white/25">Traveling</span>
-                <span class="text-[8px] tabular-nums text-white/40">{{ travelingMiners }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-[8px] text-white/25">Recalling</span>
-                <span class="text-[8px] tabular-nums text-white/40">{{ recallingMiners }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-[8px] text-white/25">Idle</span>
-                <span
-                  class="text-[8px] tabular-nums"
-                  :class="idleMiners > 0 ? 'text-amber-300' : 'text-white/25'"
-                >{{ idleMiners }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Transporters -->
-          <div class="bg-white/3 border border-white/6 rounded p-2.5 flex flex-col gap-2">
-            <div class="flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-sky-400/70" />
-              <span class="text-[8px] text-white/30 uppercase tracking-[0.3em]">Transporters</span>
-              <span class="text-[9px] text-sky-300/60 ml-auto tabular-nums">{{ totalTransporters }} total</span>
-            </div>
-            <div class="flex flex-col gap-1">
-              <div class="flex justify-between">
-                <span class="text-[8px] text-white/25">Outbound</span>
-                <span class="text-[8px] tabular-nums text-sky-300/70">{{ transportersOutbound }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-[8px] text-white/25">Returning</span>
-                <span class="text-[8px] tabular-nums text-sky-300/70">{{ transportersReturning }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-[8px] text-white/25">Idle</span>
-                <span
-                  class="text-[8px] tabular-nums"
-                  :class="idleTransporters > 0 && asteroidGroups.length > 0 ? 'text-amber-300' : 'text-white/25'"
-                >{{ idleTransporters }}</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
     </div>
 
     <!-- ── Asteroid Detail Overlay ──────────────────────────────────────────── -->
@@ -844,7 +839,9 @@ onUnmounted(() => {
       class="absolute inset-0 z-20 bg-black/70 flex items-center justify-center p-4"
       @click.self="selectedAsteroidId = null"
     >
-      <div class="w-full max-w-2xl max-h-full overflow-auto rounded border border-white/10 bg-[#0a0c14]">
+      <div
+        class="w-full max-w-2xl max-h-full overflow-auto rounded border border-white/10 bg-[#0a0c14]"
+      >
         <AsteroidPanel
           :asteroid-id="selectedAsteroidId"
           :station-id="props.stationId"
@@ -853,6 +850,5 @@ onUnmounted(() => {
         />
       </div>
     </div>
-
   </div>
 </template>

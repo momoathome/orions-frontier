@@ -341,7 +341,7 @@ export const seedDevUser = async (): Promise<void> => {
           allSpacecraftDefs.map((s) => ({
             stationId: devStationId,
             spacecraftDefinitionId: s.id,
-            amount: 5,
+            amount: 30,
             lockedAmount: 0,
           }))
         );
@@ -405,7 +405,7 @@ export const seedDevUser = async (): Promise<void> => {
       allSpacecraftDefs.map((s) => ({
         stationId: devStationId,
         spacecraftDefinitionId: s.id,
-        amount: 5,
+        amount: 30,
         lockedAmount: 0,
       }))
     );

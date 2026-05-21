@@ -1,7 +1,8 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, max, min, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import { asteroids, asteroidAssignments } from '../../lib/db/schema/asteroids.js';
+import { asteroids, asteroidAssignments, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { asteroidResourceStorage } from '../../lib/db/schema/asteroids.js';
+import { calcMiningRatesByResource, type VeinRateInput } from '../../lib/vein-rates.js';
 import { spacecraftDefinitions } from '../../lib/db/schema/spacecraft-definitions.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
@@ -21,12 +22,6 @@ const logger = rootLogger.child({ name: 'transport-dispatch' });
 // Dispatch is called by the transport-tick BullMQ worker every minute, and on
 // demand from the station dispatch route.
 // ============================================================================
-
-
-// ── Starvation tracker ───────────────────────────────────────────────────────
-// Keeps the last successful dispatch timestamp per asteroid (module-level so it
-// persists across ticks within the same process lifetime).
-const lastDispatchedAt = new Map<string, number>();
 
 export async function checkAndDispatchTransports(stationId: string): Promise<number> {
   const db = getDb();
@@ -88,48 +83,153 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
       )
     );
 
-  // Group by asteroidId with total mining rate
-  const asteroidMap = new Map<string, { totalMiningRate: number }>();
+  // Build nominal mining power per asteroid (miningRate × assignedAmount).
+  // The actual effective yield is computed after vein data is loaded so we can
+  // apply yield caps, purity, and single-vein normalisation via calcMiningRatesByResource.
+  const nominalPowerMap = new Map<string, number>();
   for (const row of asteroidCandidates) {
-    const existing = asteroidMap.get(row.asteroidId) ?? { totalMiningRate: 0 };
-    existing.totalMiningRate += row.miningRate * row.assignedAmount;
-    asteroidMap.set(row.asteroidId, existing);
+    nominalPowerMap.set(
+      row.asteroidId,
+      (nominalPowerMap.get(row.asteroidId) ?? 0) + row.miningRate * row.assignedAmount
+    );
   }
 
-  if (asteroidMap.size === 0) return 0;
+  if (nominalPowerMap.size === 0) return 0;
 
-  // Load asteroid positions + buffer totals
-  const asteroidIds = [...asteroidMap.keys()];
+  const asteroidIds = [...nominalPowerMap.keys()];
   const asteroidRows = await db
     .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
     .from(asteroids)
     .where(inArray(asteroids.id, asteroidIds));
 
-  // Count active outbound transport trips per asteroid so we can calculate
-  // how much transport capacity is already en-route (throughput saturation).
-  const activeTripRows = await db
-    .select({
-      asteroidId: spacecraftTrips.toId,
-      stationSpacecraftId: spacecraftTrips.stationSpacecraftId,
-      groupSize: spacecraftTrips.groupSize,
-    })
-    .from(spacecraftTrips)
-    .where(
-      and(
-        eq(spacecraftTrips.status, 'traveling'),
-        eq(spacecraftTrips.toType, 'asteroid'),
-        eq(spacecraftTrips.purpose, 'transport'),
-        inArray(spacecraftTrips.toId, asteroidIds)
+  // Count committed transport capacity per asteroid: both outbound trips (heading
+  // to the asteroid) and return-leg trips (heading back to station). Not counting
+  // return-leg ships caused the dispatcher to see 0 active capacity the moment a
+  // ship finished its outbound leg and immediately send another one.
+  //
+  // Also load last dispatch timestamps from the DB so starvation tracking survives
+  // process restarts (previously an in-memory Map that reset to epoch on restart).
+  const [activeTripRows, , lastDispatchRows, veinRows, miningStartRows] = await Promise.all([
+    db
+      .select({
+        asteroidId: spacecraftTrips.toId,
+        groupSize: spacecraftTrips.groupSize,
+        cargo: spacecraftDefinitions.cargo,
+      })
+      .from(spacecraftTrips)
+      .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
+      .innerJoin(
+        spacecraftDefinitions,
+        eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
       )
-    );
+      .where(
+        and(
+          eq(spacecraftTrips.status, 'traveling'),
+          eq(spacecraftTrips.toType, 'asteroid'),
+          eq(spacecraftTrips.purpose, 'transport'),
+          inArray(spacecraftTrips.toId, asteroidIds)
+        )
+      ),
+    db
+      .select({
+        asteroidId: spacecraftTrips.fromId,
+        groupSize: spacecraftTrips.groupSize,
+        cargo: spacecraftDefinitions.cargo,
+      })
+      .from(spacecraftTrips)
+      .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
+      .innerJoin(
+        spacecraftDefinitions,
+        eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
+      )
+      .where(
+        and(
+          eq(spacecraftTrips.status, 'traveling'),
+          eq(spacecraftTrips.fromType, 'asteroid'),
+          eq(spacecraftTrips.purpose, 'return'),
+          inArray(spacecraftTrips.fromId, asteroidIds)
+        )
+      ),
+    db
+      .select({
+        asteroidId: spacecraftTrips.toId,
+        lastAt: max(spacecraftTrips.departedAt),
+      })
+      .from(spacecraftTrips)
+      .where(
+        and(
+          eq(spacecraftTrips.toType, 'asteroid'),
+          eq(spacecraftTrips.purpose, 'transport'),
+          inArray(spacecraftTrips.toId, asteroidIds)
+        )
+      )
+      .groupBy(spacecraftTrips.toId),
+    db
+      .select({
+        asteroidId: asteroidVeins.asteroidId,
+        veinType: asteroidVeins.veinType,
+        resourceKey: asteroidVeins.resourceKey,
+        yieldPerHour: asteroidVeins.yieldPerHour,
+        purity: asteroidVeins.purity,
+      })
+      .from(asteroidVeins)
+      .where(inArray(asteroidVeins.asteroidId, asteroidIds)),
+    db
+      .select({
+        asteroidId: asteroidAssignments.asteroidId,
+        minAssignedAt: min(asteroidAssignments.assignedAt),
+      })
+      .from(asteroidAssignments)
+      .where(inArray(asteroidAssignments.asteroidId, asteroidIds))
+      .groupBy(asteroidAssignments.asteroidId),
+  ]);
 
-  // Map asteroidId → total active groupSize for capacity calculation
-  const activeGroupByAsteroid = new Map<string, number>();
+  // Only OUTBOUND ships (heading to the asteroid) represent future buffer pickup.
+  // Return ships have already loaded their cargo and won't deplete the buffer again,
+  // so counting them as committed capacity would overstate how much is already covered.
+  const outboundCargoByAsteroid = new Map<string, number>();
   for (const row of activeTripRows) {
-    activeGroupByAsteroid.set(
+    outboundCargoByAsteroid.set(
       row.asteroidId,
-      (activeGroupByAsteroid.get(row.asteroidId) ?? 0) + row.groupSize
+      (outboundCargoByAsteroid.get(row.asteroidId) ?? 0) + row.groupSize * row.cargo
     );
+  }
+
+  // Map asteroidId → timestamp of last successful dispatch (DB-backed).
+  // For asteroids that have never been dispatched, fall back to min(assignedAt)
+  // so the starvation timer starts from when mining began, not from epoch 0.
+  const miningStartedAtByAsteroid = new Map<string, number>(
+    miningStartRows
+      .filter((r) => r.minAssignedAt != null)
+      .map((r) => [r.asteroidId, new Date(r.minAssignedAt!).getTime()])
+  );
+  const lastDispatchedAtByAsteroid = new Map<string, number>(
+    lastDispatchRows
+      .filter((r) => r.lastAt != null)
+      .map((r) => [r.asteroidId, new Date(r.lastAt!).getTime()])
+  );
+
+  // Compute effective mining rate per asteroid using actual vein yield caps + purity.
+  // calcMiningRatesByResource normalises allocation so single-vein asteroids receive
+  // 100% of mining power (no 0.70 primary-vein penalty), matching the mining-tick logic.
+  const veinsByAsteroid = new Map<string, VeinRateInput[]>();
+  for (const row of veinRows) {
+    const list = veinsByAsteroid.get(row.asteroidId) ?? [];
+    list.push(row);
+    veinsByAsteroid.set(row.asteroidId, list);
+  }
+  const asteroidMap = new Map<string, { totalMiningRate: number }>();
+  for (const [asteroidId, nominalPower] of nominalPowerMap) {
+    const veins = veinsByAsteroid.get(asteroidId) ?? [];
+    const byResource = calcMiningRatesByResource(nominalPower, veins);
+    const effectiveTotal = Object.values(byResource).reduce((s, r) => s + r, 0);
+    if (effectiveTotal === 0 && nominalPower > 0) {
+      logger.warn(
+        { asteroidId, nominalPower, veinCount: veins.length },
+        'Asteroid has miners but zero effective yield — vein data may be missing'
+      );
+    }
+    asteroidMap.set(asteroidId, { totalMiningRate: effectiveTotal });
   }
 
   const bufferRows = await db
@@ -169,30 +269,51 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
     const totalBuffer = resources.reduce((s, r) => s + r.amount, 0);
     const { totalMiningRate } = asteroidMap.get(aRow.id)!;
     const distance = calcDistance({ x: station.x, y: station.y }, { x: aRow.x, y: aRow.y });
-    const timeSinceDispatch = now.getTime() - (lastDispatchedAt.get(aRow.id) ?? 0);
+    // Fallback chain: last dispatch → min(assignedAt) → now (never starve immediately)
+    const dispatchAnchor =
+      lastDispatchedAtByAsteroid.get(aRow.id) ??
+      miningStartedAtByAsteroid.get(aRow.id) ??
+      now.getTime();
+    const timeSinceDispatch = now.getTime() - dispatchAnchor;
 
-    // Check eligibility per transporter type (prefer larger cargo first)
+    // Check eligibility per transporter type (prefer larger cargo first).
+    // Subtract already-committed outbound cargo from the projected buffer so that
+    // a second ship doesn't qualify based on cargo that the first ship will load.
+    const outboundCargo = outboundCargoByAsteroid.get(aRow.id) ?? 0;
     const eligibleTransporter = sortedTransporters.find((t) => {
       const travelHours = distance / (t.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
-      const projected = totalBuffer + totalMiningRate * travelHours;
-      const isIdeal = projected >= t.cargo * WORLD_CONFIG.TRANSPORT_DISPATCH.TARGET_FILL;
+      const projectedBuffer = Math.max(
+        0,
+        totalBuffer + totalMiningRate * travelHours - outboundCargo
+      );
+      const projectedFill = projectedBuffer / t.cargo;
+      const isIdeal = projectedFill >= WORLD_CONFIG.TRANSPORT_DISPATCH.TARGET_FILL;
+      // Starvation dispatch: asteroid hasn't received a pickup in a while but has
+      // some buffer — send anyway at a lower fill threshold.
       const isOpportunistic =
         timeSinceDispatch >= WORLD_CONFIG.TRANSPORT_DISPATCH.STARVATION_MS &&
-        projected >= t.cargo * WORLD_CONFIG.TRANSPORT_DISPATCH.SOFT_MIN_FILL;
+        totalBuffer > 0 &&
+        projectedFill >= WORLD_CONFIG.TRANSPORT_DISPATCH.SOFT_MIN_FILL;
       return (isIdeal || isOpportunistic) && (idleByTransporter.get(t.id) ?? 0) > 0;
     });
 
     if (!eligibleTransporter) continue;
 
-    // Score uses the projected fill for the eligible transporter type
+    // Score = projected fill × W_FILL − normalised distance × W_DISTANCE.
+    // Projected fill already encodes both the current buffer and mining rate, so
+    // no separate W_RATE term is needed. Distance is normalised by DISTANCE_REFERENCE
+    // so all three factors contribute on comparable scales.
     const eligibleTravelHours =
       distance / (eligibleTransporter.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
-    const projectedBuffer = totalBuffer + totalMiningRate * eligibleTravelHours;
-    const projectedFill = projectedBuffer / eligibleTransporter.cargo;
+    const projectedBufferForScore = Math.max(
+      0,
+      totalBuffer + totalMiningRate * eligibleTravelHours - outboundCargo
+    );
+    const projectedFillForScore = projectedBufferForScore / eligibleTransporter.cargo;
     const score =
-      projectedFill * WORLD_CONFIG.TRANSPORT_DISPATCH.W_FILL +
-      totalMiningRate * WORLD_CONFIG.TRANSPORT_DISPATCH.W_RATE -
-      distance * WORLD_CONFIG.TRANSPORT_DISPATCH.W_DISTANCE;
+      projectedFillForScore * WORLD_CONFIG.TRANSPORT_DISPATCH.W_FILL -
+      (distance / WORLD_CONFIG.TRANSPORT_DISPATCH.DISTANCE_REFERENCE) *
+        WORLD_CONFIG.TRANSPORT_DISPATCH.W_DISTANCE;
 
     scored.push({
       asteroidId: aRow.id,
@@ -212,18 +333,27 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
   let dispatched = 0;
 
   for (const candidate of scored) {
-    // Pick the best transporter type based on throughput demand
+    // Pick the best transporter type — same projected-fill-minus-outbound check as scoring loop.
+    const candidateOutboundCargo = outboundCargoByAsteroid.get(candidate.asteroidId) ?? 0;
     const transporter = sortedTransporters.find((t) => {
       const idle = idleByTransporter.get(t.id) ?? 0;
       if (idle <= 0) return false;
 
       const travelHours = candidate.distance / (t.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
-      const projected = candidate.totalBuffer + candidate.totalMiningRate * travelHours;
+      const projectedBuffer = Math.max(
+        0,
+        candidate.totalBuffer + candidate.totalMiningRate * travelHours - candidateOutboundCargo
+      );
+      const projectedFill = projectedBuffer / t.cargo;
+      const candidateAnchor =
+        lastDispatchedAtByAsteroid.get(candidate.asteroidId) ??
+        miningStartedAtByAsteroid.get(candidate.asteroidId) ??
+        now.getTime();
       return (
-        projected >= t.cargo * WORLD_CONFIG.TRANSPORT_DISPATCH.TARGET_FILL ||
-        (now.getTime() - (lastDispatchedAt.get(candidate.asteroidId) ?? 0) >=
-          WORLD_CONFIG.TRANSPORT_DISPATCH.STARVATION_MS &&
-          projected >= t.cargo * WORLD_CONFIG.TRANSPORT_DISPATCH.SOFT_MIN_FILL)
+        projectedFill >= WORLD_CONFIG.TRANSPORT_DISPATCH.TARGET_FILL ||
+        (now.getTime() - candidateAnchor >= WORLD_CONFIG.TRANSPORT_DISPATCH.STARVATION_MS &&
+          candidate.totalBuffer > 0 &&
+          projectedFill >= WORLD_CONFIG.TRANSPORT_DISPATCH.SOFT_MIN_FILL)
       );
     });
     if (!transporter) continue;
@@ -233,8 +363,9 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
     const roundTripHours =
       (candidate.distance / (transporter.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR)) * 2;
     const throughputPerShip = transporter.cargo / roundTripHours;
-    const activeGroups = activeGroupByAsteroid.get(candidate.asteroidId) ?? 0;
-    const activeCapacity = activeGroups * throughputPerShip;
+    // Only outbound ships represent uncommitted future pickups — return ships have
+    // already loaded and don't contribute to upcoming buffer capacity.
+    const activeCapacity = candidateOutboundCargo / roundTripHours;
     const demandGap = Math.max(0, candidate.totalMiningRate - activeCapacity);
     const additionalNeeded = Math.ceil(demandGap / throughputPerShip);
 
@@ -243,6 +374,8 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
     const groupSize = Math.min(additionalNeeded, idleCount, 1);
     if (groupSize <= 0) continue;
 
+    const nowTx = new Date();
+    let didDispatch = false;
     try {
       await db.transaction(async (tx) => {
         // Re-read buffer with row lock to guard against concurrent dispatches
@@ -257,16 +390,28 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
           .for('update');
 
         const currentTotal = lockedBuffer.reduce((s, r) => s + r.amount, 0);
-        // Guard: if another concurrent dispatch drained the buffer below the
-        // opportunistic minimum since our eligibility check, skip this trip.
-        if (currentTotal < transporter.cargo * WORLD_CONFIG.TRANSPORT_DISPATCH.SOFT_MIN_FILL) return;
+        // Guard: re-check projected fill with the freshly locked buffer. If the
+        // buffer was emptied by a concurrent dispatch (or miners left), abort.
+        const txTravelHours =
+          candidate.distance / (transporter.speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
+        // Use the in-memory outbound cargo (already updated by prior dispatches this tick).
+        const txOutboundCargo = outboundCargoByAsteroid.get(candidate.asteroidId) ?? 0;
+        const txProjectedBuffer = Math.max(
+          0,
+          currentTotal + candidate.totalMiningRate * txTravelHours - txOutboundCargo
+        );
+        const txProjectedFill = txProjectedBuffer / transporter.cargo;
+        if (txProjectedFill < WORLD_CONFIG.TRANSPORT_DISPATCH.SOFT_MIN_FILL) return;
 
         // Buffer is NOT deducted at dispatch. The transporter departs with
         // cargoManifest=null and loads the actual buffer when it arrives at
         // the asteroid (see handleTransportOutbound in trip-handlers.ts).
-        const nowTx = new Date();
         const outboundArrivesAt = calcArrivesAt(nowTx, candidate.distance, transporter.speed);
-        const returnArrivesAt = calcArrivesAt(outboundArrivesAt, candidate.distance, transporter.speed);
+        const returnArrivesAt = calcArrivesAt(
+          outboundArrivesAt,
+          candidate.distance,
+          transporter.speed
+        );
 
         // Create both legs up front so the client can animate the full round trip
         await tx.insert(spacecraftTrips).values([
@@ -304,16 +449,21 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
           .set({ lockedAmount: sql`${stationSpacecrafts.lockedAmount} + ${groupSize}` })
           .where(eq(stationSpacecrafts.id, transporter.id));
 
-        dispatched += groupSize;
-        idleByTransporter.set(transporter.id, idleCount - groupSize);
-        activeGroupByAsteroid.set(
-          candidate.asteroidId,
-          (activeGroupByAsteroid.get(candidate.asteroidId) ?? 0) + groupSize
-        );
-        lastDispatchedAt.set(candidate.asteroidId, nowTx.getTime());
+        didDispatch = true;
       });
     } catch (err) {
       logger.error({ asteroidId: candidate.asteroidId, err }, 'Transport dispatch failed');
+    }
+    // Mutations only run if the DB transaction committed. Keeping them outside the
+    // transaction callback prevents state corruption when the transaction is rolled back.
+    if (didDispatch) {
+      dispatched += groupSize;
+      idleByTransporter.set(transporter.id, idleCount - groupSize);
+      outboundCargoByAsteroid.set(
+        candidate.asteroidId,
+        (outboundCargoByAsteroid.get(candidate.asteroidId) ?? 0) + groupSize * transporter.cargo
+      );
+      lastDispatchedAtByAsteroid.set(candidate.asteroidId, nowTx.getTime());
     }
   }
 

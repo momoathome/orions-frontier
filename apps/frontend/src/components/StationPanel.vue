@@ -48,19 +48,6 @@ const totalMiningRatePerHour = ref(0);
           <div class="hidden md:flex items-center gap-4 text-[10px]">
             <div class="flex items-center gap-1.5">
               <span
-                class="w-1 h-1 rounded-full bg-cyan-400/50"
-                :class="totalMiningRatePerHour > 0 ? 'animate-pulse' : 'opacity-30'"
-              />
-              <span class="text-white/25">Mining</span>
-              <span
-                class="text-cyan-300 tabular-nums"
-                :class="totalMiningRatePerHour === 0 ? 'text-white/25' : ''"
-              >
-                +{{ Math.round(totalMiningRatePerHour) }}/h
-              </span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span
                 class="w-1 h-1 rounded-full bg-amber-400/70"
                 :class="totalQueue > 0 ? 'animate-pulse' : 'opacity-30'"
               />

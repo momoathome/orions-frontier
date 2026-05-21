@@ -61,7 +61,7 @@ async function openAssignModal() {
   if (props.stationId && miners.value.length === 0) {
     const { data } = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
     miners.value = (data.data.spacecrafts as StationSpacecraftWithDefinition[]).filter(
-      (s) => s.definition.miningRate > 0 && s.amount - s.lockedAmount > 0
+      (s) => s.definition.role === 'miner' && s.definition.miningRate > 0 && s.amount - s.lockedAmount > 0
     );
   }
   showAssignModal.value = true;

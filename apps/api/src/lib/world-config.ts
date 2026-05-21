@@ -11,7 +11,7 @@ import { VEIN_MODIFIER } from '@orions-frontier/shared';
 
 export const WORLD_CONFIG = {
   /** Base world radius regardless of player count (world units) */
-  BASE_RADIUS: 3500,
+  BASE_RADIUS: 5000,
   /** Additional radius per player entity (human + AI) */
   RADIUS_PER_PLAYER: 500,
   /** Deterministic seed for world generation. Change = new world layout. */
@@ -45,8 +45,8 @@ export const WORLD_CONFIG = {
   // ── Size weights per zone (unitless, higher = more likely) ───────────────
 
   ZONE_SIZE_WEIGHTS: {
-    core: { small: 0, medium: 0, large: 40, massive: 60 },
-    midRing: { small: 10, medium: 35, large: 50, massive: 5 },
+    core: { small: 15, medium: 15, large: 30, massive: 40 },
+    midRing: { small: 15, medium: 30, large: 50, massive: 5 },
     frontier: { small: 40, medium: 60, large: 0, massive: 0 },
     spawnRing: { small: 70, medium: 30, large: 0, massive: 0 },
   },
@@ -277,18 +277,18 @@ export const WORLD_CONFIG = {
   // Tune these values to change pickup aggressiveness without touching service code.
 
   TRANSPORT_DISPATCH: {
-    /** Projected fill fraction contribution to dispatch score */
+    /** Projected-fill fraction contribution to dispatch score ((buffer + rate × travelHours) / cargo) */
     W_FILL: 0.9,
-    /** Mining rate/h contribution to dispatch score */
-    W_RATE: 0.6,
-    /** Distance cost per world unit subtracted from score */
+    /** Normalised distance cost subtracted from score (distance / DISTANCE_REFERENCE × W_DISTANCE) */
     W_DISTANCE: 0.12,
-    /** Ideal projected fill ratio at arrival (1.0 = completely full) */
-    TARGET_FILL: 0.85,
-    /** Opportunistic fallback minimum fill when asteroid has been starved */
-    SOFT_MIN_FILL: 0.3,
+    /** Max expected route distance used to normalise the distance penalty term */
+    DISTANCE_REFERENCE: 2500,
+    /** Ideal projected-fill ratio at arrival to qualify a transporter for a route (1.0 = full each trip) */
+    TARGET_FILL: 0.9,
+    /** Opportunistic fallback minimum projected fill when asteroid has been starved */
+    SOFT_MIN_FILL: 0.65,
     /** How long (ms) an asteroid may go without a dispatch before fallback triggers */
-    STARVATION_MS: 20 * 60 * 1000,
+    STARVATION_MS: 30 * 60 * 1000, // 30 minutes
   },
 } as const;
 

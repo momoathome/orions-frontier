@@ -179,9 +179,12 @@ function buildAsteroid(x: number, y: number, zone: ZoneType, rng: SeededRng): Ge
     const resourceKey = pickResource(pool, pickedResources, rng);
     pickedResources.push(resourceKey);
 
-    const tierKey = WORLD_CONFIG.RESOURCE_TIER[resourceKey as keyof typeof WORLD_CONFIG.RESOURCE_TIER] ?? 'low_value';
-    const tierModifier = WORLD_CONFIG.TIER_YIELD_MODIFIER[tierKey] ?? 0.60;
-    const veinModifier = WORLD_CONFIG.VEIN_MODIFIER[veinType];
+    const tierKey =
+      WORLD_CONFIG.RESOURCE_TIER[resourceKey as keyof typeof WORLD_CONFIG.RESOURCE_TIER] ??
+      'low_value';
+    const tierModifier = WORLD_CONFIG.TIER_YIELD_MODIFIER[tierKey] ?? 0.6;
+    // Single-vein asteroids receive the full budget (modifier = 1.0) because
+    const veinModifier = veinCount === 1 ? 1.0 : WORLD_CONFIG.VEIN_MODIFIER[veinType];
     const yieldPerHour = baseBudget * tierModifier * veinModifier;
 
     const { purity, purityTier } = rollPurity(rng);

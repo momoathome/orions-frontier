@@ -85,7 +85,7 @@ async function submitBuild() {
 </script>
 
 <template>
-  <div class="border-t border-white/6 pt-3 grid grid-cols-[auto_1fr_auto] items-end gap-5">
+  <div class="pt-3 grid grid-cols-[auto_1fr_auto] items-end gap-5">
     <!-- Amount -->
     <div class="flex flex-col gap-1.5">
       <span class="text-[9px] text-white/20 uppercase tracking-widest">Amount</span>
