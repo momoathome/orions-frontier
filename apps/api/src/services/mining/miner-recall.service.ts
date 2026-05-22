@@ -1,6 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { logger as rootLogger } from '../../lib/logger.js';
+import { scheduleTripArrival } from '../../queue/queues/trip-arrival-queue.js';
 
 const logger = rootLogger.child({ name: 'miner-recall' });
 import {
@@ -65,6 +66,8 @@ export const checkAndDispatchMinerRecall = async (asteroidId: string): Promise<v
 
   const totalMinerCargo = currentAssignments.reduce((s, a) => s + a.assignedAmount * a.cargo, 0);
 
+  const createdTripIds: { id: string; arrivesAt: Date }[] = [];
+
   await db.transaction(async (tx) => {
     const buffer = await tx
       .select()
@@ -122,34 +125,40 @@ export const checkAndDispatchMinerRecall = async (asteroidId: string): Promise<v
 
       // Create recall trip (asteroid→station) and return trip (station→asteroid) together
       // so the client can animate the full round trip without waiting for the next tick.
-      await tx.insert(spacecraftTrips).values([
-        {
-          stationSpacecraftId: ssRow.id,
-          groupSize: assignment.assignedAmount,
-          fromType: 'asteroid',
-          fromId: asteroidId,
-          toType: 'station',
-          toId: assignment.stationId,
-          departedAt: now,
-          arrivesAt: recallArrivesAt,
-          purpose: 'recall',
-          cargoManifest,
-          status: 'traveling',
-        },
-        {
-          stationSpacecraftId: ssRow.id,
-          groupSize: assignment.assignedAmount,
-          fromType: 'station',
-          fromId: assignment.stationId,
-          toType: 'asteroid',
-          toId: asteroidId,
-          departedAt: recallArrivesAt,
-          arrivesAt: returnArrivesAt,
-          purpose: 'return',
-          cargoManifest: null,
-          status: 'traveling',
-        },
-      ]);
+      const createdTrips = await tx
+        .insert(spacecraftTrips)
+        .values([
+          {
+            stationSpacecraftId: ssRow.id,
+            groupSize: assignment.assignedAmount,
+            fromType: 'asteroid',
+            fromId: asteroidId,
+            toType: 'station',
+            toId: assignment.stationId,
+            departedAt: now,
+            arrivesAt: recallArrivesAt,
+            purpose: 'recall',
+            cargoManifest,
+            status: 'traveling',
+          },
+          {
+            stationSpacecraftId: ssRow.id,
+            groupSize: assignment.assignedAmount,
+            fromType: 'station',
+            fromId: assignment.stationId,
+            toType: 'asteroid',
+            toId: asteroidId,
+            departedAt: recallArrivesAt,
+            arrivesAt: returnArrivesAt,
+            purpose: 'return',
+            cargoManifest: null,
+            status: 'traveling',
+          },
+        ])
+        .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
+
+      // Store for scheduling after the transaction commits
+      createdTripIds.push(...createdTrips);
 
       // Mark assignment as traveling_to_station
       await tx
@@ -163,4 +172,17 @@ export const checkAndDispatchMinerRecall = async (asteroidId: string): Promise<v
       .delete(asteroidResourceStorage)
       .where(eq(asteroidResourceStorage.asteroidId, asteroidId));
   });
+
+  // Ticket B: delayed arrival jobs registrieren — ausserhalb der Transaktion,
+  // damit BullMQ-Fehler keinen Rollback auslösen können.
+  for (const trip of createdTripIds) {
+    try {
+      await scheduleTripArrival(trip.id, trip.arrivesAt);
+    } catch (err) {
+      logger.warn(
+        { tripId: trip.id, err },
+        'scheduleTripArrival failed — reconciliation will recover'
+      );
+    }
+  }
 };

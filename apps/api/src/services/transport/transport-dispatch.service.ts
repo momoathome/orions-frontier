@@ -9,6 +9,7 @@ import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { calcDistance, calcArrivesAt } from '../../lib/travel.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
+import { scheduleTripArrival } from '../../queue/queues/trip-arrival-queue.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 
 const logger = rootLogger.child({ name: 'transport-dispatch' });
@@ -23,7 +24,10 @@ const logger = rootLogger.child({ name: 'transport-dispatch' });
 // demand from the station dispatch route.
 // ============================================================================
 
-export async function checkAndDispatchTransports(stationId: string): Promise<number> {
+export async function checkAndDispatchTransports(
+  stationId: string,
+  targetAsteroidId?: string // Ticket C: wenn gesetzt, nur diesen Asteroiden dispatchen
+): Promise<number> {
   const db = getDb();
 
   // Load station position
@@ -64,7 +68,8 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
   // Sort transporter types by cargo descending so we prefer larger ones first
   const sortedTransporters = [...transporterRows].sort((a, b) => b.cargo - a.cargo);
 
-  // Load all asteroids with at_asteroid assignments belonging to this station
+  // Load all asteroids with at_asteroid assignments belonging to this station.
+  // Ticket C: wenn targetAsteroidId gesetzt, nur diesen einen Asteroiden laden.
   const asteroidCandidates = await db
     .select({
       asteroidId: asteroidAssignments.asteroidId,
@@ -77,10 +82,16 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
       eq(asteroidAssignments.spacecraftDefinitionId, spacecraftDefinitions.id)
     )
     .where(
-      and(
-        eq(asteroidAssignments.stationId, stationId),
-        eq(asteroidAssignments.status, 'at_asteroid')
-      )
+      targetAsteroidId
+        ? and(
+            eq(asteroidAssignments.stationId, stationId),
+            eq(asteroidAssignments.status, 'at_asteroid'),
+            eq(asteroidAssignments.asteroidId, targetAsteroidId)
+          )
+        : and(
+            eq(asteroidAssignments.stationId, stationId),
+            eq(asteroidAssignments.status, 'at_asteroid')
+          )
     );
 
   // Build nominal mining power per asteroid (miningRate × assignedAmount).
@@ -376,6 +387,7 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
 
     const nowTx = new Date();
     let didDispatch = false;
+    let newTripIds: { id: string; arrivesAt: Date }[] = [];
     try {
       await db.transaction(async (tx) => {
         // Re-read buffer with row lock to guard against concurrent dispatches
@@ -414,34 +426,37 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
         );
 
         // Create both legs up front so the client can animate the full round trip
-        await tx.insert(spacecraftTrips).values([
-          {
-            stationSpacecraftId: transporter.id,
-            groupSize,
-            fromType: 'station',
-            fromId: stationId,
-            toType: 'asteroid',
-            toId: candidate.asteroidId,
-            departedAt: nowTx,
-            arrivesAt: outboundArrivesAt,
-            purpose: 'transport',
-            cargoManifest: null,
-            status: 'traveling',
-          },
-          {
-            stationSpacecraftId: transporter.id,
-            groupSize,
-            fromType: 'asteroid',
-            fromId: candidate.asteroidId,
-            toType: 'station',
-            toId: stationId,
-            departedAt: outboundArrivesAt,
-            arrivesAt: returnArrivesAt,
-            purpose: 'return',
-            cargoManifest: null,
-            status: 'traveling',
-          },
-        ]);
+        const insertedTrips = await tx
+          .insert(spacecraftTrips)
+          .values([
+            {
+              stationSpacecraftId: transporter.id,
+              groupSize,
+              fromType: 'station',
+              fromId: stationId,
+              toType: 'asteroid',
+              toId: candidate.asteroidId,
+              departedAt: nowTx,
+              arrivesAt: outboundArrivesAt,
+              purpose: 'transport',
+              cargoManifest: null,
+              status: 'traveling',
+            },
+            {
+              stationSpacecraftId: transporter.id,
+              groupSize,
+              fromType: 'asteroid',
+              fromId: candidate.asteroidId,
+              toType: 'station',
+              toId: stationId,
+              departedAt: outboundArrivesAt,
+              arrivesAt: returnArrivesAt,
+              purpose: 'return',
+              cargoManifest: null,
+              status: 'traveling',
+            },
+          ])
+          .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
 
         // Lock the ships
         await tx
@@ -449,6 +464,7 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
           .set({ lockedAmount: sql`${stationSpacecrafts.lockedAmount} + ${groupSize}` })
           .where(eq(stationSpacecrafts.id, transporter.id));
 
+        newTripIds = insertedTrips;
         didDispatch = true;
       });
     } catch (err) {
@@ -464,6 +480,17 @@ export async function checkAndDispatchTransports(stationId: string): Promise<num
         (outboundCargoByAsteroid.get(candidate.asteroidId) ?? 0) + groupSize * transporter.cargo
       );
       lastDispatchedAtByAsteroid.set(candidate.asteroidId, nowTx.getTime());
+      // Ticket B: delayed BullMQ jobs für exakte Arrival-Verarbeitung
+      for (const trip of newTripIds) {
+        try {
+          await scheduleTripArrival(trip.id, trip.arrivesAt);
+        } catch (err) {
+          logger.warn(
+            { tripId: trip.id, err },
+            'scheduleTripArrival failed — reconciliation will recover'
+          );
+        }
+      }
     }
   }
 

@@ -73,7 +73,6 @@ const unsubscribeTransport = wsClient.on('transport_tick_completed', () => {
 onMounted(() => {
   fetchResources();
   // Slow poll as fallback for any passive changes not covered by WS
-  // pollInterval = setInterval(fetchResources, 30_000);
 });
 
 onUnmounted(() => {

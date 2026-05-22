@@ -1,10 +1,9 @@
-import { CHUNK_SIZE } from '@orions-frontier/shared';
-
 // ============================================================================
 // Renderer constants
 // ============================================================================
 
-export { CHUNK_SIZE };
+/** Must match WORLD_CONFIG.CHUNK_SIZE in apps/api/src/lib/world-config.ts */
+export const CHUNK_SIZE = 1000;
 
 export const ZOOM_MIN = 0.06;
 export const ZOOM_MAX = 4.0;

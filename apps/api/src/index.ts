@@ -15,8 +15,10 @@ import { startActionWorker } from './queue/workers/action-worker.js';
 import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
 import { startMiningTickWorker } from './queue/workers/mining-tick-worker.js';
 import { startTransportTickWorker } from './queue/workers/transport-tick-worker.js';
+import { startTripArrivalWorker } from './queue/workers/trip-arrival-worker.js';
 import { scheduleMiningTickCron } from './queue/queues/mining-tick-queue.js';
 import { scheduleTransportTickCron } from './queue/queues/transport-tick-queue.js';
+import { reconcilePendingTrips } from './services/transport/trip-arrivals.service.js';
 import {
   seedSpacecraftDefinitions,
   seedBuildingDefinitions,
@@ -73,9 +75,14 @@ const start = async () => {
     startSpacecraftBuildWorker();
     startMiningTickWorker();
     startTransportTickWorker();
+    startTripArrivalWorker();
     await scheduleMiningTickCron();
     await scheduleTransportTickCron();
     fastify.log.info('Queue workers started');
+
+    // Reconcile trips that were in-flight before the last restart
+    // (registers delayed BullMQ jobs for all 'traveling' trips)
+    await reconcilePendingTrips();
 
     // Seed static data
     await seedSpacecraftDefinitions();

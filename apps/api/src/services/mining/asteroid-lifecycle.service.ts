@@ -16,6 +16,7 @@ import { stations } from '../../lib/db/schema/stations.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { calcMiningLoad } from '../../lib/vein-rates.js';
 import { calcDistance, calcArrivesAt } from '../../lib/travel.js';
+import { scheduleTripArrival } from '../../queue/queues/trip-arrival-queue.js';
 
 // ============================================================================
 // destroyAsteroid — called when stability reaches 0
@@ -42,6 +43,8 @@ export const destroyAsteroid = async (asteroidId: string): Promise<void> => {
   }
 
   logger.info({ asteroidId }, 'Destroying asteroid');
+
+  const recallTripIds: { id: string; arrivesAt: Date }[] = [];
 
   await db.transaction(async (tx) => {
     // Load all assignments with the data needed for recall trips
@@ -121,19 +124,25 @@ export const destroyAsteroid = async (asteroidId: string): Promise<void> => {
         // Recall trip only — no return trip since the asteroid is destroyed.
         // When this trip arrives, the transport tick credits the cargoManifest
         // to the station and releases the lock (asteroid-existence check → gone).
-        await tx.insert(spacecraftTrips).values({
-          stationSpacecraftId: ssRow.id,
-          groupSize: assignment.assignedAmount,
-          fromType: 'asteroid',
-          fromId: asteroidId,
-          toType: 'station',
-          toId: assignment.stationId,
-          departedAt: now,
-          arrivesAt,
-          purpose: 'recall',
-          cargoManifest,
-          status: 'traveling',
-        });
+        const [recallTrip] = await tx
+          .insert(spacecraftTrips)
+          .values({
+            stationSpacecraftId: ssRow.id,
+            groupSize: assignment.assignedAmount,
+            fromType: 'asteroid',
+            fromId: asteroidId,
+            toType: 'station',
+            toId: assignment.stationId,
+            departedAt: now,
+            arrivesAt,
+            purpose: 'recall',
+            cargoManifest,
+            status: 'traveling',
+          })
+          .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
+
+        // Schedule the delayed arrival job outside the transaction below.
+        if (recallTrip) recallTripIds.push(recallTrip);
       }
     }
 
@@ -211,6 +220,18 @@ export const destroyAsteroid = async (asteroidId: string): Promise<void> => {
     // Cascade-delete: veins, storage, assignments are deleted automatically
     await tx.delete(asteroids).where(eq(asteroids.id, asteroidId));
   });
+
+  // Ticket B: delayed arrival jobs für Recall-Trips — ausserhalb der Transaktion
+  for (const trip of recallTripIds) {
+    try {
+      await scheduleTripArrival(trip.id, trip.arrivesAt);
+    } catch (err) {
+      logger.warn(
+        { tripId: trip.id, err },
+        'scheduleTripArrival failed — reconciliation will recover'
+      );
+    }
+  }
 };
 
 // ============================================================================

@@ -4,10 +4,9 @@
 // Used only by the seeder — not at runtime.
 // ============================================================================
 
-import { CHUNK_SIZE } from '@orions-frontier/shared';
 import { WORLD_CONFIG, type ZoneType } from './world-config.js';
 
-export { CHUNK_SIZE } from '@orions-frontier/shared';
+const { CHUNK_SIZE } = WORLD_CONFIG;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

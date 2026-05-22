@@ -46,9 +46,7 @@ export const asteroids = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     x: doublePrecision('x').notNull(),
     y: doublePrecision('y').notNull(),
-    /** Derived chunk coordinate: floor(x / CHUNK_SIZE) */
     chunkX: integer('chunk_x').notNull(),
-    /** Derived chunk coordinate: floor(y / CHUNK_SIZE) */
     chunkY: integer('chunk_y').notNull(),
     /** Size category: determines yield budget and mining slot count */
     size: varchar('size', { length: 16 }).notNull(),

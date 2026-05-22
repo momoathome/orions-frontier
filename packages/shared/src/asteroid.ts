@@ -1,17 +1,6 @@
 import type { ResourceKey } from './resource.js';
 
 // ============================================================================
-// World Architecture Constants
-// ============================================================================
-
-/**
- * Size of each spatial chunk in world units.
- * chunk_x = floor(x / CHUNK_SIZE), chunk_y = floor(y / CHUNK_SIZE)
- * Must match the value used in the backend world-gen utility.
- */
-export const CHUNK_SIZE = 1000;
-
-// ============================================================================
 // Vein Allocation
 //
 // Fraction of a miner's power directed at each vein type.

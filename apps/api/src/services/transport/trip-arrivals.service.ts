@@ -2,14 +2,14 @@ import { and, eq, lt, lte } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { logger as rootLogger } from '../../lib/logger.js';
-
-const logger = rootLogger.child({ name: 'trip-arrivals' });
 import {
   handleMineArrival,
   handleRecallArrival,
   handleTransportOutbound,
   handleTransporterReturn,
 } from './trip-handlers.js';
+
+const logger = rootLogger.child({ name: 'trip-arrivals' });
 
 // ============================================================================
 // Trip Arrivals Service
@@ -49,7 +49,32 @@ export async function processTripArrivals(): Promise<number> {
   return settled;
 }
 
-async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Promise<void> {
+/**
+ * Reconciles all currently traveling trips by registering delayed BullMQ jobs.
+ * Called once at startup and by the watchdog worker.
+ * The jobId-based deduplication ensures no duplicate jobs are created.
+ */
+export async function reconcilePendingTrips(): Promise<void> {
+  const db = getDb();
+  // Lazy import to avoid circular dep: services → queue
+  const { scheduleTripArrival } = await import('../../queue/queues/trip-arrival-queue.js');
+
+  const pendingTrips = await db
+    .select({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt })
+    .from(spacecraftTrips)
+    .where(eq(spacecraftTrips.status, 'traveling'));
+
+  for (const trip of pendingTrips) {
+    await scheduleTripArrival(trip.id, trip.arrivesAt);
+  }
+
+  if (pendingTrips.length > 0) {
+    logger.info({ count: pendingTrips.length }, 'Reconciled pending trips → delayed jobs registered');
+  }
+}
+
+// Exported so trip-arrival-worker.ts can settle individual trips directly.
+export async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Promise<void> {
   const db = getDb();
 
   await db.transaction(async (tx) => {

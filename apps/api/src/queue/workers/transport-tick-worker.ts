@@ -1,13 +1,27 @@
 import { Worker } from 'bullmq';
 import { bullmqRedis } from '../bullmq.js';
 import { logger as rootLogger } from '../../lib/logger.js';
-import { getDb } from '../../lib/db/index.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { processTripArrivals } from '../../services/transport/trip-arrivals.service.js';
-import { checkAndDispatchTransports } from '../../services/transport/transport-dispatch.service.js';
-import { getRedis } from '../../lib/redis.js';
+import {
+  processTripArrivals,
+  reconcilePendingTrips,
+} from '../../services/transport/trip-arrivals.service.js';
 
 const logger = rootLogger.child({ name: 'transport-tick-worker' });
+
+// ============================================================================
+// Transport Tick Worker — Watchdog only (after Ticket B+C)
+//
+// Primary arrival processing is handled by trip-arrival-worker via delayed
+// BullMQ jobs scheduled at dispatch time. This worker runs every 5 minutes as
+// a safety net:
+//   1. reconcilePendingTrips — registers delayed jobs for any orphaned trips
+//      (e.g. after a crash or BullMQ restart).
+//   2. processTripArrivals  — fallback poll that settles any trips whose
+//      delayed job was somehow missed (should return 0 in normal operation).
+//
+// Dispatch (checkAndDispatchTransports) was moved to mining-tick-worker (Ticket C):
+// transporters are now dispatched per asteroid immediately after each mining tick.
+// ============================================================================
 
 async function processTransportTickJob(job: { name: string }) {
   if (job.name !== 'tick-transport') {
@@ -15,51 +29,16 @@ async function processTransportTickJob(job: { name: string }) {
     return;
   }
 
-  const db = getDb();
+  // 1. Register delayed arrival jobs for any traveling trips without one.
+  await reconcilePendingTrips();
 
-  // 1. Settle all arrived trips
+  // 2. Fallback: settle trips that somehow have no delayed job (should be 0).
   const settled = await processTripArrivals();
   if (settled > 0) {
-    logger.info({ settled }, 'Settled arrived trips');
-  }
-
-  // 2. Dispatch idle transporters per station
-  const allStations = await db
-    .select({ id: stations.id, userId: stations.userId })
-    .from(stations);
-
-  let totalDispatched = 0;
-  const affectedUserIds = new Set<string>();
-
-  for (const station of allStations) {
-    try {
-      const dispatched = await checkAndDispatchTransports(station.id);
-      if (dispatched > 0) {
-        totalDispatched += dispatched;
-        affectedUserIds.add(station.userId);
-      }
-    } catch (err) {
-      logger.error({ stationId: station.id, err }, 'Failed to dispatch transporters for station');
-    }
-  }
-
-  if (totalDispatched > 0) {
-    logger.info({ totalDispatched }, 'Dispatched transporters');
-  }
-
-  // 3. Notify affected users via WebSocket (trips started/updated)
-  if (settled > 0 || totalDispatched > 0) {
-    const redis = getRedis();
-    for (const userId of affectedUserIds) {
-      await redis.publish(
-        `user:${userId}:events`,
-        JSON.stringify({
-          type: 'transport_tick_completed',
-          payload: { settled, dispatched: totalDispatched },
-          timestamp: Date.now(),
-        })
-      );
-    }
+    logger.warn(
+      { settled },
+      'Settled orphaned trips via watchdog — delayed jobs may have been missed'
+    );
   }
 }
 
@@ -69,13 +48,13 @@ export const startTransportTickWorker = () => {
   });
 
   worker.on('completed', (job) => {
-    logger.info({ jobId: job.id }, 'Transport tick job completed');
+    logger.info({ jobId: job.id }, 'Transport watchdog tick completed');
   });
 
   worker.on('failed', (job, err) => {
-    logger.error({ jobId: job?.id, err }, 'Transport tick job failed');
+    logger.error({ jobId: job?.id, err }, 'Transport watchdog tick failed');
   });
 
-  logger.info('Transport tick worker started');
+  logger.info('Transport tick worker started (watchdog mode)');
   return worker;
 };

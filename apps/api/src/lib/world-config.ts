@@ -10,6 +10,11 @@ import { VEIN_MODIFIER } from '@orions-frontier/shared';
 // ── World Size ────────────────────────────────────────────────────────────────
 
 export const WORLD_CONFIG = {
+  /**
+   * Size of each spatial chunk in world units.
+   */
+  CHUNK_SIZE: 1000,
+
   /** Base world radius regardless of player count (world units) */
   BASE_RADIUS: 5000,
   /** Additional radius per player entity (human + AI) */
@@ -36,10 +41,10 @@ export const WORLD_CONFIG = {
   // ── Asteroid density (asteroids per chunk, min–max) ───────────────────────
 
   ZONE_DENSITY: {
-    core: { min: 2, max: 3 },
-    midRing: { min: 2, max: 4 },
-    frontier: { min: 3, max: 4 },
-    spawnRing: { min: 3, max: 5 },
+    core: { min: 1, max: 2 },
+    midRing: { min: 1, max: 2 },
+    frontier: { min: 1, max: 3 },
+    spawnRing: { min: 2, max: 3 },
   },
 
   // ── Size weights per zone (unitless, higher = more likely) ───────────────
@@ -47,8 +52,8 @@ export const WORLD_CONFIG = {
   ZONE_SIZE_WEIGHTS: {
     core: { small: 15, medium: 15, large: 30, massive: 40 },
     midRing: { small: 15, medium: 30, large: 50, massive: 5 },
-    frontier: { small: 40, medium: 60, large: 0, massive: 0 },
-    spawnRing: { small: 70, medium: 30, large: 0, massive: 0 },
+    frontier: { small: 60, medium: 40, large: 0, massive: 0 },
+    spawnRing: { small: 85, medium: 15, large: 0, massive: 0 },
   },
 
   // ── hiddenLevel range per zone ────────────────────────────────────────────
@@ -76,10 +81,10 @@ export const WORLD_CONFIG = {
   // ── Yield budget per hour per size (before modifiers) ────────────────────
 
   YIELD_BUDGET: {
-    small: { min: 400, max: 600 },
-    medium: { min: 800, max: 1100 },
-    large: { min: 1500, max: 2000 },
-    massive: { min: 2700, max: 3500 },
+    small: { min: 80, max: 120 },
+    medium: { min: 180, max: 260 },
+    large: { min: 350, max: 500 },
+    massive: { min: 700, max: 1000 },
   },
 
   // ── Vein type modifier — fraction of budget this vein receives ───────────
@@ -229,7 +234,7 @@ export const WORLD_CONFIG = {
     /** Fraction of worldRadius at which spawn slots are placed */
     RING_FRACTION: 0.88,
     /** No asteroid may be placed within this distance of a spawn slot (world units) */
-    SAFE_RADIUS: 250,
+    SAFE_RADIUS: 200,
   },
 
   // ── Travel system ──────────────────────────────────────────────────────────
@@ -268,8 +273,10 @@ export const WORLD_CONFIG = {
   /** How often the mining-tick BullMQ job runs (milliseconds). */
   MINING_TICK_INTERVAL_MS: 60_000,
 
-  /** How often the transport-tick BullMQ job runs (milliseconds). */
-  TRANSPORT_TICK_INTERVAL_MS: 60_000,
+  /** How often the transport-watchdog BullMQ job runs (milliseconds).
+   * Primary arrivals are now handled by per-trip delayed jobs (Ticket B).
+   * This watchdog only reconciles orphaned trips and runs infrequently. */
+  TRANSPORT_TICK_INTERVAL_MS: 300_000, // 5 min watchdog
 
   // ── Transport dispatch scoring ────────────────────────────────────────────
   //
@@ -288,7 +295,7 @@ export const WORLD_CONFIG = {
     /** Opportunistic fallback minimum projected fill when asteroid has been starved */
     SOFT_MIN_FILL: 0.65,
     /** How long (ms) an asteroid may go without a dispatch before fallback triggers */
-    STARVATION_MS: 30 * 60 * 1000, // 30 minutes
+    STARVATION_MS: 15 * 60 * 1000, // 15 minutes
   },
 } as const;
 
