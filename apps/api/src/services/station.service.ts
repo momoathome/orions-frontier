@@ -4,6 +4,7 @@ import { stations } from '../lib/db/schema/stations.js';
 import { spawnSlots } from '../lib/db/schema/spawn-slots.js';
 import { seedStationResources } from './station-resource.service.js';
 import { seedStationBuildings } from './building.service.js';
+import { seedStationSpacecrafts } from './spacecraft.service.js';
 import type { Station } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
@@ -53,6 +54,7 @@ export const createStation = async (userId: string, data: { name: string }): Pro
 
   await seedStationResources(station!.id);
   await seedStationBuildings(station!.id);
+  await seedStationSpacecrafts(station!.id);
 
   return toStation(station!);
 };

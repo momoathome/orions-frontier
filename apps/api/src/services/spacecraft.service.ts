@@ -115,6 +115,36 @@ export const getStationSpacecrafts = async (
 };;;
 
 // ============================================================================
+// Seed initial spacecrafts for a newly created station
+// ============================================================================
+
+const INITIAL_SPACECRAFTS: { key: string; amount: number }[] = [
+  { key: 'mole', amount: 1 },
+  { key: 'nomad', amount: 10 },
+];
+
+export const seedStationSpacecrafts = async (stationId: string): Promise<void> => {
+  const db = getDb();
+
+  const keys = INITIAL_SPACECRAFTS.map((s) => s.key);
+  const defs = await db
+    .select({ id: spacecraftDefinitions.id, key: spacecraftDefinitions.key })
+    .from(spacecraftDefinitions)
+    .where(inArray(spacecraftDefinitions.key, keys));
+
+  if (defs.length === 0) return;
+
+  await db.insert(stationSpacecrafts).values(
+    defs.map((def) => ({
+      stationId,
+      spacecraftDefinitionId: def.id,
+      amount: INITIAL_SPACECRAFTS.find((s) => s.key === def.key)!.amount,
+      lockedAmount: 0,
+    }))
+  );
+};
+
+// ============================================================================
 // Build spacecrafts
 // ============================================================================
 

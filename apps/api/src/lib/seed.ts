@@ -11,6 +11,7 @@ import { stationBuildings } from './db/schema/station-buildings.js';
 import { stationSpacecrafts } from './db/schema/station-spacecrafts.js';
 import { stationResources } from './db/schema/station-resources.js';
 import { spacecrafts, buildings } from '@orions-frontier/game-config';
+import { seedStationSpacecrafts } from '../services/spacecraft.service.js';
 import { generateWorld } from './world-gen.js';
 import { resourceKeys } from '@orions-frontier/shared';
 import { sql } from 'drizzle-orm';
@@ -333,19 +334,7 @@ export const seedDevUser = async (): Promise<void> => {
     }
 
     if (existingSpacecrafts.length === 0) {
-      const allSpacecraftDefs = await db
-        .select({ id: spacecraftDefinitions.id })
-        .from(spacecraftDefinitions);
-      if (allSpacecraftDefs.length > 0) {
-        await db.insert(stationSpacecrafts).values(
-          allSpacecraftDefs.map((s) => ({
-            stationId: devStationId,
-            spacecraftDefinitionId: s.id,
-            amount: 5,
-            lockedAmount: 0,
-          }))
-        );
-      }
+      await seedStationSpacecrafts(devStationId);
     }
 
     return;
@@ -395,19 +384,6 @@ export const seedDevUser = async (): Promise<void> => {
     );
   }
 
-  // 5. Assign all spacecraft definitions with 5 units each
-  const allSpacecraftDefs = await db
-    .select({ id: spacecraftDefinitions.id })
-    .from(spacecraftDefinitions);
-
-  if (allSpacecraftDefs.length > 0) {
-    await db.insert(stationSpacecrafts).values(
-      allSpacecraftDefs.map((s) => ({
-        stationId: devStationId,
-        spacecraftDefinitionId: s.id,
-        amount: 5,
-        lockedAmount: 0,
-      }))
-    );
-  }
-};;
+  // 5. Assign initial spacecrafts (1 Mole, 10 Nomads)
+  await seedStationSpacecrafts(devStationId);
+};;;

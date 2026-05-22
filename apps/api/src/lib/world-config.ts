@@ -81,9 +81,9 @@ export const WORLD_CONFIG = {
   // ── Yield budget per hour per size (before modifiers) ────────────────────
 
   YIELD_BUDGET: {
-    small: { min: 80, max: 120 },
+    small: { min: 90, max: 120 },
     medium: { min: 180, max: 260 },
-    large: { min: 350, max: 500 },
+    large: { min: 380, max: 500 },
     massive: { min: 700, max: 1000 },
   },
 
