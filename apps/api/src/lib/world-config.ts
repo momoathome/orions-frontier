@@ -127,15 +127,15 @@ export const WORLD_CONFIG = {
       { resource: 'carbon', weight: 10 },
     ],
     frontier: [
-      { resource: 'titanium', weight: 40 },
+      { resource: 'titanium', weight: 35 },
       { resource: 'carbon', weight: 35 },
-      { resource: 'hydrogenium', weight: 20 },
+      { resource: 'hydrogenium', weight: 25 },
       { resource: 'kyber_crystal', weight: 5 },
     ],
     spawnRing: [
-      { resource: 'carbon', weight: 50 },
+      { resource: 'carbon', weight: 40 },
       { resource: 'titanium', weight: 40 },
-      { resource: 'hydrogenium', weight: 10 },
+      { resource: 'hydrogenium', weight: 20 },
     ],
   } as Record<string, { resource: string; weight: number }[]>,
 
@@ -155,14 +155,15 @@ export const WORLD_CONFIG = {
       { resource: 'kyber_crystal', weight: 10 },
     ],
     frontier: [
-      { resource: 'carbon', weight: 50 },
+      { resource: 'carbon', weight: 45 },
       { resource: 'titanium', weight: 35 },
       { resource: 'hydrogenium', weight: 15 },
+      { resource: 'kyber_crystal', weight: 5 },
     ],
     spawnRing: [
-      { resource: 'carbon', weight: 50 },
+      { resource: 'carbon', weight: 40 },
       { resource: 'titanium', weight: 40 },
-      { resource: 'hydrogenium', weight: 10 },
+      { resource: 'hydrogenium', weight: 20 },
     ],
   } as Record<string, { resource: string; weight: number }[]>,
 
@@ -285,7 +286,7 @@ export const WORLD_CONFIG = {
 
   TRANSPORT_DISPATCH: {
     /** Projected-fill fraction contribution to dispatch score ((buffer + rate × travelHours) / cargo) */
-    W_FILL: 0.9,
+    W_FILL: 1.0,
     /** Normalised distance cost subtracted from score (distance / DISTANCE_REFERENCE × W_DISTANCE) */
     W_DISTANCE: 0.12,
     /** Max expected route distance used to normalise the distance penalty term */

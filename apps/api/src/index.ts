@@ -80,10 +80,6 @@ const start = async () => {
     await scheduleTransportTickCron();
     fastify.log.info('Queue workers started');
 
-    // Reconcile trips that were in-flight before the last restart
-    // (registers delayed BullMQ jobs for all 'traveling' trips)
-    await reconcilePendingTrips();
-
     // Seed static data
     await seedSpacecraftDefinitions();
     fastify.log.info('Spacecraft definitions seeded');
@@ -99,6 +95,10 @@ const start = async () => {
 
     await seedDevUser();
     fastify.log.info('Dev user seeded');
+
+    // Reconcile trips that were in-flight before the last restart.
+    // Must run AFTER seed (tables must exist) but before serving traffic.
+    await reconcilePendingTrips();
 
     // File-based routing with AutoLoad
     await fastify.register(autoload, {

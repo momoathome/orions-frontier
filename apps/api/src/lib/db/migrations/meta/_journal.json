@@ -51,6 +51,20 @@
       "when": 1747872000000,
       "tag": "0007_spawn_slots",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1747958400000,
+      "tag": "0008_spacecraft_trips",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1748044800000,
+      "tag": "0009_performance_indexes",
+      "breakpoints": true
     }
   ]
 }

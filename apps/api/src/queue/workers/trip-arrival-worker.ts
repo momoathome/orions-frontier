@@ -26,55 +26,52 @@ export const startTripArrivalWorker = () => {
     async (job) => {
       const db = getDb();
 
-      const [trip] = await db
-        .select()
+      // Single JOIN query: trip + stationSpacecraft + station (userId for WS).
+      // Replaces 3 sequential SELECTs (trip, ssRow, stationRow) from before.
+      const [row] = await db
+        .select({
+          trip: spacecraftTrips,
+          userId: stations.userId,
+        })
         .from(spacecraftTrips)
+        .innerJoin(
+          stationSpacecrafts,
+          eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id)
+        )
+        .innerJoin(stations, eq(stationSpacecrafts.stationId, stations.id))
         .where(eq(spacecraftTrips.id, job.data.tripId))
         .limit(1);
 
-      if (!trip) {
+      if (!row) {
         // Trip was cancelled (asteroid destroyed, etc.) — not an error.
         logger.debug({ tripId: job.data.tripId }, 'Trip not found — already cancelled or deleted');
         return;
       }
-      if (trip.status !== 'traveling') {
+      if (row.trip.status !== 'traveling') {
         // Already settled by the watchdog fallback or a concurrent worker.
-        logger.debug({ tripId: trip.id, status: trip.status }, 'Trip already settled, skipping');
+        logger.debug(
+          { tripId: row.trip.id, status: row.trip.status },
+          'Trip already settled, skipping'
+        );
         return;
       }
 
-      await settleTripArrival(trip);
+      await settleTripArrival(row.trip);
 
-      // Notify the owning station's user via WebSocket so the client refreshes.
+      // Notify the owning station's user via WebSocket.
       try {
-        const [ssRow] = await db
-          .select({ stationId: stationSpacecrafts.stationId })
-          .from(stationSpacecrafts)
-          .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId))
-          .limit(1);
-
-        if (ssRow) {
-          const [stationRow] = await db
-            .select({ userId: stations.userId })
-            .from(stations)
-            .where(eq(stations.id, ssRow.stationId))
-            .limit(1);
-
-          if (stationRow) {
-            const redis = getRedis();
-            await redis.publish(
-              `user:${stationRow.userId}:events`,
-              JSON.stringify({
-                type: 'transport_tick_completed',
-                payload: { settled: 1, dispatched: 0 },
-                timestamp: Date.now(),
-              }),
-            );
-          }
-        }
+        const redis = getRedis();
+        await redis.publish(
+          `user:${row.userId}:events`,
+          JSON.stringify({
+            type: 'transport_tick_completed',
+            payload: { settled: 1, dispatched: 0 },
+            timestamp: Date.now(),
+          })
+        );
       } catch (err) {
         // WS notification failure is non-fatal — client will sync on next poll.
-        logger.warn({ tripId: trip.id, err }, 'Failed to publish trip arrival event');
+        logger.warn({ tripId: row.trip.id, err }, 'Failed to publish trip arrival event');
       }
     },
     { connection: bullmqRedis, concurrency: 10 },

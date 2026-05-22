@@ -19,6 +19,17 @@ const resourceEntries = ref<ResourceEntry[]>([]);
 const isOnline = ref(true);
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
+// Debounce timer: collapses rapid bursts of WS events (e.g. 10 simultaneous
+// trip arrivals with concurrency=10) into a single fetch 300 ms after the last.
+let fetchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleFetch() {
+  if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
+  fetchDebounceTimer = setTimeout(() => {
+    fetchDebounceTimer = null;
+    fetchResources();
+  }, 1000);
+}
 
 function applyResourceSummary(summary: UserResourceSummary) {
   resourceEntries.value = ALL_RESOURCES
@@ -62,12 +73,12 @@ const unsubscribeResources = wsClient.on('resources_updated', (payload) => {
 
 // Refetch rates after every mining tick
 const unsubscribeTick = wsClient.on('mining_tick_completed', () => {
-  fetchResources();
+  scheduleFetch();
 });
 
 // Refetch after transport tick (effective rates + resource amounts change on delivery)
 const unsubscribeTransport = wsClient.on('transport_tick_completed', () => {
-  fetchResources();
+  scheduleFetch();
 });
 
 onMounted(() => {
@@ -77,6 +88,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval);
+  if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
   unsubscribeResources();
   unsubscribeTick();
   unsubscribeTransport();

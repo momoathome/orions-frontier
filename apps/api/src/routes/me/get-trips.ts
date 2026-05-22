@@ -17,12 +17,6 @@ export default defineRoute(async (app) => {
     const { userId } = request.user;
     const db = getDb();
 
-    // Get all stations for this user
-    const userStations = await db
-      .select({ id: stations.id })
-      .from(stations)
-      .where(eq(stations.id, userId));
-
     // Use stations.userId not id
     const stationRows = await db
       .select({ id: stations.id })

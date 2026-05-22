@@ -4,13 +4,25 @@
 -- ============================================================================
 
 --> statement-breakpoint
-CREATE TYPE "trip_purpose" AS ENUM ('mine', 'transport', 'recall', 'return', 'combat');
+DO $$ BEGIN
+  CREATE TYPE "trip_purpose" AS ENUM ('mine', 'transport', 'recall', 'return', 'combat');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE TYPE "trip_status" AS ENUM ('traveling', 'arrived', 'cancelled');
+DO $$ BEGIN
+  CREATE TYPE "trip_status" AS ENUM ('traveling', 'arrived', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE TYPE "trip_endpoint_type" AS ENUM ('station', 'asteroid');
+DO $$ BEGIN
+  CREATE TYPE "trip_endpoint_type" AS ENUM ('station', 'asteroid');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE TYPE "assignment_status" AS ENUM ('traveling_to_asteroid', 'at_asteroid', 'traveling_to_station');
+DO $$ BEGIN
+  CREATE TYPE "assignment_status" AS ENUM ('traveling_to_asteroid', 'at_asteroid', 'traveling_to_station');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 
 -- Add status column to existing asteroid_assignments

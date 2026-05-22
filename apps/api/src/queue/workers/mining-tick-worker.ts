@@ -5,7 +5,7 @@ import { getDb } from '../../lib/db/index.js';
 import { asteroidAssignments } from '../../lib/db/schema/asteroids.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { eq, inArray } from 'drizzle-orm';
-import { calculateMiningTick } from '../../services/mining/mining-tick.service.js';
+import { batchCalculateMiningTicks } from '../../services/mining/mining-tick.service.js';
 import { applyAsteroidStabilityTick } from '../../services/mining/asteroid-lifecycle.service.js';
 import { checkAndDispatchMinerRecall } from '../../services/mining/miner-recall.service.js';
 import { checkAndDispatchTransports } from '../../services/transport/transport-dispatch.service.js';
@@ -20,6 +20,8 @@ async function processMiningTickJob(job: { name: string }) {
   }
 
   const db = getDb();
+
+  // Single query: load all at_asteroid assignments with stationId.
   const assignments = await db
     .select({
       id: asteroidAssignments.id,
@@ -27,34 +29,28 @@ async function processMiningTickJob(job: { name: string }) {
       stationId: asteroidAssignments.stationId,
     })
     .from(asteroidAssignments)
-    .where(eq(asteroidAssignments.status, 'at_asteroid')); // Ticket A: nur aktive Miner
+    .where(eq(asteroidAssignments.status, 'at_asteroid'));
 
   logger.info({ count: assignments.length }, 'Starting mining tick for all assignments');
 
-  // Ticket C: Track asteroid→stations mapping for per-asteroid dispatch.
-  // This replaces the separate asteroidIds and stationIds sets from before.
+  // Batch tick:
+  const { byAsteroid } = await batchCalculateMiningTicks(assignments.map((a) => a.id));
+
+  // Build asteroid→stations map from the assignments that produced something.
   const asteroidStations = new Map<string, Set<string>>();
-  const stationIds = new Set<string>(); // kept for WS notification query
-  let ticked = 0;
+  const stationIds = new Set<string>();
 
   for (const assignment of assignments) {
-    try {
-      const result = await calculateMiningTick(assignment.id);
-      if (result) {
-        ticked++;
-        stationIds.add(assignment.stationId);
-        const stationSet = asteroidStations.get(assignment.asteroidId) ?? new Set<string>();
-        stationSet.add(assignment.stationId);
-        asteroidStations.set(assignment.asteroidId, stationSet);
-      }
-    } catch (err) {
-      logger.error({ assignmentId: assignment.id, err }, 'Failed to tick assignment');
-    }
+    if (!byAsteroid.has(assignment.asteroidId)) continue; // nothing produced
+    stationIds.add(assignment.stationId);
+    const stationSet = asteroidStations.get(assignment.asteroidId) ?? new Set<string>();
+    stationSet.add(assignment.stationId);
+    asteroidStations.set(assignment.asteroidId, stationSet);
   }
 
+  const ticked = byAsteroid.size; // asteroids that had at least one productive assignment
+
   // Single combined loop: stability → per-asteroid dispatch → recall.
-  // Dispatch is now per asteroid (Ticket C) so transporters are scored against
-  // the asteroid that just produced resources, not blindly against all asteroids.
   for (const [asteroidId, stationSet] of asteroidStations) {
     try {
       await applyAsteroidStabilityTick(asteroidId);
@@ -80,7 +76,7 @@ async function processMiningTickJob(job: { name: string }) {
     }
   }
 
-  // Publish mining_tick_completed per affected user so TopHud can refetch rates
+  // Publish mining_tick_completed per affected user so TopHud can refetch rates.
   if (stationIds.size > 0) {
     const stationIdArray = [...stationIds];
     const stationRows = await db
