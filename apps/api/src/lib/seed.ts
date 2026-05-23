@@ -5,6 +5,7 @@ import { spacecraftDefinitions, spacecraftDefinitionCosts } from './db/schema/sp
 import { buildingDefinitions } from './db/schema/building-definitions.js';
 import { asteroids, asteroidVeins, asteroidResourceStorage } from './db/schema/asteroids.js';
 import { spawnSlots } from './db/schema/spawn-slots.js';
+import { sectors } from './db/schema/sectors.js';
 import { users } from './db/schema/users.js';
 import { stations } from './db/schema/stations.js';
 import { stationBuildings } from './db/schema/station-buildings.js';
@@ -12,10 +13,12 @@ import { stationSpacecrafts } from './db/schema/station-spacecrafts.js';
 import { stationResources } from './db/schema/station-resources.js';
 import { spacecrafts, buildings } from '@orions-frontier/game-config';
 import { seedStationSpacecrafts } from '../services/spacecraft.service.js';
-import { generateWorld } from './world-gen.js';
+import { generateSector } from './world-gen/index.js';
+import type { GeneratedSector } from './world-gen/index.js';
 import { resourceKeys } from '@orions-frontier/shared';
 import { sql } from 'drizzle-orm';
 import { WORLD_CONFIG } from './world-config.js';
+import { logger } from './logger.js';
 
 // ============================================================================
 // Seed all static game data from game-config into the database (idempotent).
@@ -107,35 +110,127 @@ export const seedBuildingDefinitions = async (): Promise<void> => {
 
 // ============================================================================
 // Asteroid world seeder
-// Seeds the full asteroid world procedurally using the zone-based generator.
+// Seeds the full asteroid world procedurally using the sector-based generator.
 // Idempotent: skips if asteroid_veins are already populated.
 // If asteroids exist but have no veins (stale migration state), clears and reseeds.
+//
+// Initial world: sector (0,0) — always 'balanced', centred at world origin.
+// Additional sectors can be generated later via generateSector(x, y, worldSeed).
 // ============================================================================
 
-/**
- * Player count used for world generation.
- * Adjust to match your expected concurrent player + AI count.
- * Higher count → larger world radius.
- */
-const WORLD_PLAYER_COUNT = 8;
-
 const ASTEROID_BATCH_SIZE = 500;
+
+// ── World generation stats logger ─────────────────────────────────────────────
+
+function logSectorStats(sector: GeneratedSector): void {
+  const as = sector.asteroids;
+  const total = as.length;
+  if (total === 0) return;
+
+  const pad = (s: string | number, n: number) => String(s).padStart(n);
+  const pct = (n: number) => pad(`${Math.round((n / total) * 100)} %`, 5);
+
+  // Size breakdown
+  const sizes = { small: 0, medium: 0, large: 0, massive: 0 };
+  for (const a of as) sizes[a.size]++;
+
+  // Average stability
+  const avgStability = as.reduce((s, a) => s + a.stability, 0) / total;
+
+  // Average yield per hour per size (sum of all vein yields on the asteroid)
+  const yieldBySize: Record<string, { total: number; count: number }> = {};
+  for (const a of as) {
+    const sum = a.veins.reduce((s, v) => s + v.yieldPerHour, 0);
+    const e = (yieldBySize[a.size] ??= { total: 0, count: 0 });
+    e.total += sum;
+    e.count++;
+  }
+
+  // Primary resource distribution (first vein = primary resource)
+  const byResource: Record<string, number> = {};
+  for (const a of as) {
+    const key = a.veins[0]?.resourceKey ?? '?';
+    byResource[key] = (byResource[key] ?? 0) + 1;
+  }
+
+  const line = '─'.repeat(52);
+
+  const lines: string[] = [
+    `┌${line}┐`,
+    `│  World Generation — Sector (${sector.sectorX}, ${sector.sectorY})`.padEnd(53) + '│',
+    `├${line}┤`,
+    `│  Asteroids : ${pad(total, 4)}   Spawn Slots : ${pad(sector.spawnSlots.length, 2)}`.padEnd(
+      53
+    ) + '│',
+    `│  Veins     : ${pad(
+      as.reduce((s, a) => s + a.veins.length, 0),
+      4
+    )}   Fields      : ${pad(sector.fields.length, 2)}`.padEnd(53) + '│',
+    `├${line}┤`,
+    `│  Size distribution`.padEnd(53) + '│',
+    `│    small   ${pad(sizes.small, 4)}  ${pct(sizes.small)}`.padEnd(53) + '│',
+    `│    medium  ${pad(sizes.medium, 4)}  ${pct(sizes.medium)}`.padEnd(53) + '│',
+    `│    large   ${pad(sizes.large, 4)}  ${pct(sizes.large)}`.padEnd(53) + '│',
+    `│    massive ${pad(sizes.massive, 4)}  ${pct(sizes.massive)}`.padEnd(53) + '│',
+    `├${line}┤`,
+    `│  Field clusters`.padEnd(53) + '│',
+    ...sector.fields.map(
+      (f) =>
+        `│    ${f.shapeKey.padEnd(14)} ${f.primaryResource.padEnd(14)} ${pad(f.asteroidCount, 3)} asteroids`.padEnd(
+          53
+        ) + '│'
+    ),
+    `├${line}┤`,
+    `│  Primary resource distribution`.padEnd(53) + '│',
+    ...Object.entries(byResource)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `│    ${k.padEnd(16)} ${pad(n, 4)}  ${pct(n)}`.padEnd(53) + '│'),
+    `├${line}┤`,
+    `│  Avg stability : ${avgStability.toFixed(3)}`.padEnd(53) + '│',
+    `│  Avg yield/h   :`.padEnd(53) + '│',
+    ...(['small', 'medium', 'large', 'massive'] as const).map((sz) => {
+      const e = yieldBySize[sz];
+      const avg = e && e.count > 0 ? Math.round(e.total / e.count) : 0;
+      return `│    ${sz.padEnd(8)} ${pad(avg, 5)} /h`.padEnd(53) + '│';
+    }),
+    `└${line}┘`,
+  ];
+
+  logger.info('\n' + lines.join('\n'));
+}
 
 export const seedAsteroidWorld = async (): Promise<void> => {
   const db = getDb();
 
   // Idempotency: skip if veins are already populated
   const [veinCount] = await db.select({ count: sql<number>`count(*)::int` }).from(asteroidVeins);
-
   if ((veinCount?.count ?? 0) > 0) return;
 
   // Clear stale asteroids (no veins = invalid state from migration)
   await db.delete(asteroids);
+  await db.delete(sectors);
 
-  // Generate world (includes spawn slots — same call, different RNG stream)
-  const { generatedAsteroids } = generateWorld(WORLD_PLAYER_COUNT, WORLD_CONFIG.WORLD_SEED);
+  // Generate sector (0,0) — the starting sector
+  const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED);
+  const { asteroids: generatedAsteroids } = sector;
+
+  logSectorStats(sector);
 
   if (generatedAsteroids.length === 0) return;
+
+  // Persist sector metadata first
+  const [insertedSector] = await db
+    .insert(sectors)
+    .values({
+      sectorX: sector.sectorX,
+      sectorY: sector.sectorY,
+      archetypeId: sector.archetypeId,
+      seed: sector.seed,
+      gameplayTags: sector.gameplayTags,
+    })
+    .returning({ id: sectors.id });
+
+  const sectorId = insertedSector!.id;
 
   // Batch-insert asteroids and collect IDs
   const allInsertedAsteroids: { id: string }[] = [];
@@ -154,6 +249,7 @@ export const seedAsteroidWorld = async (): Promise<void> => {
           stability: a.stability,
           hiddenLevel: a.hiddenLevel,
           clusterId: null,
+          sectorId,
         }))
       )
       .returning({ id: asteroids.id });
@@ -211,7 +307,7 @@ export const seedAsteroidWorld = async (): Promise<void> => {
 
 // ============================================================================
 // seedSpawnSlots
-// Generates and stores the deterministic spawn slot positions for this world.
+// Generates and stores the deterministic spawn slot positions for sector (0,0).
 // Idempotent: skips if slots already exist.
 // Must be called before seedDevUser and before any station is created.
 // ============================================================================
@@ -222,16 +318,26 @@ export const seedSpawnSlots = async (): Promise<void> => {
   const [slotCount] = await db.select({ count: sql<number>`count(*)::int` }).from(spawnSlots);
   if ((slotCount?.count ?? 0) > 0) return;
 
-  const { generatedSpawnSlots } = generateWorld(WORLD_PLAYER_COUNT, WORLD_CONFIG.WORLD_SEED);
+  // Resolve sector (0,0) so we can set the FK
+  const [sector0] = await db
+    .select({ id: sectors.id })
+    .from(sectors)
+    .where(eq(sectors.sectorX, 0))
+    .limit(1);
+
+  // sector (0,0) may not exist yet if seedAsteroidWorld hasn't run;
+  // generate the slot positions deterministically regardless.
+  const { spawnSlots: generatedSlots } = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED);
 
   await db.insert(spawnSlots).values(
-    generatedSpawnSlots.map((s) => ({
+    generatedSlots.map((s) => ({
       slotIndex: s.slotIndex,
       x: s.x,
       y: s.y,
-    })),
+      sectorId: sector0?.id ?? null,
+    }))
   );
-};
+};;;;;
 
 // ============================================================================
 // seedDevUser

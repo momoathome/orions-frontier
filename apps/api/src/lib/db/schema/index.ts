@@ -9,6 +9,7 @@ export * from './building-definitions.js';
 export * from './station-buildings.js';
 export * from './asteroids.js';
 export * from './spawn-slots.js';
+export * from './sectors.js';
 
 // ============================================================================
 // Cross-table relations (defined here to avoid circular imports)
@@ -21,6 +22,9 @@ import { stationResources } from './station-resources.js';
 import { spacecraftDefinitions, spacecraftDefinitionCosts } from './spacecraft-definitions.js';
 import { stationBuildings } from './station-buildings.js';
 import { spacecraftTrips } from './spacecraft-trips.js';
+import { sectors } from './sectors.js';
+import { asteroids } from './asteroids.js';
+import { spawnSlots } from './spawn-slots.js';
 
 export const stationsManyRelations = relations(stations, ({ many }) => ({
   spacecrafts: many(stationSpacecrafts),
@@ -54,3 +58,8 @@ export const spacecraftDefinitionCostsRelations = relations(
     }),
   })
 );
+
+export const sectorsRelations = relations(sectors, ({ many }) => ({
+  asteroids: many(asteroids),
+  spawnSlots: many(spawnSlots),
+}));

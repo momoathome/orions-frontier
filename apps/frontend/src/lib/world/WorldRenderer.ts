@@ -65,6 +65,9 @@ export class WorldRenderer {
   // ── Route + assignment layers ─────────────────────────────────────────────
   private routeLayer!: RouteLayer;
   private assignmentRingsG!: Graphics;
+  // station rings + label
+  private stationRingsG!: Graphics;
+  private stationRingLabel!: Text;
   private _assignedAsteroids: AssignedAsteroid[] = [];
   /** Accumulates each tick — drives dash animation */
   private _routePhase = 0;
@@ -180,6 +183,18 @@ export class WorldRenderer {
     // Assignment rings — above asteroids, below hover/selection rings
     this.assignmentRingsG = new Graphics();
     this.worldContainer.addChild(this.assignmentRingsG);
+
+    // Station rings — concentric distance markers (world-space)
+    this.stationRingsG = new Graphics();
+    this.worldContainer.addChild(this.stationRingsG);
+
+    // Label for the first ring ("500 u") — screen-space so it's always readable
+    this.stationRingLabel = new Text({
+      text: '500 u',
+      style: { fontFamily: 'monospace', fontSize: 12, fill: 0xffd766, align: 'left' },
+    });
+    this.stationRingLabel.visible = false;
+    this.screenContainer.addChild(this.stationRingLabel);
 
     // Trip layer — animated ship markers, above assignment rings
     this.tripLayer = new TripLayer();
@@ -304,6 +319,51 @@ export class WorldRenderer {
     }
   }
 
+  private _drawStationRings() {
+    const g = this.stationRingsG;
+    g.clear();
+    if (!this.stationInfo) {
+      this.stationRingLabel.visible = false;
+      return;
+    }
+    const spacing = 500; // world units per ring
+    const { x: sx, y: sy } = this.stationInfo;
+
+    // Compute max distance from station to viewport corners
+    const b = this.camera.getVisibleBounds(0);
+    const corners = [
+      { x: b.left, y: b.top },
+      { x: b.left, y: b.bottom },
+      { x: b.right, y: b.top },
+      { x: b.right, y: b.bottom },
+    ];
+    let maxDist = 0;
+    for (const c of corners) {
+      const d = Math.hypot(c.x - sx, c.y - sy);
+      if (d > maxDist) maxDist = d;
+    }
+    const ringCount = Math.min(24, Math.ceil(maxDist / spacing));
+
+    g.setStrokeStyle({ color: 0xffd766, alpha: 0.12, width: 1 });
+    for (let i = 1; i <= ringCount; i++) {
+      const r = i * spacing;
+      g.circle(sx, sy, r);
+      g.stroke();
+    }
+
+    // Emphasize first ring
+    if (ringCount >= 1) {
+      g.lineStyle(1.6, 0xffd766, 0.5);
+      g.drawCircle(sx, sy, spacing);
+      g.lineStyle(0);
+    }
+
+    // Position screen-space label near the first ring
+    const screenPos = this.camera.worldToScreen(sx + spacing, sy);
+    this.stationRingLabel.position.set(screenPos.x + 6, screenPos.y - 8);
+    this.stationRingLabel.visible = true;
+  }
+
   destroy() {
     this.abortController.abort();
     this.streamer.destroy();
@@ -342,6 +402,9 @@ export class WorldRenderer {
 
     // Redraw assignment rings with pulse
     this._redrawAssignmentRings();
+
+    // Draw station rings (world-space) + update label (screen-space)
+    this._drawStationRings();
   }
 
   // ── Background: world-aligned grid ───────────────────────────────────────

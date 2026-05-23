@@ -12,6 +12,7 @@ import {
 import { relations } from 'drizzle-orm';
 import { stations } from './stations.js';
 import { spacecraftDefinitions } from './spacecraft-definitions.js';
+import { sectors } from './sectors.js';
 
 export const assignmentStatusEnum = pgEnum('assignment_status', [
   'traveling_to_asteroid', // Miner flying to asteroid for the first time or returning after recall
@@ -55,6 +56,8 @@ export const asteroids = pgTable(
     /** Minimum scanner strength required to detect; 0 = always visible */
     hiddenLevel: integer('hidden_level').notNull().default(0),
     clusterId: uuid('cluster_id'),
+    /** Sector this asteroid belongs to; null for asteroids generated before sector system */
+    sectorId: uuid('sector_id').references(() => sectors.id),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -63,6 +66,7 @@ export const asteroids = pgTable(
     chunkXIdx: index('asteroids_chunk_x_idx').on(table.chunkX),
     chunkYIdx: index('asteroids_chunk_y_idx').on(table.chunkY),
     clusterIdIdx: index('asteroids_cluster_id_idx').on(table.clusterId),
+    sectorIdIdx: index('asteroids_sector_id_idx').on(table.sectorId),
   })
 );
 

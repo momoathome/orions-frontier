@@ -1,6 +1,11 @@
 import { Container, Sprite, Texture } from 'pixi.js';
 import type { VisibleAsteroid } from '@orions-frontier/shared';
-import { CHUNK_SIZE, ASTEROID_SIZE_RADIUS, ASTEROID_DEFAULT_RADIUS } from './constants.js';
+import {
+  CHUNK_SIZE,
+  ASTEROID_SIZE_RADIUS,
+  ASTEROID_DEFAULT_RADIUS,
+  RESOURCE_TINT,
+} from './constants.js';
 import { chunkKey } from './ChunkStreamer.js';
 import type { ChunkKey } from './ChunkStreamer.js';
 
@@ -53,10 +58,16 @@ export class AsteroidLayer {
         const sprite = new Sprite(tex);
         sprite.anchor.set(0.5, 0.5);
         sprite.position.set(a.x, a.y);
+
         // diameter = 2 * r, with a slight visual margin
         const size = r * 2.4;
         sprite.width = size;
         sprite.height = size;
+
+        // Resource-based tint for visual identity
+        const tint = RESOURCE_TINT[a.primaryResourceKey];
+        if (tint !== undefined) sprite.tint = tint;
+
         chunkContainer.addChild(sprite);
       }
     }

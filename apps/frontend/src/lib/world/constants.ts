@@ -26,10 +26,10 @@ export const CLICK_MOVE_THRESHOLD = 10;
 
 /** Asteroid visual radius per size category (world units) */
 export const ASTEROID_SIZE_RADIUS: Record<string, number> = {
-  small: 10,
-  medium: 18,
-  large: 30,
-  massive: 48,
+  small: 14,
+  medium: 24,
+  large: 36,
+  massive: 56,
 };
 /** Fallback radius for unknown size */
 export const ASTEROID_DEFAULT_RADIUS = 8;
@@ -38,3 +38,18 @@ export const ASTEROID_DEFAULT_RADIUS = 8;
 export const GRID_WORLD_SIZE = 500;
 /** Minimum grid spacing in screen pixels before the grid is hidden */
 export const GRID_MIN_PX = 16;
+
+// ── Resource visual identity ──────────────────────────────────────────────────
+//
+// Tint color applied to asteroid sprites per primary resource.
+// Used by AsteroidLayer to give each resource type a distinct visual identity.
+
+export const RESOURCE_TINT: Record<string, number> = {
+  carbon:        0x8B4010,  // rust / dark orange-brown
+  titanium:      0xB8C8D8,  // metallic silver-blue
+  hydrogenium:   0x6AB4E8,  // pale ice blue
+  kyber_crystal: 0x4B6EFB,  // glowing deep blue
+  astatine:      0x9B30FF,  // purple / dark energy
+};
+
+
