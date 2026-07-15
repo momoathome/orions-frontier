@@ -19,7 +19,23 @@
 import { WORLD_CONFIG } from '../world-config.js';
 import { SeededRng } from './rng.js';
 import { buildShapeSpec, shapeArea, sampleShapeSpec } from './shapes.js';
+import type { ShapeSpec } from './shapes.js';
 import { buildAsteroid, buildStarterAsteroid, pickWeighted } from './asteroid-gen.js';
+
+// ── Personality type (inferred from config) ───────────────────────────────────
+
+type SectorPersonality = (typeof WORLD_CONFIG.SECTOR_PERSONALITIES)[number];
+
+/** Generic weighted-pick over any array of objects with a `weight` field. */
+function pickWeightedItem<T extends { weight: number }>(items: readonly T[], rng: SeededRng): T {
+  const total = items.reduce((s, i) => s + i.weight, 0);
+  let r = rng.next() * total;
+  for (const item of items) {
+    r -= item.weight;
+    if (r <= 0) return item;
+  }
+  return items[items.length - 1]!;
+}
 import type { SizeWeights } from './asteroid-gen.js';
 import type { GeneratedAsteroid, GeneratedField, GeneratedSpawnSlot, GeneratedSector } from './types.js';
 
@@ -205,21 +221,39 @@ function generateFields(
   spawnSafeRadiusSq: number,
   grid: SpatialGrid,
   rng: SeededRng,
+  personality: SectorPersonality,
 ): { asteroids: GeneratedAsteroid[]; fields: GeneratedField[] } {
   const asteroids: GeneratedAsteroid[] = [];
   const fields: GeneratedField[] = [];
-  const { MIN_FIELDS, MAX_FIELDS } = WORLD_CONFIG.SECTOR;
   const fieldPool = WORLD_CONFIG.FIELD_RESOURCES as { resource: string; weight: number }[];
-  const fieldCount = rng.nextInt(MIN_FIELDS, MAX_FIELDS);
+  const [minFields, maxFields] = personality.fieldCount;
+  const fieldCount = rng.nextInt(minFields, maxFields);
   const sizeWeights = WORLD_CONFIG.FIELD_SIZE_WEIGHTS as SizeWeights;
 
   for (let f = 0; f < fieldCount; f++) {
-    const shapeKey        = rng.pick(WORLD_CONFIG.FIELD_SHAPES);
     const primaryResource = pickWeighted(fieldPool, rng);
-    const spec            = buildShapeSpec(shapeKey, sectorCenterX, sectorCenterY, halfW, halfH, rng);
+
+    // ── vast_field: single giant dense_disk spanning most of the sector ──────
+    let spec: ShapeSpec;
+    let shapeKey: string;
+
+    if (personality.vastField) {
+      shapeKey = 'dense_disk';
+      // Place center very close to sector centre (±10% of halfW/H).
+      const cx = sectorCenterX + rng.nextFloat(-halfW * 0.1, halfW * 0.1);
+      const cy = sectorCenterY + rng.nextFloat(-halfH * 0.1, halfH * 0.1);
+      // Disk radius = 55–80% of sector half-width → diameter fills most of sector.
+      const radius = rng.nextFloat(halfW * 0.55, halfW * 0.80);
+      spec = { shapeKey, cx, cy, p: { radius } };
+    } else {
+      shapeKey = rng.pick(WORLD_CONFIG.FIELD_SHAPES);
+      spec     = buildShapeSpec(shapeKey, sectorCenterX, sectorCenterY, halfW, halfH, rng);
+    }
 
     const area    = shapeArea(spec);
-    const density = WORLD_CONFIG.FIELD_DENSITY_FACTOR[shapeKey] ?? 0.04;
+    // vast_field uses a higher density multiplier for an impressive crowded look.
+    const baseDensity = WORLD_CONFIG.FIELD_DENSITY_FACTOR[shapeKey] ?? 0.04;
+    const density = personality.vastField ? baseDensity * 1.5 : baseDensity;
     const count   = Math.max(4, Math.round(Math.sqrt(area) * density * rng.nextFloat(0.7, 1.4)));
     const points  = sampleShapeSpec(spec, count, rng);
 
@@ -256,12 +290,12 @@ function generateBackground(
   spawnSafeRadiusSq: number,
   grid: SpatialGrid,
   sectorSeed: string,
+  count: number,
 ): GeneratedAsteroid[] {
   const rng  = new SeededRng(sectorSeed + ':background');
   const pool = WORLD_CONFIG.BACKGROUND_RESOURCES as { resource: string; weight: number }[];
   const sizeWeights = WORLD_CONFIG.BACKGROUND_SIZE_WEIGHTS as SizeWeights;
   const result: GeneratedAsteroid[] = [];
-  const count = WORLD_CONFIG.SECTOR.BACKGROUND_COUNT;
 
   for (let i = 0; i < count; i++) {
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -299,6 +333,9 @@ export const generateSector = (
   const sectorSeed = `${worldSeed}:${sectorX}:${sectorY}`;
   const rng = new SeededRng(sectorSeed);
 
+  // Roll sector personality — determines background density and field count.
+  const personality = pickWeightedItem(WORLD_CONFIG.SECTOR_PERSONALITIES, rng);
+
   const { WIDTH, HEIGHT, PLAYER_CAPACITY, SAFE_SPAWN_RADIUS } = WORLD_CONFIG.SECTOR;
   const halfW = WIDTH  / 2;
   const halfH = HEIGHT / 2;
@@ -325,21 +362,27 @@ export const generateSector = (
 
   // 3. Field clusters — shaped asteroid groups (before background to fill gaps first).
   const { asteroids: fieldAsteroids, fields } = generateFields(
-    sectorCenterX, sectorCenterY, halfW, halfH, spawnSlots, spawnSafeRadiusSq, grid, rng,
+    sectorCenterX, sectorCenterY, halfW, halfH, spawnSlots, spawnSafeRadiusSq, grid, rng, personality,
   );
   asteroidList.push(...fieldAsteroids);
 
-  // 4. Background scatter — sparse core-resource asteroids filling remaining space.
+  // 4. Background scatter — count derived from personality density × available area.
+  //    netArea = sector area minus spawn exclusion circles.
+  const netArea = WIDTH * HEIGHT - spawnSlots.length * Math.PI * SAFE_SPAWN_RADIUS ** 2;
+  const [densityMin, densityMax] = personality.backgroundDensity;
+  const backgroundCount = Math.round(
+    (netArea / WORLD_CONFIG.ASTEROID_MIN_DISTANCE ** 2) * rng.nextFloat(densityMin, densityMax),
+  );
   asteroidList.push(
     ...generateBackground(
-      sectorCenterX, sectorCenterY, halfW, halfH, spawnSlots, spawnSafeRadiusSq, grid, sectorSeed,
+      sectorCenterX, sectorCenterY, halfW, halfH, spawnSlots, spawnSafeRadiusSq, grid, sectorSeed, backgroundCount,
     ),
   );
 
   return {
     sectorX,
     sectorY,
-    archetypeId: 'none',
+    archetypeId: personality.id,
     seed: sectorSeed,
     gameplayTags: [],
     asteroids: asteroidList,

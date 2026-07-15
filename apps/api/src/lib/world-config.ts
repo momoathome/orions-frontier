@@ -121,12 +121,61 @@ export const WORLD_CONFIG = {
     HEIGHT: 8000,
     PLAYER_CAPACITY: 8,
     SAFE_SPAWN_RADIUS: 400,
-    /** Sparse asteroids with core resources scattered across the whole sector. */
-    BACKGROUND_COUNT: 150,
-    /** Number of distinct field clusters per sector (inclusive). */
-    MIN_FIELDS: 2,
-    MAX_FIELDS: 3,
+    // Background count and field count are no longer static — they are derived
+    // from the sector's rolled personality (see SECTOR_PERSONALITIES below).
   },
+
+  /**
+   * Sector personalities — rolled deterministically per sector from the world seed.
+   *
+   * Each personality controls:
+   *   backgroundDensity  [min, max] fraction of the theoretical max asteroid count
+   *                      to fill with background scatter.  The formula is:
+   *                        netArea = W×H − slots×π×safeRadius²
+   *                        count   = round(netArea / minDist² × rng(min, max))
+   *   fieldCount         [min, max] number of distinct field clusters to generate.
+   *   vastField          When true the single field is a giant dense_disk spanning
+   *                      most of the sector, placed near sector centre.
+   *
+   * Weights are used by pickWeighted — higher weight = more common sector type.
+   */
+  SECTOR_PERSONALITIES: [
+    {
+      id: 'balanced',
+      weight: 35,
+      backgroundDensity: [0.003, 0.007] as [number, number],
+      fieldCount: [2, 4] as [number, number],
+      vastField: false,
+    },
+    {
+      id: 'sparse',
+      weight: 20,
+      backgroundDensity: [0.001, 0.003] as [number, number],
+      fieldCount: [1, 2] as [number, number],
+      vastField: false,
+    },
+    {
+      id: 'dense',
+      weight: 15,
+      backgroundDensity: [0.008, 0.014] as [number, number],
+      fieldCount: [3, 5] as [number, number],
+      vastField: false,
+    },
+    {
+      id: 'field_heavy',
+      weight: 20,
+      backgroundDensity: [0.001, 0.003] as [number, number],
+      fieldCount: [4, 6] as [number, number],
+      vastField: false,
+    },
+    {
+      id: 'vast_field',
+      weight: 10,
+      backgroundDensity: [0.000, 0.002] as [number, number],
+      fieldCount: [1, 1] as [number, number],
+      vastField: true,
+    },
+  ],
 
   /**
    * Resources used for background (sector-fill) asteroids.

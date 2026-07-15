@@ -164,6 +164,11 @@ function getShape(shapeKey: string): ShapeDefinition {
 /**
  * Generates a ShapeSpec for the given shape key, with its center placed
  * randomly within the sector (15% margin from sector edges).
+ *
+ * @param refScale  Optional multiplier for the shape's internal reference length.
+ *                  Values > 1 produce larger shapes without shifting the center
+ *                  placement bounds. Used by the `vast_field` personality to
+ *                  produce a dense_disk spanning most of the sector.
  */
 export function buildShapeSpec(
   shapeKey: string,
@@ -172,11 +177,12 @@ export function buildShapeSpec(
   halfW: number,
   halfH: number,
   rng: SeededRng,
+  refScale = 1.0,
 ): ShapeSpec {
   const margin = 0.15;
   const cx = sectorCenterX + rng.nextFloat(-halfW * (1 - margin), halfW * (1 - margin));
   const cy = sectorCenterY + rng.nextFloat(-halfH * (1 - margin), halfH * (1 - margin));
-  const ref = Math.min(halfW, halfH);
+  const ref = Math.min(halfW, halfH) * refScale;
   const p = getShape(shapeKey).buildParams(ref, rng);
   return { shapeKey, cx, cy, p };
 }
