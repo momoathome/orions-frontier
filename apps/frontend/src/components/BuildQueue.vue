@@ -16,7 +16,7 @@ onUnmounted(() => clearInterval(interval));
 // Items are hidden the moment their timer reaches 0 — the WS event + reload
 // will remove them from the server data shortly after
 const visibleOrders = computed(() =>
-  props.orders.filter((o) => new Date(o.endsAt).getTime() > now.value.getTime()),
+  props.orders.filter((o) => new Date(o.endsAt).getTime() > now.value.getTime())
 );
 
 function timeUntil(isoStr: string): string {

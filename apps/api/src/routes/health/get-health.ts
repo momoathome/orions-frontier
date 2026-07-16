@@ -23,7 +23,7 @@ export default defineRoute(async (app) => {
       const db = getDb();
       await db.execute(sql`SELECT 1`);
       health.services.database = 'ok';
-    } catch (err) {
+    } catch {
       health.services.database = 'error';
       health.status = 'degraded';
     }
@@ -33,7 +33,7 @@ export default defineRoute(async (app) => {
       const redis = getRedis();
       await redis.ping();
       health.services.redis = 'ok';
-    } catch (err) {
+    } catch {
       health.services.redis = 'error';
       health.status = 'degraded';
     }

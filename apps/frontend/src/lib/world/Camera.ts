@@ -109,10 +109,7 @@ export class Camera {
    * Any child placed at world position (wx, wy) will render at the correct screen position.
    */
   applyToContainer(container: Container) {
-    container.position.set(
-      this.vpW / 2 - this.x * this.zoom,
-      this.vpH / 2 - this.y * this.zoom,
-    );
+    container.position.set(this.vpW / 2 - this.x * this.zoom, this.vpH / 2 - this.y * this.zoom);
     container.scale.set(this.zoom);
   }
 }

@@ -28,15 +28,10 @@ export default defineRoute(async (app) => {
     const maxChunkY = parseInt(q['maxChunkY'] ?? '', 10);
     const scannerStrength = Math.max(0, parseInt(q['scannerStrength'] ?? '0', 10) || 0);
 
-    if (
-      isNaN(minChunkX) ||
-      isNaN(maxChunkX) ||
-      isNaN(minChunkY) ||
-      isNaN(maxChunkY)
-    ) {
+    if (isNaN(minChunkX) || isNaN(maxChunkX) || isNaN(minChunkY) || isNaN(maxChunkY)) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
-        'minChunkX, maxChunkX, minChunkY, maxChunkY are required integer query parameters',
+        'minChunkX, maxChunkX, minChunkY, maxChunkY are required integer query parameters'
       );
     }
 
@@ -44,13 +39,10 @@ export default defineRoute(async (app) => {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'min chunk values must not exceed max values');
     }
 
-    if (
-      maxChunkX - minChunkX > MAX_CHUNK_RANGE ||
-      maxChunkY - minChunkY > MAX_CHUNK_RANGE
-    ) {
+    if (maxChunkX - minChunkX > MAX_CHUNK_RANGE || maxChunkY - minChunkY > MAX_CHUNK_RANGE) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
-        `Chunk range per axis must not exceed ${MAX_CHUNK_RANGE}`,
+        `Chunk range per axis must not exceed ${MAX_CHUNK_RANGE}`
       );
     }
 

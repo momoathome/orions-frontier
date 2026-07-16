@@ -95,7 +95,7 @@ export const asteroidVeins = pgTable(
   },
   (table) => ({
     asteroidIdIdx: index('asteroid_veins_asteroid_id_idx').on(table.asteroidId),
-  }),
+  })
 );
 
 // ============================================================================
@@ -119,9 +119,9 @@ export const asteroidResourceStorage = pgTable(
     asteroidIdIdx: index('asteroid_resource_storage_asteroid_id_idx').on(table.asteroidId),
     uniqueAsteroidResource: uniqueIndex('asteroid_resource_storage_unique').on(
       table.asteroidId,
-      table.resourceKey,
+      table.resourceKey
     ),
-  }),
+  })
 );
 
 // ============================================================================

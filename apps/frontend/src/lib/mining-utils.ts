@@ -58,7 +58,7 @@ export function stabilityColor(s: number): string {
  */
 export function calcEffectiveRateByResource(
   totalMiningPower: number,
-  veins: AsteroidVein[],
+  veins: AsteroidVein[]
 ): Record<string, number> {
   if (totalMiningPower === 0) return {};
   const allocSum = veins.reduce((s, v) => s + (VEIN_ALLOCATION[v.veinType] ?? 0.7), 0);
@@ -75,13 +75,10 @@ export function calcEffectiveRateByResource(
 /**
  * Sum of effective rates across all resources for an asteroid.
  */
-export function calcTotalEffectiveRate(
-  totalMiningPower: number,
-  veins: AsteroidVein[],
-): number {
+export function calcTotalEffectiveRate(totalMiningPower: number, veins: AsteroidVein[]): number {
   return Object.values(calcEffectiveRateByResource(totalMiningPower, veins)).reduce(
     (sum, r) => sum + r,
-    0,
+    0
   );
 }
 
@@ -92,7 +89,7 @@ export function calcTotalEffectiveRate(
 export function calcStabilityChangePerHour(
   totalMiningPower: number,
   veins: AsteroidVein[],
-  hasAssignments: boolean,
+  hasAssignments: boolean
 ): number | null {
   if (!hasAssignments) return null;
   const allocSum = veins.reduce((s, v) => s + (VEIN_ALLOCATION[v.veinType] ?? 0.7), 0);

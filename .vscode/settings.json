@@ -14,17 +14,8 @@
     "**/dist": true,
     "**/build": true,
     "**/.git": true,
-    "**/pnpm-lock.yaml": true
+    "**/package-lock.json": true
   },
-  "eslint.workingDirectories": [
-    { "pattern": "./apps/*/" },
-    { "pattern": "./packages/*/" }
-  ],
-  "eslint.validate": [
-    "javascript",
-    "javascriptreact",
-    "typescript",
-    "typescriptreact",
-    "vue"
-  ]
+  "eslint.workingDirectories": [{ "pattern": "./apps/*/" }, { "pattern": "./packages/*/" }],
+  "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact", "vue"]
 }

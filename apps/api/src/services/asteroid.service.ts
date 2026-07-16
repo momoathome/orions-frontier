@@ -166,40 +166,34 @@ export const getAsteroidById = async (
     clusterId: refreshed.clusterId,
     createdAt: refreshed.createdAt.toISOString(),
     updatedAt: refreshed.updatedAt.toISOString(),
-    veins: veins.map(
-      (v): AsteroidVein => ({
-        id: v.id,
-        asteroidId: v.asteroidId,
-        veinType: v.veinType as VeinType,
-        resourceKey: v.resourceKey as ResourceKey,
-        yieldPerHour: v.yieldPerHour,
-        purity: v.purity,
-        purityTier: v.purityTier as PurityTier,
-      })
-    ),
-    storage: storage.map(
-      (s): AsteroidResourceStorage => ({
-        id: s.id,
-        asteroidId: s.asteroidId,
-        resourceKey: s.resourceKey as ResourceKey,
-        amount: s.amount,
-        updatedAt: s.updatedAt.toISOString(),
-      })
-    ),
-    assignments: assignmentRows.map(
-      (a): AsteroidDetailAssignment => ({
-        id: a.id,
-        asteroidId: a.asteroidId,
-        stationId: a.stationId,
-        spacecraftDefinitionId: a.spacecraftDefinitionId,
-        spacecraftName: a.spacecraftName,
-        spacecraftMiningRate: a.spacecraftMiningRate,
-        spacecraftCargo: a.spacecraftCargo,
-        assignedAmount: a.assignedAmount,
-        assignedAt: a.assignedAt.toISOString(),
-        lastTick: a.lastTick.toISOString(),
-      })
-    ),
+    veins: veins.map((v): AsteroidVein => ({
+      id: v.id,
+      asteroidId: v.asteroidId,
+      veinType: v.veinType as VeinType,
+      resourceKey: v.resourceKey as ResourceKey,
+      yieldPerHour: v.yieldPerHour,
+      purity: v.purity,
+      purityTier: v.purityTier as PurityTier,
+    })),
+    storage: storage.map((s): AsteroidResourceStorage => ({
+      id: s.id,
+      asteroidId: s.asteroidId,
+      resourceKey: s.resourceKey as ResourceKey,
+      amount: s.amount,
+      updatedAt: s.updatedAt.toISOString(),
+    })),
+    assignments: assignmentRows.map((a): AsteroidDetailAssignment => ({
+      id: a.id,
+      asteroidId: a.asteroidId,
+      stationId: a.stationId,
+      spacecraftDefinitionId: a.spacecraftDefinitionId,
+      spacecraftName: a.spacecraftName,
+      spacecraftMiningRate: a.spacecraftMiningRate,
+      spacecraftCargo: a.spacecraftCargo,
+      assignedAmount: a.assignedAmount,
+      assignedAt: a.assignedAt.toISOString(),
+      lastTick: a.lastTick.toISOString(),
+    })),
     activeMiningAssignments: assignmentRows.length,
     inTransit,
   };

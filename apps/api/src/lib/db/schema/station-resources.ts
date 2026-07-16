@@ -14,7 +14,7 @@ export const stationResources = pgTable(
   (table) => ({
     pk: primaryKey({ columns: [table.stationId, table.resourceKey] }),
     stationIdIdx: index('station_resources_station_id_idx').on(table.stationId),
-  }),
+  })
 );
 
 export const stationResourcesRelations = relations(stationResources, ({ one }) => ({

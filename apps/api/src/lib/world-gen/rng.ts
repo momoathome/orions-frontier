@@ -7,7 +7,7 @@ const hashSeed = (seed: string): number => {
   let h = 0x811c9dc5;
   for (let i = 0; i < seed.length; i++) {
     h ^= seed.charCodeAt(i);
-    h = (Math.imul(h, 0x01000193) >>> 0);
+    h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h >>> 0;
 };

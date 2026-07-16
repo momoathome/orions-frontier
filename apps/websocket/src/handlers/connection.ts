@@ -1,12 +1,17 @@
 import type { WebSocket } from 'ws';
-import type { WsMessage } from '@orions-frontier/types';
-import { APP_CONSTANTS } from '@orions-frontier/shared';
 import type { JwtPayload } from '@orions-frontier/shared';
 import jwt from 'jsonwebtoken';
 import { logger } from '../lib/logger.js';
 import { registerClient, unregisterClient } from '../lib/client-registry.js';
 
 const AUTH_TIMEOUT_MS = 10_000; // 10 seconds to send authenticate message
+const PING_INTERVAL_MS = 30_000;
+
+interface WsMessage {
+  type: string;
+  payload?: Record<string, unknown>;
+  timestamp: number;
+}
 
 interface AuthenticatedWebSocket extends WebSocket {
   isAlive: boolean;
@@ -117,7 +122,7 @@ const setupAuthenticatedConnection = (ws: AuthenticatedWebSocket) => {
     }
     ws.isAlive = false;
     ws.ping();
-  }, APP_CONSTANTS.WS_PING_INTERVAL_MS);
+  }, PING_INTERVAL_MS);
 
   ws.on('pong', () => {
     ws.isAlive = true;

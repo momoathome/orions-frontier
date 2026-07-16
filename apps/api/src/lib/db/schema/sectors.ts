@@ -36,9 +36,9 @@ export const sectors = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => ({
-    coordsUnique:  uniqueIndex('sectors_coords_unique').on(table.sectorX, table.sectorY),
-    archetypeIdx:  index('sectors_archetype_id_idx').on(table.archetypeId),
-  }),
+    coordsUnique: uniqueIndex('sectors_coords_unique').on(table.sectorX, table.sectorY),
+    archetypeIdx: index('sectors_archetype_id_idx').on(table.archetypeId),
+  })
 );
 // Cross-table relations (sectors → asteroids / spawn_slots) are defined in
 // schema/index.ts to avoid circular imports.

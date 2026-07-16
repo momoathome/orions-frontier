@@ -22,6 +22,6 @@ export const scheduleTransportTickCron = async (): Promise<void> => {
     {
       repeat: { every: WORLD_CONFIG.TRANSPORT_TICK_INTERVAL_MS },
       jobId: 'transport-tick-cron',
-    },
+    }
   );
 };

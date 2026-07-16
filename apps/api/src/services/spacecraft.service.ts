@@ -112,7 +112,7 @@ export const getStationSpacecrafts = async (
       })),
     };
   });
-};;;
+};
 
 // ============================================================================
 // Seed initial spacecrafts for a newly created station
@@ -379,4 +379,4 @@ export const buildSpacecrafts = async (
       timestamp: Date.now(),
     })
   );
-};;;
+};

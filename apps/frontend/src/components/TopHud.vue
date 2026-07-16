@@ -32,9 +32,8 @@ function scheduleFetch() {
 }
 
 function applyResourceSummary(summary: UserResourceSummary) {
-  resourceEntries.value = ALL_RESOURCES
-    .filter((key) => summary.resources[key] !== undefined)
-    .map((key) => {
+  resourceEntries.value = ALL_RESOURCES.filter((key) => summary.resources[key] !== undefined).map(
+    (key) => {
       const def = resources[key as ResourceKey];
       return {
         key: key as ResourceKey,
@@ -44,7 +43,8 @@ function applyResourceSummary(summary: UserResourceSummary) {
         ratePerHour: summary.rates[key] ?? 0,
         effectiveRatePerHour: summary.effectiveRates?.[key] ?? 0,
       };
-    });
+    }
+  );
 }
 
 async function fetchResources() {
@@ -123,26 +123,25 @@ function fmtRate(n: number): string {
           />
           <span class="text-white/25 uppercase tracking-widest text-[9px]">{{ entry.name }}</span>
           <span class="text-white/80 tabular-nums">{{ fmt(entry.amount) }}</span>
-          <span
-            v-if="entry.ratePerHour > 0"
-            class="text-cyan-400/50 tabular-nums text-[9px]"
-          >{{ fmtRate(entry.ratePerHour) }}/h</span>
+          <span v-if="entry.ratePerHour > 0" class="text-cyan-400/50 tabular-nums text-[9px]"
+            >{{ fmtRate(entry.ratePerHour) }}/h</span
+          >
           <!-- Effective delivery rate — shown only when it differs from theoretical -->
           <span
-            v-if="entry.effectiveRatePerHour > 0 && Math.abs(entry.effectiveRatePerHour - entry.ratePerHour) > 1"
+            v-if="
+              entry.effectiveRatePerHour > 0 &&
+              Math.abs(entry.effectiveRatePerHour - entry.ratePerHour) > 1
+            "
             class="text-amber-400/60 tabular-nums text-[9px]"
             :title="`Delivered last hour: ${Math.round(entry.effectiveRatePerHour)}/h (theoretical: ${Math.round(entry.ratePerHour)}/h)`"
-          >↓{{ fmtRate(entry.effectiveRatePerHour) }}</span>
+            >↓{{ fmtRate(entry.effectiveRatePerHour) }}</span
+          >
         </div>
       </template>
 
       <!-- Skeleton while loading -->
       <template v-if="resourceEntries.length === 0">
-        <div
-          v-for="n in 5"
-          :key="n"
-          class="flex items-center gap-1.5"
-        >
+        <div v-for="n in 5" :key="n" class="flex items-center gap-1.5">
           <div class="h-3 w-px bg-white/10" v-if="n > 1" />
           <div class="w-3.5 h-3.5 rounded bg-white/5 animate-pulse" />
           <div class="w-12 h-2 rounded bg-white/5 animate-pulse" />

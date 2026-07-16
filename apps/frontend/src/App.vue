@@ -18,7 +18,7 @@ watch(
   (token) => {
     if (token) wsClient.connect(token);
   },
-  { immediate: true },
+  { immediate: true }
 );
 </script>
 

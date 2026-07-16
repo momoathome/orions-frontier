@@ -106,7 +106,12 @@ async function loadAssignments(): Promise<void> {
     for (const a of raw) {
       if (!seen.has(a.asteroidId)) {
         seen.add(a.asteroidId);
-        asteroids.push({ asteroidId: a.asteroidId, x: a.asteroidX, y: a.asteroidY, size: a.asteroidSize });
+        asteroids.push({
+          asteroidId: a.asteroidId,
+          x: a.asteroidX,
+          y: a.asteroidY,
+          size: a.asteroidSize,
+        });
       }
     }
     renderer.setAssignedAsteroids(asteroids);
@@ -171,9 +176,13 @@ onMounted(async () => {
   await loadTrips();
 
   // Refresh trips whenever the transport tick reports changes
-  unsubTransportTick = wsClient.on('transport_tick_completed', () => { loadTrips(); });
+  unsubTransportTick = wsClient.on('transport_tick_completed', () => {
+    loadTrips();
+  });
   // Also refresh on mining tick (miners may have started self-recall)
-  unsubMiningTick = wsClient.on('mining_tick_completed', () => { loadTrips(); });
+  unsubMiningTick = wsClient.on('mining_tick_completed', () => {
+    loadTrips();
+  });
 });
 
 // Sync selected asteroid → renderer selection ring
@@ -186,7 +195,7 @@ watch(
     } else {
       renderer.setSelectedAsteroid(null);
     }
-  },
+  }
 );
 
 onUnmounted(() => {
@@ -246,10 +255,14 @@ function cursorClass() {
         v-if="selectionStore.selected?.type === 'asteroid'"
         :asteroid-id="selectionStore.selected.id"
         :station-id="stationId"
-        @close="() => { selectionStore.deselect(); loadAssignments(); }"
+        @close="
+          () => {
+            selectionStore.deselect();
+            loadAssignments();
+          }
+        "
         @refresh="loadAssignments"
       />
     </transition>
   </div>
 </template>
-

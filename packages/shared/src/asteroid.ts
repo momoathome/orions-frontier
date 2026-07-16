@@ -8,7 +8,7 @@ import type { ResourceKey } from './resource.js';
 // ============================================================================
 
 export const VEIN_MODIFIER = {
-  primary: 0.70,
+  primary: 0.7,
   secondary: 0.25,
   trace: 0.05,
 } as const;
@@ -156,5 +156,3 @@ export interface AsteroidDetail extends Asteroid {
   /** Resources currently in traveling transport/recall trips from this asteroid */
   inTransit: Record<string, number>;
 }
-
-

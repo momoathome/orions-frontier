@@ -156,7 +156,7 @@ const UPGRADE_COST_CONFIG: Record<BuildingKey, UpgradeCostConfig> = {
  */
 export function calculateBuildingUpgradeCost(
   buildingKey: BuildingKey,
-  targetLevel: number,
+  targetLevel: number
 ): BuildingUpgradeCost[] {
   const config = UPGRADE_COST_CONFIG[buildingKey];
   const multiplier = Math.pow(config.factor, targetLevel - 1);
@@ -182,10 +182,7 @@ export function calculateBuildingUpgradeCost(
  * Returns the build time in seconds for upgrading to targetLevel.
  * Scales exponentially from baseBuildTime: buildTime = base * 1.4^(targetLevel-1)
  */
-export function calculateBuildingBuildTime(
-  buildingKey: BuildingKey,
-  targetLevel: number,
-): number {
+export function calculateBuildingBuildTime(buildingKey: BuildingKey, targetLevel: number): number {
   const def = buildings.find((b) => b.key === buildingKey);
   if (!def) return 60;
   return Math.round(def.baseBuildTime * Math.pow(1.4, targetLevel - 1));
@@ -199,10 +196,7 @@ export function calculateBuildingBuildTime(
  * Calculates explicit building effects for a given level.
  * All effects are deterministic — no generic modifier engine.
  */
-export function calculateBuildingEffect(
-  buildingKey: BuildingKey,
-  level: number,
-): BuildingEffect[] {
+export function calculateBuildingEffect(buildingKey: BuildingKey, level: number): BuildingEffect[] {
   switch (buildingKey) {
     case 'core':
       return [{ type: 'station_progression', value: level * 5 }];

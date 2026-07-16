@@ -54,7 +54,7 @@ export const handleBuildingUpgradeFinished = async (data: BuildingUpgradeJobData
       type: 'building_upgrade_completed',
       payload: { stationId, buildingKey, newLevel },
       timestamp: Date.now(),
-    }),
+    })
   );
 
   logger.info({ stationId, buildingKey, level: newLevel }, 'Building upgrade completed');

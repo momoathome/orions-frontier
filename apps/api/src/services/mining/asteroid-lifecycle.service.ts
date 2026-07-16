@@ -250,11 +250,7 @@ export const applyAsteroidStabilityTick = async (asteroidId: string): Promise<vo
   const db = getDb();
   const now = new Date();
 
-  const [asteroid] = await db
-    .select()
-    .from(asteroids)
-    .where(eq(asteroids.id, asteroidId))
-    .limit(1);
+  const [asteroid] = await db.select().from(asteroids).where(eq(asteroids.id, asteroidId)).limit(1);
   if (!asteroid) return;
 
   // Cap at 24 h to avoid giant first-tick jumps on freshly seeded asteroids

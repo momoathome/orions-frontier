@@ -21,9 +21,10 @@ export default defineRoute(async (app) => {
       return reply.send({
         success: true,
         data: { dispatched },
-        message: dispatched > 0
-          ? `${dispatched} transporter(s) dispatched`
-          : 'No transporters dispatched (no idle transporters or no pickups needed)',
+        message:
+          dispatched > 0
+            ? `${dispatched} transporter(s) dispatched`
+            : 'No transporters dispatched (no idle transporters or no pickups needed)',
       });
     }
   );

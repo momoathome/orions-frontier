@@ -44,7 +44,7 @@ function drawDashedLine(
   y2: number,
   dashLen: number,
   gapLen: number,
-  phase: number,
+  phase: number
 ): void {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -56,7 +56,7 @@ function drawDashedLine(
   const period = dashLen + gapLen;
 
   // Normalize phase and find start position within the current cycle
-  let pos = (-phase % period + period) % period;
+  let pos = ((-phase % period) + period) % period;
   // If we start mid-gap, back up so the first segment is partial-dash or partial-gap
   if (pos >= dashLen) pos -= period; // may be negative — first seg will be partial
 
@@ -111,7 +111,7 @@ export class RouteLayer {
         route.toY,
         dashLen,
         gapLen,
-        phase,
+        phase
       );
       this.graphics.stroke();
     }

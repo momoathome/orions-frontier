@@ -22,8 +22,10 @@ export interface VeinRateInput {
 
 /** Raw allocation fraction for a vein type (falls back to primary). */
 export function veinAlloc(veinType: string): number {
-  return (WORLD_CONFIG.VEIN_MODIFIER as Record<string, number>)[veinType]
-    ?? WORLD_CONFIG.VEIN_MODIFIER.primary;
+  return (
+    (WORLD_CONFIG.VEIN_MODIFIER as Record<string, number>)[veinType] ??
+    WORLD_CONFIG.VEIN_MODIFIER.primary
+  );
 }
 
 /**
@@ -37,7 +39,7 @@ export function veinAlloc(veinType: string): number {
 export function calcVeinRate(
   totalMiningRate: number,
   vein: VeinRateInput,
-  allocation?: number,
+  allocation?: number
 ): number {
   const resolvedAlloc = allocation ?? veinAlloc(vein.veinType);
   const miningPower = totalMiningRate * resolvedAlloc;
@@ -58,7 +60,7 @@ export function calcVeinRate(
  */
 export function calcMiningRatesByResource(
   combinedMiningRate: number,
-  veins: VeinRateInput[],
+  veins: VeinRateInput[]
 ): Record<string, number> {
   if (combinedMiningRate <= 0 || veins.length === 0) return {};
   const allocSum = veins.reduce((s, v) => s + veinAlloc(v.veinType), 0);
@@ -80,7 +82,7 @@ export function calcMiningRatesByResource(
  */
 export function calcMiningLoad(
   combinedMiningRate: number,
-  veins: { veinType: string; yieldPerHour: number }[],
+  veins: { veinType: string; yieldPerHour: number }[]
 ): { totalMiningLoad: number; totalYieldCap: number } {
   const allocSum = veins.reduce((s, v) => s + veinAlloc(v.veinType), 0);
   let totalMiningLoad = 0;

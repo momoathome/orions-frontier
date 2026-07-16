@@ -9,13 +9,13 @@ echo ""
 
 # ── Prüfen ob postgres läuft ───────────────────────────────────────────────
 
-if ! docker ps --format '{{.Names}}' | grep -q "orions-frontier-postgres"; then
+if ! docker compose ps --status running --services | grep -qx "postgres"; then
   echo "❌  PostgreSQL-Container läuft nicht. Erst starten:"
   echo "    docker compose up -d"
   exit 1
 fi
 
-if ! docker ps --format '{{.Names}}' | grep -q "orions-frontier-api"; then
+if ! docker compose ps --status running --services | grep -qx "api"; then
   echo "❌  API-Container läuft nicht. Erst starten:"
   echo "    docker compose up -d"
   exit 1
@@ -31,8 +31,8 @@ if [ -f "$SCRIPT_DIR/../.env" ]; then
   set +a
 fi
 
-POSTGRES_USER="${POSTGRES_USER:-orions}"
-POSTGRES_DB="${POSTGRES_DB:-orions_frontier}"
+POSTGRES_USER="${POSTGRES_USER:-orionsfrontier}"
+POSTGRES_DB="${POSTGRES_DB:-orionsfrontier}"
 
 # ── Welt-Daten löschen ───────────────────────────────────────────────────
 
@@ -58,8 +58,6 @@ echo ""
 # ── API neu starten → World-Gen läuft beim Start automatisch ─────────────
 
 echo "🔄  Starte API neu (World-Gen läuft beim Start automatisch)..."
-echo "🔧  Baue @orions-frontier/game-config im Container..."
-docker compose exec api pnpm --filter @orions-frontier/game-config build
 docker compose restart api
 
 echo ""

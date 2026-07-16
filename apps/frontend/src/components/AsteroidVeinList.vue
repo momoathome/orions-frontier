@@ -33,10 +33,18 @@ const VEIN_LABELS: Record<string, string> = {
   trace: 'TRACE',
 };
 
-function resourceName(key: string) { return RESOURCE_NAMES[key] ?? key.toUpperCase(); }
-function resourceColor(key: string) { return RESOURCE_COLORS[key] ?? '#888888'; }
-function purityColor(tier: string) { return PURITY_COLORS[tier] ?? '#888888'; }
-function formatYield(y: number) { return y >= 10 ? y.toFixed(1) : y.toFixed(2); }
+function resourceName(key: string) {
+  return RESOURCE_NAMES[key] ?? key.toUpperCase();
+}
+function resourceColor(key: string) {
+  return RESOURCE_COLORS[key] ?? '#888888';
+}
+function purityColor(tier: string) {
+  return PURITY_COLORS[tier] ?? '#888888';
+}
+function formatYield(y: number) {
+  return y >= 10 ? y.toFixed(1) : y.toFixed(2);
+}
 </script>
 
 <template>
@@ -60,14 +68,19 @@ function formatYield(y: number) { return y >= 10 ? y.toFixed(1) : y.toFixed(2); 
             {{ resourceName(vein.resourceKey) }}
           </span>
           <span class="text-[9px] text-white/25 uppercase tracking-wider">cap</span>
-          <span class="text-[10px] text-white/40 tabular-nums">{{ formatYield(vein.yieldPerHour) }}/h</span>
+          <span class="text-[10px] text-white/40 tabular-nums"
+            >{{ formatYield(vein.yieldPerHour) }}/h</span
+          >
         </div>
         <div class="flex items-center gap-1.5">
           <span
             class="text-[9px] uppercase tracking-widest font-semibold"
             :style="`color:${purityColor(vein.purityTier)}`"
-          >{{ vein.purityTier }}</span>
-          <span class="text-[9px] text-white/30 tabular-nums">purity ×{{ vein.purity.toFixed(2) }}</span>
+            >{{ vein.purityTier }}</span
+          >
+          <span class="text-[9px] text-white/30 tabular-nums"
+            >purity ×{{ vein.purity.toFixed(2) }}</span
+          >
         </div>
       </div>
     </div>

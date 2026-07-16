@@ -39,9 +39,7 @@ export function pickWeighted(pool: { resource: string; weight: number }[], rng: 
 
 // ── Purity roll ────────────────────────────────────────────────────────────────
 
-const PURITY_TIER_ORDER: readonly PurityTier[] = [
-  'impure', 'normal', 'rich', 'pure', 'pristine',
-];
+const PURITY_TIER_ORDER: readonly PurityTier[] = ['impure', 'normal', 'rich', 'pure', 'pristine'];
 
 export function rollPurity(rng: SeededRng): { purity: number; purityTier: PurityTier } {
   const weights = WORLD_CONFIG.PURITY_WEIGHTS;
@@ -53,9 +51,7 @@ export function rollPurity(rng: SeededRng): { purity: number; purityTier: Purity
     roll -= weights[tier] ?? 0;
     if (roll < 0) {
       const cfg = WORLD_CONFIG.PURITY_TIERS.find((t) => t.tier === tier);
-      const purity = cfg
-        ? rng.nextFloat(cfg.multiplier[0], cfg.multiplier[1])
-        : 1.0;
+      const purity = cfg ? rng.nextFloat(cfg.multiplier[0], cfg.multiplier[1]) : 1.0;
       return { purity, purityTier: tier };
     }
   }
@@ -97,11 +93,11 @@ interface AsteroidBase {
 function buildAsteroidBase(x: number, y: number, size: AsteroidSize, rng: SeededRng): AsteroidBase {
   const stability = rng.nextFloat(
     WORLD_CONFIG.STABILITY_INITIAL.min,
-    WORLD_CONFIG.STABILITY_INITIAL.max,
+    WORLD_CONFIG.STABILITY_INITIAL.max
   );
   const baseBudget = rng.nextFloat(
     WORLD_CONFIG.YIELD_BUDGET[size].min,
-    WORLD_CONFIG.YIELD_BUDGET[size].max,
+    WORLD_CONFIG.YIELD_BUDGET[size].max
   );
   const { chunkX, chunkY } = worldToChunk(x, y);
   return { size, stability, baseBudget, chunkX, chunkY };
@@ -117,7 +113,7 @@ export function buildAsteroid(
   primaryResource: string,
   secondaryPool: { resource: string; weight: number }[],
   rng: SeededRng,
-  sizeWeights?: SizeWeights,
+  sizeWeights?: SizeWeights
 ): GeneratedAsteroid {
   const size = pickSize(rng, sizeWeights);
   const base = buildAsteroidBase(x, y, size, rng);
@@ -176,7 +172,7 @@ export function buildStarterAsteroid(
   x: number,
   y: number,
   guaranteed: { primaryResource: string; size: string },
-  rng: SeededRng,
+  rng: SeededRng
 ): GeneratedAsteroid {
   const size = guaranteed.size as AsteroidSize;
   const base = buildAsteroidBase(x, y, size, rng);

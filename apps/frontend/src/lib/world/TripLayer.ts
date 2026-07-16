@@ -17,7 +17,7 @@ export interface ActiveTrip {
   toX: number;
   toY: number;
   departedAt: number; // ms timestamp
-  arrivesAt: number;  // ms timestamp
+  arrivesAt: number; // ms timestamp
   purpose: 'mine' | 'transport' | 'recall' | 'return' | 'combat';
   groupSize: number;
 }

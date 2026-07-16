@@ -45,11 +45,9 @@ export const GRID_MIN_PX = 16;
 // Used by AsteroidLayer to give each resource type a distinct visual identity.
 
 export const RESOURCE_TINT: Record<string, number> = {
-  carbon:        0x8B4010,  // rust / dark orange-brown
-  titanium:      0xB8C8D8,  // metallic silver-blue
-  hydrogenium:   0x6AB4E8,  // pale ice blue
-  kyber_crystal: 0x4B6EFB,  // glowing deep blue
-  astatine:      0x9B30FF,  // purple / dark energy
+  carbon: 0x8b4010, // rust / dark orange-brown
+  titanium: 0xb8c8d8, // metallic silver-blue
+  hydrogenium: 0x6ab4e8, // pale ice blue
+  kyber_crystal: 0x4b6efb, // glowing deep blue
+  astatine: 0x9b30ff, // purple / dark energy
 };
-
-

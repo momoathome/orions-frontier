@@ -37,7 +37,12 @@ function pickWeightedItem<T extends { weight: number }>(items: readonly T[], rng
   return items[items.length - 1]!;
 }
 import type { SizeWeights } from './asteroid-gen.js';
-import type { GeneratedAsteroid, GeneratedField, GeneratedSpawnSlot, GeneratedSector } from './types.js';
+import type {
+  GeneratedAsteroid,
+  GeneratedField,
+  GeneratedSpawnSlot,
+  GeneratedSector,
+} from './types.js';
 
 type Point = { x: number; y: number };
 
@@ -70,13 +75,15 @@ class SpatialGrid {
   }
 
   isClearAt(x: number, y: number, minDistSq: number): boolean {
-    const cx = this.cell(x), cy = this.cell(y);
+    const cx = this.cell(x),
+      cy = this.cell(y);
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         const pts = this.cells.get(this.key(cx + dx, cy + dy));
         if (!pts) continue;
         for (const p of pts) {
-          const ddx = p.x - x, ddy = p.y - y;
+          const ddx = p.x - x,
+            ddy = p.y - y;
           if (ddx * ddx + ddy * ddy < minDistSq) return false;
         }
       }
@@ -96,18 +103,22 @@ function canPlaceAt(
   halfH: number,
   grid: SpatialGrid,
   spawnSlots: GeneratedSpawnSlot[],
-  spawnSafeRadiusSq: number,
+  spawnSafeRadiusSq: number
 ): boolean {
   if (
-    x < sectorCenterX - halfW || x > sectorCenterX + halfW ||
-    y < sectorCenterY - halfH || y > sectorCenterY + halfH
-  ) return false;
+    x < sectorCenterX - halfW ||
+    x > sectorCenterX + halfW ||
+    y < sectorCenterY - halfH ||
+    y > sectorCenterY + halfH
+  )
+    return false;
 
   const minDistSq = WORLD_CONFIG.ASTEROID_MIN_DISTANCE ** 2;
   if (!grid.isClearAt(x, y, minDistSq)) return false;
 
   for (const slot of spawnSlots) {
-    const dx = slot.x - x, dy = slot.y - y;
+    const dx = slot.x - x,
+      dy = slot.y - y;
     if (dx * dx + dy * dy < spawnSafeRadiusSq) return false;
   }
 
@@ -128,16 +139,16 @@ function generateSectorSpawnSlots(
   sectorY: number,
   sectorSeed: string,
   playerCapacity: number,
-  slotIndexOffset: number,
+  slotIndexOffset: number
 ): GeneratedSpawnSlot[] {
   const { WIDTH, HEIGHT, SAFE_SPAWN_RADIUS } = WORLD_CONFIG.SECTOR;
-  const sectorLeft   = sectorX * WIDTH  - WIDTH  / 2;
-  const sectorTop    = sectorY * HEIGHT - HEIGHT / 2;
+  const sectorLeft = sectorX * WIDTH - WIDTH / 2;
+  const sectorTop = sectorY * HEIGHT - HEIGHT / 2;
 
   // Compute grid dimensions that best fit playerCapacity into a near-square layout.
   const cols = Math.ceil(Math.sqrt(playerCapacity));
   const rows = Math.ceil(playerCapacity / cols);
-  const cellW = WIDTH  / cols;
+  const cellW = WIDTH / cols;
   const cellH = HEIGHT / rows;
 
   // Margin keeps slots away from cell edges; edge pad keeps them inside the sector.
@@ -152,17 +163,17 @@ function generateSectorSpawnSlots(
     const row = Math.floor(i / cols);
 
     const cellLeft = sectorLeft + col * cellW;
-    const cellTop  = sectorTop  + row * cellH;
+    const cellTop = sectorTop + row * cellH;
 
     // Placeable area within cell, clamped to sector bounds with edge padding.
-    const minX = Math.max(sectorLeft  + SAFE_SPAWN_RADIUS, cellLeft + marginX);
-    const maxX = Math.min(sectorLeft  + WIDTH  - SAFE_SPAWN_RADIUS, cellLeft + cellW - marginX);
-    const minY = Math.max(sectorTop   + SAFE_SPAWN_RADIUS, cellTop  + marginY);
-    const maxY = Math.min(sectorTop   + HEIGHT - SAFE_SPAWN_RADIUS, cellTop  + cellH - marginY);
+    const minX = Math.max(sectorLeft + SAFE_SPAWN_RADIUS, cellLeft + marginX);
+    const maxX = Math.min(sectorLeft + WIDTH - SAFE_SPAWN_RADIUS, cellLeft + cellW - marginX);
+    const minY = Math.max(sectorTop + SAFE_SPAWN_RADIUS, cellTop + marginY);
+    const maxY = Math.min(sectorTop + HEIGHT - SAFE_SPAWN_RADIUS, cellTop + cellH - marginY);
 
     // Fallback to cell centre if margins leave no room (shouldn't happen in normal configs).
     const x = minX < maxX ? rng.nextFloat(minX, maxX) : cellLeft + cellW / 2;
-    const y = minY < maxY ? rng.nextFloat(minY, maxY) : cellTop  + cellH / 2;
+    const y = minY < maxY ? rng.nextFloat(minY, maxY) : cellTop + cellH / 2;
 
     slots.push({ slotIndex: slotIndexOffset + i, x: Math.round(x), y: Math.round(y) });
   }
@@ -183,7 +194,7 @@ function generateStarterPockets(
   halfW: number,
   halfH: number,
   sectorSeed: string,
-  grid: SpatialGrid,
+  grid: SpatialGrid
 ): GeneratedAsteroid[] {
   const rng = new SeededRng(sectorSeed + ':starter');
   const cfg = WORLD_CONFIG.STARTER_POCKET;
@@ -192,13 +203,12 @@ function generateStarterPockets(
   for (const slot of spawnSlots) {
     for (const guaranteed of cfg.GUARANTEED) {
       for (let attempt = 0; attempt < 64; attempt++) {
-        const dist  = rng.nextFloat(cfg.MIN_DIST, cfg.MAX_DIST);
+        const dist = rng.nextFloat(cfg.MIN_DIST, cfg.MAX_DIST);
         const angle = rng.next() * Math.PI * 2;
         const x = slot.x + Math.cos(angle) * dist;
         const y = slot.y + Math.sin(angle) * dist;
 
-        if (!canPlaceAt(x, y, sectorCenterX, sectorCenterY, halfW, halfH, grid, [], 0))
-          continue;
+        if (!canPlaceAt(x, y, sectorCenterX, sectorCenterY, halfW, halfH, grid, [], 0)) continue;
 
         grid.add(x, y);
         result.push(buildStarterAsteroid(x, y, guaranteed, rng));
@@ -221,7 +231,7 @@ function generateFields(
   spawnSafeRadiusSq: number,
   grid: SpatialGrid,
   rng: SeededRng,
-  personality: SectorPersonality,
+  personality: SectorPersonality
 ): { asteroids: GeneratedAsteroid[]; fields: GeneratedField[] } {
   const asteroids: GeneratedAsteroid[] = [];
   const fields: GeneratedField[] = [];
@@ -243,25 +253,37 @@ function generateFields(
       const cx = sectorCenterX + rng.nextFloat(-halfW * 0.1, halfW * 0.1);
       const cy = sectorCenterY + rng.nextFloat(-halfH * 0.1, halfH * 0.1);
       // Disk radius = 55–80% of sector half-width → diameter fills most of sector.
-      const radius = rng.nextFloat(halfW * 0.55, halfW * 0.80);
+      const radius = rng.nextFloat(halfW * 0.55, halfW * 0.8);
       spec = { shapeKey, cx, cy, p: { radius } };
     } else {
       shapeKey = rng.pick(WORLD_CONFIG.FIELD_SHAPES);
-      spec     = buildShapeSpec(shapeKey, sectorCenterX, sectorCenterY, halfW, halfH, rng);
+      spec = buildShapeSpec(shapeKey, sectorCenterX, sectorCenterY, halfW, halfH, rng);
     }
 
-    const area    = shapeArea(spec);
+    const area = shapeArea(spec);
     // vast_field uses a higher density multiplier for an impressive crowded look.
     const baseDensity = WORLD_CONFIG.FIELD_DENSITY_FACTOR[shapeKey] ?? 0.04;
     const density = personality.vastField ? baseDensity * 1.5 : baseDensity;
-    const count   = Math.max(4, Math.round(Math.sqrt(area) * density * rng.nextFloat(0.7, 1.4)));
-    const points  = sampleShapeSpec(spec, count, rng);
+    const count = Math.max(4, Math.round(Math.sqrt(area) * density * rng.nextFloat(0.7, 1.4)));
+    const points = sampleShapeSpec(spec, count, rng);
 
     const isMixedField = count > WORLD_CONFIG.FIELD_PURE_MAX;
     let placed = 0;
 
     for (const pt of points) {
-      if (!canPlaceAt(pt.x, pt.y, sectorCenterX, sectorCenterY, halfW, halfH, grid, spawnSlots, spawnSafeRadiusSq))
+      if (
+        !canPlaceAt(
+          pt.x,
+          pt.y,
+          sectorCenterX,
+          sectorCenterY,
+          halfW,
+          halfH,
+          grid,
+          spawnSlots,
+          spawnSafeRadiusSq
+        )
+      )
         continue;
 
       grid.add(pt.x, pt.y);
@@ -290,9 +312,9 @@ function generateBackground(
   spawnSafeRadiusSq: number,
   grid: SpatialGrid,
   sectorSeed: string,
-  count: number,
+  count: number
 ): GeneratedAsteroid[] {
-  const rng  = new SeededRng(sectorSeed + ':background');
+  const rng = new SeededRng(sectorSeed + ':background');
   const pool = WORLD_CONFIG.BACKGROUND_RESOURCES as { resource: string; weight: number }[];
   const sizeWeights = WORLD_CONFIG.BACKGROUND_SIZE_WEIGHTS as SizeWeights;
   const result: GeneratedAsteroid[] = [];
@@ -302,7 +324,19 @@ function generateBackground(
       const x = sectorCenterX + rng.nextFloat(-halfW, halfW);
       const y = sectorCenterY + rng.nextFloat(-halfH, halfH);
 
-      if (!canPlaceAt(x, y, sectorCenterX, sectorCenterY, halfW, halfH, grid, spawnSlots, spawnSafeRadiusSq))
+      if (
+        !canPlaceAt(
+          x,
+          y,
+          sectorCenterX,
+          sectorCenterY,
+          halfW,
+          halfH,
+          grid,
+          spawnSlots,
+          spawnSafeRadiusSq
+        )
+      )
         continue;
 
       grid.add(x, y);
@@ -328,7 +362,7 @@ export const generateSector = (
   sectorX: number,
   sectorY: number,
   worldSeed: string,
-  slotIndexOffset: number = 0,
+  slotIndexOffset: number = 0
 ): GeneratedSector => {
   const sectorSeed = `${worldSeed}:${sectorX}:${sectorY}`;
   const rng = new SeededRng(sectorSeed);
@@ -337,7 +371,7 @@ export const generateSector = (
   const personality = pickWeightedItem(WORLD_CONFIG.SECTOR_PERSONALITIES, rng);
 
   const { WIDTH, HEIGHT, PLAYER_CAPACITY, SAFE_SPAWN_RADIUS } = WORLD_CONFIG.SECTOR;
-  const halfW = WIDTH  / 2;
+  const halfW = WIDTH / 2;
   const halfH = HEIGHT / 2;
   const sectorCenterX = sectorX * WIDTH;
   const sectorCenterY = sectorY * HEIGHT;
@@ -348,7 +382,11 @@ export const generateSector = (
 
   // 1. Spawn slots — sub-sector grid, one cell per player.
   const spawnSlots = generateSectorSpawnSlots(
-    sectorX, sectorY, sectorSeed, PLAYER_CAPACITY, slotIndexOffset,
+    sectorX,
+    sectorY,
+    sectorSeed,
+    PLAYER_CAPACITY,
+    slotIndexOffset
   );
 
   const asteroidList: GeneratedAsteroid[] = [];
@@ -356,13 +394,27 @@ export const generateSector = (
   // 2. Starter pockets — guaranteed resources near every spawn slot.
   asteroidList.push(
     ...generateStarterPockets(
-      spawnSlots, sectorCenterX, sectorCenterY, halfW, halfH, sectorSeed, grid,
-    ),
+      spawnSlots,
+      sectorCenterX,
+      sectorCenterY,
+      halfW,
+      halfH,
+      sectorSeed,
+      grid
+    )
   );
 
   // 3. Field clusters — shaped asteroid groups (before background to fill gaps first).
   const { asteroids: fieldAsteroids, fields } = generateFields(
-    sectorCenterX, sectorCenterY, halfW, halfH, spawnSlots, spawnSafeRadiusSq, grid, rng, personality,
+    sectorCenterX,
+    sectorCenterY,
+    halfW,
+    halfH,
+    spawnSlots,
+    spawnSafeRadiusSq,
+    grid,
+    rng,
+    personality
   );
   asteroidList.push(...fieldAsteroids);
 
@@ -371,12 +423,20 @@ export const generateSector = (
   const netArea = WIDTH * HEIGHT - spawnSlots.length * Math.PI * SAFE_SPAWN_RADIUS ** 2;
   const [densityMin, densityMax] = personality.backgroundDensity;
   const backgroundCount = Math.round(
-    (netArea / WORLD_CONFIG.ASTEROID_MIN_DISTANCE ** 2) * rng.nextFloat(densityMin, densityMax),
+    (netArea / WORLD_CONFIG.ASTEROID_MIN_DISTANCE ** 2) * rng.nextFloat(densityMin, densityMax)
   );
   asteroidList.push(
     ...generateBackground(
-      sectorCenterX, sectorCenterY, halfW, halfH, spawnSlots, spawnSafeRadiusSq, grid, sectorSeed, backgroundCount,
-    ),
+      sectorCenterX,
+      sectorCenterY,
+      halfW,
+      halfH,
+      spawnSlots,
+      spawnSafeRadiusSq,
+      grid,
+      sectorSeed,
+      backgroundCount
+    )
   );
 
   return {
@@ -401,10 +461,10 @@ export const generateSector = (
  */
 export const generateSectors = (
   coords: { sectorX: number; sectorY: number }[],
-  worldSeed: string,
+  worldSeed: string
 ): GeneratedSector[] => {
   const { PLAYER_CAPACITY } = WORLD_CONFIG.SECTOR;
   return coords.map(({ sectorX, sectorY }, i) =>
-    generateSector(sectorX, sectorY, worldSeed, i * PLAYER_CAPACITY),
+    generateSector(sectorX, sectorY, worldSeed, i * PLAYER_CAPACITY)
   );
 };

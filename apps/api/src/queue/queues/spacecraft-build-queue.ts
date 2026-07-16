@@ -12,14 +12,13 @@ export interface SpacecraftBuildJobData {
   amount: number;
 }
 
-export const spacecraftBuildQueue = new Queue<
-  SpacecraftBuildJobData,
-  void,
-  SpacecraftBuildJobName
->('spacecraft-build', {
-  connection: bullmqRedis,
-  defaultJobOptions: {
-    removeOnComplete: 100,
-    removeOnFail: 500,
-  },
-});
+export const spacecraftBuildQueue = new Queue<SpacecraftBuildJobData, void, SpacecraftBuildJobName>(
+  'spacecraft-build',
+  {
+    connection: bullmqRedis,
+    defaultJobOptions: {
+      removeOnComplete: 100,
+      removeOnFail: 500,
+    },
+  }
+);

@@ -19,9 +19,9 @@ export const spacecraftBuildOrders = pgTable(
   (table) => ({
     stationIdIdx: index('spacecraft_build_orders_station_id_idx').on(table.stationId),
     definitionIdx: index('spacecraft_build_orders_definition_id_idx').on(
-      table.spacecraftDefinitionId,
+      table.spacecraftDefinitionId
     ),
-  }),
+  })
 );
 
 export type SpacecraftBuildOrderRow = typeof spacecraftBuildOrders.$inferSelect;

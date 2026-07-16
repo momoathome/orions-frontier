@@ -10,10 +10,7 @@ const BCRYPT_ROUNDS = 12;
 // JWT signing stays in the route (HTTP concern)
 // ============================================================================
 
-export const loginUser = async (
-  email: string,
-  password: string,
-): Promise<AuthenticatedUser> => {
+export const loginUser = async (email: string, password: string): Promise<AuthenticatedUser> => {
   const user = await findUserByEmail(email);
   if (!user) {
     throw new AppError(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
@@ -47,7 +44,7 @@ export const loginUser = async (
 export const registerUser = async (
   username: string,
   email: string,
-  password: string,
+  password: string
 ): Promise<AuthenticatedUser> => {
   const [existingEmail, existingUsername] = await Promise.all([
     findUserByEmail(email),

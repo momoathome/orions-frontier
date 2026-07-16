@@ -1,0 +1,16 @@
+FROM node:24-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/frontend/package.json apps/frontend/package.json
+COPY apps/websocket/package.json apps/websocket/package.json
+COPY packages/game-config/package.json packages/game-config/package.json
+COPY packages/shared/package.json packages/shared/package.json
+
+RUN npm ci
+
+COPY . .
+
+RUN npm run build:packages

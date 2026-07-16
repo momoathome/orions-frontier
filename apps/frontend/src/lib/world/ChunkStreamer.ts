@@ -137,7 +137,7 @@ export class ChunkStreamer {
             maxChunkY: sub.maxCY,
             scannerStrength: this.scannerStrength,
           },
-        },
+        }
       );
 
       const asteroids = data?.data ?? [];

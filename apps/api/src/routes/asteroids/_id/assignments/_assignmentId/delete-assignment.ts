@@ -14,7 +14,9 @@ export default defineRoute(async (app) => {
     const removed = await removeAsteroidAssignment(assignmentId, station.id);
 
     if (!removed) {
-      return reply.status(404).send({ message: 'Assignment not found or not owned by your station' });
+      return reply
+        .status(404)
+        .send({ message: 'Assignment not found or not owned by your station' });
     }
 
     await getRedis().publish(

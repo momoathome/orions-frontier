@@ -12,29 +12,25 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
  * Returns all active mining assignments for a station (triggers lazy tick).
  */
 export default defineRoute(async (app) => {
-  app.get(
-    '/mining-assignments',
-    { preHandler: [authenticate] },
-    async (request, reply) => {
-      const { stationId } = request.params as { stationId: string };
-      const db = getDb();
+  app.get('/mining-assignments', { preHandler: [authenticate] }, async (request, reply) => {
+    const { stationId } = request.params as { stationId: string };
+    const db = getDb();
 
-      const [station] = await db
-        .select({ id: stations.id })
-        .from(stations)
-        .where(and(eq(stations.id, stationId), eq(stations.userId, request.user.userId)))
-        .limit(1);
+    const [station] = await db
+      .select({ id: stations.id })
+      .from(stations)
+      .where(and(eq(stations.id, stationId), eq(stations.userId, request.user.userId)))
+      .limit(1);
 
-      if (!station) {
-        throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-      }
+    if (!station) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+    }
 
-      // Trigger lazy tick for all assignments before returning data
-      await tickStationAssignments(station.id);
+    // Trigger lazy tick for all assignments before returning data
+    await tickStationAssignments(station.id);
 
-      const assignments = await getStationMiningAssignments(station.id);
+    const assignments = await getStationMiningAssignments(station.id);
 
-      return reply.send({ success: true, data: { assignments } });
-    },
-  );
+    return reply.send({ success: true, data: { assignments } });
+  });
 });

@@ -111,4 +111,3 @@ const extractErrorMessage = (err: unknown): string => {
   }
   return 'An unexpected error occurred';
 };
-

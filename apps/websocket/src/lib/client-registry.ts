@@ -14,5 +14,4 @@ export const unregisterClient = (userId: string, ws: WebSocket): void => {
   if (set.size === 0) clients.delete(userId);
 };
 
-export const getClients = (userId: string): Set<WebSocket> =>
-  clients.get(userId) ?? new Set();
+export const getClients = (userId: string): Set<WebSocket> => clients.get(userId) ?? new Set();

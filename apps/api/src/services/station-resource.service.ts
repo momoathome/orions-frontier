@@ -149,7 +149,7 @@ export const getUserMiningRates = async (userId: string): Promise<ResourceMap> =
     }
   }
   return rates;
-};;
+};
 
 // ============================================================================
 // Get effective transport delivery rate (units/h) per resource.

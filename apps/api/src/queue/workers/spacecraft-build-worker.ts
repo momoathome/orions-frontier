@@ -15,7 +15,7 @@ export const startSpacecraftBuildWorker = () => {
     async (job) => {
       await handleSpacecraftBuild(job.data);
     },
-    { connection: bullmqRedis },
+    { connection: bullmqRedis }
   );
 
   worker.on('completed', (job) => {

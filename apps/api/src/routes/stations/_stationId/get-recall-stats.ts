@@ -40,10 +40,7 @@ export default defineRoute(async (app) => {
         shipCount: sql<number>`cast(coalesce(sum(${spacecraftTrips.groupSize}), 0) as int)`,
       })
       .from(spacecraftTrips)
-      .innerJoin(
-        stationSpacecrafts,
-        eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id)
-      )
+      .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
       .innerJoin(
         spacecraftDefinitions,
         eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)

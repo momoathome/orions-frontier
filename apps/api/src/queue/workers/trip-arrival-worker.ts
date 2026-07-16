@@ -74,7 +74,7 @@ export const startTripArrivalWorker = () => {
         logger.warn({ tripId: row.trip.id, err }, 'Failed to publish trip arrival event');
       }
     },
-    { connection: bullmqRedis, concurrency: 10 },
+    { connection: bullmqRedis, concurrency: 10 }
   );
 
   worker.on('failed', (job, err) => {

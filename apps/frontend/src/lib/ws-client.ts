@@ -1,9 +1,5 @@
 export type ConnectionStatus =
-  | 'connected'
-  | 'disconnected'
-  | 'connecting'
-  | 'error'
-  | 'authenticating';
+  'connected' | 'disconnected' | 'connecting' | 'error' | 'authenticating';
 
 export interface PingStats {
   lastPing: number | null;

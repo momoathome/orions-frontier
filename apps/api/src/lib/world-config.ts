@@ -101,11 +101,11 @@ export const WORLD_CONFIG = {
    */
   FIELD_DENSITY_FACTOR: {
     straight_line: 0.06,
-    arc: 0.050,
+    arc: 0.05,
     snake: 0.04,
     crescent: 0.038,
-    cloud: 0.040,
-    dense_disk: 0.060,
+    cloud: 0.04,
+    dense_disk: 0.06,
   } as Record<string, number>,
 
   /** Fields with sampled-point count above this become mixed-resource. */
@@ -171,7 +171,7 @@ export const WORLD_CONFIG = {
     {
       id: 'vast_field',
       weight: 10,
-      backgroundDensity: [0.000, 0.002] as [number, number],
+      backgroundDensity: [0.0, 0.002] as [number, number],
       fieldCount: [1, 1] as [number, number],
       vastField: true,
     },

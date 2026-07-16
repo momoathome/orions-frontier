@@ -5,7 +5,7 @@ import FleetTab from './FleetTab.vue';
 import LogisticsTab from './LogisticsTab.vue';
 type Section = 'buildings' | 'fleet' | 'logistics' | 'defense';
 
-const props = defineProps<{
+const { stationId, stationName } = defineProps<{
   stationId: string;
   stationName?: string;
 }>();
@@ -17,7 +17,6 @@ const buildingsQueueCount = ref(0);
 const fleetQueueCount = ref(0);
 const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.value);
 const totalMiningRatePerHour = ref(0);
-
 </script>
 
 <template>

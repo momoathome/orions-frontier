@@ -44,6 +44,6 @@ export default defineRoute(async (app) => {
       );
 
       return reply.send({ success: true, data: updatedBuilding });
-    },
+    }
   );
 });

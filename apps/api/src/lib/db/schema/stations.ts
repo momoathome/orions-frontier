@@ -16,7 +16,7 @@ export const stations = pgTable(
   },
   (table) => ({
     userIdIdx: index('stations_user_id_idx').on(table.userId),
-  }),
+  })
 );
 
 export const stationsRelations = relations(stations, ({ one }) => ({

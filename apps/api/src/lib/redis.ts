@@ -1,28 +1,26 @@
-import { createClient } from 'redis';
+import { Redis } from 'ioredis';
 
-let redisClient: ReturnType<typeof createClient> | null = null;
+let redisClient: Redis | null = null;
 
-export const initRedis = async (): Promise<ReturnType<typeof createClient>> => {
+export const initRedis = async (): Promise<Redis> => {
   const redisUrl = process.env['REDIS_URL'];
 
   if (!redisUrl) {
     throw new Error('REDIS_URL is not defined');
   }
 
-  redisClient = createClient({
-    url: redisUrl,
-  });
+  redisClient = new Redis(redisUrl);
 
   redisClient.on('error', (err) => {
     console.error('Redis Client Error', err);
   });
 
-  await redisClient.connect();
+  await redisClient.ping();
 
   return redisClient;
 };
 
-export const getRedis = (): ReturnType<typeof createClient> => {
+export const getRedis = (): Redis => {
   if (!redisClient) {
     throw new Error('Redis not initialized. Call initRedis() first.');
   }

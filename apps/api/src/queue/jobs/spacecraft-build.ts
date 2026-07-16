@@ -36,14 +36,12 @@ export const handleSpacecraftBuild = async (data: SpacecraftBuildJobData) => {
     .where(
       and(
         eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitionId),
-        eq(stationSpacecrafts.stationId, stationId),
-      ),
+        eq(stationSpacecrafts.stationId, stationId)
+      )
     );
 
   // Delete the completed order
-  await db
-    .delete(spacecraftBuildOrders)
-    .where(eq(spacecraftBuildOrders.id, orderId));
+  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.id, orderId));
 
   // Publish real-time event
   await getRedis().publish(
@@ -52,7 +50,7 @@ export const handleSpacecraftBuild = async (data: SpacecraftBuildJobData) => {
       type: 'spacecraft_build_completed',
       payload: { stationId, spacecraftKey, amount, orderId },
       timestamp: Date.now(),
-    }),
+    })
   );
 
   logger.info({ stationId, spacecraftKey, amount }, 'Spacecraft build completed and published');

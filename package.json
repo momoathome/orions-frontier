@@ -2,30 +2,36 @@
   "name": "orions-frontier",
   "version": "0.1.0",
   "private": true,
-  "description": "Orion's Frontier - Modern TypeScript Browsergame",
-  "packageManager": "pnpm@9.0.0",
+  "description": "A persistent idle world in space",
+  "packageManager": "npm@11.7.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "engines": {
-    "node": ">=20.0.0",
-    "pnpm": ">=9.0.0"
+    "node": ">=24.11.0",
+    "npm": ">=10.0.0"
   },
   "scripts": {
-    "dev": "pnpm --parallel --stream dev",
-    "build": "pnpm --recursive --stream build",
-    "lint": "pnpm --recursive --stream lint",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "typecheck": "pnpm --recursive --stream typecheck",
-    "clean": "pnpm --recursive --stream clean && rm -rf node_modules",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f",
+    "dev": "docker compose up --build",
+    "build:packages": "tsc -b packages/shared packages/game-config",
+    "build": "npm run build:packages && npm run build --workspace @orions-frontier/api && npm run build --workspace @orions-frontier/websocket && npm run build --workspace @orions-frontier/frontend",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "lint": "eslint apps packages",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "clean": "npm run clean --workspaces --if-present",
+    "db:migrate": "npm run db:migrate --workspace @orions-frontier/api",
     "docker:rebuild": "docker compose up -d --build"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@typescript-eslint/eslint-plugin": "^8.59.3",
     "@typescript-eslint/parser": "^8.59.3",
     "eslint": "^10.3.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.9.1",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
     "vue-eslint-parser": "^10.4.0"

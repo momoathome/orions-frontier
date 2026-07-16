@@ -22,9 +22,9 @@ export const stationBuildings = pgTable(
     stationIdIdx: index('station_buildings_station_id_idx').on(table.stationId),
     uniqueStationBuilding: unique('station_buildings_station_id_building_definition_id_unique').on(
       table.stationId,
-      table.buildingDefinitionId,
+      table.buildingDefinitionId
     ),
-  }),
+  })
 );
 
 export const stationBuildingsRelations = relations(stationBuildings, ({ one }) => ({

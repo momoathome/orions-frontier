@@ -69,7 +69,10 @@ export async function reconcilePendingTrips(): Promise<void> {
   }
 
   if (pendingTrips.length > 0) {
-    logger.info({ count: pendingTrips.length }, 'Reconciled pending trips → delayed jobs registered');
+    logger.info(
+      { count: pendingTrips.length },
+      'Reconciled pending trips → delayed jobs registered'
+    );
   }
 }
 

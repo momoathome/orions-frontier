@@ -31,7 +31,7 @@ const routes: RouteRecordRaw[] = [
     name: 'Map',
     component: () => import('../views/MapView.vue'),
     meta: { requiresAuth: true },
-  }
+  },
 ];
 
 export const router = createRouter({
@@ -49,4 +49,6 @@ router.beforeEach((to) => {
   if (to.meta.guestOnly && authStore.isAuthenticated) {
     return { name: 'Dashboard' };
   }
+
+  return true;
 });

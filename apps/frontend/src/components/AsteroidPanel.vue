@@ -61,7 +61,10 @@ async function openAssignModal() {
   if (props.stationId && miners.value.length === 0) {
     const { data } = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
     miners.value = (data.data.spacecrafts as StationSpacecraftWithDefinition[]).filter(
-      (s) => s.definition.role === 'miner' && s.definition.miningRate > 0 && s.amount - s.lockedAmount > 0
+      (s) =>
+        s.definition.role === 'miner' &&
+        s.definition.miningRate > 0 &&
+        s.amount - s.lockedAmount > 0
     );
   }
   showAssignModal.value = true;
@@ -410,7 +413,9 @@ function formatCoord(n: number) {
               v-if="ownGroups.length > 0"
               @click="openRecallModal()"
               class="w-full h-6 rounded text-[8px] uppercase tracking-widest text-red-400 border border-red-400/35 hover:bg-red-400/12 hover:border-red-400/65 transition font-semibold mt-0.5"
-            >↩ Recall</button>
+            >
+              ↩ Recall
+            </button>
           </div>
         </div>
       </div>

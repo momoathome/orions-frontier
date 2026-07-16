@@ -35,13 +35,15 @@ const SHAPE_REGISTRY: Record<string, ShapeDefinition> = {
   straight_line: {
     buildParams: (ref, rng) => ({
       angle: rng.next() * Math.PI,
-      length: rng.nextFloat(ref * 0.12, ref * 0.60),
+      length: rng.nextFloat(ref * 0.12, ref * 0.6),
       width: rng.nextFloat(100, 400),
     }),
     area: (p) => p['length']! * p['width']!,
     sample: (cx, cy, p, count, rng) => {
-      const cos = Math.cos(p['angle']!), sin = Math.sin(p['angle']!);
-      const half = p['length']! / 2, halfW = p['width']! / 2;
+      const cos = Math.cos(p['angle']!),
+        sin = Math.sin(p['angle']!);
+      const half = p['length']! / 2,
+        halfW = p['width']! / 2;
       const pts: Point[] = [];
       for (let i = 0; i < count; i++) {
         const t = rng.nextFloat(-half, half);
@@ -54,7 +56,7 @@ const SHAPE_REGISTRY: Record<string, ShapeDefinition> = {
 
   arc: {
     buildParams: (ref, rng) => ({
-      radius: rng.nextFloat(ref * 0.08, ref * 0.40),
+      radius: rng.nextFloat(ref * 0.08, ref * 0.4),
       startAngle: rng.next() * Math.PI * 2,
       arcAngle: rng.nextFloat(Math.PI * 0.5, Math.PI * 1.6),
       width: rng.nextFloat(80, 300),
@@ -82,8 +84,10 @@ const SHAPE_REGISTRY: Record<string, ShapeDefinition> = {
     }),
     area: (p) => p['length']! * (p['width']! + p['amplitude']! * 0.7),
     sample: (cx, cy, p, count, rng) => {
-      const cos = Math.cos(p['angle']!), sin = Math.sin(p['angle']!);
-      const half = p['length']! / 2, halfW = p['width']! / 2;
+      const cos = Math.cos(p['angle']!),
+        sin = Math.sin(p['angle']!);
+      const half = p['length']! / 2,
+        halfW = p['width']! / 2;
       const pts: Point[] = [];
       for (let i = 0; i < count; i++) {
         const t = rng.nextFloat(-half, half);
@@ -177,7 +181,7 @@ export function buildShapeSpec(
   halfW: number,
   halfH: number,
   rng: SeededRng,
-  refScale = 1.0,
+  refScale = 1.0
 ): ShapeSpec {
   const margin = 0.15;
   const cx = sectorCenterX + rng.nextFloat(-halfW * (1 - margin), halfW * (1 - margin));

@@ -354,7 +354,7 @@ const asteroidRows = computed<AsteroidRow[]>(() =>
 const alerts = computed<LogisticsAlert[]>(() => {
   const list: LogisticsAlert[] = [];
 
-    // Unstable asteroids
+  // Unstable asteroids
   const degrading = asteroidRows.value.filter(
     (r) => r.stabilityChange !== null && r.stabilityChange < 0 && r.group.asteroidStability < 0.4
   ).length;

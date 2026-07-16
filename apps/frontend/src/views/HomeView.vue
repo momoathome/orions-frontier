@@ -2,26 +2,36 @@
   <div class="home">
     <h1>Orion's Frontier</h1>
     <p>Welcome to the new TypeScript infrastructure</p>
-    
+
     <div class="info">
       <h2>System Status</h2>
       <div v-if="healthLoading">Loading...</div>
-      <div v-else-if="healthError" class="error">
-        Error: {{ healthError }}
-      </div>
+      <div v-else-if="healthError" class="error">Error: {{ healthError }}</div>
       <div v-else-if="health" class="status">
-        <p>Status: <strong>{{ health.status }}</strong></p>
-        <p>Database: <strong>{{ health.services.database }}</strong></p>
-        <p>Redis: <strong>{{ health.services.redis }}</strong></p>
+        <p>
+          Status: <strong>{{ health.status }}</strong>
+        </p>
+        <p>
+          Database: <strong>{{ health.services.database }}</strong>
+        </p>
+        <p>
+          Redis: <strong>{{ health.services.redis }}</strong>
+        </p>
         <p>Timestamp: {{ new Date(health.timestamp).toLocaleString() }}</p>
       </div>
-      
+
       <div class="ws-status">
         <h2>WebSocket Status</h2>
         <div class="status">
-          <p>Connection: <strong :class="wsStatusClass">{{ wsStats.status }}</strong></p>
-          <p v-if="wsStats.latency !== null">Latency: <strong>{{ wsStats.latency }}ms</strong></p>
-          <p v-if="wsStats.lastPong">Last Pong: <strong>{{ formatTime(wsStats.lastPong) }}</strong></p>
+          <p>
+            Connection: <strong :class="wsStatusClass">{{ wsStats.status }}</strong>
+          </p>
+          <p v-if="wsStats.latency !== null">
+            Latency: <strong>{{ wsStats.latency }}ms</strong>
+          </p>
+          <p v-if="wsStats.lastPong">
+            Last Pong: <strong>{{ formatTime(wsStats.lastPong) }}</strong>
+          </p>
         </div>
       </div>
     </div>
@@ -75,7 +85,7 @@ const formatTime = (timestamp: number) => {
 const fetchHealth = async () => {
   healthLoading.value = true;
   healthError.value = null;
-  
+
   try {
     const response = await apiClient.get<HealthResponse>('/health');
     health.value = response.data;

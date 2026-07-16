@@ -16,7 +16,10 @@ export default defineRoute(async (app) => {
     };
 
     if (!body.stationId || !body.spacecraftDefinitionId) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'stationId and spacecraftDefinitionId are required');
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'stationId and spacecraftDefinitionId are required'
+      );
     }
 
     const assignedAmount = Math.max(1, Math.floor(Number(body.assignedAmount ?? 1)));

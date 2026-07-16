@@ -6,5 +6,4 @@ if (!redisUrl) {
   throw new Error('REDIS_URL is not defined');
 }
 
-export const createSubscriber = (): Redis =>
-  new Redis(redisUrl, { maxRetriesPerRequest: null });
+export const createSubscriber = (): Redis => new Redis(redisUrl, { maxRetriesPerRequest: null });

@@ -1,0 +1,101 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-orionsfrontier}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orionsfrontier}
+      POSTGRES_DB: ${POSTGRES_DB:-orionsfrontier}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-orionsfrontier}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: npm run dev --workspace @orions-frontier/api
+    environment:
+      NODE_ENV: development
+      API_PORT: 3000
+      API_HOST: 0.0.0.0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-orionsfrontier}:${POSTGRES_PASSWORD:-orionsfrontier}@postgres:5432/${POSTGRES_DB:-orionsfrontier}
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+      SESSION_SECRET: ${SESSION_SECRET:-local-development-secret}
+      CORS_ORIGIN: http://localhost:${FRONTEND_PORT:-5173}
+    ports:
+      - '${API_PORT:-3000}:3000'
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:3000/api/health']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  websocket:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: npm run dev --workspace @orions-frontier/websocket
+    environment:
+      NODE_ENV: development
+      WS_PORT: 3001
+      WS_HOST: 0.0.0.0
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '${WS_PORT:-3001}:3001'
+    volumes:
+      - ./apps/websocket/src:/app/apps/websocket/src
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: npm run dev --workspace @orions-frontier/frontend
+    environment:
+      VITE_API_URL: http://localhost:${API_PORT:-3000}
+      VITE_WS_URL: ws://localhost:${WS_PORT:-3001}
+    ports:
+      - '${FRONTEND_PORT:-5173}:5173'
+    volumes:
+      - ./apps/frontend/src:/app/apps/frontend/src
+      - ./apps/frontend/public:/app/apps/frontend/public
+      - ./apps/frontend/index.html:/app/apps/frontend/index.html
+    depends_on:
+      api:
+        condition: service_healthy
+      websocket:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  redis-data:

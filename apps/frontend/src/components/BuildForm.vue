@@ -38,7 +38,7 @@ watch(
     buildError.value = null;
     buildSuccess.value = false;
     fetchPlayerResources();
-  },
+  }
 );
 
 function setMaxAmount() {
@@ -48,7 +48,7 @@ function setMaxAmount() {
     ...costs.map((c) => {
       const have = playerResources.value[c.resourceKey] ?? 0;
       return c.amount > 0 ? Math.floor(have / c.amount) : Infinity;
-    }),
+    })
   );
   buildAmount.value = Math.max(1, isFinite(max) ? max : 1);
 }
@@ -64,9 +64,7 @@ async function submitBuild() {
   buildSuccess.value = false;
   try {
     await apiClient.post(`/stations/${props.stationId}/spacecrafts/build`, {
-      orders: [
-        { spacecraftKey: props.ship.definition.key, amount: Math.floor(buildAmount.value) },
-      ],
+      orders: [{ spacecraftKey: props.ship.definition.key, amount: Math.floor(buildAmount.value) }],
     });
     buildSuccess.value = true;
     emit('built');

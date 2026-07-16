@@ -51,7 +51,7 @@ watch(
       recallError.value = null;
       recalling.value = false;
     }
-  },
+  }
 );
 
 watch(selectedDefId, (id) => {
@@ -61,19 +61,19 @@ watch(selectedDefId, (id) => {
 
 // ── Derived ───────────────────────────────────────────────────────────────────
 
-const selectedGroup = computed(() =>
-  props.ownGroups.find((g) => g.spacecraftDefinitionId === selectedDefId.value) ?? null,
+const selectedGroup = computed(
+  () => props.ownGroups.find((g) => g.spacecraftDefinitionId === selectedDefId.value) ?? null
 );
 
-const recallPower = computed(() =>
-  (recallAmount.value ?? 0) * (selectedGroup.value?.spacecraftMiningRate ?? 0),
+const recallPower = computed(
+  () => (recallAmount.value ?? 0) * (selectedGroup.value?.spacecraftMiningRate ?? 0)
 );
 
 const previewRates = computed<Record<string, number>>(() => {
   if (!selectedGroup.value || recallAmount.value < 1) return props.effectiveRateByResource;
   return calcEffectiveRateByResource(
     Math.max(0, props.totalMiningPowerRaw - recallPower.value),
-    props.asteroid.veins,
+    props.asteroid.veins
   );
 });
 
@@ -82,7 +82,8 @@ const previewStabilityChange = computed<number | null>(() => {
   const remainingPower = Math.max(0, props.totalMiningPowerRaw - recallPower.value);
   const remainingMiners =
     props.totalMiningPowerRaw > 0
-      ? props.asteroid.assignments.length - (recallAmount.value >= (selectedGroup.value?.totalAmount ?? 0) ? 1 : 0)
+      ? props.asteroid.assignments.length -
+        (recallAmount.value >= (selectedGroup.value?.totalAmount ?? 0) ? 1 : 0)
       : 0;
   return calcStabilityChangePerHour(remainingPower, props.asteroid.veins, remainingMiners > 0);
 });
@@ -114,7 +115,7 @@ async function submit() {
       await apiClient.put(
         `/asteroids/${props.asteroidId}/assignments/${group.ids[0]}`,
         { assignedAmount: group.totalAmount - recallAmount.value },
-        { headers },
+        { headers }
       );
     }
     emit('done');
@@ -138,11 +139,15 @@ async function submit() {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       @click.self="emit('close')"
     >
-      <div class="bg-[#060c1b] border border-red-400/20 rounded p-5 w-80 flex flex-col gap-4 font-mono">
+      <div
+        class="bg-[#060c1b] border border-red-400/20 rounded p-5 w-80 flex flex-col gap-4 font-mono"
+      >
         <!-- Header -->
         <div class="flex items-center justify-between">
           <span class="text-[10px] text-white/50 uppercase tracking-widest">Recall Miners</span>
-          <button @click="emit('close')" class="text-white/30 hover:text-white/60 text-[11px]">✕</button>
+          <button @click="emit('close')" class="text-white/30 hover:text-white/60 text-[11px]">
+            ✕
+          </button>
         </div>
 
         <div v-if="ownGroups.length === 0" class="text-[10px] text-white/30 text-center py-3">
@@ -169,7 +174,9 @@ async function submit() {
 
           <!-- Amount -->
           <div class="flex flex-col gap-1.5">
-            <label class="text-[9px] text-white/25 uppercase tracking-wider">Amount to Recall</label>
+            <label class="text-[9px] text-white/25 uppercase tracking-wider"
+              >Amount to Recall</label
+            >
             <div class="flex items-center gap-1 w-full">
               <button
                 @click="recallAmount = Math.max(1, recallAmount - 1)"
@@ -199,7 +206,10 @@ async function submit() {
                 Max
               </button>
             </div>
-            <span v-if="selectedGroup && recallAmount > selectedGroup.totalAmount" class="text-[9px] text-red-400/80">
+            <span
+              v-if="selectedGroup && recallAmount > selectedGroup.totalAmount"
+              class="text-[9px] text-red-400/80"
+            >
               Max available: {{ selectedGroup.totalAmount }}
             </span>
             <span v-else-if="recallPower > 0" class="text-[9px] text-white/25">
@@ -218,29 +228,56 @@ async function submit() {
               :key="vein.id"
               class="flex items-center justify-between text-[9px]"
             >
-              <span :style="`color:${resourceColor(vein.resourceKey)}`">{{ resourceName(vein.resourceKey) }}</span>
+              <span :style="`color:${resourceColor(vein.resourceKey)}`">{{
+                resourceName(vein.resourceKey)
+              }}</span>
               <div class="flex items-center gap-1 tabular-nums">
-                <span class="text-white/25">{{ (effectiveRateByResource[vein.resourceKey] ?? 0).toFixed(1) }}/h</span>
+                <span class="text-white/25"
+                  >{{ (effectiveRateByResource[vein.resourceKey] ?? 0).toFixed(1) }}/h</span
+                >
                 <span class="text-white/15">→</span>
                 <span
-                  :class="(previewRates[vein.resourceKey] ?? 0) < (effectiveRateByResource[vein.resourceKey] ?? 0)
-                    ? 'text-red-400/80 font-semibold' : 'text-white/40'"
-                >{{ (previewRates[vein.resourceKey] ?? 0).toFixed(1) }}/h</span>
+                  :class="
+                    (previewRates[vein.resourceKey] ?? 0) <
+                    (effectiveRateByResource[vein.resourceKey] ?? 0)
+                      ? 'text-red-400/80 font-semibold'
+                      : 'text-white/40'
+                  "
+                  >{{ (previewRates[vein.resourceKey] ?? 0).toFixed(1) }}/h</span
+                >
               </div>
             </div>
-            <div class="flex items-center justify-between text-[9px] mt-0.5 pt-1.5 border-t border-white/5">
+            <div
+              class="flex items-center justify-between text-[9px] mt-0.5 pt-1.5 border-t border-white/5"
+            >
               <span class="text-white/25">Stability/h</span>
               <div class="flex items-center gap-1 tabular-nums">
-                <span :class="(stabilityChangePerHour ?? 0) < 0 ? 'text-red-400/50' : 'text-white/25'">
-                  {{ stabilityChangePerHour !== null
-                    ? ((stabilityChangePerHour > 0 ? '+' : '') + (stabilityChangePerHour * 100).toFixed(2) + '%')
-                    : '—' }}
+                <span
+                  :class="(stabilityChangePerHour ?? 0) < 0 ? 'text-red-400/50' : 'text-white/25'"
+                >
+                  {{
+                    stabilityChangePerHour !== null
+                      ? (stabilityChangePerHour > 0 ? '+' : '') +
+                        (stabilityChangePerHour * 100).toFixed(2) +
+                        '%'
+                      : '—'
+                  }}
                 </span>
                 <span class="text-white/15">→</span>
-                <span :class="(previewStabilityChange ?? 0) < 0 ? 'text-red-400/80 font-semibold' : 'text-emerald-400/70'">
-                  {{ previewStabilityChange !== null
-                    ? ((previewStabilityChange > 0 ? '+' : '') + (previewStabilityChange * 100).toFixed(2) + '%')
-                    : '—' }}
+                <span
+                  :class="
+                    (previewStabilityChange ?? 0) < 0
+                      ? 'text-red-400/80 font-semibold'
+                      : 'text-emerald-400/70'
+                  "
+                >
+                  {{
+                    previewStabilityChange !== null
+                      ? (previewStabilityChange > 0 ? '+' : '') +
+                        (previewStabilityChange * 100).toFixed(2) +
+                        '%'
+                      : '—'
+                  }}
                 </span>
               </div>
             </div>

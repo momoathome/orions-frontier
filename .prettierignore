@@ -3,4 +3,4 @@ build
 node_modules
 coverage
 *.min.js
-pnpm-lock.yaml
+package-lock.json

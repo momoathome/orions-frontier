@@ -42,24 +42,24 @@ watch(
       assignError.value = null;
       assigning.value = false;
     }
-  },
+  }
 );
 
 // ── Derived ───────────────────────────────────────────────────────────────────
 
-const selectedMiner = computed(() =>
-  props.miners.find((m) => m.definition.id === selectedDefId.value) ?? null,
+const selectedMiner = computed(
+  () => props.miners.find((m) => m.definition.id === selectedDefId.value) ?? null
 );
 
-const assignTotalPower = computed(() =>
-  (assignAmount.value ?? 0) * (selectedMiner.value?.definition.miningRate ?? 0),
+const assignTotalPower = computed(
+  () => (assignAmount.value ?? 0) * (selectedMiner.value?.definition.miningRate ?? 0)
 );
 
 const assignPreviewRates = computed<Record<string, number>>(() => {
   if (!selectedMiner.value || assignAmount.value < 1) return {};
   return calcEffectiveRateByResource(
     props.totalMiningPowerRaw + assignTotalPower.value,
-    props.asteroid.veins,
+    props.asteroid.veins
   );
 });
 
@@ -68,7 +68,7 @@ const assignPreviewStabilityChange = computed<number | null>(() => {
   return calcStabilityChangePerHour(
     props.totalMiningPowerRaw + assignTotalPower.value,
     props.asteroid.veins,
-    true,
+    true
   );
 });
 
@@ -115,11 +115,15 @@ async function submit() {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       @click.self="emit('close')"
     >
-      <div class="bg-[#060c1b] border border-cyan-400/20 rounded p-5 w-80 flex flex-col gap-4 font-mono">
+      <div
+        class="bg-[#060c1b] border border-cyan-400/20 rounded p-5 w-80 flex flex-col gap-4 font-mono"
+      >
         <!-- Header -->
         <div class="flex items-center justify-between">
           <span class="text-[10px] text-white/50 uppercase tracking-widest">Assign Miner</span>
-          <button @click="emit('close')" class="text-white/30 hover:text-white/60 text-[11px]">✕</button>
+          <button @click="emit('close')" class="text-white/30 hover:text-white/60 text-[11px]">
+            ✕
+          </button>
         </div>
 
         <div v-if="miners.length === 0" class="text-[10px] text-white/30 text-center py-3">
@@ -173,9 +177,12 @@ async function submit() {
               </button>
             </div>
             <span
-              v-if="selectedMiner && assignAmount > selectedMiner.amount - selectedMiner.lockedAmount"
+              v-if="
+                selectedMiner && assignAmount > selectedMiner.amount - selectedMiner.lockedAmount
+              "
               class="text-[9px] text-red-400/80"
-            >Max available: {{ selectedMiner.amount - selectedMiner.lockedAmount }}</span>
+              >Max available: {{ selectedMiner.amount - selectedMiner.lockedAmount }}</span
+            >
             <span v-else-if="assignTotalPower > 0" class="text-[9px] text-white/25">
               Total mining power: {{ assignTotalPower }}/h
             </span>
@@ -192,29 +199,56 @@ async function submit() {
               :key="vein.id"
               class="flex items-center justify-between text-[9px]"
             >
-              <span :style="`color:${resourceColor(vein.resourceKey)}`">{{ resourceName(vein.resourceKey) }}</span>
+              <span :style="`color:${resourceColor(vein.resourceKey)}`">{{
+                resourceName(vein.resourceKey)
+              }}</span>
               <div class="flex items-center gap-1 tabular-nums">
-                <span class="text-white/25">{{ (effectiveRateByResource[vein.resourceKey] ?? 0).toFixed(1) }}/h</span>
+                <span class="text-white/25"
+                  >{{ (effectiveRateByResource[vein.resourceKey] ?? 0).toFixed(1) }}/h</span
+                >
                 <span class="text-white/15">→</span>
                 <span
-                  :class="(assignPreviewRates[vein.resourceKey] ?? 0) > (effectiveRateByResource[vein.resourceKey] ?? 0)
-                    ? 'text-emerald-400/80' : 'text-white/40'"
-                >{{ (assignPreviewRates[vein.resourceKey] ?? 0).toFixed(1) }}/h</span>
+                  :class="
+                    (assignPreviewRates[vein.resourceKey] ?? 0) >
+                    (effectiveRateByResource[vein.resourceKey] ?? 0)
+                      ? 'text-emerald-400/80'
+                      : 'text-white/40'
+                  "
+                  >{{ (assignPreviewRates[vein.resourceKey] ?? 0).toFixed(1) }}/h</span
+                >
               </div>
             </div>
-            <div class="flex items-center justify-between text-[9px] mt-0.5 pt-1.5 border-t border-white/5">
+            <div
+              class="flex items-center justify-between text-[9px] mt-0.5 pt-1.5 border-t border-white/5"
+            >
               <span class="text-white/25">Stability/h</span>
               <div class="flex items-center gap-1 tabular-nums">
-                <span :class="(stabilityChangePerHour ?? 0) < 0 ? 'text-red-400/50' : 'text-white/25'">
-                  {{ stabilityChangePerHour !== null
-                    ? ((stabilityChangePerHour > 0 ? '+' : '') + (stabilityChangePerHour * 100).toFixed(2) + '%')
-                    : '—' }}
+                <span
+                  :class="(stabilityChangePerHour ?? 0) < 0 ? 'text-red-400/50' : 'text-white/25'"
+                >
+                  {{
+                    stabilityChangePerHour !== null
+                      ? (stabilityChangePerHour > 0 ? '+' : '') +
+                        (stabilityChangePerHour * 100).toFixed(2) +
+                        '%'
+                      : '—'
+                  }}
                 </span>
                 <span class="text-white/15">→</span>
-                <span :class="(assignPreviewStabilityChange ?? 0) < 0 ? 'text-red-400/80 font-semibold' : 'text-emerald-400/70'">
-                  {{ assignPreviewStabilityChange !== null
-                    ? ((assignPreviewStabilityChange > 0 ? '+' : '') + (assignPreviewStabilityChange * 100).toFixed(2) + '%')
-                    : '—' }}
+                <span
+                  :class="
+                    (assignPreviewStabilityChange ?? 0) < 0
+                      ? 'text-red-400/80 font-semibold'
+                      : 'text-emerald-400/70'
+                  "
+                >
+                  {{
+                    assignPreviewStabilityChange !== null
+                      ? (assignPreviewStabilityChange > 0 ? '+' : '') +
+                        (assignPreviewStabilityChange * 100).toFixed(2) +
+                        '%'
+                      : '—'
+                  }}
                 </span>
               </div>
             </div>

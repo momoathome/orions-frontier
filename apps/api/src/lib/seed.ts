@@ -1,7 +1,10 @@
 import bcrypt from 'bcrypt';
 import { eq, or } from 'drizzle-orm';
 import { getDb } from './db/index.js';
-import { spacecraftDefinitions, spacecraftDefinitionCosts } from './db/schema/spacecraft-definitions.js';
+import {
+  spacecraftDefinitions,
+  spacecraftDefinitionCosts,
+} from './db/schema/spacecraft-definitions.js';
 import { buildingDefinitions } from './db/schema/building-definitions.js';
 import { asteroids, asteroidVeins, asteroidResourceStorage } from './db/schema/asteroids.js';
 import { spawnSlots } from './db/schema/spawn-slots.js';
@@ -303,7 +306,7 @@ export const seedAsteroidWorld = async (): Promise<void> => {
       .insert(asteroidResourceStorage)
       .values(storageValues.slice(i, i + ASTEROID_BATCH_SIZE));
   }
-};;
+};
 
 // ============================================================================
 // seedSpawnSlots
@@ -337,7 +340,7 @@ export const seedSpawnSlots = async (): Promise<void> => {
       sectorId: sector0?.id ?? null,
     }))
   );
-};;;;;
+};
 
 // ============================================================================
 // seedDevUser
@@ -492,4 +495,4 @@ export const seedDevUser = async (): Promise<void> => {
 
   // 5. Assign initial spacecrafts (1 Mole, 10 Nomads)
   await seedStationSpacecrafts(devStationId);
-};;;
+};

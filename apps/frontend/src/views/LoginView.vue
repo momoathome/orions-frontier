@@ -230,7 +230,9 @@ const submit = async () => {
   font-size: 0.9375rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s, opacity 0.2s;
+  transition:
+    background 0.2s,
+    opacity 0.2s;
 }
 
 .btn-primary:hover:not(:disabled) {

@@ -1,12 +1,4 @@
-import {
-  pgTable,
-  uuid,
-  integer,
-  timestamp,
-  jsonb,
-  index,
-  pgEnum,
-} from 'drizzle-orm/pg-core';
+import { pgTable, uuid, integer, timestamp, jsonb, index, pgEnum } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { stationSpacecrafts } from './station-spacecrafts.js';
 
@@ -22,23 +14,16 @@ import { stationSpacecrafts } from './station-spacecrafts.js';
 // ============================================================================
 
 export const tripPurposeEnum = pgEnum('trip_purpose', [
-  'mine',      // Miner flying to asteroid to start mining
+  'mine', // Miner flying to asteroid to start mining
   'transport', // Transporter picking up resources
-  'recall',    // Miner self-recall: full buffer, flying resources to station
-  'return',    // Miner/transporter returning empty to asteroid/idle
-  'combat',    // Fighter heading to target
+  'recall', // Miner self-recall: full buffer, flying resources to station
+  'return', // Miner/transporter returning empty to asteroid/idle
+  'combat', // Fighter heading to target
 ]);
 
-export const tripStatusEnum = pgEnum('trip_status', [
-  'traveling',
-  'arrived',
-  'cancelled',
-]);
+export const tripStatusEnum = pgEnum('trip_status', ['traveling', 'arrived', 'cancelled']);
 
-export const tripEndpointTypeEnum = pgEnum('trip_endpoint_type', [
-  'station',
-  'asteroid',
-]);
+export const tripEndpointTypeEnum = pgEnum('trip_endpoint_type', ['station', 'asteroid']);
 
 /** JSON shape stored in cargoManifest: { resourceKey: amount } */
 export type CargoManifest = Record<string, number>;
@@ -70,12 +55,12 @@ export const spacecraftTrips = pgTable(
   },
   (table) => ({
     stationSpacecraftIdIdx: index('spacecraft_trips_station_spacecraft_id_idx').on(
-      table.stationSpacecraftId,
+      table.stationSpacecraftId
     ),
     statusIdx: index('spacecraft_trips_status_idx').on(table.status),
     arrivesAtIdx: index('spacecraft_trips_arrives_at_idx').on(table.arrivesAt),
     toIdIdx: index('spacecraft_trips_to_id_idx').on(table.toId),
-  }),
+  })
 );
 
 export const spacecraftTripsRelations = relations(spacecraftTrips, ({ one }) => ({

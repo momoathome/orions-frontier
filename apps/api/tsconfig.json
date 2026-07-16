@@ -7,10 +7,5 @@
     "moduleResolution": "NodeNext"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"],
-  "references": [
-    { "path": "../../packages/types" },
-    { "path": "../../packages/shared" },
-    { "path": "../../packages/game-config" }
-  ]
+  "references": [{ "path": "../../packages/shared" }, { "path": "../../packages/game-config" }]
 }
