@@ -32,8 +32,7 @@ export async function processTripArrivals(): Promise<number> {
   let settled = 0;
   for (const trip of arrivedTrips) {
     try {
-      await settleTripArrival(trip);
-      settled++;
+      if (await settleTripArrival(trip)) settled++;
     } catch (err) {
       logger.error({ tripId: trip.id, err }, 'Failed to settle trip arrival');
     }
@@ -54,10 +53,14 @@ export async function processTripArrivals(): Promise<number> {
  * Called once at startup and by the watchdog worker.
  * The jobId-based deduplication ensures no duplicate jobs are created.
  */
-export async function reconcilePendingTrips(): Promise<void> {
+type ScheduleTripArrival = (tripId: string, arrivesAt: Date) => Promise<void>;
+
+export async function reconcilePendingTrips(schedule?: ScheduleTripArrival): Promise<void> {
   const db = getDb();
-  // Lazy import to avoid circular dep: services → queue
-  const { scheduleTripArrival } = await import('../../queue/queues/trip-arrival-queue.js');
+  if (!schedule) {
+    // Lazy import to avoid circular dep: services → queue
+    schedule = (await import('../../queue/queues/trip-arrival-queue.js')).scheduleTripArrival;
+  }
 
   const pendingTrips = await db
     .select({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt })
@@ -65,7 +68,7 @@ export async function reconcilePendingTrips(): Promise<void> {
     .where(eq(spacecraftTrips.status, 'traveling'));
 
   for (const trip of pendingTrips) {
-    await scheduleTripArrival(trip.id, trip.arrivesAt);
+    await schedule(trip.id, trip.arrivesAt);
   }
 
   if (pendingTrips.length > 0) {
@@ -77,15 +80,20 @@ export async function reconcilePendingTrips(): Promise<void> {
 }
 
 // Exported so trip-arrival-worker.ts can settle individual trips directly.
-export async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelect): Promise<void> {
+export async function settleTripArrival(
+  trip: typeof spacecraftTrips.$inferSelect
+): Promise<boolean> {
   const db = getDb();
 
-  await db.transaction(async (tx) => {
-    // Mark trip as arrived
-    await tx
+  return db.transaction(async (tx) => {
+    // Claim the trip atomically. BullMQ and the watchdog may race each other.
+    const [claimed] = await tx
       .update(spacecraftTrips)
       .set({ status: 'arrived' })
-      .where(eq(spacecraftTrips.id, trip.id));
+      .where(and(eq(spacecraftTrips.id, trip.id), eq(spacecraftTrips.status, 'traveling')))
+      .returning({ id: spacecraftTrips.id });
+
+    if (!claimed) return false;
 
     if ((trip.purpose === 'mine' || trip.purpose === 'return') && trip.toType === 'asteroid') {
       await handleMineArrival(tx, trip);
@@ -96,5 +104,7 @@ export async function settleTripArrival(trip: typeof spacecraftTrips.$inferSelec
     } else if (trip.purpose === 'return' && trip.toType === 'station') {
       await handleTransporterReturn(tx, trip);
     }
+
+    return true;
   });
 }

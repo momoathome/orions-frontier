@@ -21,7 +21,7 @@ const totalMiningRatePerHour = ref(0);
 
 <template>
   <div
-    class="absolute bottom-0 left-0 w-full cursor-default z-20 flex flex-col font-mono min-h-[340px] h-[clamp(340px,36vh,520px)]"
+    class="absolute bottom-0 left-0 w-full cursor-default z-20 flex flex-col font-mono min-h-85 h-[clamp(340px,36vh,520px)]"
   >
     <!-- Panel background -->
     <div class="absolute inset-0 bg-[#060c1b]/97 backdrop-blur-xl border-t-2 border-cyan-500/40" />

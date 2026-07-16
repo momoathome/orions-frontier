@@ -56,7 +56,7 @@ function formatYield(y: number) {
       class="flex items-start gap-2.5 pb-2.5 border-b border-white/5 last:border-0 last:pb-0"
     >
       <div
-        class="w-[3px] self-stretch rounded-full mt-0.5 shrink-0"
+        class="w-0.75 self-stretch rounded-full mt-0.5 shrink-0"
         :style="`background:${resourceColor(vein.resourceKey)}`"
       />
       <div class="flex flex-col gap-0.5 min-w-0">

@@ -59,6 +59,7 @@ Voraussetzungen: Node.js 24.11 oder neuer und npm 10 oder neuer.
 npm install
 npm run check
 npm run build
+npm run test:behavior
 ```
 
 Häufige Kommandos:
@@ -69,6 +70,10 @@ npm run lint
 npm run format
 npm run db:migrate
 ```
+
+`npm run test:behavior` startet PostgreSQL und Redis über Docker und prüft die einmalige
+Ereignisverarbeitung, das Aufholen nach einem Neustart und die WebSocket-Authentifizierung. Mit
+`npm run verify` laufen statische Checks, Build und Verhaltenschecks gemeinsam.
 
 Einzelne Workspaces lassen sich direkt ansprechen:
 
@@ -86,3 +91,6 @@ die normale Entwicklung ist deshalb Docker Compose der vorgesehene Einstieg.
 Wir erweitern den vorhandenen technischen Vorsprung nicht um weitere klassische
 Browsergame-Kataloge. Neue Arbeit muss den Idle-Kern stärken: autonome Entscheidungen, sichtbare
 Logistik, wenige verständliche Prioritäten und spürbare Konsequenzen.
+
+Die geplante schrittweise Umstellung ist im [Umsetzungsplan](docs/implementation-plan.md)
+festgehalten.

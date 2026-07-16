@@ -56,7 +56,8 @@ export const startTripArrivalWorker = () => {
         return;
       }
 
-      await settleTripArrival(row.trip);
+      const settled = await settleTripArrival(row.trip);
+      if (!settled) return;
 
       // Notify the owning station's user via WebSocket.
       try {
