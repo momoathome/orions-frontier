@@ -1,11 +1,11 @@
 import { pgTable, uuid, integer, timestamp, jsonb, index, pgEnum } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
 import { stationSpacecrafts } from './station-spacecrafts.js';
+import { asteroidAssignments } from './asteroids.js';
 
 // ============================================================================
 // spacecraft_trips — Time-based travel records for all spacecraft movement.
 //
-// All spacecraft (miners, transporters, fighters) travel in real time.
+// Spacecraft travel in real time.
 // Position during travel is interpolated client-side:
 //   pos = from + (to - from) × ((now - departedAt) / (arrivesAt - departedAt))
 //
@@ -15,9 +15,10 @@ import { stationSpacecrafts } from './station-spacecrafts.js';
 
 export const tripPurposeEnum = pgEnum('trip_purpose', [
   'mine', // Miner flying to asteroid to start mining
+  'mining_return', // Miner returning with the load claimed at arrival
   'transport', // Transporter picking up resources
   'recall', // Miner self-recall: full buffer, flying resources to station
-  'return', // Miner/transporter returning empty to asteroid/idle
+  'return', // Legacy empty return trip
   'combat', // Fighter heading to target
 ]);
 
@@ -36,6 +37,10 @@ export const spacecraftTrips = pgTable(
     stationSpacecraftId: uuid('station_spacecraft_id')
       .notNull()
       .references(() => stationSpacecrafts.id, { onDelete: 'cascade' }),
+    /** Exact mining group this trip belongs to; null for transport and combat trips. */
+    assignmentId: uuid('assignment_id').references(() => asteroidAssignments.id, {
+      onDelete: 'set null',
+    }),
     /** How many ships are part of this trip */
     groupSize: integer('group_size').notNull(),
     fromType: tripEndpointTypeEnum('from_type').notNull(),
@@ -57,18 +62,9 @@ export const spacecraftTrips = pgTable(
     stationSpacecraftIdIdx: index('spacecraft_trips_station_spacecraft_id_idx').on(
       table.stationSpacecraftId
     ),
+    assignmentIdIdx: index('spacecraft_trips_assignment_id_idx').on(table.assignmentId),
     statusIdx: index('spacecraft_trips_status_idx').on(table.status),
     arrivesAtIdx: index('spacecraft_trips_arrives_at_idx').on(table.arrivesAt),
     toIdIdx: index('spacecraft_trips_to_id_idx').on(table.toId),
   })
 );
-
-export const spacecraftTripsRelations = relations(spacecraftTrips, ({ one }) => ({
-  stationSpacecraft: one(stationSpacecrafts, {
-    fields: [spacecraftTrips.stationSpacecraftId],
-    references: [stationSpacecrafts.id],
-  }),
-}));
-
-export type SpacecraftTrip = typeof spacecraftTrips.$inferSelect;
-export type NewSpacecraftTrip = typeof spacecraftTrips.$inferInsert;

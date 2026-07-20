@@ -24,6 +24,3 @@ export const stationSpacecrafts = pgTable(
     stationIdIdx: index('station_spacecrafts_station_id_idx').on(table.stationId),
   })
 );
-
-export type StationSpacecraft = typeof stationSpacecrafts.$inferSelect;
-export type NewStationSpacecraft = typeof stationSpacecrafts.$inferInsert;

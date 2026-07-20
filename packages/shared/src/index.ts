@@ -3,7 +3,6 @@ export enum ErrorCode {
   UNAUTHORIZED = 'UNAUTHORIZED',
   FORBIDDEN = 'FORBIDDEN',
   INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
-  TOKEN_EXPIRED = 'TOKEN_EXPIRED',
 
   // Validation
   VALIDATION_ERROR = 'VALIDATION_ERROR',
@@ -15,8 +14,6 @@ export enum ErrorCode {
 
   // System
   INTERNAL_ERROR = 'INTERNAL_ERROR',
-  DATABASE_ERROR = 'DATABASE_ERROR',
-  EXTERNAL_SERVICE_ERROR = 'EXTERNAL_SERVICE_ERROR',
 }
 
 export class AppError extends Error {
@@ -46,3 +43,4 @@ export * from './station-resource';
 export * from './resource';
 export * from './building';
 export * from './asteroid';
+export * from './mining-trip';

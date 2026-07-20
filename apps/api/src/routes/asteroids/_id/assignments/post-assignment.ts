@@ -1,12 +1,12 @@
-import { defineRoute } from '../../../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../../middleware/auth.js';
 import { createAsteroidAssignment } from '../../../../services/mining/assignment.service.js';
-import { getRedis } from '../../../../lib/redis.js';
+import { publishUserEvent } from '../../../../lib/realtime.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 // POST /api/asteroids/:id/assignments
 
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.post('/', { preHandler: [authenticate] }, async (request, reply) => {
     const { id: asteroidId } = request.params as { id: string };
     const body = request.body as {
@@ -22,9 +22,13 @@ export default defineRoute(async (app) => {
       );
     }
 
-    const assignedAmount = Math.max(1, Math.floor(Number(body.assignedAmount ?? 1)));
+    const assignedAmount = body.assignedAmount ?? 1;
+    if (!Number.isInteger(assignedAmount) || assignedAmount < 1) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'assignedAmount must be a positive integer');
+    }
 
     const result = await createAsteroidAssignment({
+      userId: request.user.userId,
       asteroidId,
       stationId: body.stationId,
       spacecraftDefinitionId: body.spacecraftDefinitionId,
@@ -37,11 +41,8 @@ export default defineRoute(async (app) => {
       return reply.status(status).send({ message: result.message });
     }
 
-    await getRedis().publish(
-      `user:${request.user.userId}:events`,
-      JSON.stringify({ type: 'mining_tick_completed', payload: {}, timestamp: Date.now() })
-    );
+    publishUserEvent(request.user.userId, 'mining_tick_completed');
 
     return reply.status(201).send({ data: { assignmentId: result.id } });
   });
-});
+}) satisfies FastifyPluginAsync;

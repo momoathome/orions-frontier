@@ -1,6 +1,6 @@
 import { eq, inArray, max, and, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
-import { getRedis } from '../lib/redis.js';
+import { publishUserEvent } from '../lib/realtime.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import {
   spacecraftDefinitions,
@@ -10,8 +10,8 @@ import { spacecraftBuildOrders } from '../lib/db/schema/spacecraft-build-orders.
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
+import { stations } from '../lib/db/schema/stations.js';
 import { SHIPYARD_UNLOCKS } from '@orions-frontier/game-config';
-import { spacecraftBuildQueue } from '../queue/queues/spacecraft-build-queue.js';
 import type {
   SpacecraftRole,
   StationSpacecraftWithDefinition,
@@ -24,16 +24,32 @@ export const getStationSpacecrafts = async (
 ): Promise<StationSpacecraftWithDefinition[]> => {
   const db = getDb();
 
-  const rows = await db
+  const [shipyard] = await db
+    .select({ level: stationBuildings.level })
+    .from(stationBuildings)
+    .innerJoin(
+      buildingDefinitions,
+      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+    )
+    .where(and(eq(stationBuildings.stationId, stationId), eq(buildingDefinitions.key, 'shipyard')))
+    .limit(1);
+  const unlockedKeys = Object.entries(SHIPYARD_UNLOCKS)
+    .filter(([level]) => (shipyard?.level ?? 0) >= Number(level))
+    .flatMap(([, keys]) => keys);
+  if (unlockedKeys.length === 0) return [];
+
+  const definitions = await db
+    .select()
+    .from(spacecraftDefinitions)
+    .where(inArray(spacecraftDefinitions.key, unlockedKeys));
+  const definitionIds = definitions.map((definition) => definition.id);
+  const stationRows = await db
     .select()
     .from(stationSpacecrafts)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .where(eq(stationSpacecrafts.stationId, stationId));
-
-  const definitionIds = [...new Set(rows.map((r) => r.spacecraft_definitions.id))];
+  const stationRowByDefinition = new Map(
+    stationRows.map((row) => [row.spacecraftDefinitionId, row])
+  );
 
   const costs =
     definitionIds.length > 0
@@ -66,24 +82,23 @@ export const getStationSpacecrafts = async (
     return acc;
   }, {});
 
-  // Sort rows by role (fighter, miner, transporter, salvager)
-  // and then by cumulative attack+defense (descending)
-  const ROLE_ORDER = ['miner', 'transporter', 'salvager', 'fighter'];
+  // Sort definitions by role and then by cumulative attack+defense.
+  const ROLE_ORDER = ['miner', 'salvager', 'fighter'];
 
-  rows.sort((a, b) => {
-    const ra = ROLE_ORDER.indexOf(a.spacecraft_definitions.role as string);
-    const rb = ROLE_ORDER.indexOf(b.spacecraft_definitions.role as string);
+  definitions.sort((a, b) => {
+    const ra = ROLE_ORDER.indexOf(a.role);
+    const rb = ROLE_ORDER.indexOf(b.role);
     const ia = ra === -1 ? Number.MAX_SAFE_INTEGER : ra;
     const ib = rb === -1 ? Number.MAX_SAFE_INTEGER : rb;
     if (ia !== ib) return ia - ib;
 
-    const sa = (a.spacecraft_definitions.attack ?? 0) + (a.spacecraft_definitions.defense ?? 0);
-    const sb = (b.spacecraft_definitions.attack ?? 0) + (b.spacecraft_definitions.defense ?? 0);
+    const sa = a.attack + a.defense;
+    const sb = b.attack + b.defense;
     return sa - sb; // lower combined stats first
   });
 
-  return rows.map((row) => {
-    const def = row.spacecraft_definitions;
+  return definitions.map((def) => {
+    const stationRow = stationRowByDefinition.get(def.id);
     return {
       definition: {
         id: def.id,
@@ -103,8 +118,8 @@ export const getStationSpacecrafts = async (
           amount: c.amount,
         })),
       },
-      amount: row.station_spacecrafts.amount,
-      lockedAmount: row.station_spacecrafts.lockedAmount,
+      amount: stationRow?.amount ?? 0,
+      lockedAmount: stationRow?.lockedAmount ?? 0,
       buildOrders: (buildOrdersByDefId[def.id] ?? []).map((o) => ({
         id: o.id,
         amount: o.amount,
@@ -118,14 +133,14 @@ export const getStationSpacecrafts = async (
 // Seed initial spacecrafts for a newly created station
 // ============================================================================
 
-const INITIAL_SPACECRAFTS: { key: string; amount: number }[] = [
-  { key: 'mole', amount: 1 },
-  { key: 'nomad', amount: 10 },
-];
+const INITIAL_SPACECRAFTS: { key: string; amount: number }[] = [{ key: 'mole', amount: 1 }];
 
-export const seedStationSpacecrafts = async (stationId: string): Promise<void> => {
-  const db = getDb();
+type SeedDb = Pick<ReturnType<typeof getDb>, 'select' | 'insert'>;
 
+export const seedStationSpacecrafts = async (
+  stationId: string,
+  db: SeedDb = getDb()
+): Promise<void> => {
   const keys = INITIAL_SPACECRAFTS.map((s) => s.key);
   const defs = await db
     .select({ id: spacecraftDefinitions.id, key: spacecraftDefinitions.key })
@@ -165,7 +180,7 @@ export const buildSpacecrafts = async (
   }
 
   // Load spacecraft definitions for all requested keys
-  const requestedKeys = orders.map((o) => o.spacecraftKey);
+  const requestedKeys = [...new Set(orders.map((order) => order.spacecraftKey))];
   const defs = await db
     .select()
     .from(spacecraftDefinitions)
@@ -204,39 +219,9 @@ export const buildSpacecrafts = async (
     throw new AppError(ErrorCode.NOT_FOUND, 'Shipyard building definition not found');
   }
 
-  const [shipyardBuilding] = await db
-    .select({ level: stationBuildings.level })
-    .from(stationBuildings)
-    .where(
-      and(
-        eq(stationBuildings.stationId, stationId),
-        eq(stationBuildings.buildingDefinitionId, shipyardDef.id)
-      )
-    )
-    .limit(1);
-
-  const shipyardLevel = shipyardBuilding?.level ?? 0;
-
-  // Compute unlocked spacecraft keys from shipyard level
-  const unlockedKeys = new Set<string>();
-  for (const [lvl, keys] of Object.entries(SHIPYARD_UNLOCKS)) {
-    if (shipyardLevel >= Number(lvl)) {
-      keys.forEach((k) => unlockedKeys.add(k));
-    }
-  }
-
-  // Validate all orders can be built
-  // TODO: re-enable shipyard unlock check for production
-  const ENFORCE_SHIPYARD_UNLOCKS = false;
   for (const order of orders) {
-    if (ENFORCE_SHIPYARD_UNLOCKS && !unlockedKeys.has(order.spacecraftKey)) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Spacecraft '${order.spacecraftKey}' is not unlocked at current shipyard level`
-      );
-    }
-    if (order.amount <= 0) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Amount must be greater than 0');
+    if (!Number.isInteger(order.amount) || order.amount <= 0) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Amount must be a positive integer');
     }
   }
 
@@ -253,63 +238,75 @@ export const buildSpacecrafts = async (
     }
   }
 
-  // Load station resources and validate
-  const resourceRows = await db
-    .select()
-    .from(stationResources)
-    .where(eq(stationResources.stationId, stationId));
+  const resourceMap = await db.transaction(async (tx) => {
+    const [station] = await tx
+      .select({ id: stations.id })
+      .from(stations)
+      .where(eq(stations.id, stationId))
+      .for('update');
+    if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-  const resourceMap = new Map(resourceRows.map((r) => [r.resourceKey, r.amount]));
-
-  for (const [resourceKey, needed] of totalCosts.entries()) {
-    const current = resourceMap.get(resourceKey) ?? 0;
-    if (current < needed) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Insufficient ${resourceKey}: need ${needed}, have ${current}`
-      );
-    }
-  }
-
-  // Compute endsAt per order (sequential append for same type)
-  // Load current max endsAt per definition for this station
-  const endsAtByDefId = new Map<string, Date>();
-
-  for (const def of defs) {
-    const [row] = await db
-      .select({ maxEndsAt: max(spacecraftBuildOrders.endsAt) })
-      .from(spacecraftBuildOrders)
+    const [shipyardBuilding] = await tx
+      .select({ level: stationBuildings.level })
+      .from(stationBuildings)
       .where(
         and(
-          eq(spacecraftBuildOrders.stationId, stationId),
-          eq(spacecraftBuildOrders.spacecraftDefinitionId, def.id)
+          eq(stationBuildings.stationId, stationId),
+          eq(stationBuildings.buildingDefinitionId, shipyardDef.id)
         )
-      );
-    if (row?.maxEndsAt) {
-      endsAtByDefId.set(def.id, row.maxEndsAt);
+      )
+      .limit(1);
+    const shipyardLevel = shipyardBuilding?.level ?? 0;
+    const unlockedKeys = new Set<string>();
+    for (const [level, keys] of Object.entries(SHIPYARD_UNLOCKS)) {
+      if (shipyardLevel >= Number(level)) keys.forEach((key) => unlockedKeys.add(key));
     }
-  }
+    for (const order of orders) {
+      if (!unlockedKeys.has(order.spacecraftKey)) {
+        throw new AppError(
+          ErrorCode.VALIDATION_ERROR,
+          `Spacecraft '${order.spacecraftKey}' is not unlocked at current shipyard level`
+        );
+      }
+    }
 
-  // Calculate endsAt for each order
-  const orderEndsAt = orders.map((order) => {
-    const def = defByKey.get(order.spacecraftKey)!;
-    const baseline = Math.max((endsAtByDefId.get(def.id) ?? new Date(0)).getTime(), Date.now());
-    const endsAt = new Date(baseline + order.amount * def.buildTime * 1000);
-    // Update running baseline for next order of same type (within same request)
-    endsAtByDefId.set(def.id, endsAt);
-    return { order, def, endsAt };
-  });
+    const resourceRows = await tx
+      .select()
+      .from(stationResources)
+      .where(eq(stationResources.stationId, stationId));
+    const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
+    for (const [resourceKey, needed] of totalCosts.entries()) {
+      const current = currentResources.get(resourceKey) ?? 0;
+      if (current < needed) {
+        throw new AppError(
+          ErrorCode.VALIDATION_ERROR,
+          `Insufficient ${resourceKey}: need ${needed}, have ${current}`
+        );
+      }
+    }
 
-  // Transaction: deduct resources, insert build orders, upsert stationSpacecrafts
-  const insertedOrders: {
-    orderId: string;
-    def: (typeof defs)[0];
-    order: BuildOrder;
-    endsAt: Date;
-  }[] = [];
+    const endsAtByDefId = new Map<string, Date>();
+    for (const def of defs) {
+      const [row] = await tx
+        .select({ maxEndsAt: max(spacecraftBuildOrders.endsAt) })
+        .from(spacecraftBuildOrders)
+        .where(
+          and(
+            eq(spacecraftBuildOrders.stationId, stationId),
+            eq(spacecraftBuildOrders.spacecraftDefinitionId, def.id)
+          )
+        );
+      if (row?.maxEndsAt) endsAtByDefId.set(def.id, row.maxEndsAt);
+    }
+    const now = Date.now();
+    const orderEndsAt = orders.map((order) => {
+      const def = defByKey.get(order.spacecraftKey)!;
+      const baseline = Math.max((endsAtByDefId.get(def.id) ?? new Date(0)).getTime(), now);
+      const endsAt = new Date(baseline + order.amount * def.buildTime * 1000);
+      endsAtByDefId.set(def.id, endsAt);
+      return { order, def, endsAt };
+    });
 
-  await db.transaction(async (tx) => {
-    // Deduct resources
     for (const [resourceKey, amount] of totalCosts.entries()) {
       await tx
         .update(stationResources)
@@ -320,19 +317,16 @@ export const buildSpacecrafts = async (
             eq(stationResources.resourceKey, resourceKey)
           )
         );
+      currentResources.set(resourceKey, (currentResources.get(resourceKey) ?? 0) - amount);
     }
 
-    // Insert build orders
     for (const { order, def, endsAt } of orderEndsAt) {
-      const [inserted] = await tx
-        .insert(spacecraftBuildOrders)
-        .values({
-          stationId,
-          spacecraftDefinitionId: def.id,
-          amount: order.amount,
-          endsAt,
-        })
-        .returning({ id: spacecraftBuildOrders.id });
+      await tx.insert(spacecraftBuildOrders).values({
+        stationId,
+        spacecraftDefinitionId: def.id,
+        amount: order.amount,
+        endsAt,
+      });
 
       // Ensure stationSpacecrafts row exists (amount=0 if brand new)
       await tx
@@ -344,39 +338,13 @@ export const buildSpacecrafts = async (
           lockedAmount: 0,
         })
         .onConflictDoNothing();
-
-      insertedOrders.push({ orderId: inserted!.id, def, order, endsAt });
     }
+
+    return currentResources;
   });
 
-  // Schedule BullMQ jobs after transaction
-  for (const { orderId, def, order, endsAt } of insertedOrders) {
-    const delay = Math.max(0, endsAt.getTime() - Date.now());
-    await spacecraftBuildQueue.add(
-      'spacecraft-build',
-      {
-        userId,
-        stationId,
-        spacecraftDefinitionId: def.id,
-        spacecraftKey: def.key,
-        orderId,
-        amount: order.amount,
-      },
-      { delay }
-    );
-  }
-
-  // Publish resource update so the frontend HUD reflects the deduction immediately
-  // Reuse the already-loaded Map and apply deductions to avoid an extra DB query
-  for (const [resourceKey, amount] of totalCosts.entries()) {
-    resourceMap.set(resourceKey, (resourceMap.get(resourceKey) ?? 0) - amount);
-  }
-  await getRedis().publish(
-    `user:${userId}:events`,
-    JSON.stringify({
-      type: 'resources_updated',
-      payload: { stationId, resources: Object.fromEntries(resourceMap) },
-      timestamp: Date.now(),
-    })
-  );
+  publishUserEvent(userId, 'resources_updated', {
+    stationId,
+    resources: Object.fromEntries(resourceMap),
+  });
 };

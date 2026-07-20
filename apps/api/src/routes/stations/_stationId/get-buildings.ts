@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { defineRoute } from '../../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../middleware/auth.js';
 import { getDb } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
@@ -10,7 +10,7 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
  * GET /api/stations/:stationId/buildings
  * Returns all buildings for the station with computed effects, costs, and milestones.
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.get('/buildings', { preHandler: [authenticate] }, async (request, reply) => {
     const { stationId } = request.params as { stationId: string };
     const db = getDb();
@@ -29,4 +29,4 @@ export default defineRoute(async (app) => {
 
     return reply.send({ success: true, data: { stationId: station.id, buildings } });
   });
-});
+}) satisfies FastifyPluginAsync;

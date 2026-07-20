@@ -2,16 +2,11 @@
 // world-gen/asteroid-gen.ts
 // Asteroid and vein construction helpers.
 //
-// Optimisations vs. the original world-gen.ts:
-//   - buildAsteroidBase() extracts shared logic for size/stability/budget
-//     so buildAsteroid and buildStarterAsteroid don't duplicate it.
-//   - veinType index is clamped to the valid range instead of non-null asserting
-//     past the end of the tuple.
-//   - rollPurity uses typed PurityTier values and a safe cfg-lookup fallback.
+// buildAsteroidBase() keeps shared size, reserve and chunk logic in one place.
 // ============================================================================
 
 import { WORLD_CONFIG } from '../world-config.js';
-import type { AsteroidSize, VeinType, PurityTier } from '@orions-frontier/shared';
+import type { AsteroidSize, VeinType } from '@orions-frontier/shared';
 import type { GeneratedAsteroid, GeneratedVein } from './types.js';
 import type { SeededRng } from './rng.js';
 
@@ -35,27 +30,6 @@ export function pickWeighted(pool: { resource: string; weight: number }[], rng: 
     if (roll < 0) return p.resource;
   }
   return pool[pool.length - 1]!.resource;
-}
-
-// ── Purity roll ────────────────────────────────────────────────────────────────
-
-const PURITY_TIER_ORDER: readonly PurityTier[] = ['impure', 'normal', 'rich', 'pure', 'pristine'];
-
-export function rollPurity(rng: SeededRng): { purity: number; purityTier: PurityTier } {
-  const weights = WORLD_CONFIG.PURITY_WEIGHTS;
-  const total = PURITY_TIER_ORDER.reduce((s, t) => s + (weights[t] ?? 0), 0);
-  if (total <= 0) return { purity: 1.0, purityTier: 'normal' };
-
-  let roll = rng.next() * total;
-  for (const tier of PURITY_TIER_ORDER) {
-    roll -= weights[tier] ?? 0;
-    if (roll < 0) {
-      const cfg = WORLD_CONFIG.PURITY_TIERS.find((t) => t.tier === tier);
-      const purity = cfg ? rng.nextFloat(cfg.multiplier[0], cfg.multiplier[1]) : 1.0;
-      return { purity, purityTier: tier };
-    }
-  }
-  return { purity: 1.0, purityTier: 'normal' };
 }
 
 // ── Size picker ────────────────────────────────────────────────────────────────
@@ -84,23 +58,18 @@ export function pickSize(rng: SeededRng, weights?: SizeWeights): AsteroidSize {
 
 interface AsteroidBase {
   size: AsteroidSize;
-  stability: number;
-  baseBudget: number;
+  resourceAmount: number;
   chunkX: number;
   chunkY: number;
 }
 
 function buildAsteroidBase(x: number, y: number, size: AsteroidSize, rng: SeededRng): AsteroidBase {
-  const stability = rng.nextFloat(
-    WORLD_CONFIG.STABILITY_INITIAL.min,
-    WORLD_CONFIG.STABILITY_INITIAL.max
-  );
-  const baseBudget = rng.nextFloat(
-    WORLD_CONFIG.YIELD_BUDGET[size].min,
-    WORLD_CONFIG.YIELD_BUDGET[size].max
+  const resourceAmount = rng.nextInt(
+    WORLD_CONFIG.ASTEROID_RESOURCE_AMOUNT[size].min,
+    WORLD_CONFIG.ASTEROID_RESOURCE_AMOUNT[size].max
   );
   const { chunkX, chunkY } = worldToChunk(x, y);
-  return { size, stability, baseBudget, chunkX, chunkY };
+  return { size, resourceAmount, chunkX, chunkY };
 }
 
 // ── Core asteroid builder ──────────────────────────────────────────────────────
@@ -120,6 +89,12 @@ export function buildAsteroid(
 
   const veinRange = WORLD_CONFIG.VEIN_COUNT[size];
   const veinCount = rng.nextInt(veinRange.min, veinRange.max);
+  const amountWeights = Array.from({ length: veinCount }, (_, index) => {
+    const veinType = VEIN_TYPES[Math.min(index, VEIN_TYPES.length - 1)]!;
+    return veinCount === 1 ? 1 : WORLD_CONFIG.VEIN_MODIFIER[veinType];
+  });
+  const totalAmountWeight = amountWeights.reduce((sum, weight) => sum + weight, 0);
+  let allocatedAmount = 0;
 
   // Track used resources so no two veins share the same resource.
   const usedResources = new Set<string>([primaryResource]);
@@ -139,15 +114,13 @@ export function buildAsteroid(
       usedResources.add(resourceKey);
     }
 
-    const tierKey =
-      WORLD_CONFIG.RESOURCE_TIER[resourceKey as keyof typeof WORLD_CONFIG.RESOURCE_TIER] ??
-      'low_value';
-    const tierModifier = WORLD_CONFIG.TIER_YIELD_MODIFIER[tierKey] ?? 1.0;
-    const veinModifier = veinCount === 1 ? 1.0 : WORLD_CONFIG.VEIN_MODIFIER[veinType];
-    const yieldPerHour = base.baseBudget * tierModifier * veinModifier;
+    const remainingAmount =
+      i === veinCount - 1
+        ? base.resourceAmount - allocatedAmount
+        : Math.round(base.resourceAmount * (amountWeights[i]! / totalAmountWeight));
+    allocatedAmount += remainingAmount;
 
-    const { purity, purityTier } = rollPurity(rng);
-    veins.push({ veinType, resourceKey, yieldPerHour, purity, purityTier });
+    veins.push({ veinType, resourceKey, remainingAmount });
   }
 
   return {
@@ -156,7 +129,6 @@ export function buildAsteroid(
     chunkX: base.chunkX,
     chunkY: base.chunkY,
     size,
-    stability: base.stability,
     hiddenLevel: 0,
     veins,
   };
@@ -164,9 +136,7 @@ export function buildAsteroid(
 
 // ── Starter asteroid builder ───────────────────────────────────────────────────
 //
-// Starter asteroids always have a single primary vein with guaranteed resource
-// and a fixed purity range (0.9–1.4 = "normal" tier). This is intentional:
-// every new player starts with a predictably good mining spot.
+// Starter asteroids always have a single primary vein with guaranteed resource.
 
 export function buildStarterAsteroid(
   x: number,
@@ -177,28 +147,18 @@ export function buildStarterAsteroid(
   const size = guaranteed.size as AsteroidSize;
   const base = buildAsteroidBase(x, y, size, rng);
 
-  const tierKey =
-    WORLD_CONFIG.RESOURCE_TIER[
-      guaranteed.primaryResource as keyof typeof WORLD_CONFIG.RESOURCE_TIER
-    ] ?? 'low_value';
-  const tierMod = WORLD_CONFIG.TIER_YIELD_MODIFIER[tierKey] ?? 1.0;
-  const purity = rng.nextFloat(0.9, 1.4);
-
   return {
     x,
     y,
     chunkX: base.chunkX,
     chunkY: base.chunkY,
     size,
-    stability: base.stability,
     hiddenLevel: 0,
     veins: [
       {
         veinType: 'primary',
         resourceKey: guaranteed.primaryResource,
-        yieldPerHour: base.baseBudget * tierMod,
-        purity,
-        purityTier: 'normal',
+        remainingAmount: base.resourceAmount,
       },
     ],
   };

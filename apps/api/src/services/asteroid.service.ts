@@ -1,25 +1,21 @@
-import { and, between, eq, lte } from 'drizzle-orm';
+import { and, between, eq, lte, max } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
-import {
-  asteroids,
-  asteroidVeins,
-  asteroidResourceStorage,
-  asteroidAssignments,
-} from '../lib/db/schema/asteroids.js';
+import { asteroids, asteroidVeins, asteroidAssignments } from '../lib/db/schema/asteroids.js';
 import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
+import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
+import { stationBuildings } from '../lib/db/schema/station-buildings.js';
+import { stations } from '../lib/db/schema/stations.js';
+import { calculateBuildingEffect } from '@orions-frontier/game-config';
 import type {
   AsteroidDetail,
   AsteroidDetailAssignment,
   AsteroidSize,
   AsteroidVein,
-  AsteroidResourceStorage,
-  PurityTier,
   VeinType,
   VisibleAsteroid,
 } from '@orions-frontier/shared';
 import type { ResourceKey } from '@orions-frontier/shared';
-import { tickAsteroidAssignments } from './mining/mining-tick.service.js';
 
 // ============================================================================
 // Asteroid Service — asteroid data and map queries
@@ -38,6 +34,24 @@ export interface ChunkQueryParams {
   maxChunkY: number;
   scannerStrength: number;
 }
+
+export const getUserScannerStrength = async (userId: string): Promise<number> => {
+  const db = getDb();
+  const [row] = await db
+    .select({ level: max(stationBuildings.level) })
+    .from(stationBuildings)
+    .innerJoin(stations, eq(stationBuildings.stationId, stations.id))
+    .innerJoin(
+      buildingDefinitions,
+      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+    )
+    .where(and(eq(stations.userId, userId), eq(buildingDefinitions.key, 'scanner')));
+  return (
+    calculateBuildingEffect('scanner', row?.level ?? 0).find(
+      (effect) => effect.type === 'scanner_strength'
+    )?.value ?? 0
+  );
+};
 
 /**
  * Returns all visible asteroids within the requested chunk rectangle.
@@ -80,12 +94,11 @@ export const getVisibleChunkAsteroids = async (
     chunkY: row.chunkY,
     size: row.size as AsteroidSize,
     primaryResourceKey: (row.primaryResourceKey ?? 'carbon') as ResourceKey,
-    isVisible: true as const,
   }));
 };
 
 // ============================================================================
-// getAsteroidById — triggers lazy tick, returns full detail
+// getAsteroidById — returns full detail
 // ============================================================================
 
 export const getAsteroidById = async (
@@ -102,21 +115,11 @@ export const getAsteroidById = async (
 
   if (!row) return null;
 
-  // Trigger lazy tick for all assignments (may update stability)
-  await tickAsteroidAssignments(id);
-
-  // Reload asteroid after potential stability update
-  const [refreshed] = await db.select().from(asteroids).where(eq(asteroids.id, id)).limit(1);
-
-  if (!refreshed) return null;
-
-  const [veins, storage, assignmentRows, travelingTrips] = await Promise.all([
+  const [veins, assignmentRows, travelingTrips] = await Promise.all([
     db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, id)),
-    db.select().from(asteroidResourceStorage).where(eq(asteroidResourceStorage.asteroidId, id)),
     db
       .select({
         id: asteroidAssignments.id,
-        asteroidId: asteroidAssignments.asteroidId,
         stationId: asteroidAssignments.stationId,
         spacecraftDefinitionId: asteroidAssignments.spacecraftDefinitionId,
         spacecraftName: spacecraftDefinitions.name,
@@ -124,7 +127,7 @@ export const getAsteroidById = async (
         spacecraftCargo: spacecraftDefinitions.cargo,
         assignedAmount: asteroidAssignments.assignedAmount,
         assignedAt: asteroidAssignments.assignedAt,
-        lastTick: asteroidAssignments.lastTick,
+        recallRequestedAt: asteroidAssignments.recallRequestedAt,
       })
       .from(asteroidAssignments)
       .innerJoin(
@@ -155,36 +158,23 @@ export const getAsteroidById = async (
   }
 
   return {
-    id: refreshed.id,
-    x: refreshed.x,
-    y: refreshed.y,
-    chunkX: refreshed.chunkX,
-    chunkY: refreshed.chunkY,
-    size: refreshed.size as AsteroidSize,
-    stability: refreshed.stability,
-    hiddenLevel: refreshed.hiddenLevel,
-    clusterId: refreshed.clusterId,
-    createdAt: refreshed.createdAt.toISOString(),
-    updatedAt: refreshed.updatedAt.toISOString(),
+    id: row.id,
+    x: row.x,
+    y: row.y,
+    chunkX: row.chunkX,
+    chunkY: row.chunkY,
+    size: row.size as AsteroidSize,
+    hiddenLevel: row.hiddenLevel,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
     veins: veins.map((v): AsteroidVein => ({
       id: v.id,
-      asteroidId: v.asteroidId,
       veinType: v.veinType as VeinType,
       resourceKey: v.resourceKey as ResourceKey,
-      yieldPerHour: v.yieldPerHour,
-      purity: v.purity,
-      purityTier: v.purityTier as PurityTier,
-    })),
-    storage: storage.map((s): AsteroidResourceStorage => ({
-      id: s.id,
-      asteroidId: s.asteroidId,
-      resourceKey: s.resourceKey as ResourceKey,
-      amount: s.amount,
-      updatedAt: s.updatedAt.toISOString(),
+      remainingAmount: v.remainingAmount,
     })),
     assignments: assignmentRows.map((a): AsteroidDetailAssignment => ({
       id: a.id,
-      asteroidId: a.asteroidId,
       stationId: a.stationId,
       spacecraftDefinitionId: a.spacecraftDefinitionId,
       spacecraftName: a.spacecraftName,
@@ -192,9 +182,8 @@ export const getAsteroidById = async (
       spacecraftCargo: a.spacecraftCargo,
       assignedAmount: a.assignedAmount,
       assignedAt: a.assignedAt.toISOString(),
-      lastTick: a.lastTick.toISOString(),
+      recallRequestedAt: a.recallRequestedAt?.toISOString() ?? null,
     })),
-    activeMiningAssignments: assignmentRows.length,
     inTransit,
   };
 };

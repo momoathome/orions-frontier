@@ -1,6 +1,6 @@
 import type { ResourceKey } from './resource.js';
 
-export type SpacecraftRole = 'fighter' | 'miner' | 'transporter' | 'salvager';
+export type SpacecraftRole = 'fighter' | 'miner' | 'salvager';
 
 export interface SpacecraftDefinition {
   id: string;
@@ -20,14 +20,6 @@ export interface SpacecraftDefinition {
 export interface SpacecraftDefinitionCost {
   resourceKey: ResourceKey;
   amount: number;
-}
-
-export interface StationSpacecraft {
-  id: string;
-  stationId: string;
-  spacecraftDefinitionId: string;
-  amount: number;
-  lockedAmount: number;
 }
 
 export interface SpacecraftBuildOrder {

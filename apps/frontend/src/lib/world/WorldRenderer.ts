@@ -119,11 +119,7 @@ export class WorldRenderer {
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-  async mount(
-    el: HTMLElement,
-    station: StationInfo | null = null,
-    scannerStrength = 0
-  ): Promise<void> {
+  async mount(el: HTMLElement, station: StationInfo | null = null): Promise<void> {
     const w = el.clientWidth || window.innerWidth;
     const h = el.clientHeight || window.innerHeight;
 
@@ -132,8 +128,6 @@ export class WorldRenderer {
       this.camera.x = station.x;
       this.camera.y = station.y;
     }
-
-    this.streamer.scannerStrength = scannerStrength;
 
     // ── PixiJS Application ──────────────────────────────────────────────────
     this.app = new Application();
@@ -373,11 +367,9 @@ export class WorldRenderer {
     }
   }
 
-  /** Update scanner strength and reload visible chunks */
-  setScannerStrength(strength: number) {
-    this.streamer.scannerStrength = strength;
-    this.asteroidLayer.clear();
-    this.streamer.immediateUpdate(this.camera);
+  /** Reload visible world entities after server-side changes such as depletion. */
+  refreshVisibleChunks() {
+    this.streamer.refresh(this.camera);
   }
 
   get loadedChunkCount() {

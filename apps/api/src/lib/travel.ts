@@ -17,9 +17,18 @@ export interface Coordinate {
 
 /** Euclidean distance between two world-space coordinates. */
 export function calcDistance(from: Coordinate, to: Coordinate): number {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  return Math.sqrt(dx * dx + dy * dy);
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+/** Travel duration in real-time hours. */
+export function calcTravelHours(distance: number, speed: number): number {
+  if (!Number.isFinite(distance) || distance < 0) {
+    throw new RangeError('distance must be a finite number greater than or equal to 0');
+  }
+  if (!Number.isFinite(speed) || speed <= 0) {
+    throw new RangeError('speed must be a finite number greater than 0');
+  }
+  return distance / (speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
 }
 
 /**
@@ -30,7 +39,7 @@ export function calcDistance(from: Coordinate, to: Coordinate): number {
  * @returns           Arrival Date
  */
 export function calcArrivesAt(departedAt: Date, distance: number, speed: number): Date {
-  const travelHours = distance / (speed * WORLD_CONFIG.TRAVEL_SPEED_FACTOR);
+  const travelHours = calcTravelHours(distance, speed);
   const travelMs = travelHours * 3_600_000;
   return new Date(departedAt.getTime() + travelMs);
 }

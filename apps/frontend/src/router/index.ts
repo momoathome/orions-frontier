@@ -21,10 +21,10 @@ const routes: RouteRecordRaw[] = [
     meta: { guestOnly: true },
   },
   {
-    path: '/dashboard',
-    name: 'Dashboard',
-    component: () => import('../views/HomeView.vue'),
-    meta: { requiresAuth: true },
+    path: '/register',
+    name: 'Register',
+    component: () => import('../views/RegisterView.vue'),
+    meta: { guestOnly: true },
   },
   {
     path: '/map',
@@ -47,7 +47,7 @@ router.beforeEach((to) => {
   }
 
   if (to.meta.guestOnly && authStore.isAuthenticated) {
-    return { name: 'Dashboard' };
+    return { name: 'Map' };
   }
 
   return true;

@@ -17,6 +17,7 @@ watch(
   () => authStore.token,
   (token) => {
     if (token) wsClient.connect(token);
+    else wsClient.disconnect();
   },
   { immediate: true }
 );

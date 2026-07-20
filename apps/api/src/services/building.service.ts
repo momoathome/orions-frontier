@@ -1,14 +1,16 @@
 import { eq, and, sql, asc } from 'drizzle-orm';
-import { getRedis } from '../lib/redis.js';
+import { publishUserEvent } from '../lib/realtime.js';
 import { getDb } from '../lib/db/index.js';
 import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
+import { stations } from '../lib/db/schema/stations.js';
 import {
   calculateBuildingUpgradeCost,
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   getBuildingUnlockMilestones,
+  isBuildingPlayable,
 } from '@orions-frontier/game-config';
 import type {
   StationBuildingWithDefinition,
@@ -16,15 +18,17 @@ import type {
   BuildingDefinition,
 } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
-import { actionQueue } from '../queue/queues/action-queue.js';
 
 // ============================================================================
 // Seed station buildings (initialize all buildings at level 1 for new station)
 // ============================================================================
 
-export const seedStationBuildings = async (stationId: string): Promise<void> => {
-  const db = getDb();
+type SeedDb = Pick<ReturnType<typeof getDb>, 'select' | 'insert'>;
 
+export const seedStationBuildings = async (
+  stationId: string,
+  db: SeedDb = getDb()
+): Promise<void> => {
   const defs = await db.select().from(buildingDefinitions);
   if (defs.length === 0) return;
 
@@ -116,6 +120,10 @@ export const startBuildingUpgrade = async (
   buildingKey: BuildingKey,
   userId: string
 ): Promise<StationBuildingWithDefinition> => {
+  if (!isBuildingPlayable(buildingKey)) {
+    throw new AppError(ErrorCode.VALIDATION_ERROR, `${buildingKey} is not available yet`);
+  }
+
   const db = getDb();
 
   // Load definition
@@ -129,56 +137,56 @@ export const startBuildingUpgrade = async (
     throw new AppError(ErrorCode.NOT_FOUND, `Building definition '${buildingKey}' not found`);
   }
 
-  // Load station building
-  const [stationBuilding] = await db
-    .select()
-    .from(stationBuildings)
-    .where(
-      and(
-        eq(stationBuildings.stationId, stationId),
-        eq(stationBuildings.buildingDefinitionId, def.id)
+  const resourceMap = await db.transaction(async (tx) => {
+    const [station] = await tx
+      .select({ id: stations.id })
+      .from(stations)
+      .where(eq(stations.id, stationId))
+      .for('update');
+    if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+
+    const [stationBuilding] = await tx
+      .select()
+      .from(stationBuildings)
+      .where(
+        and(
+          eq(stationBuildings.stationId, stationId),
+          eq(stationBuildings.buildingDefinitionId, def.id)
+        )
       )
-    )
-    .limit(1);
+      .limit(1)
+      .for('update');
 
-  if (!stationBuilding) {
-    throw new AppError(ErrorCode.NOT_FOUND, 'Station building not found');
-  }
-
-  if (stationBuilding.upgradeEndsAt && stationBuilding.upgradeEndsAt > new Date()) {
-    throw new AppError(ErrorCode.VALIDATION_ERROR, 'Building is already upgrading');
-  }
-
-  if (stationBuilding.level >= def.maxLevel) {
-    throw new AppError(ErrorCode.VALIDATION_ERROR, 'Building is already at max level');
-  }
-
-  const targetLevel = stationBuilding.level + 1;
-  const costs = calculateBuildingUpgradeCost(buildingKey, targetLevel);
-
-  // Load current resource amounts for validation
-  const resourceRows = await db
-    .select()
-    .from(stationResources)
-    .where(eq(stationResources.stationId, stationId));
-
-  const resourceMap = new Map(resourceRows.map((r) => [r.resourceKey, r.amount]));
-
-  for (const cost of costs) {
-    const current = resourceMap.get(cost.resourceKey) ?? 0;
-    if (current < cost.amount) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${current}`
-      );
+    if (!stationBuilding) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Station building not found');
     }
-  }
+    if (stationBuilding.upgradeEndsAt) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Building is already upgrading');
+    }
+    if (stationBuilding.level >= def.maxLevel) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Building is already at max level');
+    }
 
-  // Deduct resources and start upgrade atomically
-  const buildTimeSeconds = calculateBuildingBuildTime(buildingKey, targetLevel);
-  const upgradeEndsAt = new Date(Date.now() + buildTimeSeconds * 1000);
+    const targetLevel = stationBuilding.level + 1;
+    const costs = calculateBuildingUpgradeCost(buildingKey, targetLevel);
+    const resourceRows = await tx
+      .select()
+      .from(stationResources)
+      .where(eq(stationResources.stationId, stationId));
+    const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
 
-  await db.transaction(async (tx) => {
+    for (const cost of costs) {
+      const current = currentResources.get(cost.resourceKey) ?? 0;
+      if (current < cost.amount) {
+        throw new AppError(
+          ErrorCode.VALIDATION_ERROR,
+          `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${current}`
+        );
+      }
+    }
+
+    const buildTimeSeconds = calculateBuildingBuildTime(buildingKey, targetLevel);
+    const upgradeEndsAt = new Date(Date.now() + buildTimeSeconds * 1000);
     for (const cost of costs) {
       await tx
         .update(stationResources)
@@ -189,33 +197,24 @@ export const startBuildingUpgrade = async (
             eq(stationResources.resourceKey, cost.resourceKey)
           )
         );
+      currentResources.set(
+        cost.resourceKey,
+        (currentResources.get(cost.resourceKey) ?? 0) - cost.amount
+      );
     }
 
     await tx
       .update(stationBuildings)
       .set({ upgradeEndsAt, updatedAt: new Date() })
       .where(eq(stationBuildings.id, stationBuilding.id));
+
+    return currentResources;
   });
 
-  await actionQueue.add(
-    'building-upgrade-finished',
-    { userId, stationId, buildingKey },
-    { delay: buildTimeSeconds * 1000 }
-  );
-
-  // Publish resource update so the frontend HUD reflects the deduction immediately
-  // Re-use the already-loaded rows but apply the deducted costs to avoid an extra DB query
-  for (const cost of costs) {
-    resourceMap.set(cost.resourceKey, (resourceMap.get(cost.resourceKey) ?? 0) - cost.amount);
-  }
-  await getRedis().publish(
-    `user:${userId}:events`,
-    JSON.stringify({
-      type: 'resources_updated',
-      payload: { stationId, resources: Object.fromEntries(resourceMap) },
-      timestamp: Date.now(),
-    })
-  );
+  publishUserEvent(userId, 'resources_updated', {
+    stationId,
+    resources: Object.fromEntries(resourceMap),
+  });
 
   const allBuildings = await getStationBuildings(stationId);
   const result = allBuildings.find((b) => b.definition.key === buildingKey);

@@ -2,12 +2,9 @@ import { eq, inArray, and, gte } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
-import { asteroidAssignments, asteroidVeins } from '../lib/db/schema/asteroids.js';
-import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import type { ResourceKey, ResourceMap } from '@orions-frontier/shared';
-import { calcMiningRatesByResource } from '../lib/vein-rates.js';
 
 // ============================================================================
 // Initial resource amounts for new stations
@@ -21,13 +18,16 @@ const INITIAL_RESOURCES: Record<ResourceKey, number> = {
   astatine: 0,
 };
 
+type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
+
 // ============================================================================
 // Seed resources for a newly created station
 // ============================================================================
 
-export const seedStationResources = async (stationId: string): Promise<void> => {
-  const db = getDb();
-
+export const seedStationResources = async (
+  stationId: string,
+  db: SeedDb = getDb()
+): Promise<void> => {
   const rows = (Object.entries(INITIAL_RESOURCES) as [ResourceKey, number][]).map(
     ([resourceKey, amount]) => ({
       stationId,
@@ -37,24 +37,6 @@ export const seedStationResources = async (stationId: string): Promise<void> => 
   );
 
   await db.insert(stationResources).values(rows);
-};
-
-// ============================================================================
-// Get resources for a single station as ResourceMap
-// ============================================================================
-
-export const getStationResources = async (stationId: string): Promise<ResourceMap> => {
-  const db = getDb();
-
-  const rows = await db
-    .select()
-    .from(stationResources)
-    .where(eq(stationResources.stationId, stationId));
-
-  return rows.reduce<ResourceMap>((acc, row) => {
-    acc[row.resourceKey as ResourceKey] = row.amount;
-    return acc;
-  }, {});
 };
 
 // ============================================================================
@@ -88,76 +70,10 @@ export const getUserAggregatedResources = async (userId: string): Promise<Resour
 };
 
 // ============================================================================
-// Get theoretical mining rates (units/h) per resource across all stations
-// of a user — single JOIN query, no N+1.
+// Get actual mining deliveries during the last hour.
 // ============================================================================
 
-export const getUserMiningRates = async (userId: string): Promise<ResourceMap> => {
-  const db = getDb();
-
-  // One query: assignments → stations (filter userId) → spacecraft_definitions
-  //            → asteroid_veins
-  const rows = await db
-    .select({
-      asteroidId: asteroidAssignments.asteroidId,
-      assignedAmount: asteroidAssignments.assignedAmount,
-      miningRate: spacecraftDefinitions.miningRate,
-      veinType: asteroidVeins.veinType,
-      purity: asteroidVeins.purity,
-      yieldPerHour: asteroidVeins.yieldPerHour,
-      resourceKey: asteroidVeins.resourceKey,
-    })
-    .from(asteroidAssignments)
-    .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(asteroidAssignments.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
-    .innerJoin(asteroidVeins, eq(asteroidAssignments.asteroidId, asteroidVeins.asteroidId))
-    .where(eq(stations.userId, userId));
-
-  // Group by asteroid so we can:
-  //  a) sum combined mining rate across all assignment rows for the same asteroid
-  //  b) normalize vein allocations across only the veins actually present
-  // This mirrors calculateMiningTick / calcEffectiveRateByResource exactly.
-  type VeinData = { veinType: string; purity: number; yieldPerHour: number; resourceKey: string };
-  const byAsteroid = new Map<string, { combinedRate: number; veins: Map<string, VeinData> }>();
-
-  for (const row of rows) {
-    let entry = byAsteroid.get(row.asteroidId);
-    if (!entry) {
-      entry = { combinedRate: 0, veins: new Map() };
-      byAsteroid.set(row.asteroidId, entry);
-    }
-    entry.combinedRate += row.miningRate * row.assignedAmount;
-    // Veins are repeated for each assignment row — deduplicate by resourceKey+veinType
-    if (!entry.veins.has(row.veinType + ':' + row.resourceKey)) {
-      entry.veins.set(row.veinType + ':' + row.resourceKey, {
-        veinType: row.veinType,
-        purity: row.purity,
-        yieldPerHour: row.yieldPerHour,
-        resourceKey: row.resourceKey,
-      });
-    }
-  }
-
-  const rates: ResourceMap = {};
-  for (const { combinedRate, veins } of byAsteroid.values()) {
-    const ratesByResource = calcMiningRatesByResource(combinedRate, [...veins.values()]);
-    for (const [key, rate] of Object.entries(ratesByResource)) {
-      rates[key as ResourceKey] = (rates[key as ResourceKey] ?? 0) + rate;
-    }
-  }
-  return rates;
-};
-
-// ============================================================================
-// Get effective transport delivery rate (units/h) per resource.
-// Calculated from arrived trips (recall + transport returns) within the last hour.
-// This reflects actual resources delivered to the station — not theoretical mining.
-// ============================================================================
-
-export const getTransportEffectiveRates = async (userId: string): Promise<ResourceMap> => {
+export const getDeliveredResourceRates = async (userId: string): Promise<ResourceMap> => {
   const db = getDb();
 
   const userStations = await db

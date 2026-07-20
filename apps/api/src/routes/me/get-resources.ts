@@ -1,28 +1,25 @@
-import { defineRoute } from '../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../middleware/auth.js';
 import {
   getUserAggregatedResources,
-  getUserMiningRates,
-  getTransportEffectiveRates,
+  getDeliveredResourceRates,
 } from '../../services/station-resource.service.js';
 
 /**
  * GET /api/me/resources
- * Returns aggregated resources, theoretical mining rates, and effective
- * transport delivery rates (last hour) across all stations.
+ * Returns aggregated resources and actual deliveries during the last hour.
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.get('/resources', { preHandler: [authenticate] }, async (request, reply) => {
     const { userId } = request.user;
-    const [resources, rates, effectiveRates] = await Promise.all([
+    const [resources, rates] = await Promise.all([
       getUserAggregatedResources(userId),
-      getUserMiningRates(userId),
-      getTransportEffectiveRates(userId),
+      getDeliveredResourceRates(userId),
     ]);
 
     return reply.send({
       success: true,
-      data: { resources, rates, effectiveRates },
+      data: { resources, rates },
     });
   });
-});
+}) satisfies FastifyPluginAsync;

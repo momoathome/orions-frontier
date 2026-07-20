@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { defineRoute } from '../../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../middleware/auth.js';
 import { getDb } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
@@ -11,7 +11,7 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
  * Enqueues spacecraft build orders for the given station.
  * Body: { orders: [{ spacecraftKey: string, amount: number }] }
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.post('/spacecrafts/build', { preHandler: [authenticate] }, async (request, reply) => {
     const { stationId } = request.params as { stationId: string };
 
@@ -59,4 +59,4 @@ export default defineRoute(async (app) => {
 
     return reply.status(202).send({ success: true });
   });
-});
+}) satisfies FastifyPluginAsync;

@@ -23,38 +23,36 @@ export const getUserStations = async (userId: string): Promise<Station[]> => {
   return rows.map(toStation);
 };
 
-export const getAllStations = async (): Promise<Station[]> => {
-  const db = getDb();
-  const rows = await db.select().from(stations);
-  return rows.map(toStation);
-};
-
 export const createStation = async (userId: string, data: { name: string }): Promise<Station> => {
   const db = getDb();
 
-  // Claim the next available spawn slot
-  const [slot] = await db
-    .select()
-    .from(spawnSlots)
-    .where(isNull(spawnSlots.stationId))
-    .orderBy(asc(spawnSlots.slotIndex))
-    .limit(1);
+  return db.transaction(async (tx) => {
+    const [slot] = await tx
+      .select()
+      .from(spawnSlots)
+      .where(isNull(spawnSlots.stationId))
+      .orderBy(asc(spawnSlots.slotIndex))
+      .limit(1)
+      .for('update', { skipLocked: true });
 
-  if (!slot) {
-    throw new AppError(ErrorCode.VALIDATION_ERROR, 'No spawn slots available. The server is full.');
-  }
+    if (!slot) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        'No spawn slots available. The server is full.'
+      );
+    }
 
-  const [station] = await db
-    .insert(stations)
-    .values({ userId, name: data.name, x: slot.x, y: slot.y })
-    .returning();
+    const [station] = await tx
+      .insert(stations)
+      .values({ userId, name: data.name, x: slot.x, y: slot.y })
+      .returning();
+    if (!station) throw new Error('Failed to create station');
 
-  // Mark slot as claimed
-  await db.update(spawnSlots).set({ stationId: station!.id }).where(eq(spawnSlots.id, slot.id));
+    await tx.update(spawnSlots).set({ stationId: station.id }).where(eq(spawnSlots.id, slot.id));
+    await seedStationResources(station.id, tx);
+    await seedStationBuildings(station.id, tx);
+    await seedStationSpacecrafts(station.id, tx);
 
-  await seedStationResources(station!.id);
-  await seedStationBuildings(station!.id);
-  await seedStationSpacecrafts(station!.id);
-
-  return toStation(station!);
+    return toStation(station);
+  });
 };

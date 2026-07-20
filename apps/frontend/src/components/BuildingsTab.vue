@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue';
 import { wsClient } from '../lib/ws-client';
-import { apiClient } from '../lib/api-client';
+import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { isBuildingPlayable } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingEffectType } from '@orions-frontier/shared';
 
 const props = defineProps<{ stationId: string }>();
@@ -154,8 +155,11 @@ async function loadBuildings(force = false) {
   buildingsLoading.value = true;
   buildingsError.value = null;
   try {
-    const { data } = await apiClient.get(`/stations/${props.stationId}/buildings`);
-    buildings.value = data.data.buildings;
+    const response = await apiClient.get(`/stations/${props.stationId}/buildings`);
+    buildings.value = response.data.buildings.sort(
+      (a: StationBuildingWithDefinition, b: StationBuildingWithDefinition) =>
+        Number(isBuildingPlayable(b.definition.key)) - Number(isBuildingPlayable(a.definition.key))
+    );
     // Record detection time for any upgrading building we haven't seen yet
     for (const b of buildings.value) {
       if (b.isUpgrading && !upgradeDetectedAt.has(b.definition.key)) {
@@ -179,16 +183,17 @@ async function loadBuildings(force = false) {
 }
 
 async function startUpgrade(building: StationBuildingWithDefinition) {
-  if (upgrading.value || building.isUpgrading) return;
+  if (upgrading.value || building.isUpgrading || !isBuildingPlayable(building.definition.key)) {
+    return;
+  }
   upgrading.value = building.definition.key;
   try {
     await apiClient.post(
       `/stations/${props.stationId}/buildings/${building.definition.key}/upgrade`
     );
     await loadBuildings(true);
-  } catch (err: any) {
-    const msg = err?.response?.data?.message ?? 'Upgrade failed';
-    buildingsError.value = msg;
+  } catch (error) {
+    buildingsError.value = apiErrorMessage(error, 'Upgrade failed');
     setTimeout(() => {
       buildingsError.value = null;
     }, 4000);
@@ -328,8 +333,15 @@ onUnmounted(() => unsubscribe());
           {{ activeBuilding.definition.description }}
         </p>
 
+        <p
+          v-if="!isBuildingPlayable(activeBuilding.definition.key)"
+          class="text-[10px] text-amber-300/60 uppercase tracking-widest"
+        >
+          Planned module — effects are not active yet
+        </p>
+
         <!-- Effects + Costs: side by side, like SpacecraftStats -->
-        <div class="flex gap-12">
+        <div v-if="isBuildingPlayable(activeBuilding.definition.key)" class="flex gap-12">
           <!-- Effects column -->
           <div class="flex flex-col gap-1 shrink-0">
             <span class="text-[9px] text-white/20 uppercase tracking-widest mb-0.5">Effects</span>
@@ -424,12 +436,14 @@ onUnmounted(() => unsubscribe());
         <button
           @click="startUpgrade(activeBuilding)"
           :disabled="
+            !isBuildingPlayable(activeBuilding.definition.key) ||
             activeBuilding.isUpgrading ||
             activeBuilding.level >= activeBuilding.definition.maxLevel ||
             !!upgrading
           "
           class="w-full py-2.5 rounded border text-[10px] uppercase tracking-[0.2em] font-semibold transition"
           :class="
+            !isBuildingPlayable(activeBuilding.definition.key) ||
             activeBuilding.isUpgrading ||
             activeBuilding.level >= activeBuilding.definition.maxLevel ||
             !!upgrading
@@ -437,7 +451,10 @@ onUnmounted(() => unsubscribe());
               : 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200'
           "
         >
-          <span v-if="activeBuilding.level >= activeBuilding.definition.maxLevel">Max Level</span>
+          <span v-if="!isBuildingPlayable(activeBuilding.definition.key)">Coming Soon</span>
+          <span v-else-if="activeBuilding.level >= activeBuilding.definition.maxLevel"
+            >Max Level</span
+          >
           <span v-else-if="activeBuilding.isUpgrading">Upgrading…</span>
           <span v-else-if="upgrading === activeBuilding.definition.key">Starting…</span>
           <span v-else>Upgrade</span>

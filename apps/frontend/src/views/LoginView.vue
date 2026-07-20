@@ -37,13 +37,6 @@
           <span v-if="errors.password" class="form-field-error">{{ errors.password }}</span>
         </div>
 
-        <div class="form-group form-remember">
-          <label class="checkbox-label">
-            <input v-model="form.remember" type="checkbox" class="checkbox" />
-            <span>Remember me</span>
-          </label>
-        </div>
-
         <div class="form-actions">
           <router-link to="/register" class="link">Don't have an account?</router-link>
           <button type="submit" class="btn-primary" :disabled="loading">
@@ -66,7 +59,6 @@ const authStore = useAuthStore();
 const form = reactive({
   email: '',
   password: '',
-  remember: false,
 });
 
 const errors = reactive<{ email?: string; password?: string }>({});
@@ -95,7 +87,7 @@ const submit = async () => {
 
   try {
     await authStore.login({ email: form.email, password: form.password });
-    router.push('/dashboard');
+    router.push('/map');
   } catch {
     errorMessage.value = authStore.error ?? 'Login failed. Please check your credentials.';
   } finally {

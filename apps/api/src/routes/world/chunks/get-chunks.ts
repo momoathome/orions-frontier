@@ -1,6 +1,9 @@
-import { defineRoute } from '../../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../middleware/auth.js';
-import { getVisibleChunkAsteroids } from '../../../services/asteroid.service.js';
+import {
+  getUserScannerStrength,
+  getVisibleChunkAsteroids,
+} from '../../../services/asteroid.service.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 /** Maximum allowed chunk range per axis to prevent oversized queries */
@@ -10,15 +13,14 @@ const MAX_CHUNK_RANGE = 20;
  * GET /api/world/chunks
  *
  * Returns visible asteroids within the requested chunk rectangle.
- * Visibility is filtered by the caller-supplied scannerStrength:
+ * Visibility is filtered by the authenticated player's scanner building:
  *   asteroid.hidden_level <= scannerStrength
  *
  * Query params:
  *   minChunkX, maxChunkX  — chunk X range (inclusive)
  *   minChunkY, maxChunkY  — chunk Y range (inclusive)
- *   scannerStrength       — optional, defaults to 0
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request, reply) => {
     const q = request.query as Record<string, string | undefined>;
 
@@ -26,7 +28,6 @@ export default defineRoute(async (app) => {
     const maxChunkX = parseInt(q['maxChunkX'] ?? '', 10);
     const minChunkY = parseInt(q['minChunkY'] ?? '', 10);
     const maxChunkY = parseInt(q['maxChunkY'] ?? '', 10);
-    const scannerStrength = Math.max(0, parseInt(q['scannerStrength'] ?? '0', 10) || 0);
 
     if (isNaN(minChunkX) || isNaN(maxChunkX) || isNaN(minChunkY) || isNaN(maxChunkY)) {
       throw new AppError(
@@ -46,6 +47,7 @@ export default defineRoute(async (app) => {
       );
     }
 
+    const scannerStrength = await getUserScannerStrength(request.user.userId);
     const data = await getVisibleChunkAsteroids({
       minChunkX,
       maxChunkX,
@@ -56,4 +58,4 @@ export default defineRoute(async (app) => {
 
     return reply.send({ success: true, data });
   });
-});
+}) satisfies FastifyPluginAsync;

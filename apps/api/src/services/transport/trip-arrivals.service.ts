@@ -1,110 +1,58 @@
-import { and, eq, lt, lte } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { logger as rootLogger } from '../../lib/logger.js';
-import {
-  handleMineArrival,
-  handleRecallArrival,
-  handleTransportOutbound,
-  handleTransporterReturn,
-} from './trip-handlers.js';
+import { handleMineArrival, handleMiningReturnArrival } from './trip-handlers.js';
 
 const logger = rootLogger.child({ name: 'trip-arrivals' });
 
 // ============================================================================
 // Trip Arrivals Service
 //
-// processTripArrivals — settles all spacecraft_trips where arrivesAt <= now.
 // settleTripArrival   — dispatches a single trip to the correct handler.
-//
-// Called by the transport-tick BullMQ worker every minute.
 // ============================================================================
 
-export async function processTripArrivals(): Promise<number> {
-  const db = getDb();
-  const now = new Date();
-
-  const arrivedTrips = await db
-    .select()
-    .from(spacecraftTrips)
-    .where(and(eq(spacecraftTrips.status, 'traveling'), lte(spacecraftTrips.arrivesAt, now)));
-
-  let settled = 0;
-  for (const trip of arrivedTrips) {
-    try {
-      if (await settleTripArrival(trip)) settled++;
-    } catch (err) {
-      logger.error({ tripId: trip.id, err }, 'Failed to settle trip arrival');
-    }
-  }
-
-  // Delete arrived trips older than 24 h — keeps the table small while
-  // still covering the 1 h window used by getTransportEffectiveRates.
-  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  await db
-    .delete(spacecraftTrips)
-    .where(and(eq(spacecraftTrips.status, 'arrived'), lt(spacecraftTrips.arrivesAt, cutoff)));
-
-  return settled;
-}
-
-/**
- * Reconciles all currently traveling trips by registering delayed BullMQ jobs.
- * Called once at startup and by the watchdog worker.
- * The jobId-based deduplication ensures no duplicate jobs are created.
- */
 type ScheduleTripArrival = (tripId: string, arrivesAt: Date) => Promise<void>;
-
-export async function reconcilePendingTrips(schedule?: ScheduleTripArrival): Promise<void> {
-  const db = getDb();
-  if (!schedule) {
-    // Lazy import to avoid circular dep: services → queue
-    schedule = (await import('../../queue/queues/trip-arrival-queue.js')).scheduleTripArrival;
-  }
-
-  const pendingTrips = await db
-    .select({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt })
-    .from(spacecraftTrips)
-    .where(eq(spacecraftTrips.status, 'traveling'));
-
-  for (const trip of pendingTrips) {
-    await schedule(trip.id, trip.arrivesAt);
-  }
-
-  if (pendingTrips.length > 0) {
-    logger.info(
-      { count: pendingTrips.length },
-      'Reconciled pending trips → delayed jobs registered'
-    );
-  }
-}
 
 // Exported so trip-arrival-worker.ts can settle individual trips directly.
 export async function settleTripArrival(
-  trip: typeof spacecraftTrips.$inferSelect
+  trip: typeof spacecraftTrips.$inferSelect,
+  schedule?: ScheduleTripArrival
 ): Promise<boolean> {
   const db = getDb();
 
-  return db.transaction(async (tx) => {
-    // Claim the trip atomically. BullMQ and the watchdog may race each other.
+  const result = await db.transaction(async (tx) => {
+    // Claim the trip atomically. Overlapping scheduler ticks may race each other.
     const [claimed] = await tx
       .update(spacecraftTrips)
       .set({ status: 'arrived' })
       .where(and(eq(spacecraftTrips.id, trip.id), eq(spacecraftTrips.status, 'traveling')))
       .returning({ id: spacecraftTrips.id });
 
-    if (!claimed) return false;
+    if (!claimed) return { settled: false, createdTrip: null };
 
-    if ((trip.purpose === 'mine' || trip.purpose === 'return') && trip.toType === 'asteroid') {
-      await handleMineArrival(tx, trip);
-    } else if (trip.purpose === 'recall') {
-      await handleRecallArrival(tx, trip);
-    } else if (trip.purpose === 'transport' && trip.toType === 'asteroid') {
-      await handleTransportOutbound(tx, trip);
-    } else if (trip.purpose === 'return' && trip.toType === 'station') {
-      await handleTransporterReturn(tx, trip);
+    let createdTrip: { id: string; arrivesAt: Date } | null = null;
+    if (trip.purpose === 'mine' && trip.toType === 'asteroid') {
+      createdTrip = await handleMineArrival(tx, trip);
+    } else if (trip.purpose === 'mining_return' && trip.toType === 'station') {
+      createdTrip = await handleMiningReturnArrival(tx, trip);
     }
 
-    return true;
+    return { settled: true, createdTrip };
   });
+
+  if (!result.settled) return false;
+
+  if (result.createdTrip && schedule) {
+    try {
+      await schedule(result.createdTrip.id, result.createdTrip.arrivesAt);
+    } catch (err) {
+      logger.warn(
+        { tripId: result.createdTrip.id, err },
+        'Scheduling chained trip failed; reconciliation will recover'
+      );
+    }
+  }
+
+  return true;
 }

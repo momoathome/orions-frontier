@@ -1,5 +1,4 @@
 import { pgTable, uuid, integer, timestamp, index } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
 import { stations } from './stations.js';
 import { sectors } from './sectors.js';
 
@@ -30,10 +29,3 @@ export const spawnSlots = pgTable(
     sectorIdIdx: index('spawn_slots_sector_id_idx').on(table.sectorId),
   })
 );
-
-export const spawnSlotsRelations = relations(spawnSlots, ({ one }) => ({
-  station: one(stations, {
-    fields: [spawnSlots.stationId],
-    references: [stations.id],
-  }),
-}));

@@ -1,4 +1,4 @@
-import { defineRoute } from '../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../middleware/auth.js';
 import { eq, and, inArray } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
@@ -12,7 +12,7 @@ import { spacecraftDefinitions } from '../../lib/db/schema/spacecraft-definition
  * Returns all active (traveling) spacecraft trips across all stations of the user.
  * Used by the map to render in-flight spacecraft with interpolated positions.
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.get('/trips', { preHandler: [authenticate] }, async (request, reply) => {
     const { userId } = request.user;
     const db = getDb();
@@ -91,4 +91,4 @@ export default defineRoute(async (app) => {
 
     return reply.send({ success: true, data });
   });
-});
+}) satisfies FastifyPluginAsync;

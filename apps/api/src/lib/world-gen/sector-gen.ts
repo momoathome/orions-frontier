@@ -1,7 +1,7 @@
 // ============================================================================
 // world-gen/sector-gen.ts
 // Sector-level generation: spawn slots, starter pockets, field clusters,
-// background scatter, and the main generateSector / generateSectors entry points.
+// background scatter, and the main generateSector entry point.
 //
 // Pipeline (per sector):
 //   1. Spawn slots   — Sub-sector grid placement (one slot per player cell)
@@ -37,12 +37,7 @@ function pickWeightedItem<T extends { weight: number }>(items: readonly T[], rng
   return items[items.length - 1]!;
 }
 import type { SizeWeights } from './asteroid-gen.js';
-import type {
-  GeneratedAsteroid,
-  GeneratedField,
-  GeneratedSpawnSlot,
-  GeneratedSector,
-} from './types.js';
+import type { GeneratedAsteroid, GeneratedSpawnSlot, GeneratedSector } from './types.js';
 
 type Point = { x: number; y: number };
 
@@ -232,9 +227,8 @@ function generateFields(
   grid: SpatialGrid,
   rng: SeededRng,
   personality: SectorPersonality
-): { asteroids: GeneratedAsteroid[]; fields: GeneratedField[] } {
+): GeneratedAsteroid[] {
   const asteroids: GeneratedAsteroid[] = [];
-  const fields: GeneratedField[] = [];
   const fieldPool = WORLD_CONFIG.FIELD_RESOURCES as { resource: string; weight: number }[];
   const [minFields, maxFields] = personality.fieldCount;
   const fieldCount = rng.nextInt(minFields, maxFields);
@@ -268,8 +262,6 @@ function generateFields(
     const points = sampleShapeSpec(spec, count, rng);
 
     const isMixedField = count > WORLD_CONFIG.FIELD_PURE_MAX;
-    let placed = 0;
-
     for (const pt of points) {
       if (
         !canPlaceAt(
@@ -289,19 +281,16 @@ function generateFields(
       grid.add(pt.x, pt.y);
       const resource = isMixedField ? pickWeighted(fieldPool, rng) : primaryResource;
       asteroids.push(buildAsteroid(pt.x, pt.y, resource, fieldPool, rng, sizeWeights));
-      placed++;
     }
-
-    fields.push({ shapeKey, primaryResource, asteroidCount: placed });
   }
 
-  return { asteroids, fields };
+  return asteroids;
 }
 
 // ── Background scatter ────────────────────────────────────────────────────────
 //
 // Sparse uniform scatter of core-resource asteroids across the whole sector.
-// Uses an independent RNG stream (:background) for deterministic stability.
+// Uses an independent RNG stream (:background) for deterministic placement and reserves.
 
 function generateBackground(
   sectorCenterX: number,
@@ -405,7 +394,7 @@ export const generateSector = (
   );
 
   // 3. Field clusters — shaped asteroid groups (before background to fill gaps first).
-  const { asteroids: fieldAsteroids, fields } = generateFields(
+  const fieldAsteroids = generateFields(
     sectorCenterX,
     sectorCenterY,
     halfW,
@@ -444,27 +433,7 @@ export const generateSector = (
     sectorY,
     archetypeId: personality.id,
     seed: sectorSeed,
-    gameplayTags: [],
     asteroids: asteroidList,
     spawnSlots,
-    pois: [],
-    fields,
   };
-};
-
-/**
- * Generates multiple sectors with globally-unique spawn slot indices.
- * Each sector is generated independently; order does not affect determinism.
- *
- * @param coords    Array of sector coordinates to generate
- * @param worldSeed Master world seed
- */
-export const generateSectors = (
-  coords: { sectorX: number; sectorY: number }[],
-  worldSeed: string
-): GeneratedSector[] => {
-  const { PLAYER_CAPACITY } = WORLD_CONFIG.SECTOR;
-  return coords.map(({ sectorX, sectorY }, i) =>
-    generateSector(sectorX, sectorY, worldSeed, i * PLAYER_CAPACITY)
-  );
 };

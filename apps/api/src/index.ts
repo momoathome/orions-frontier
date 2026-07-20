@@ -1,24 +1,15 @@
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
-import env from '@fastify/env';
 import autoload from '@fastify/autoload';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { envSchema } from './config/env.js';
 import { errorHandler } from './plugins/error-handler.js';
 import jwtPlugin from './plugins/jwt.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
-import { initRedis } from './lib/redis.js';
-import { startActionWorker } from './queue/workers/action-worker.js';
-import { startSpacecraftBuildWorker } from './queue/workers/spacecraft-build-worker.js';
-import { startMiningTickWorker } from './queue/workers/mining-tick-worker.js';
-import { startTransportTickWorker } from './queue/workers/transport-tick-worker.js';
-import { startTripArrivalWorker } from './queue/workers/trip-arrival-worker.js';
-import { scheduleMiningTickCron } from './queue/queues/mining-tick-queue.js';
-import { scheduleTransportTickCron } from './queue/queues/transport-tick-queue.js';
-import { reconcilePendingTrips } from './services/transport/trip-arrivals.service.js';
+import { attachRealtimeServer } from './lib/realtime.js';
+import { runSimulationTick, startSimulationScheduler } from './services/simulation.service.js';
 import {
   seedSpacecraftDefinitions,
   seedBuildingDefinitions,
@@ -32,16 +23,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const start = async () => {
+  try {
+    process.loadEnvFile();
+  } catch {
+    // Docker and production environments inject variables directly.
+  }
+  process.env['NODE_ENV'] ??= 'production';
+
   const fastify = Fastify({
     loggerInstance: logger,
   });
 
   try {
-    // Environment validation
-    await fastify.register(env, {
-      schema: envSchema,
-      dotenv: true,
-    });
+    for (const key of ['DATABASE_URL', 'JWT_SECRET']) {
+      if (!process.env[key]) throw new Error(`${key} is not defined`);
+    }
 
     // Security plugins
     await fastify.register(helmet, {
@@ -66,20 +62,6 @@ const start = async () => {
     await runMigrations();
     fastify.log.info('Migrations applied');
 
-    // Initialize Redis
-    await initRedis();
-    fastify.log.info('Redis connected');
-
-    // Start job queue workers
-    startActionWorker();
-    startSpacecraftBuildWorker();
-    startMiningTickWorker();
-    startTransportTickWorker();
-    startTripArrivalWorker();
-    await scheduleMiningTickCron();
-    await scheduleTransportTickCron();
-    fastify.log.info('Queue workers started');
-
     // Seed static data
     await seedSpacecraftDefinitions();
     fastify.log.info('Spacecraft definitions seeded');
@@ -93,12 +75,15 @@ const start = async () => {
     await seedSpawnSlots();
     fastify.log.info('Spawn slots seeded');
 
-    await seedDevUser();
-    fastify.log.info('Dev user seeded');
+    if (process.env['NODE_ENV'] === 'development') {
+      await seedDevUser();
+      fastify.log.info('Dev user seeded');
+    }
 
-    // Reconcile trips that were in-flight before the last restart.
-    // Must run AFTER seed (tables must exist) but before serving traffic.
-    await reconcilePendingTrips();
+    // Complete overdue work before accepting traffic, then poll PostgreSQL.
+    await runSimulationTick();
+    const simulationScheduler = startSimulationScheduler();
+    fastify.addHook('onClose', async () => clearInterval(simulationScheduler));
 
     // File-based routing with AutoLoad
     await fastify.register(autoload, {
@@ -110,6 +95,8 @@ const start = async () => {
       routeParams: true,
       ignorePattern: /.*(test|spec).ts/,
     });
+
+    attachRealtimeServer(fastify);
 
     // Start server
     const port = Number(process.env['API_PORT']) || 3000;

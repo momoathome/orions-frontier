@@ -1,5 +1,4 @@
 import { pgTable, uuid, varchar, integer, timestamp, index } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
 import { users } from './users.js';
 
 export const stations = pgTable(
@@ -18,13 +17,3 @@ export const stations = pgTable(
     userIdIdx: index('stations_user_id_idx').on(table.userId),
   })
 );
-
-export const stationsRelations = relations(stations, ({ one }) => ({
-  user: one(users, {
-    fields: [stations.userId],
-    references: [users.id],
-  }),
-}));
-
-export type Station = typeof stations.$inferSelect;
-export type NewStation = typeof stations.$inferInsert;

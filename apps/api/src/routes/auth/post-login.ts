@@ -1,4 +1,4 @@
-import { defineRoute } from '../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { LoginRequestSchema } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { loginUser } from '../../services/auth.service.js';
@@ -6,7 +6,7 @@ import { loginUser } from '../../services/auth.service.js';
 /**
  * POST /api/auth/login
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.post('/login', async (request, reply) => {
     const parsed = LoginRequestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -21,4 +21,4 @@ export default defineRoute(async (app) => {
 
     return reply.send({ success: true, data: { token, user } });
   });
-});
+}) satisfies FastifyPluginAsync;

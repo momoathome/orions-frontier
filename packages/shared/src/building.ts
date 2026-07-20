@@ -49,16 +49,6 @@ export interface BuildingDefinition {
 // Station Building (runtime per station)
 // ============================================================================
 
-export interface StationBuilding {
-  id: string;
-  stationId: string;
-  buildingDefinitionId: string;
-  level: number;
-  upgradeEndsAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 // ============================================================================
 // Upgrade Cost
 // ============================================================================

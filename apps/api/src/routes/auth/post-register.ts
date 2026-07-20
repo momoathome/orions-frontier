@@ -1,4 +1,4 @@
-import { defineRoute } from '../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { RegisterRequestSchema } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { registerUser } from '../../services/auth.service.js';
@@ -6,7 +6,7 @@ import { registerUser } from '../../services/auth.service.js';
 /**
  * POST /api/auth/register
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.post('/register', async (request, reply) => {
     const parsed = RegisterRequestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -21,4 +21,4 @@ export default defineRoute(async (app) => {
 
     return reply.status(201).send({ success: true, data: { token, user } });
   });
-});
+}) satisfies FastifyPluginAsync;

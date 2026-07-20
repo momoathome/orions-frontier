@@ -8,14 +8,6 @@ export const ALL_RESOURCES = [
   'astatine',
 ] as const;
 
-export const resourceLabels: Record<string, string> = {
-  carbon: 'C',
-  titanium: 'Ti',
-  hydrogenium: 'Hy',
-  kyber_crystal: 'KC',
-  astatine: 'At',
-};
-
 export type RoleTheme = {
   topBar: string;
   badge: string;
@@ -38,13 +30,6 @@ export const roleThemes: Record<SpacecraftRole, RoleTheme> = {
     badgeText: 'text-amber-300',
     statValue: 'text-amber-200',
     amount: 'text-amber-300',
-  },
-  transporter: {
-    topBar: 'bg-sky-500',
-    badge: 'bg-sky-500/15 border-sky-500/30',
-    badgeText: 'text-sky-300',
-    statValue: 'text-sky-200',
-    amount: 'text-sky-300',
   },
   salvager: {
     topBar: 'bg-violet-500',

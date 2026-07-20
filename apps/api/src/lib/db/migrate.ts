@@ -13,6 +13,13 @@ const __dirname = dirname(__filename);
  * Safe to call multiple times (idempotent via drizzle's journal).
  */
 export const runMigrations = async (): Promise<void> => {
+  if (!process.env['DATABASE_URL']) {
+    try {
+      process.loadEnvFile();
+    } catch {
+      // Docker injects the environment; a local .env file is optional.
+    }
+  }
   const connectionString = process.env['DATABASE_URL'];
 
   if (!connectionString) {

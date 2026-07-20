@@ -23,6 +23,3 @@ export const spacecraftBuildOrders = pgTable(
     ),
   })
 );
-
-export type SpacecraftBuildOrderRow = typeof spacecraftBuildOrders.$inferSelect;
-export type NewSpacecraftBuildOrder = typeof spacecraftBuildOrders.$inferInsert;

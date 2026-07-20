@@ -17,18 +17,9 @@ export const VEIN_MODIFIER = {
 // Asteroid Core Types
 // ============================================================================
 
-export type AsteroidResourceType = ResourceKey;
-
 export type AsteroidSize = 'small' | 'medium' | 'large' | 'massive';
 
 export type VeinType = 'primary' | 'secondary' | 'trace';
-
-export type PurityTier = 'impure' | 'normal' | 'rich' | 'pure' | 'pristine';
-
-export interface ChunkCoordinate {
-  x: number;
-  y: number;
-}
 
 // ============================================================================
 // Asteroid Vein
@@ -36,40 +27,10 @@ export interface ChunkCoordinate {
 
 export interface AsteroidVein {
   id: string;
-  asteroidId: string;
   veinType: VeinType;
   resourceKey: ResourceKey;
-  /** Max yield per hour: baseBudget × tierModifier × veinModifier */
-  yieldPerHour: number;
-  /** Purity multiplier 0.4–3.0, applied to actual miner output */
-  purity: number;
-  purityTier: PurityTier;
-}
-
-// ============================================================================
-// Asteroid Resource Storage (local buffer)
-// ============================================================================
-
-export interface AsteroidResourceStorage {
-  id: string;
-  asteroidId: string;
-  resourceKey: ResourceKey;
-  amount: number;
-  updatedAt: string;
-}
-
-// ============================================================================
-// Asteroid Assignment
-// ============================================================================
-
-export interface AsteroidAssignment {
-  id: string;
-  asteroidId: string;
-  stationId: string;
-  spacecraftDefinitionId: string;
-  assignedAmount: number;
-  assignedAt: string;
-  lastTick: string;
+  /** Resource units not yet committed to a mining cycle. */
+  remainingAmount: number;
 }
 
 // ============================================================================
@@ -82,29 +43,11 @@ export interface Asteroid {
   y: number;
   chunkX: number;
   chunkY: number;
-  /** Size category determines yield budget and mining slot count */
+  /** Size category determines reserve range and mining slot count */
   size: AsteroidSize;
-  /** Stability 0.0–1.0 — degrades on overmining, regens when load < yield */
-  stability: number;
   hiddenLevel: number;
-  clusterId: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-// ============================================================================
-// Asteroid Cluster
-// ============================================================================
-
-export interface AsteroidCluster {
-  id: string;
-  name: string;
-  centerX: number;
-  centerY: number;
-  radius: number;
-  resourceBias: AsteroidResourceType;
-  seed: string;
-  createdAt: string;
 }
 
 // ============================================================================
@@ -121,7 +64,6 @@ export interface VisibleAsteroid {
   size: AsteroidSize;
   /** Primary vein resource — used for map color rendering */
   primaryResourceKey: ResourceKey;
-  isVisible: true;
 }
 
 // ============================================================================
@@ -130,7 +72,6 @@ export interface VisibleAsteroid {
 
 export interface AsteroidDetailAssignment {
   id: string;
-  asteroidId: string;
   stationId: string;
   spacecraftDefinitionId: string;
   spacecraftName: string;
@@ -139,20 +80,17 @@ export interface AsteroidDetailAssignment {
   spacecraftCargo: number;
   assignedAmount: number;
   assignedAt: string;
-  lastTick: string;
+  recallRequestedAt: string | null;
 }
 
 // ============================================================================
 // AsteroidDetail — returned by GET /asteroids/:id
-// Full detail including veins, buffer, and assignments.
+// Full detail including veins and assignments.
 // ============================================================================
 
 export interface AsteroidDetail extends Asteroid {
   veins: AsteroidVein[];
-  storage: AsteroidResourceStorage[];
   assignments: AsteroidDetailAssignment[];
-  /** Count of active assignment rows */
-  activeMiningAssignments: number;
-  /** Resources currently in traveling transport/recall trips from this asteroid */
+  /** Resources claimed by mining groups and currently returning from this asteroid */
   inTransit: Record<string, number>;
 }

@@ -205,42 +205,6 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
       { resourceKey: 'kyber_crystal', amount: 50 },
     ],
   },
-  // ── Transporters ─────────────────────────────────────────────────────────────
-  {
-    key: 'nomad',
-    name: 'Nomad',
-    description: 'Light freighter Drone designed for short-range supply runs.',
-    role: 'transporter',
-    image: '/assets/spacecrafts/nomad.webp',
-    attack: 1,
-    defense: 3,
-    cargo: 15,
-    speed: 150,
-    miningRate: 0,
-    buildTime: 40,
-    costs: [
-      { resourceKey: 'carbon', amount: 100 },
-      { resourceKey: 'titanium', amount: 50 },
-    ],
-  },
-  {
-    key: 'hercules',
-    name: 'Hercules',
-    description: 'Medium cargo freighter built for inter-station transport and logistics.',
-    role: 'transporter',
-    image: '/assets/spacecrafts/hercules.webp',
-    attack: 3,
-    defense: 8,
-    cargo: 60,
-    speed: 150,
-    miningRate: 0,
-    buildTime: 200,
-    costs: [
-      { resourceKey: 'carbon', amount: 300 },
-      { resourceKey: 'titanium', amount: 200 },
-      { resourceKey: 'hydrogenium', amount: 100 },
-    ],
-  },
   // Salvage
   {
     key: 'collector',

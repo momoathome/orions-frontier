@@ -13,6 +13,7 @@ export {
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   getBuildingUnlockMilestones,
+  isBuildingPlayable,
   SHIPYARD_UNLOCKS,
 } from './buildings.js';
 export type { BuildingSeedDefinition } from './buildings.js';

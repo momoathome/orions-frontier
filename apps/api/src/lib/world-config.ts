@@ -4,7 +4,6 @@
 // Change values here — never hardcode them in logic files.
 // ============================================================================
 
-import type { ResourceKey } from '@orions-frontier/shared';
 import { VEIN_MODIFIER } from '@orions-frontier/shared';
 
 export const WORLD_CONFIG = {
@@ -26,12 +25,12 @@ export const WORLD_CONFIG = {
     massive: { min: 3, max: 3 },
   },
 
-  /** Yield budget range per hour per size (before modifiers). */
-  YIELD_BUDGET: {
-    small: { min: 90, max: 120 },
-    medium: { min: 180, max: 260 },
-    large: { min: 380, max: 500 },
-    massive: { min: 700, max: 1000 },
+  /** Finite total resource units generated per asteroid. */
+  ASTEROID_RESOURCE_AMOUNT: {
+    small: { min: 8_000, max: 12_000 },
+    medium: { min: 20_000, max: 30_000 },
+    large: { min: 50_000, max: 80_000 },
+    massive: { min: 120_000, max: 200_000 },
   },
 
   /**
@@ -39,46 +38,6 @@ export const WORLD_CONFIG = {
    * Imported from @orions-frontier/shared — single source of truth for frontend + backend.
    */
   VEIN_MODIFIER,
-
-  /** Resource scarcity tier — drives TIER_YIELD_MODIFIER lookup. */
-  RESOURCE_TIER: {
-    carbon: 'low_value',
-    titanium: 'low_value',
-    hydrogenium: 'medium_value',
-    kyber_crystal: 'high_value',
-    astatine: 'extreme_value',
-  } as Record<ResourceKey, string>,
-
-  /** Yield multiplier per scarcity tier (rarer = lower base yield). */
-  TIER_YIELD_MODIFIER: {
-    low_value: 1,
-    medium_value: 0.75,
-    high_value: 0.2,
-    extreme_value: 0.05,
-  } as Record<string, number>,
-
-  // ── Purity ────────────────────────────────────────────────────────────────
-
-  /** Purity tier multiplier ranges — roll a tier, then sample a float within it. */
-  PURITY_TIERS: [
-    { tier: 'impure', multiplier: [0.5, 0.8] },
-    { tier: 'normal', multiplier: [0.9, 1.4] },
-    { tier: 'rich', multiplier: [1.5, 1.9] },
-    { tier: 'pure', multiplier: [2.0, 2.5] },
-    { tier: 'pristine', multiplier: [2.6, 3.0] },
-  ],
-
-  /** Global probability weights per purity tier — applies to every asteroid. */
-  PURITY_WEIGHTS: { impure: 20, normal: 50, rich: 20, pure: 8, pristine: 2 },
-
-  // ── Stability ─────────────────────────────────────────────────────────────
-
-  STABILITY_INITIAL: { min: 0.8, max: 1.0 },
-  STABILITY_FLOOR: 0,
-  /** Per-hour regen when mining load < yield. */
-  STABILITY_REGEN_PER_HOUR: 0.01,
-  /** Base per-hour degradation at 1× overmining ratio. */
-  STABILITY_DEGRADATION_PER_HOUR: 0.05,
 
   // ── Mining ────────────────────────────────────────────────────────────────
 
@@ -217,52 +176,9 @@ export const WORLD_CONFIG = {
   FIELD_SIZE_WEIGHTS: { small: 20, medium: 40, large: 30, massive: 10 },
 
   // ── Game speed (dev tuning) ───────────────────────────────────────────────
-  //
-  // Cheat sheet:
-  //   TRAVEL_SPEED_FACTOR 10   → realistic (hours per trip)
-  //   TRAVEL_SPEED_FACTOR 1000 → ~20× faster (minutes per trip)
-  //
-  //   MINING_RATE_MULTIPLIER 1  → normal
-  //   MINING_RATE_MULTIPLIER 10 → 10× more resources per tick
-  //
-  //   MINING_TICK_INTERVAL_MS  300_000 → tick every 5 min (normal)
-  //   MINING_TICK_INTERVAL_MS   10_000 → tick every 10 s (fast debug)
 
   /** Multiplier: world-units per speed-unit per hour. Higher = faster travel. */
   TRAVEL_SPEED_FACTOR: 80,
-
-  /** Global multiplier applied to all mined resource output. */
-  MINING_RATE_MULTIPLIER: 1,
-
-  /** How often the mining-tick BullMQ job runs (milliseconds). */
-  MINING_TICK_INTERVAL_MS: 60_000,
-
-  /**
-   * How often the transport-watchdog BullMQ job runs (milliseconds).
-   * Primary arrivals are handled by per-trip delayed jobs.
-   * This watchdog only reconciles orphaned trips.
-   */
-  TRANSPORT_TICK_INTERVAL_MS: 300_000,
-
-  // ── Transport dispatch scoring ────────────────────────────────────────────
-  //
-  // Controls how transporters are prioritised and dispatched.
-  // Tune these to change pickup aggressiveness without touching service code.
-
-  TRANSPORT_DISPATCH: {
-    /** Projected-fill fraction contribution to dispatch score. */
-    W_FILL: 1.0,
-    /** Normalised distance cost subtracted from score. */
-    W_DISTANCE: 0.12,
-    /** Max expected route distance used to normalise the distance penalty. */
-    DISTANCE_REFERENCE: 2500,
-    /** Ideal projected-fill ratio at arrival to qualify a transporter for a route. */
-    TARGET_FILL: 0.9,
-    /** Opportunistic fallback minimum projected fill when asteroid has been starved. */
-    SOFT_MIN_FILL: 0.65,
-    /** How long (ms) an asteroid may go without a dispatch before fallback triggers. */
-    STARVATION_MS: 15 * 60 * 1000,
-  },
 
   // ── Starter pockets ───────────────────────────────────────────────────────
   //

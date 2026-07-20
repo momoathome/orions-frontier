@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { defineRoute } from '../../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../middleware/auth.js';
 import { getDb } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
@@ -11,7 +11,7 @@ import type { BuildingKey } from '@orions-frontier/shared';
  * POST /api/stations/:stationId/buildings/:buildingKey/upgrade
  * Starts upgrading a building if the station has sufficient resources.
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.post(
     '/buildings/:buildingKey/upgrade',
     { preHandler: [authenticate] },
@@ -46,4 +46,4 @@ export default defineRoute(async (app) => {
       return reply.send({ success: true, data: updatedBuilding });
     }
   );
-});
+}) satisfies FastifyPluginAsync;

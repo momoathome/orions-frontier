@@ -1,14 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { apiClient } from '../lib/api-client';
+import { apiClient, apiErrorMessage } from '../lib/api-client';
 import type { AsteroidDetail } from '@orions-frontier/shared';
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
-import {
-  resourceColor,
-  resourceName,
-  calcEffectiveRateByResource,
-  calcStabilityChangePerHour,
-} from '../lib/mining-utils';
+import { resourceColor, resourceName } from '../lib/mining-utils';
 
 const props = defineProps<{
   show: boolean;
@@ -16,9 +11,6 @@ const props = defineProps<{
   asteroid: AsteroidDetail;
   asteroidId: string;
   stationId: string;
-  effectiveRateByResource: Record<string, number>;
-  totalMiningPowerRaw: number;
-  stabilityChangePerHour: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -32,6 +24,24 @@ const selectedDefId = ref('');
 const assignAmount = ref(1);
 const assignError = ref<string | null>(null);
 const assigning = ref(false);
+const previewLoading = ref(false);
+const previewError = ref<string | null>(null);
+
+interface MiningPreview {
+  distance: number;
+  speed: number;
+  miningRate: number;
+  cargoCapacity: number;
+  remainingAmount: number;
+  oneWayTravelHours: number;
+  miningHours: number;
+  roundTripHours: number;
+  deliveryPerHourPerMiner: number;
+  totalDeliveryPerHour: number;
+  estimatedDepletionHours: number;
+}
+
+const preview = ref<MiningPreview | null>(null);
 
 watch(
   () => props.show,
@@ -41,6 +51,8 @@ watch(
       assignAmount.value = 1;
       assignError.value = null;
       assigning.value = false;
+      preview.value = null;
+      previewError.value = null;
     }
   }
 );
@@ -51,26 +63,45 @@ const selectedMiner = computed(
   () => props.miners.find((m) => m.definition.id === selectedDefId.value) ?? null
 );
 
-const assignTotalPower = computed(
-  () => (assignAmount.value ?? 0) * (selectedMiner.value?.definition.miningRate ?? 0)
+let previewRequest = 0;
+watch(
+  [() => props.show, selectedDefId, assignAmount],
+  async ([show, spacecraftDefinitionId, minerCount]) => {
+    const requestId = ++previewRequest;
+    preview.value = null;
+    previewError.value = null;
+    if (!show || !spacecraftDefinitionId || minerCount < 1) return;
+
+    previewLoading.value = true;
+    try {
+      const response = await apiClient.get(`/asteroids/${props.asteroidId}/mining-preview`, {
+        params: {
+          stationId: props.stationId,
+          spacecraftDefinitionId,
+          minerCount,
+        },
+      });
+      if (requestId === previewRequest) preview.value = response.data;
+    } catch (error) {
+      if (requestId === previewRequest) {
+        previewError.value = apiErrorMessage(error, 'Preview unavailable');
+      }
+    } finally {
+      if (requestId === previewRequest) previewLoading.value = false;
+    }
+  },
+  { flush: 'post' }
 );
 
-const assignPreviewRates = computed<Record<string, number>>(() => {
-  if (!selectedMiner.value || assignAmount.value < 1) return {};
-  return calcEffectiveRateByResource(
-    props.totalMiningPowerRaw + assignTotalPower.value,
-    props.asteroid.veins
-  );
-});
+function formatDuration(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  if (hours < 24) return `${hours.toFixed(1)} h`;
+  return `${(hours / 24).toFixed(1)} d`;
+}
 
-const assignPreviewStabilityChange = computed<number | null>(() => {
-  if (!selectedMiner.value || assignAmount.value < 1) return null;
-  return calcStabilityChangePerHour(
-    props.totalMiningPowerRaw + assignTotalPower.value,
-    props.asteroid.veins,
-    true
-  );
-});
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(value);
+}
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -95,8 +126,8 @@ async function submit() {
       assignedAmount: assignAmount.value,
     });
     emit('done');
-  } catch (err: any) {
-    assignError.value = err?.response?.data?.message ?? 'Assignment failed';
+  } catch (error) {
+    assignError.value = apiErrorMessage(error, 'Assignment failed');
   } finally {
     assigning.value = false;
   }
@@ -183,17 +214,55 @@ async function submit() {
               class="text-[9px] text-red-400/80"
               >Max available: {{ selectedMiner.amount - selectedMiner.lockedAmount }}</span
             >
-            <span v-else-if="assignTotalPower > 0" class="text-[9px] text-white/25">
-              Total mining power: {{ assignTotalPower }}/h
+            <span v-else-if="selectedMiner" class="text-[9px] text-white/25">
+              {{ selectedMiner.definition.miningRate }}/h ·
+              {{ selectedMiner.definition.cargo }} cargo · speed
+              {{ selectedMiner.definition.speed }}
             </span>
           </div>
 
-          <!-- Impact Preview -->
+          <!-- Round-trip Preview -->
           <div
             v-if="assignAmount >= 1 && selectedMiner"
             class="flex flex-col gap-1.5 pt-2 border-t border-white/8"
           >
-            <span class="text-[9px] text-white/20 uppercase tracking-wider">Impact Preview</span>
+            <span class="text-[9px] text-white/20 uppercase tracking-wider">Mining Preview</span>
+            <span v-if="previewLoading" class="text-[9px] text-white/25 animate-pulse"
+              >Calculating…</span
+            >
+            <span v-else-if="previewError" class="text-[9px] text-red-400/70">{{
+              previewError
+            }}</span>
+            <template v-else-if="preview">
+              <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] tabular-nums">
+                <span class="text-white/25">Distance</span>
+                <span class="text-right text-white/60">{{ formatNumber(preview.distance) }}</span>
+                <span class="text-white/25">Flight each way</span>
+                <span class="text-right text-white/60">{{
+                  formatDuration(preview.oneWayTravelHours)
+                }}</span>
+                <span class="text-white/25">Mining</span>
+                <span class="text-right text-white/60">{{
+                  formatDuration(preview.miningHours)
+                }}</span>
+                <span class="text-white/25">Round trip</span>
+                <span class="text-right text-white/60">{{
+                  formatDuration(preview.roundTripHours)
+                }}</span>
+                <span class="text-white/25">Delivery</span>
+                <span class="text-right text-cyan-400/80 font-semibold"
+                  >{{ formatNumber(preview.totalDeliveryPerHour) }}/h</span
+                >
+                <span class="text-white/25">Reserve</span>
+                <span class="text-right text-white/60">{{
+                  formatNumber(preview.remainingAmount)
+                }}</span>
+                <span class="text-white/25">Estimated depletion</span>
+                <span class="text-right text-amber-300/75">{{
+                  formatDuration(preview.estimatedDepletionHours)
+                }}</span>
+              </div>
+            </template>
             <div
               v-for="vein in asteroid.veins"
               :key="vein.id"
@@ -202,55 +271,9 @@ async function submit() {
               <span :style="`color:${resourceColor(vein.resourceKey)}`">{{
                 resourceName(vein.resourceKey)
               }}</span>
-              <div class="flex items-center gap-1 tabular-nums">
-                <span class="text-white/25"
-                  >{{ (effectiveRateByResource[vein.resourceKey] ?? 0).toFixed(1) }}/h</span
-                >
-                <span class="text-white/15">→</span>
-                <span
-                  :class="
-                    (assignPreviewRates[vein.resourceKey] ?? 0) >
-                    (effectiveRateByResource[vein.resourceKey] ?? 0)
-                      ? 'text-emerald-400/80'
-                      : 'text-white/40'
-                  "
-                  >{{ (assignPreviewRates[vein.resourceKey] ?? 0).toFixed(1) }}/h</span
-                >
-              </div>
-            </div>
-            <div
-              class="flex items-center justify-between text-[9px] mt-0.5 pt-1.5 border-t border-white/5"
-            >
-              <span class="text-white/25">Stability/h</span>
-              <div class="flex items-center gap-1 tabular-nums">
-                <span
-                  :class="(stabilityChangePerHour ?? 0) < 0 ? 'text-red-400/50' : 'text-white/25'"
-                >
-                  {{
-                    stabilityChangePerHour !== null
-                      ? (stabilityChangePerHour > 0 ? '+' : '') +
-                        (stabilityChangePerHour * 100).toFixed(2) +
-                        '%'
-                      : '—'
-                  }}
-                </span>
-                <span class="text-white/15">→</span>
-                <span
-                  :class="
-                    (assignPreviewStabilityChange ?? 0) < 0
-                      ? 'text-red-400/80 font-semibold'
-                      : 'text-emerald-400/70'
-                  "
-                >
-                  {{
-                    assignPreviewStabilityChange !== null
-                      ? (assignPreviewStabilityChange > 0 ? '+' : '') +
-                        (assignPreviewStabilityChange * 100).toFixed(2) +
-                        '%'
-                      : '—'
-                  }}
-                </span>
-              </div>
+              <span class="text-white/45 tabular-nums">{{
+                formatNumber(vein.remainingAmount)
+              }}</span>
             </div>
           </div>
 

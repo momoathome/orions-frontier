@@ -4,7 +4,6 @@ import {
   integer,
   varchar,
   timestamp,
-  json,
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
@@ -31,8 +30,6 @@ export const sectors = pgTable(
     archetypeId: varchar('archetype_id', { length: 64 }).notNull(),
     /** Deterministic per-sector seed used during generation */
     seed: varchar('seed', { length: 256 }).notNull(),
-    /** Gameplay identity tags inherited from the archetype */
-    gameplayTags: json('gameplay_tags').$type<string[]>().notNull().default([]),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => ({

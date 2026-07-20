@@ -74,8 +74,8 @@ async function loadFleet(force = false) {
   if (!force) fleetLoading.value = true;
   fleetError.value = null;
   try {
-    const { data } = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
-    fleet.value = data.data.spacecrafts;
+    const response = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
+    fleet.value = response.data.spacecrafts;
     if (!activeShip.value && fleet.value.length > 0) {
       activeShip.value = fleet.value[0]!;
     } else if (activeShip.value) {
@@ -186,9 +186,7 @@ onUnmounted(() => unsubscribe());
                   ? 'rgb(239 68 68 / 0.08)'
                   : activeShip.definition.role === 'miner'
                     ? 'rgb(245 158 11 / 0.08)'
-                    : activeShip.definition.role === 'transporter'
-                      ? 'rgb(56 189 248 / 0.08)'
-                      : 'rgb(167 139 250 / 0.08)'
+                    : 'rgb(167 139 250 / 0.08)'
               } 0%, transparent 65%)`,
             }
           : {}

@@ -6,7 +6,7 @@ import {
   spacecraftDefinitionCosts,
 } from './db/schema/spacecraft-definitions.js';
 import { buildingDefinitions } from './db/schema/building-definitions.js';
-import { asteroids, asteroidVeins, asteroidResourceStorage } from './db/schema/asteroids.js';
+import { asteroids, asteroidVeins } from './db/schema/asteroids.js';
 import { spawnSlots } from './db/schema/spawn-slots.js';
 import { sectors } from './db/schema/sectors.js';
 import { users } from './db/schema/users.js';
@@ -16,8 +16,7 @@ import { stationSpacecrafts } from './db/schema/station-spacecrafts.js';
 import { stationResources } from './db/schema/station-resources.js';
 import { spacecrafts, buildings } from '@orions-frontier/game-config';
 import { seedStationSpacecrafts } from '../services/spacecraft.service.js';
-import { generateSector } from './world-gen/index.js';
-import type { GeneratedSector } from './world-gen/index.js';
+import { generateSector } from './world-gen/sector-gen.js';
 import { resourceKeys } from '@orions-frontier/shared';
 import { sql } from 'drizzle-orm';
 import { WORLD_CONFIG } from './world-config.js';
@@ -66,11 +65,11 @@ export const seedSpacecraftDefinitions = async (): Promise<void> => {
 
     if (!upserted) continue;
 
+    // Replace costs entirely so removed/changed costs are cleaned up.
+    await db
+      .delete(spacecraftDefinitionCosts)
+      .where(eq(spacecraftDefinitionCosts.spacecraftDefinitionId, upserted.id));
     if (def.costs.length > 0) {
-      // Replace costs entirely so removed/changed costs are cleaned up.
-      await db
-        .delete(spacecraftDefinitionCosts)
-        .where(eq(spacecraftDefinitionCosts.spacecraftDefinitionId, upserted.id));
       await db.insert(spacecraftDefinitionCosts).values(
         def.costs.map((cost) => ({
           spacecraftDefinitionId: upserted.id,
@@ -114,98 +113,23 @@ export const seedBuildingDefinitions = async (): Promise<void> => {
 // ============================================================================
 // Asteroid world seeder
 // Seeds the full asteroid world procedurally using the sector-based generator.
-// Idempotent: skips if asteroid_veins are already populated.
+// Idempotent: skips if the initial sector already exists.
 // If asteroids exist but have no veins (stale migration state), clears and reseeds.
 //
-// Initial world: sector (0,0) — always 'balanced', centred at world origin.
-// Additional sectors can be generated later via generateSector(x, y, worldSeed).
+// Initial world: sector (0,0), centred at world origin.
 // ============================================================================
 
 const ASTEROID_BATCH_SIZE = 500;
 
-// ── World generation stats logger ─────────────────────────────────────────────
-
-function logSectorStats(sector: GeneratedSector): void {
-  const as = sector.asteroids;
-  const total = as.length;
-  if (total === 0) return;
-
-  const pad = (s: string | number, n: number) => String(s).padStart(n);
-  const pct = (n: number) => pad(`${Math.round((n / total) * 100)} %`, 5);
-
-  // Size breakdown
-  const sizes = { small: 0, medium: 0, large: 0, massive: 0 };
-  for (const a of as) sizes[a.size]++;
-
-  // Average stability
-  const avgStability = as.reduce((s, a) => s + a.stability, 0) / total;
-
-  // Average yield per hour per size (sum of all vein yields on the asteroid)
-  const yieldBySize: Record<string, { total: number; count: number }> = {};
-  for (const a of as) {
-    const sum = a.veins.reduce((s, v) => s + v.yieldPerHour, 0);
-    const e = (yieldBySize[a.size] ??= { total: 0, count: 0 });
-    e.total += sum;
-    e.count++;
-  }
-
-  // Primary resource distribution (first vein = primary resource)
-  const byResource: Record<string, number> = {};
-  for (const a of as) {
-    const key = a.veins[0]?.resourceKey ?? '?';
-    byResource[key] = (byResource[key] ?? 0) + 1;
-  }
-
-  const line = '─'.repeat(52);
-
-  const lines: string[] = [
-    `┌${line}┐`,
-    `│  World Generation — Sector (${sector.sectorX}, ${sector.sectorY})`.padEnd(53) + '│',
-    `├${line}┤`,
-    `│  Asteroids : ${pad(total, 4)}   Spawn Slots : ${pad(sector.spawnSlots.length, 2)}`.padEnd(
-      53
-    ) + '│',
-    `│  Veins     : ${pad(
-      as.reduce((s, a) => s + a.veins.length, 0),
-      4
-    )}   Fields      : ${pad(sector.fields.length, 2)}`.padEnd(53) + '│',
-    `├${line}┤`,
-    `│  Size distribution`.padEnd(53) + '│',
-    `│    small   ${pad(sizes.small, 4)}  ${pct(sizes.small)}`.padEnd(53) + '│',
-    `│    medium  ${pad(sizes.medium, 4)}  ${pct(sizes.medium)}`.padEnd(53) + '│',
-    `│    large   ${pad(sizes.large, 4)}  ${pct(sizes.large)}`.padEnd(53) + '│',
-    `│    massive ${pad(sizes.massive, 4)}  ${pct(sizes.massive)}`.padEnd(53) + '│',
-    `├${line}┤`,
-    `│  Field clusters`.padEnd(53) + '│',
-    ...sector.fields.map(
-      (f) =>
-        `│    ${f.shapeKey.padEnd(14)} ${f.primaryResource.padEnd(14)} ${pad(f.asteroidCount, 3)} asteroids`.padEnd(
-          53
-        ) + '│'
-    ),
-    `├${line}┤`,
-    `│  Primary resource distribution`.padEnd(53) + '│',
-    ...Object.entries(byResource)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, n]) => `│    ${k.padEnd(16)} ${pad(n, 4)}  ${pct(n)}`.padEnd(53) + '│'),
-    `├${line}┤`,
-    `│  Avg stability : ${avgStability.toFixed(3)}`.padEnd(53) + '│',
-    `│  Avg yield/h   :`.padEnd(53) + '│',
-    ...(['small', 'medium', 'large', 'massive'] as const).map((sz) => {
-      const e = yieldBySize[sz];
-      const avg = e && e.count > 0 ? Math.round(e.total / e.count) : 0;
-      return `│    ${sz.padEnd(8)} ${pad(avg, 5)} /h`.padEnd(53) + '│';
-    }),
-    `└${line}┘`,
-  ];
-
-  logger.info('\n' + lines.join('\n'));
-}
-
 export const seedAsteroidWorld = async (): Promise<void> => {
   const db = getDb();
 
-  // Idempotency: skip if veins are already populated
+  // Sector metadata remains after its last asteroid is exhausted. It therefore
+  // distinguishes a mined-out persistent world from a database not seeded yet.
+  const [sectorCount] = await db.select({ count: sql<number>`count(*)::int` }).from(sectors);
+  if ((sectorCount?.count ?? 0) > 0) return;
+
+  // Keep worlds created before sector metadata was introduced.
   const [veinCount] = await db.select({ count: sql<number>`count(*)::int` }).from(asteroidVeins);
   if ((veinCount?.count ?? 0) > 0) return;
 
@@ -217,7 +141,14 @@ export const seedAsteroidWorld = async (): Promise<void> => {
   const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED);
   const { asteroids: generatedAsteroids } = sector;
 
-  logSectorStats(sector);
+  logger.info(
+    {
+      archetype: sector.archetypeId,
+      asteroids: generatedAsteroids.length,
+      spawnSlots: sector.spawnSlots.length,
+    },
+    'World generated'
+  );
 
   if (generatedAsteroids.length === 0) return;
 
@@ -229,7 +160,6 @@ export const seedAsteroidWorld = async (): Promise<void> => {
       sectorY: sector.sectorY,
       archetypeId: sector.archetypeId,
       seed: sector.seed,
-      gameplayTags: sector.gameplayTags,
     })
     .returning({ id: sectors.id });
 
@@ -249,9 +179,7 @@ export const seedAsteroidWorld = async (): Promise<void> => {
           chunkX: a.chunkX,
           chunkY: a.chunkY,
           size: a.size,
-          stability: a.stability,
           hiddenLevel: a.hiddenLevel,
-          clusterId: null,
           sectorId,
         }))
       )
@@ -260,18 +188,13 @@ export const seedAsteroidWorld = async (): Promise<void> => {
     allInsertedAsteroids.push(...inserted);
   }
 
-  // Build vein + storage inserts
+  // Build vein inserts
   const veinValues: {
     asteroidId: string;
     veinType: string;
     resourceKey: string;
-    yieldPerHour: number;
-    purity: number;
-    purityTier: string;
+    remainingAmount: number;
   }[] = [];
-
-  const storageValues: { asteroidId: string; resourceKey: string; amount: number }[] = [];
-  const seenStorage = new Set<string>();
 
   for (let i = 0; i < allInsertedAsteroids.length; i++) {
     const asteroidId = allInsertedAsteroids[i]!.id;
@@ -282,29 +205,14 @@ export const seedAsteroidWorld = async (): Promise<void> => {
         asteroidId,
         veinType: vein.veinType,
         resourceKey: vein.resourceKey,
-        yieldPerHour: vein.yieldPerHour,
-        purity: vein.purity,
-        purityTier: vein.purityTier,
+        remainingAmount: vein.remainingAmount,
       });
-
-      const storageKey = `${asteroidId}:${vein.resourceKey}`;
-      if (!seenStorage.has(storageKey)) {
-        seenStorage.add(storageKey);
-        storageValues.push({ asteroidId, resourceKey: vein.resourceKey, amount: 0 });
-      }
     }
   }
 
   // Batch-insert veins
   for (let i = 0; i < veinValues.length; i += ASTEROID_BATCH_SIZE) {
     await db.insert(asteroidVeins).values(veinValues.slice(i, i + ASTEROID_BATCH_SIZE));
-  }
-
-  // Batch-insert storage
-  for (let i = 0; i < storageValues.length; i += ASTEROID_BATCH_SIZE) {
-    await db
-      .insert(asteroidResourceStorage)
-      .values(storageValues.slice(i, i + ASTEROID_BATCH_SIZE));
   }
 };
 

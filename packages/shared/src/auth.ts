@@ -4,11 +4,8 @@ import { z } from 'zod';
 // Roles & Status
 // ============================================================================
 
-export const UserRoleSchema = z.enum(['admin', 'player']);
-export type UserRole = z.infer<typeof UserRoleSchema>;
-
-export const UserStatusSchema = z.enum(['active', 'inactive', 'banned']);
-export type UserStatus = z.infer<typeof UserStatusSchema>;
+export type UserRole = 'admin' | 'player';
+export type UserStatus = 'active' | 'inactive' | 'banned';
 
 // ============================================================================
 // JWT
@@ -23,16 +20,15 @@ export interface JwtPayload {
 // Safe user representation (no password hash)
 // ============================================================================
 
-export const AuthenticatedUserSchema = z.object({
-  id: z.string().uuid(),
-  username: z.string(),
-  email: z.string().email(),
-  role: UserRoleSchema,
-  status: UserStatusSchema,
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
-});
-export type AuthenticatedUser = z.infer<typeof AuthenticatedUserSchema>;
+export interface AuthenticatedUser {
+  id: string;
+  username: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 // ============================================================================
 // Request schemas
@@ -55,8 +51,7 @@ export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 // Response schema
 // ============================================================================
 
-export const AuthResponseSchema = z.object({
-  token: z.string(),
-  user: AuthenticatedUserSchema,
-});
-export type AuthResponse = z.infer<typeof AuthResponseSchema>;
+export interface AuthResponse {
+  token: string;
+  user: AuthenticatedUser;
+}

@@ -34,9 +34,6 @@ export class ChunkStreamer {
   private pendingChunks = new Set<ChunkKey>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Scanner strength forwarded to the API — update from player state */
-  scannerStrength = 0;
-
   onChunkLoaded: ((key: ChunkKey, asteroids: VisibleAsteroid[]) => void) | null = null;
   onChunkUnloaded: ((key: ChunkKey) => void) | null = null;
 
@@ -57,6 +54,13 @@ export class ChunkStreamer {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = null;
     this._update(camera);
+  }
+
+  /** Discard cached world data and fetch the currently visible chunks again. */
+  refresh(camera: Camera) {
+    for (const key of this.loadedChunks.keys()) this.onChunkUnloaded?.(key);
+    this.loadedChunks.clear();
+    this.immediateUpdate(camera);
   }
 
   destroy() {
@@ -127,7 +131,7 @@ export class ChunkStreamer {
     }
 
     try {
-      const { data } = await apiClient.get<{ success: true; data: VisibleAsteroid[] }>(
+      const response = await apiClient.get<{ success: true; data: VisibleAsteroid[] }>(
         '/world/chunks',
         {
           params: {
@@ -135,12 +139,11 @@ export class ChunkStreamer {
             maxChunkX: sub.maxCX,
             minChunkY: sub.minCY,
             maxChunkY: sub.maxCY,
-            scannerStrength: this.scannerStrength,
           },
         }
       );
 
-      const asteroids = data?.data ?? [];
+      const asteroids = response.data;
 
       // Build a per-chunk map covering every chunk in the sub-range
       // (empty chunks are stored too, so they don't get re-requested)

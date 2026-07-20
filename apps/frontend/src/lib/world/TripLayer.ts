@@ -1,4 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
+import { getMiningTripPhase } from '@orions-frontier/shared';
 
 // ============================================================================
 // TripLayer
@@ -18,13 +19,17 @@ export interface ActiveTrip {
   toY: number;
   departedAt: number; // ms timestamp
   arrivesAt: number; // ms timestamp
-  purpose: 'mine' | 'transport' | 'recall' | 'return' | 'combat';
+  purpose: 'mine' | 'mining_return' | 'transport' | 'recall' | 'return' | 'combat';
   groupSize: number;
 }
 
-/** Color per purpose */
-const PURPOSE_COLOR: Record<ActiveTrip['purpose'], number> = {
-  mine: 0x44aaff, // blue
+const PHASE_COLOR = {
+  outbound: 0x44aaff,
+  mining: 0xffcc44,
+  returning: 0xff8a22,
+} as const;
+
+const PURPOSE_COLOR: Record<Exclude<ActiveTrip['purpose'], 'mine' | 'mining_return'>, number> = {
   transport: 0x44ff88, // green
   recall: 0xffaa22, // orange
   return: 0x44aaff, // blue (same as mine, but could be different if desired)
@@ -55,10 +60,21 @@ export class TripLayer {
     const now = Date.now();
 
     for (const trip of this.trips) {
+      const miningPhase = getMiningTripPhase(trip, now);
+      const radius = 4 + Math.min(trip.groupSize - 1, 4);
+
+      if (miningPhase === 'mining') {
+        const pulse = 2 + 1.5 * Math.sin(now / 250);
+        this.graphics.circle(trip.fromX, trip.fromY, radius + 5 + pulse);
+        this.graphics.stroke({ color: PHASE_COLOR.mining, alpha: 0.55, width: 1.5 });
+        this.graphics.circle(trip.fromX, trip.fromY, radius);
+        this.graphics.fill({ color: PHASE_COLOR.mining, alpha: 0.95 });
+        continue;
+      }
+
       const duration = trip.arrivesAt - trip.departedAt;
       if (duration <= 0) continue;
 
-      // Not started yet (pre-created return leg) — skip until its time comes
       if (trip.departedAt > now) continue;
 
       const elapsed = now - trip.departedAt;
@@ -70,8 +86,9 @@ export class TripLayer {
       const x = trip.fromX + (trip.toX - trip.fromX) * progress;
       const y = trip.fromY + (trip.toY - trip.fromY) * progress;
 
-      const color = PURPOSE_COLOR[trip.purpose] ?? 0xffffff;
-      const radius = 4 + Math.min(trip.groupSize - 1, 4); // slightly bigger for larger groups
+      const color = miningPhase
+        ? PHASE_COLOR[miningPhase]
+        : (PURPOSE_COLOR[trip.purpose as keyof typeof PURPOSE_COLOR] ?? 0xffffff);
 
       // Glow ring
       this.graphics.circle(x, y, radius + 3);

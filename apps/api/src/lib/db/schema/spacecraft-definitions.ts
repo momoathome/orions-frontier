@@ -27,8 +27,3 @@ export const spacecraftDefinitionCosts = pgTable('spacecraft_definition_costs', 
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
-
-export type SpacecraftDefinition = typeof spacecraftDefinitions.$inferSelect;
-export type NewSpacecraftDefinition = typeof spacecraftDefinitions.$inferInsert;
-export type SpacecraftDefinitionCost = typeof spacecraftDefinitionCosts.$inferSelect;
-export type NewSpacecraftDefinitionCost = typeof spacecraftDefinitionCosts.$inferInsert;

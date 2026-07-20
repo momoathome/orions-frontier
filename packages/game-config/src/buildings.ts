@@ -234,10 +234,14 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
  */
 export const SHIPYARD_UNLOCKS: Record<number, string[]> = {
   1: ['mole'],
-  2: ['merlin'],
-  5: ['comet'],
-  8: ['javelin'],
+  5: ['titan'],
 };
+
+const PLAYABLE_BUILDING_KEYS = new Set<BuildingKey>(['shipyard']);
+
+export function isBuildingPlayable(buildingKey: BuildingKey): boolean {
+  return PLAYABLE_BUILDING_KEYS.has(buildingKey);
+}
 
 /**
  * Returns all unlock milestones for a given building.

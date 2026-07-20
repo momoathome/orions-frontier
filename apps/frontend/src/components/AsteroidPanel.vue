@@ -1,17 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
-import { apiClient } from '../lib/api-client';
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { ApiError, apiClient } from '../lib/api-client';
+import { wsClient } from '../lib/ws-client';
 import type { AsteroidDetail, AsteroidVein } from '@orions-frontier/shared';
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import AssignMinerModal from './AssignMinerModal.vue';
 import RecallMinerModal, { type AssignmentGroup } from './RecallMinerModal.vue';
-import {
-  resourceColor,
-  resourceName,
-  stabilityColor,
-  calcEffectiveRateByResource,
-  calcStabilityChangePerHour,
-} from '../lib/mining-utils';
+import { resourceColor, resourceName } from '../lib/mining-utils';
 
 const props = defineProps<{
   asteroidId: string;
@@ -26,23 +21,21 @@ const asteroid = ref<AsteroidDetail | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
-async function loadAsteroid(id: string) {
-  loading.value = true;
+async function loadAsteroid(id: string, showLoading = true) {
+  if (showLoading) loading.value = true;
   error.value = null;
-  asteroid.value = null;
+  if (showLoading) asteroid.value = null;
   try {
-    const { data } = await apiClient.get(`/asteroids/${id}`, {
-      params: { scannerStrength: 100 },
-    });
-    asteroid.value = data.data.asteroid;
-  } catch (err: any) {
-    if (err?.response?.status === 404) {
+    const response = await apiClient.get(`/asteroids/${id}`);
+    asteroid.value = response.data.asteroid;
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 404) {
       emit('close');
       return;
     }
     error.value = 'Unable to retrieve asteroid data.';
   } finally {
-    loading.value = false;
+    if (showLoading) loading.value = false;
   }
 }
 
@@ -52,6 +45,17 @@ watch(
   { immediate: true }
 );
 
+function refreshAsteroid() {
+  void loadAsteroid(props.asteroidId, false);
+}
+
+const unsubMining = wsClient.on('mining_tick_completed', refreshAsteroid);
+const unsubTrips = wsClient.on('transport_tick_completed', refreshAsteroid);
+onUnmounted(() => {
+  unsubMining();
+  unsubTrips();
+});
+
 // ── Assign Modal ─────────────────────────────────────────────────────────────
 
 const showAssignModal = ref(false);
@@ -59,8 +63,8 @@ const miners = ref<StationSpacecraftWithDefinition[]>([]);
 
 async function openAssignModal() {
   if (props.stationId && miners.value.length === 0) {
-    const { data } = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
-    miners.value = (data.data.spacecrafts as StationSpacecraftWithDefinition[]).filter(
+    const response = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
+    miners.value = (response.data.spacecrafts as StationSpacecraftWithDefinition[]).filter(
       (s) =>
         s.definition.role === 'miner' &&
         s.definition.miningRate > 0 &&
@@ -94,28 +98,20 @@ async function onRecallDone() {
 // ── Derived ──────────────────────────────────────────────────────────────────
 
 const groupedAssignments = computed<AssignmentGroup[]>(() => {
-  const groups = new Map<string, AssignmentGroup>();
-  for (const a of asteroid.value?.assignments ?? []) {
-    const key = `${a.stationId}__${a.spacecraftDefinitionId}`;
-    if (!groups.has(key)) {
-      groups.set(key, {
-        stationId: a.stationId,
-        spacecraftDefinitionId: a.spacecraftDefinitionId,
-        spacecraftName: a.spacecraftName,
-        spacecraftMiningRate: a.spacecraftMiningRate,
-        ids: [],
-        totalAmount: 0,
-        isOwn: a.stationId === props.stationId,
-      });
-    }
-    const g = groups.get(key)!;
-    g.ids.push(a.id);
-    g.totalAmount += a.assignedAmount;
-  }
-  return [...groups.values()];
+  return (asteroid.value?.assignments ?? []).map((assignment) => ({
+    stationId: assignment.stationId,
+    spacecraftDefinitionId: assignment.spacecraftDefinitionId,
+    spacecraftName: assignment.spacecraftName,
+    ids: [assignment.id],
+    totalAmount: assignment.assignedAmount,
+    isOwn: assignment.stationId === props.stationId,
+    recallRequested: assignment.recallRequestedAt !== null,
+  }));
 });
 
-const ownGroups = computed(() => groupedAssignments.value.filter((g) => g.isOwn));
+const ownGroups = computed(() =>
+  groupedAssignments.value.filter((group) => group.isOwn && !group.recallRequested)
+);
 
 const totalMiningPowerRaw = computed(
   () =>
@@ -125,27 +121,17 @@ const totalMiningPowerRaw = computed(
     ) ?? 0
 );
 
-const effectiveRateByResource = computed(() =>
-  calcEffectiveRateByResource(totalMiningPowerRaw.value, asteroid.value?.veins ?? [])
-);
-
 const totalMinerCargo = computed(
   () =>
     asteroid.value?.assignments.reduce((s, a) => s + a.assignedAmount * a.spacecraftCargo, 0) ?? 0
 );
 
-const totalBuffer = computed(() => asteroid.value?.storage.reduce((s, r) => s + r.amount, 0) ?? 0);
+const totalRemaining = computed(
+  () => asteroid.value?.veins.reduce((sum, vein) => sum + vein.remainingAmount, 0) ?? 0
+);
 
 const totalInTransit = computed(() =>
   Object.values(asteroid.value?.inTransit ?? {}).reduce((s, n) => s + n, 0)
-);
-
-const stabilityChangePerHour = computed(() =>
-  calcStabilityChangePerHour(
-    totalMiningPowerRaw.value,
-    asteroid.value?.veins ?? [],
-    (asteroid.value?.assignments.length ?? 0) > 0
-  )
 );
 
 // ── Display helpers ───────────────────────────────────────────────────────────
@@ -161,14 +147,6 @@ const VEIN_TYPE_LABELS: Record<string, string> = {
   primary: 'PRIMARY',
   secondary: 'SECONDARY',
   trace: 'TRACE',
-};
-
-const PURITY_COLORS: Record<string, string> = {
-  impure: '#ff4444',
-  normal: '#aaaaaa',
-  rich: '#44ddaa',
-  pure: '#00ccff',
-  pristine: '#ffdd00',
 };
 
 const primaryVein = computed<AsteroidVein | undefined>(() =>
@@ -261,125 +239,46 @@ function formatCoord(n: number) {
               <span class="text-[9px] text-white/25 uppercase tracking-widest">{{
                 VEIN_TYPE_LABELS[vein.veinType]
               }}</span>
-              <div class="flex items-baseline gap-2 flex-wrap">
+              <div class="flex items-baseline justify-between gap-2 flex-wrap">
                 <span
                   class="text-[12px] font-medium"
                   :style="`color:${resourceColor(vein.resourceKey)}`"
                 >
                   {{ resourceName(vein.resourceKey) }}
                 </span>
-                <span
-                  class="text-[9px] uppercase tracking-wider font-semibold"
-                  :style="`color:${PURITY_COLORS[vein.purityTier] ?? '#aaa'}`"
-                  >{{ vein.purityTier }}
+                <span class="text-[13px] text-white/70 tabular-nums font-semibold">
+                  {{ vein.remainingAmount.toLocaleString('de-DE') }}
                 </span>
-                <span class="text-[9px] text-white/25 tabular-nums"
-                  >×{{ vein.purity.toFixed(2) }}</span
-                >
               </div>
-              <!-- Cap vs effective Rate side by side -->
-              <div class="flex items-center gap-5 mt-0.5">
-                <div class="flex items-baseline gap-1.5">
-                  <span class="text-[8px] text-white/18 uppercase tracking-widest">Cap</span>
-                  <span class="text-[10px] text-white/30 tabular-nums"
-                    >{{
-                      vein.yieldPerHour >= 10
-                        ? vein.yieldPerHour.toFixed(1)
-                        : vein.yieldPerHour.toFixed(2)
-                    }}/h</span
-                  >
-                </div>
-                <div
-                  v-if="effectiveRateByResource[vein.resourceKey]"
-                  class="flex items-baseline gap-1.5"
-                >
-                  <span class="text-[8px] text-white/18 uppercase tracking-widest">Rate</span>
-                  <span class="text-[10px] text-cyan-400/75 tabular-nums font-semibold"
-                    >+{{ effectiveRateByResource[vein.resourceKey]!.toFixed(1) }}/h</span
-                  >
-                </div>
-              </div>
-              <!-- Stored + in transit -->
-              <div class="flex items-center gap-2 mt-0.5">
-                <span class="text-[8px] text-white/18 uppercase tracking-widest">Stored</span>
-                <span class="text-[10px] text-white/45 tabular-nums">
-                  {{
-                    (
-                      asteroid.storage.find((s) => s.resourceKey === vein.resourceKey)?.amount ?? 0
-                    ).toFixed(1)
-                  }}
-                </span>
+              <div class="flex items-center justify-between gap-2 mt-0.5">
+                <span class="text-[8px] text-white/18 uppercase tracking-widest">Available</span>
                 <span
                   v-if="(asteroid.inTransit?.[vein.resourceKey] ?? 0) > 0"
                   class="text-[9px] text-amber-300/55 tabular-nums"
-                  >+{{ (asteroid.inTransit?.[vein.resourceKey] ?? 0).toFixed(0) }}↑</span
+                  >{{ (asteroid.inTransit?.[vein.resourceKey] ?? 0).toFixed(0) }} in operation</span
                 >
               </div>
             </div>
           </div>
-
-          <!-- Cargo buffer bar (when miners active) -->
-          <div v-if="totalMinerCargo > 0" class="mt-1 pt-2 flex flex-col gap-1">
-            <div class="flex justify-between text-[9px]">
-              <span class="text-white/20 uppercase tracking-widest">Miner Cargo</span>
-              <span
-                :class="totalBuffer >= totalMinerCargo ? 'text-amber-400/80' : 'text-white/25'"
-                class="tabular-nums"
-              >
-                {{ totalBuffer.toFixed(0) }} / {{ totalMinerCargo.toFixed(0) }}
-              </span>
-            </div>
-            <div class="h-0.5 rounded-full bg-white/6 overflow-hidden relative">
-              <div
-                class="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
-                :class="totalBuffer >= totalMinerCargo ? 'bg-amber-400/70' : 'bg-cyan-400/40'"
-                :style="`width:${Math.min(100, (totalBuffer / totalMinerCargo) * 100).toFixed(1)}%`"
-              />
-              <div
-                v-if="totalInTransit > 0"
-                class="absolute top-0 h-full"
-                :style="`left:${Math.min(100, (totalBuffer / totalMinerCargo) * 100).toFixed(1)}%; width:${Math.min(100 - (totalBuffer / totalMinerCargo) * 100, (totalInTransit / totalMinerCargo) * 100).toFixed(1)}%; background:repeating-linear-gradient(45deg,rgba(251,191,36,0.45) 0px,rgba(251,191,36,0.45) 2px,transparent 2px,transparent 5px)`"
-              />
-            </div>
-            <span
-              v-if="totalBuffer >= totalMinerCargo"
-              class="text-[8px] text-amber-400/70 uppercase tracking-widest"
-              >auto-recall pending</span
-            >
-            <span
-              v-else-if="totalInTransit > 0"
-              class="text-[8px] text-amber-300/50 uppercase tracking-widest"
-              >in transit</span
-            >
-          </div>
         </div>
 
-        <!-- Column 2: Stability + Operations -->
+        <!-- Column 2: Reserve + Operations -->
         <div class="flex flex-col gap-2 border-l border-white/5 pl-5 overflow-y-auto">
-          <span class="text-[9px] text-white/20 uppercase tracking-[0.3em]">Stability</span>
-          <span
-            class="text-3xl font-semibold tabular-nums leading-none mt-1"
-            :style="`color:${stabilityColor(asteroid.stability)}`"
-            >{{ (asteroid.stability * 100).toFixed(0) }}%</span
-          >
-          <div class="h-1 rounded-full bg-white/6 overflow-hidden mt-1">
-            <div
-              class="h-full rounded-full transition-all duration-700"
-              :style="`width:${(asteroid.stability * 100).toFixed(0)}%; background:${stabilityColor(asteroid.stability)}`"
-            />
+          <span class="text-[9px] text-white/20 uppercase tracking-[0.3em]">Reserve</span>
+          <span class="text-3xl font-semibold tabular-nums leading-none mt-1 text-white/80">
+            {{ totalRemaining.toLocaleString('de-DE') }}
+          </span>
+          <div class="flex justify-between text-[9px] mt-1">
+            <span class="text-white/25">Available</span>
+            <span class="text-white/55 tabular-nums">{{
+              totalRemaining.toLocaleString('de-DE')
+            }}</span>
           </div>
-          <div v-if="stabilityChangePerHour !== null" class="flex items-center gap-2 mt-1">
-            <span
-              class="text-[9px] tabular-nums font-semibold"
-              :class="stabilityChangePerHour < 0 ? 'text-red-400/70' : 'text-emerald-400/70'"
-              >{{ stabilityChangePerHour > 0 ? '+' : ''
-              }}{{ (stabilityChangePerHour * 100).toFixed(2) }}%/h</span
-            >
-            <span
-              v-if="stabilityChangePerHour < 0"
-              class="text-[8px] uppercase tracking-widest text-red-400/50 border border-red-400/20 rounded px-1"
-              >overloaded</span
-            >
+          <div v-if="totalInTransit > 0" class="flex justify-between text-[9px]">
+            <span class="text-white/25">In operation</span>
+            <span class="text-amber-300/65 tabular-nums">{{
+              totalInTransit.toLocaleString('de-DE')
+            }}</span>
           </div>
 
           <div class="flex flex-col gap-1 mt-3">
@@ -404,8 +303,11 @@ function formatCoord(n: number) {
           <div v-if="groupedAssignments.length > 0" class="flex flex-col gap-2 mt-3">
             <span class="text-[9px] text-white/20 uppercase tracking-[0.3em]">Assigned</span>
             <p class="text-[9px] text-white/45 leading-relaxed">
-              <template v-for="(g, i) in groupedAssignments" :key="g.spacecraftDefinitionId">
-                <span>{{ g.totalAmount }}×&nbsp;{{ g.spacecraftName }}</span>
+              <template v-for="(g, i) in groupedAssignments" :key="g.ids[0]">
+                <span>
+                  {{ g.totalAmount }}×&nbsp;{{ g.spacecraftName
+                  }}<span v-if="g.recallRequested" class="text-amber-300/55"> returning</span>
+                </span>
                 <span v-if="i < groupedAssignments.length - 1" class="text-white/20"> · </span>
               </template>
             </p>
@@ -459,9 +361,6 @@ function formatCoord(n: number) {
       :asteroid="asteroid"
       :asteroid-id="asteroidId"
       :station-id="stationId"
-      :effective-rate-by-resource="effectiveRateByResource"
-      :total-mining-power-raw="totalMiningPowerRaw"
-      :stability-change-per-hour="stabilityChangePerHour"
       @close="showAssignModal = false"
       @done="onAssignDone"
     />
@@ -470,12 +369,7 @@ function formatCoord(n: number) {
       v-if="stationId && asteroid"
       :show="showRecallModal"
       :own-groups="ownGroups"
-      :asteroid="asteroid"
       :asteroid-id="asteroidId"
-      :station-id="stationId"
-      :total-mining-power-raw="totalMiningPowerRaw"
-      :effective-rate-by-resource="effectiveRateByResource"
-      :stability-change-per-hour="stabilityChangePerHour"
       @close="showRecallModal = false"
       @done="onRecallDone"
     />

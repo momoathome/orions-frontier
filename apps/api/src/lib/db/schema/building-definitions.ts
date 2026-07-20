@@ -11,6 +11,3 @@ export const buildingDefinitions = pgTable('building_definitions', {
   effectType: text('effect_type').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
-
-export type BuildingDefinitionRow = typeof buildingDefinitions.$inferSelect;
-export type NewBuildingDefinition = typeof buildingDefinitions.$inferInsert;

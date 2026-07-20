@@ -16,7 +16,6 @@ const selectedSection = ref<Section | null>('logistics');
 const buildingsQueueCount = ref(0);
 const fleetQueueCount = ref(0);
 const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.value);
-const totalMiningRatePerHour = ref(0);
 </script>
 
 <template>
@@ -111,7 +110,6 @@ const totalMiningRatePerHour = ref(0);
         v-show="selectedSection === 'logistics'"
         :station-id="stationId"
         class="flex-1 overflow-hidden flex flex-col"
-        @total-mining-rate="totalMiningRatePerHour = $event"
       />
       <!-- ── Placeholder tabs ───────────────────────────────────────────────── -->
       <div v-show="selectedSection === 'defense'" class="flex-1 flex items-center justify-center">

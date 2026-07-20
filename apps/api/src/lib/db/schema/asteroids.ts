@@ -6,36 +6,19 @@ import {
   varchar,
   timestamp,
   index,
-  uniqueIndex,
   pgEnum,
+  check,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { stations } from './stations.js';
 import { spacecraftDefinitions } from './spacecraft-definitions.js';
 import { sectors } from './sectors.js';
 
 export const assignmentStatusEnum = pgEnum('assignment_status', [
-  'traveling_to_asteroid', // Miner flying to asteroid for the first time or returning after recall
-  'at_asteroid', // Miner present and mining (default)
-  'traveling_to_station', // Miner self-recall: carrying full buffer back to station
+  'traveling_to_asteroid',
+  'at_asteroid', // Legacy assignments created before timed mining returns
+  'traveling_to_station',
 ]);
-
-// ============================================================================
-// asteroid_clusters — World generation influence zones (optional overlay)
-// NOT actively used in generation — zones handle biasing.
-// Kept for future named-region features.
-// ============================================================================
-
-export const asteroidClusters = pgTable('asteroid_clusters', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 128 }).notNull(),
-  centerX: doublePrecision('center_x').notNull(),
-  centerY: doublePrecision('center_y').notNull(),
-  radius: doublePrecision('radius').notNull(),
-  resourceBias: varchar('resource_bias', { length: 64 }).notNull(),
-  seed: varchar('seed', { length: 128 }).notNull(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-});
 
 // ============================================================================
 // asteroids — Persistent runtime asteroid instances
@@ -49,13 +32,10 @@ export const asteroids = pgTable(
     y: doublePrecision('y').notNull(),
     chunkX: integer('chunk_x').notNull(),
     chunkY: integer('chunk_y').notNull(),
-    /** Size category: determines yield budget and mining slot count */
+    /** Size category: determines reserve range and mining slot count */
     size: varchar('size', { length: 16 }).notNull(),
-    /** Stability 0.0–1.0. Degrades on overmining, regens when load < yield */
-    stability: doublePrecision('stability').notNull().default(1.0),
     /** Minimum scanner strength required to detect; 0 = always visible */
     hiddenLevel: integer('hidden_level').notNull().default(0),
-    clusterId: uuid('cluster_id'),
     /** Sector this asteroid belongs to; null for asteroids generated before sector system */
     sectorId: uuid('sector_id').references(() => sectors.id),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -65,7 +45,6 @@ export const asteroids = pgTable(
     chunkIdx: index('asteroids_chunk_idx').on(table.chunkX, table.chunkY),
     chunkXIdx: index('asteroids_chunk_x_idx').on(table.chunkX),
     chunkYIdx: index('asteroids_chunk_y_idx').on(table.chunkY),
-    clusterIdIdx: index('asteroids_cluster_id_idx').on(table.clusterId),
     sectorIdIdx: index('asteroids_sector_id_idx').on(table.sectorId),
   })
 );
@@ -85,41 +64,15 @@ export const asteroidVeins = pgTable(
     /** primary | secondary | trace */
     veinType: varchar('vein_type', { length: 16 }).notNull(),
     resourceKey: varchar('resource_key', { length: 64 }).notNull(),
-    /** Max yield per hour (baseBudget × tierModifier × veinModifier) */
-    yieldPerHour: doublePrecision('yield_per_hour').notNull(),
-    /** Purity multiplier 0.4–3.0, applied to miner output */
-    purity: doublePrecision('purity').notNull(),
-    /** impure | normal | rich | pure | pristine */
-    purityTier: varchar('purity_tier', { length: 16 }).notNull(),
+    /** Unclaimed resource units still available for new mining cycles. */
+    remainingAmount: integer('remaining_amount').notNull().default(10_000),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => ({
     asteroidIdIdx: index('asteroid_veins_asteroid_id_idx').on(table.asteroidId),
-  })
-);
-
-// ============================================================================
-// asteroid_resource_storage — Local resource buffer on each asteroid
-// Filled by miner assignments via lazy tick, emptied by transporter runs.
-// ============================================================================
-
-export const asteroidResourceStorage = pgTable(
-  'asteroid_resource_storage',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    asteroidId: uuid('asteroid_id')
-      .notNull()
-      .references(() => asteroids.id, { onDelete: 'cascade' }),
-    resourceKey: varchar('resource_key', { length: 64 }).notNull(),
-    /** Currently buffered amount (real for fractional accumulation) */
-    amount: doublePrecision('amount').notNull().default(0),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
-  },
-  (table) => ({
-    asteroidIdIdx: index('asteroid_resource_storage_asteroid_id_idx').on(table.asteroidId),
-    uniqueAsteroidResource: uniqueIndex('asteroid_resource_storage_unique').on(
-      table.asteroidId,
-      table.resourceKey
+    remainingAmountNonNegative: check(
+      'asteroid_veins_remaining_amount_non_negative',
+      sql`${table.remainingAmount} >= 0`
     ),
   })
 );
@@ -147,60 +100,13 @@ export const asteroidAssignments = pgTable(
     /** Number of ships assigned */
     assignedAmount: integer('assigned_amount').notNull().default(1),
     assignedAt: timestamp('assigned_at').notNull().defaultNow(),
-    /** Last production tick timestamp — used for lazy tick delta calculation */
-    lastTick: timestamp('last_tick').notNull().defaultNow(),
     /** Current status of the miner group for this assignment */
     status: assignmentStatusEnum('status').notNull().default('at_asteroid'),
+    /** When set, the group stops after reaching its station again. */
+    recallRequestedAt: timestamp('recall_requested_at'),
   },
   (table) => ({
     asteroidIdIdx: index('asteroid_assignments_asteroid_id_idx').on(table.asteroidId),
     stationIdIdx: index('asteroid_assignments_station_id_idx').on(table.stationId),
   })
 );
-
-// ============================================================================
-// Relations
-// ============================================================================
-
-export const asteroidsRelations = relations(asteroids, ({ one, many }) => ({
-  cluster: one(asteroidClusters, {
-    fields: [asteroids.clusterId],
-    references: [asteroidClusters.id],
-  }),
-  veins: many(asteroidVeins),
-  storage: many(asteroidResourceStorage),
-  assignments: many(asteroidAssignments),
-}));
-
-export const asteroidClustersRelations = relations(asteroidClusters, ({ many }) => ({
-  asteroids: many(asteroids),
-}));
-
-export const asteroidVeinsRelations = relations(asteroidVeins, ({ one }) => ({
-  asteroid: one(asteroids, {
-    fields: [asteroidVeins.asteroidId],
-    references: [asteroids.id],
-  }),
-}));
-
-export const asteroidResourceStorageRelations = relations(asteroidResourceStorage, ({ one }) => ({
-  asteroid: one(asteroids, {
-    fields: [asteroidResourceStorage.asteroidId],
-    references: [asteroids.id],
-  }),
-}));
-
-export const asteroidAssignmentsRelations = relations(asteroidAssignments, ({ one }) => ({
-  asteroid: one(asteroids, {
-    fields: [asteroidAssignments.asteroidId],
-    references: [asteroids.id],
-  }),
-  station: one(stations, {
-    fields: [asteroidAssignments.stationId],
-    references: [stations.id],
-  }),
-  spacecraftDefinition: one(spacecraftDefinitions, {
-    fields: [asteroidAssignments.spacecraftDefinitionId],
-    references: [spacecraftDefinitions.id],
-  }),
-}));

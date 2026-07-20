@@ -1,18 +1,16 @@
-import { defineRoute } from '../../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../middleware/auth.js';
-import { getAsteroidById } from '../../../services/asteroid.service.js';
+import { getAsteroidById, getUserScannerStrength } from '../../../services/asteroid.service.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const q = request.query as Record<string, string | undefined>;
-    const scannerStrength = Math.max(0, parseInt(q['scannerStrength'] ?? '0', 10) || 0);
-
     if (!id) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Asteroid id is required');
     }
 
+    const scannerStrength = await getUserScannerStrength(request.user.userId);
     const asteroid = await getAsteroidById(id, scannerStrength);
 
     if (!asteroid) {
@@ -23,4 +21,4 @@ export default defineRoute(async (app) => {
 
     return reply.send({ data: { asteroid } });
   });
-});
+}) satisfies FastifyPluginAsync;

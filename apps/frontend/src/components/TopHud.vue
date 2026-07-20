@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { apiClient } from '../lib/api-client.js';
 import { wsClient } from '../lib/ws-client.js';
@@ -12,13 +12,11 @@ type ResourceEntry = {
   image: string;
   amount: number;
   ratePerHour: number;
-  effectiveRatePerHour: number;
 };
 
 const resourceEntries = ref<ResourceEntry[]>([]);
 const isOnline = ref(true);
 
-let pollInterval: ReturnType<typeof setInterval> | null = null;
 // Debounce timer: collapses rapid bursts of WS events (e.g. 10 simultaneous
 // trip arrivals with concurrency=10) into a single fetch 300 ms after the last.
 let fetchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -41,7 +39,6 @@ function applyResourceSummary(summary: UserResourceSummary) {
         image: def.image,
         amount: summary.resources[key] as number,
         ratePerHour: summary.rates[key] ?? 0,
-        effectiveRatePerHour: summary.effectiveRates?.[key] ?? 0,
       };
     }
   );
@@ -49,10 +46,10 @@ function applyResourceSummary(summary: UserResourceSummary) {
 
 async function fetchResources() {
   try {
-    const { data } = await apiClient.get<{ success: true; data: UserResourceSummary }>(
+    const response = await apiClient.get<{ success: true; data: UserResourceSummary }>(
       '/me/resources'
     );
-    applyResourceSummary(data.data);
+    applyResourceSummary(response.data);
     isOnline.value = true;
   } catch {
     isOnline.value = false;
@@ -71,23 +68,19 @@ const unsubscribeResources = wsClient.on('resources_updated', (payload) => {
   }
 });
 
-// Refetch rates after every mining tick
+// Refetch when assignments change.
 const unsubscribeTick = wsClient.on('mining_tick_completed', () => {
   scheduleFetch();
 });
 
-// Refetch after transport tick (effective rates + resource amounts change on delivery)
+// Refetch after a trip arrival changes delivered resources.
 const unsubscribeTransport = wsClient.on('transport_tick_completed', () => {
   scheduleFetch();
 });
 
-onMounted(() => {
-  fetchResources();
-  // Slow poll as fallback for any passive changes not covered by WS
-});
+fetchResources();
 
 onUnmounted(() => {
-  if (pollInterval) clearInterval(pollInterval);
   if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
   unsubscribeResources();
   unsubscribeTick();
@@ -126,16 +119,6 @@ function fmtRate(n: number): string {
           <span v-if="entry.ratePerHour > 0" class="text-cyan-400/50 tabular-nums text-[9px]"
             >{{ fmtRate(entry.ratePerHour) }}/h</span
           >
-          <!-- Effective delivery rate — shown only when it differs from theoretical -->
-          <span
-            v-if="
-              entry.effectiveRatePerHour > 0 &&
-              Math.abs(entry.effectiveRatePerHour - entry.ratePerHour) > 1
-            "
-            class="text-amber-400/60 tabular-nums text-[9px]"
-            :title="`Delivered last hour: ${Math.round(entry.effectiveRatePerHour)}/h (theoretical: ${Math.round(entry.ratePerHour)}/h)`"
-            >↓{{ fmtRate(entry.effectiveRatePerHour) }}</span
-          >
         </div>
       </template>
 
@@ -162,10 +145,6 @@ function fmtRate(n: number): string {
         />
         {{ isOnline ? 'Online' : 'Offline' }}
       </span>
-      <div class="h-3 w-px bg-white/10" />
-      <span class="text-white/20 text-[9px]">3 players nearby</span>
-      <div class="h-3 w-px bg-white/10" />
-      <span class="text-amber-400/60 text-[9px]">⚠ Scanner active</span>
     </div>
   </div>
 </template>

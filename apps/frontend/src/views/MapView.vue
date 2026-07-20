@@ -3,10 +3,11 @@ import { ref, watch, onMounted, onUnmounted } from 'vue';
 import TopHud from '../components/TopHud.vue';
 import StationPanel from '../components/StationPanel.vue';
 import AsteroidPanel from '../components/AsteroidPanel.vue';
-import { apiClient } from '../lib/api-client';
+import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
-import { WorldRenderer } from '../lib/world/index.js';
-import type { StationInfo, AssignedAsteroid, ActiveTrip } from '../lib/world/index.js';
+import { WorldRenderer } from '../lib/world/WorldRenderer.js';
+import type { StationInfo, AssignedAsteroid } from '../lib/world/WorldRenderer.js';
+import type { ActiveTrip } from '../lib/world/TripLayer.js';
 import { useSelectionStore } from '../stores/selection';
 
 const selectionStore = useSelectionStore();
@@ -18,11 +19,16 @@ const stationName = ref<string | undefined>(undefined);
 const stationPanelOpen = ref(false);
 const isDragging = ref(false);
 const hoveringEntity = ref(false);
+const needsStation = ref(false);
+const stationNameInput = ref('Frontier Station');
+const stationCreationError = ref<string | null>(null);
+const creatingStation = ref(false);
+const asteroidCoordinates = new Map<string, { x: number; y: number }>();
 
 async function loadUserStation(): Promise<StationInfo | null> {
   try {
-    const { data } = await apiClient.get('/stations');
-    const first = data?.data?.[0];
+    const response = await apiClient.get('/stations');
+    const first = response.data?.[0];
     if (first) {
       stationId.value = first.id;
       stationName.value = first.name;
@@ -34,13 +40,26 @@ async function loadUserStation(): Promise<StationInfo | null> {
   return null;
 }
 
+async function createFirstStation() {
+  creatingStation.value = true;
+  stationCreationError.value = null;
+  try {
+    await apiClient.post('/stations', { name: stationNameInput.value });
+    window.location.reload();
+  } catch (error) {
+    stationCreationError.value = apiErrorMessage(error, 'Station creation failed');
+  } finally {
+    creatingStation.value = false;
+  }
+}
+
 // ── Active trips (in-flight spacecraft) ─────────────────────────────────────
 
 async function loadTrips(): Promise<void> {
   if (!renderer) return;
   try {
-    const { data } = await apiClient.get('/me/trips');
-    const raw = (data?.data ?? []) as Array<{
+    const response = await apiClient.get('/me/trips');
+    const raw = (response.data ?? []) as Array<{
       id: string;
       fromType: string;
       fromId: string;
@@ -83,7 +102,7 @@ function resolveEndpointCoords(type: string, id: string): { x: number; y: number
     return { x: stationInfo.x, y: stationInfo.y };
   }
   if (type === 'asteroid' && renderer) {
-    return renderer.getAsteroidWorldPos(id);
+    return renderer.getAsteroidWorldPos(id) ?? asteroidCoordinates.get(id) ?? null;
   }
   return null;
 }
@@ -93,8 +112,8 @@ function resolveEndpointCoords(type: string, id: string): { x: number; y: number
 async function loadAssignments(): Promise<void> {
   if (!renderer || !stationId.value) return;
   try {
-    const { data } = await apiClient.get(`/stations/${stationId.value}/mining-assignments`);
-    const raw = (data?.data?.assignments ?? []) as Array<{
+    const response = await apiClient.get(`/stations/${stationId.value}/mining-assignments`);
+    const raw = (response.data?.assignments ?? []) as Array<{
       asteroidId: string;
       asteroidX: number;
       asteroidY: number;
@@ -103,7 +122,9 @@ async function loadAssignments(): Promise<void> {
     // Deduplicate by asteroid (multiple assignment rows → same asteroid)
     const seen = new Set<string>();
     const asteroids: AssignedAsteroid[] = [];
+    asteroidCoordinates.clear();
     for (const a of raw) {
+      asteroidCoordinates.set(a.asteroidId, { x: a.asteroidX, y: a.asteroidY });
       if (!seen.has(a.asteroidId)) {
         seen.add(a.asteroidId);
         asteroids.push({
@@ -120,6 +141,11 @@ async function loadAssignments(): Promise<void> {
   }
 }
 
+async function refreshMiningState(): Promise<void> {
+  await loadAssignments();
+  await loadTrips();
+}
+
 // ── PixiJS World Renderer ────────────────────────────────────────────────────
 
 const worldRef = ref<HTMLDivElement | null>(null);
@@ -128,9 +154,14 @@ let stationInfo: StationInfo | null = null;
 
 let unsubTransportTick: (() => void) | null = null;
 let unsubMiningTick: (() => void) | null = null;
+let unsubBuildingUpgrade: (() => void) | null = null;
 
 onMounted(async () => {
   stationInfo = await loadUserStation();
+  if (!stationInfo) {
+    needsStation.value = true;
+    return;
+  }
 
   renderer = new WorldRenderer();
 
@@ -163,11 +194,7 @@ onMounted(async () => {
     stationPanelOpen.value = false;
   };
 
-  // TODO: derive from station scanner building level once the building system
-  // exposes it. Until then every player starts with scanner level 1 which
-  // reveals hidden_level 0–1 asteroids (landmark core + midRing).
-  const BASE_SCANNER_STRENGTH = 1;
-  await renderer.mount(worldRef.value!, stationInfo, BASE_SCANNER_STRENGTH);
+  await renderer.mount(worldRef.value!, stationInfo);
 
   // Load mining assignment markers after renderer is ready
   await loadAssignments();
@@ -175,13 +202,16 @@ onMounted(async () => {
   // Load active trips (in-flight spacecraft)
   await loadTrips();
 
-  // Refresh trips whenever the transport tick reports changes
+  // A settled trip can change both the visible phase and the assignment.
   unsubTransportTick = wsClient.on('transport_tick_completed', () => {
-    loadTrips();
+    renderer?.refreshVisibleChunks();
+    void refreshMiningState();
   });
-  // Also refresh on mining tick (miners may have started self-recall)
   unsubMiningTick = wsClient.on('mining_tick_completed', () => {
-    loadTrips();
+    void refreshMiningState();
+  });
+  unsubBuildingUpgrade = wsClient.on('building_upgrade_completed', () => {
+    renderer?.refreshVisibleChunks();
   });
 });
 
@@ -201,6 +231,7 @@ watch(
 onUnmounted(() => {
   unsubTransportTick?.();
   unsubMiningTick?.();
+  unsubBuildingUpgrade?.();
   renderer?.destroy();
   renderer = null;
   selectionStore.deselect();
@@ -222,8 +253,50 @@ function cursorClass() {
     <!-- PixiJS canvas mount point -->
     <div ref="worldRef" class="absolute inset-0" />
 
+    <div
+      v-if="needsStation"
+      class="absolute inset-0 z-30 flex items-center justify-center bg-[#070b14] p-4"
+    >
+      <form
+        class="w-full max-w-sm rounded border border-cyan-500/20 bg-[#0a1120] p-6 flex flex-col gap-4"
+        @submit.prevent="createFirstStation"
+      >
+        <h1 class="text-lg tracking-widest text-cyan-200">Found your first station</h1>
+        <p class="text-sm text-white/50">Choose a name for your foothold in the frontier.</p>
+        <input
+          v-model.trim="stationNameInput"
+          required
+          maxlength="128"
+          class="rounded border border-white/10 bg-white/5 px-3 py-2"
+        />
+        <p v-if="stationCreationError" class="text-sm text-red-300">{{ stationCreationError }}</p>
+        <button
+          type="submit"
+          :disabled="creatingStation"
+          class="rounded border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-cyan-200 disabled:opacity-50"
+        >
+          {{ creatingStation ? 'Founding…' : 'Found station' }}
+        </button>
+      </form>
+    </div>
+
     <!-- Top HUD -->
-    <TopHud />
+    <TopHud v-if="stationId" />
+
+    <div
+      v-if="stationId"
+      class="absolute top-12 right-4 z-10 flex items-center gap-3 rounded border border-white/8 bg-[#080d18]/75 px-2.5 py-1.5 text-[8px] uppercase tracking-wider text-white/45 backdrop-blur-sm pointer-events-none"
+    >
+      <span class="flex items-center gap-1.5"
+        ><i class="w-1.5 h-1.5 rounded-full bg-[#44aaff]" />Hinflug</span
+      >
+      <span class="flex items-center gap-1.5"
+        ><i class="w-1.5 h-1.5 rounded-full bg-[#ffcc44] animate-pulse" />Abbau</span
+      >
+      <span class="flex items-center gap-1.5"
+        ><i class="w-1.5 h-1.5 rounded-full bg-[#ff8a22]" />Rückflug</span
+      >
+    </div>
 
     <!-- Station Panel -->
     <transition

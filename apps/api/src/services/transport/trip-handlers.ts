@@ -1,14 +1,13 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import {
-  asteroids,
-  asteroidAssignments,
-  asteroidResourceStorage,
-} from '../../lib/db/schema/asteroids.js';
+import { asteroids, asteroidAssignments, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { spacecraftDefinitions } from '../../lib/db/schema/spacecraft-definitions.js';
 import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { spacecraftTrips, type CargoManifest } from '../../lib/db/schema/spacecraft-trips.js';
+import { stations } from '../../lib/db/schema/stations.js';
+import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
+import { claimMiningCargo } from '../mining/mining-claim.service.js';
+import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 
 // ============================================================================
 // Trip Handlers
@@ -17,42 +16,95 @@ import { spacecraftTrips, type CargoManifest } from '../../lib/db/schema/spacecr
 // Dispatched by settleTripArrival in trip-arrivals.service.ts.
 //
 // Handler → condition:
-//   handleMineArrival            purpose='mine'|'return'  toType='asteroid'
-//   handleRecallArrival          purpose='recall'
-//   handleTransportOutbound      purpose='transport'      toType='asteroid'
-//   handleTransporterReturn      purpose='return'         toType='station'
+//   handleMineArrival          purpose='mine'          toType='asteroid'
+//   handleMiningReturnArrival  purpose='mining_return' toType='station'
 // ============================================================================
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
-
-// ── Miner arrived at asteroid ────────────────────────────────────────────────
-// Covers both the initial mine trip and the post-recall return trip.
-// Updates assignment status from traveling_to_asteroid → at_asteroid.
-export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
-  await tx
-    .update(asteroidAssignments)
-    .set({ status: 'at_asteroid', lastTick: trip.arrivesAt })
-    .where(
-      and(
-        eq(asteroidAssignments.asteroidId, trip.toId),
-        eq(asteroidAssignments.status, 'traveling_to_asteroid'),
-        sql`${asteroidAssignments.stationId} = (
-          SELECT station_id FROM station_spacecrafts WHERE id = ${trip.stationSpacecraftId}
-        )`,
-        sql`${asteroidAssignments.spacecraftDefinitionId} = (
-          SELECT spacecraft_definition_id FROM station_spacecrafts WHERE id = ${trip.stationSpacecraftId}
-        )`
-      )
-    );
+export interface CreatedTrip {
+  id: string;
+  arrivesAt: Date;
 }
 
-// ── Miner arrived at station after self-recall ───────────────────────────────
-// Credits cargoManifest to the station, then either:
-//   - Releases the lock if the source asteroid was destroyed (no assignment to update).
-//   - Updates the assignment to traveling_to_asteroid for the pre-created return trip.
-export async function handleRecallArrival(tx: Tx, trip: Trip): Promise<void> {
-  // Credit resources to station
+// ── Miner arrived at asteroid ────────────────────────────────────────────────
+// Linked groups claim one load and create their timed mining return trip.
+export async function handleMineArrival(tx: Tx, trip: Trip): Promise<CreatedTrip | null> {
+  if (!trip.assignmentId) return null;
+
+  const [assignment] = await tx
+    .select({
+      id: asteroidAssignments.id,
+      stationId: asteroidAssignments.stationId,
+      assignedAmount: asteroidAssignments.assignedAmount,
+      cargo: spacecraftDefinitions.cargo,
+      miningRate: spacecraftDefinitions.miningRate,
+      speed: spacecraftDefinitions.speed,
+      stationX: stations.x,
+      stationY: stations.y,
+      asteroidX: asteroids.x,
+      asteroidY: asteroids.y,
+      recallRequestedAt: asteroidAssignments.recallRequestedAt,
+    })
+    .from(asteroidAssignments)
+    .innerJoin(
+      spacecraftDefinitions,
+      eq(asteroidAssignments.spacecraftDefinitionId, spacecraftDefinitions.id)
+    )
+    .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
+    .innerJoin(asteroids, eq(asteroidAssignments.asteroidId, asteroids.id))
+    .where(
+      and(
+        eq(asteroidAssignments.id, trip.assignmentId),
+        eq(asteroidAssignments.status, 'traveling_to_asteroid')
+      )
+    )
+    .limit(1);
+
+  if (!assignment) return null;
+
+  const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
+  const claim = assignment.recallRequestedAt
+    ? { claimedAmount: 0, cargoManifest: {} }
+    : await claimMiningCargo(tx, trip.toId, groupSize * assignment.cargo);
+  const miningHours =
+    claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (groupSize * assignment.miningRate);
+  const departedAt = new Date(trip.arrivesAt.getTime() + miningHours * 3_600_000);
+  const distance = calcDistance(
+    { x: assignment.asteroidX, y: assignment.asteroidY },
+    { x: assignment.stationX, y: assignment.stationY }
+  );
+  const arrivesAt = calcArrivesAt(departedAt, distance, assignment.speed);
+
+  const [returnTrip] = await tx
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId: trip.stationSpacecraftId,
+      assignmentId: assignment.id,
+      groupSize,
+      fromType: 'asteroid',
+      fromId: trip.toId,
+      toType: 'station',
+      toId: assignment.stationId,
+      departedAt,
+      arrivesAt,
+      purpose: 'mining_return',
+      cargoManifest: claim.claimedAmount > 0 ? claim.cargoManifest : null,
+    })
+    .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
+
+  await tx
+    .update(asteroidAssignments)
+    .set({ status: 'traveling_to_station' })
+    .where(eq(asteroidAssignments.id, assignment.id));
+
+  return returnTrip ?? null;
+}
+
+// ── Miner delivered one claimed load ─────────────────────────────────────────
+// Starts the next outbound leg while free resources remain; otherwise the
+// assignment ends and its ships become available at the station.
+export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<CreatedTrip | null> {
   if (trip.cargoManifest) {
     for (const [resourceKey, amount] of Object.entries(trip.cargoManifest)) {
       if (amount <= 0) continue;
@@ -66,147 +118,94 @@ export async function handleRecallArrival(tx: Tx, trip: Trip): Promise<void> {
     }
   }
 
-  // Check if the source asteroid still exists.
-  // If it was destroyed, the assignment was cascade-deleted and no return trip exists —
-  // release the miner lock here so the ships become available immediately on landing.
-  // If the asteroid is still alive this is a normal recall: update assignment so miners fly back.
-  const [sourceAsteroid] = await tx
-    .select({ id: asteroids.id })
-    .from(asteroids)
-    .where(eq(asteroids.id, trip.fromId))
+  if (!trip.assignmentId) return null;
+
+  const [assignment] = await tx
+    .select({
+      id: asteroidAssignments.id,
+      asteroidId: asteroidAssignments.asteroidId,
+      speed: spacecraftDefinitions.speed,
+      stationX: stations.x,
+      stationY: stations.y,
+      asteroidX: asteroids.x,
+      asteroidY: asteroids.y,
+      recallRequestedAt: asteroidAssignments.recallRequestedAt,
+    })
+    .from(asteroidAssignments)
+    .innerJoin(
+      spacecraftDefinitions,
+      eq(asteroidAssignments.spacecraftDefinitionId, spacecraftDefinitions.id)
+    )
+    .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
+    .innerJoin(asteroids, eq(asteroidAssignments.asteroidId, asteroids.id))
+    .where(eq(asteroidAssignments.id, trip.assignmentId))
     .limit(1);
 
-  if (!sourceAsteroid) {
-    // Asteroid destroyed → release lock on arrival at station
+  if (!assignment) return null;
+
+  // Serialize the final returns for one asteroid. Without this lock, two groups
+  // could both observe the other assignment and leave an exhausted asteroid behind.
+  await tx
+    .select({ id: asteroids.id })
+    .from(asteroids)
+    .where(eq(asteroids.id, assignment.asteroidId))
+    .for('update');
+
+  const [reserve] = await tx
+    .select({ amount: sql<number>`coalesce(sum(${asteroidVeins.remainingAmount}), 0)::int` })
+    .from(asteroidVeins)
+    .where(eq(asteroidVeins.asteroidId, assignment.asteroidId));
+
+  if (assignment.recallRequestedAt || (reserve?.amount ?? 0) <= 0) {
+    await tx.delete(asteroidAssignments).where(eq(asteroidAssignments.id, assignment.id));
     await tx
       .update(stationSpacecrafts)
       .set({
         lockedAmount: sql`GREATEST(0, ${stationSpacecrafts.lockedAmount} - ${trip.groupSize})`,
       })
       .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId));
-  } else {
-    // Normal recall: return trip was already created at dispatch time.
-    // Just update assignment status so miners fly back.
-    await tx
-      .update(asteroidAssignments)
-      .set({ status: 'traveling_to_asteroid' })
-      .where(
-        and(
-          eq(asteroidAssignments.asteroidId, trip.fromId),
-          sql`${asteroidAssignments.stationId} = ${trip.toId}`,
-          sql`${asteroidAssignments.spacecraftDefinitionId} = (
-            SELECT spacecraft_definition_id FROM station_spacecrafts WHERE id = ${trip.stationSpacecraftId}
-          )`
-        )
-      );
-  }
-}
 
-// ── Transporter arrived at asteroid (outbound leg) ───────────────────────────
-// Loads resources from the asteroid buffer at arrival time (not dispatch time)
-// and writes them into the pre-created return trip's cargoManifest.
-export async function handleTransportOutbound(tx: Tx, trip: Trip): Promise<void> {
-  const asteroidId = trip.toId;
-  const stationId = trip.fromId;
+    if ((reserve?.amount ?? 0) <= 0) {
+      const [remainingAssignment] = await tx
+        .select({ id: asteroidAssignments.id })
+        .from(asteroidAssignments)
+        .where(eq(asteroidAssignments.asteroidId, assignment.asteroidId))
+        .limit(1);
 
-  const lockedBuffer = await tx
-    .select({
-      resourceKey: asteroidResourceStorage.resourceKey,
-      amount: asteroidResourceStorage.amount,
-    })
-    .from(asteroidResourceStorage)
-    .where(eq(asteroidResourceStorage.asteroidId, asteroidId))
-    .for('update');
-
-  const currentTotal = lockedBuffer.reduce((s, r) => s + r.amount, 0);
-  if (currentTotal <= 0) return;
-
-  // Determine the cargo capacity of this transporter so we don't overload.
-  const [defRow] = await tx
-    .select({ cargo: spacecraftDefinitions.cargo })
-    .from(stationSpacecrafts)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
-    .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId))
-    .limit(1);
-
-  const maxLoad = defRow ? trip.groupSize * defRow.cargo : currentTotal;
-  const totalToLoad = Math.min(currentTotal, maxLoad);
-  const loadFraction = totalToLoad / currentTotal;
-
-  const cargoManifest: CargoManifest = {};
-  for (const resource of lockedBuffer) {
-    const amount = Math.floor(resource.amount * loadFraction);
-    if (amount > 0) cargoManifest[resource.resourceKey] = amount;
-  }
-
-  // Decrement asteroid buffer
-  for (const resource of lockedBuffer) {
-    const deduct = Math.floor(resource.amount * loadFraction);
-    if (deduct <= 0) continue;
-    const newAmount = resource.amount - deduct;
-    if (newAmount <= 0) {
-      await tx
-        .delete(asteroidResourceStorage)
-        .where(
-          and(
-            eq(asteroidResourceStorage.asteroidId, asteroidId),
-            eq(asteroidResourceStorage.resourceKey, resource.resourceKey)
-          )
-        );
-    } else {
-      await tx
-        .update(asteroidResourceStorage)
-        .set({ amount: newAmount })
-        .where(
-          and(
-            eq(asteroidResourceStorage.asteroidId, asteroidId),
-            eq(asteroidResourceStorage.resourceKey, resource.resourceKey)
-          )
-        );
+      if (!remainingAssignment) {
+        await tx.delete(asteroids).where(eq(asteroids.id, assignment.asteroidId));
+      }
     }
+
+    return null;
   }
 
-  // Update the pre-created return trip with the real cargoManifest
-  await tx
-    .update(spacecraftTrips)
-    .set({ cargoManifest })
-    .where(
-      and(
-        eq(spacecraftTrips.stationSpacecraftId, trip.stationSpacecraftId),
-        eq(spacecraftTrips.purpose, 'return'),
-        eq(spacecraftTrips.fromType, 'asteroid'),
-        eq(spacecraftTrips.fromId, asteroidId),
-        eq(spacecraftTrips.toType, 'station'),
-        eq(spacecraftTrips.toId, stationId),
-        eq(spacecraftTrips.status, 'traveling')
-      )
-    );
-}
-
-// ── Transporter return leg arrived at station ────────────────────────────────
-// Credits cargoManifest to the station and releases the spacecraft lock.
-export async function handleTransporterReturn(tx: Tx, trip: Trip): Promise<void> {
-  if (trip.cargoManifest) {
-    for (const [resourceKey, amount] of Object.entries(trip.cargoManifest)) {
-      if (amount <= 0) continue;
-      await tx
-        .insert(stationResources)
-        .values({ stationId: trip.toId, resourceKey, amount })
-        .onConflictDoUpdate({
-          target: [stationResources.stationId, stationResources.resourceKey],
-          set: { amount: sql`${stationResources.amount} + ${amount}` },
-        });
-    }
-  }
-
-  // Release locked ships
-  await tx
-    .update(stationSpacecrafts)
-    .set({
-      lockedAmount: sql`GREATEST(0, ${stationSpacecrafts.lockedAmount} - ${trip.groupSize})`,
+  const departedAt = trip.arrivesAt;
+  const distance = calcDistance(
+    { x: assignment.stationX, y: assignment.stationY },
+    { x: assignment.asteroidX, y: assignment.asteroidY }
+  );
+  const arrivesAt = calcArrivesAt(departedAt, distance, assignment.speed);
+  const [outboundTrip] = await tx
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId: trip.stationSpacecraftId,
+      assignmentId: assignment.id,
+      groupSize: trip.groupSize,
+      fromType: 'station',
+      fromId: trip.toId,
+      toType: 'asteroid',
+      toId: assignment.asteroidId,
+      departedAt,
+      arrivesAt,
+      purpose: 'mine',
     })
-    .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId));
+    .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
+
+  await tx
+    .update(asteroidAssignments)
+    .set({ status: 'traveling_to_asteroid' })
+    .where(eq(asteroidAssignments.id, assignment.id));
+
+  return outboundTrip ?? null;
 }

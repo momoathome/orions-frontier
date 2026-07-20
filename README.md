@@ -1,10 +1,9 @@
 # Orion's Frontier
 
-Orion's Frontier ist ein persistentes Idle-Browsergame. Eine Station handelt zunehmend
-selbstständig, während der Spieler Prioritäten setzt und die Folgen seiner Entscheidungen in
-einer lebenden Welt beobachtet.
+Orion's Frontier ist ein persistentes Idle-Browsergame. Der Spieler erschließt endliche
+Asteroiden, weist Miner zu und beobachtet ihre vollständigen Rundläufe in einer lebenden Welt.
 
-Das Repository ist ein npm-Monorepo mit drei Anwendungen und drei gemeinsam genutzten
+Das Repository ist ein npm-Monorepo mit zwei Anwendungen und zwei gemeinsam genutzten
 TypeScript-Paketen.
 
 ## Start mit Docker
@@ -22,7 +21,7 @@ Datenbankmigrationen selbstständig aus.
 - Frontend: <http://localhost:5173>
 - API: <http://localhost:3000/api>
 - Healthcheck: <http://localhost:3000/api/health>
-- WebSocket: `ws://localhost:3001`
+- WebSocket: `ws://localhost:3000`
 
 Beenden:
 
@@ -42,7 +41,6 @@ docker compose down -v
 apps/
   api/           Fastify API, Simulation und PostgreSQL-Zugriff
   frontend/      Vue-Frontend und Pixi-Welt
-  websocket/     Realtime-Verbindung zum Browser
 packages/
   game-config/   Aktuelle Spieldefinitionen und Balancingwerte
   shared/        Gemeinsame Domain- und Transporttypen
@@ -71,26 +69,30 @@ npm run format
 npm run db:migrate
 ```
 
-`npm run test:behavior` startet PostgreSQL und Redis über Docker und prüft die einmalige
-Ereignisverarbeitung, das Aufholen nach einem Neustart und die WebSocket-Authentifizierung. Mit
-`npm run verify` laufen statische Checks, Build und Verhaltenschecks gemeinsam.
+Die API führt Migrationen beim Start automatisch aus. `npm run db:migrate` ist nur für eine
+manuelle Wiederholung nötig und lädt dabei die lokale `.env`-Datei.
+
+`npm run test:behavior` startet PostgreSQL über Docker und prüft unter anderem konkurrierende
+Ressourcenausgaben und Mining-Zugriffe, vollständige Mining-Rundläufe, Recall und Erschöpfung,
+das Aufholen nach einem Neustart sowie die WebSocket-Authentifizierung. Mit `npm run verify`
+laufen statische Checks, Build und Verhaltenschecks gemeinsam.
 
 Einzelne Workspaces lassen sich direkt ansprechen:
 
 ```bash
 npm run dev --workspace @orions-frontier/frontend
 npm run dev --workspace @orions-frontier/api
-npm run dev --workspace @orions-frontier/websocket
 ```
 
-API und WebSocket benötigen dabei die Werte aus `.env` sowie laufendes PostgreSQL und Redis. Für
-die normale Entwicklung ist deshalb Docker Compose der vorgesehene Einstieg.
+Die API benötigt dabei die Werte aus `.env` sowie laufendes PostgreSQL. Für die normale
+Entwicklung ist deshalb Docker Compose der vorgesehene Einstieg. WebSocket und Simulation laufen
+direkt im API-Prozess; fällige Vorgänge werden aus PostgreSQL nachgeholt.
 
 ## Entwicklungsprinzip
 
 Wir erweitern den vorhandenen technischen Vorsprung nicht um weitere klassische
-Browsergame-Kataloge. Neue Arbeit muss den Idle-Kern stärken: autonome Entscheidungen, sichtbare
-Logistik, wenige verständliche Prioritäten und spürbare Konsequenzen.
+Browsergame-Kataloge. Neue Arbeit stärkt den spielergesteuerten Idle-Kern: endliche Asteroiden,
+sichtbare Mining-Rundläufe, verständliche Leistungswerte und bewusste Investitionsentscheidungen.
 
 Die geplante schrittweise Umstellung ist im [Umsetzungsplan](docs/implementation-plan.md)
 festgehalten.

@@ -1,28 +1,16 @@
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-
-export type EntityType = 'asteroid' | 'station';
+import { reactive, ref } from 'vue';
 
 export interface SelectedEntity {
-  type: EntityType;
+  type: 'asteroid';
   id: string;
 }
 
-export const useSelectionStore = defineStore('selection', () => {
-  const selected = ref<SelectedEntity | null>(null);
-  const hoveredId = ref<string | null>(null);
+const selected = ref<SelectedEntity | null>(null);
 
-  function select(entity: SelectedEntity | null) {
-    selected.value = entity;
-  }
-
-  function deselect() {
-    selected.value = null;
-  }
-
-  function setHover(id: string | null) {
-    hoveredId.value = id;
-  }
-
-  return { selected, hoveredId, select, deselect, setHover };
+const selectionStore = reactive({
+  selected,
+  select: (entity: SelectedEntity) => (selected.value = entity),
+  deselect: () => (selected.value = null),
 });
+
+export const useSelectionStore = () => selectionStore;

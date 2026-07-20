@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
-import { apiClient } from '../lib/api-client';
+import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { ALL_RESOURCES, formatBuildTime } from '../lib/spacecraft-utils';
 
 const props = defineProps<{
@@ -19,11 +19,11 @@ const playerResources = ref<Record<string, number>>({});
 
 async function fetchPlayerResources() {
   try {
-    const { data } = await apiClient.get<{
+    const response = await apiClient.get<{
       success: true;
       data: { resources: Record<string, number> };
     }>('/me/resources');
-    playerResources.value = data.data.resources;
+    playerResources.value = response.data.resources;
   } catch {
     // silently ignore – Max button simply won't work without fresh data
   }
@@ -71,8 +71,8 @@ async function submitBuild() {
     setTimeout(() => {
       buildSuccess.value = false;
     }, 3000);
-  } catch (err: any) {
-    buildError.value = err?.response?.data?.message ?? 'Build order failed';
+  } catch (error) {
+    buildError.value = apiErrorMessage(error, 'Build order failed');
     setTimeout(() => {
       buildError.value = null;
     }, 4000);

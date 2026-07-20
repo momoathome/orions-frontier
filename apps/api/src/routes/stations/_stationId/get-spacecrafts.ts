@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { defineRoute } from '../../../lib/route-helper.js';
+import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../middleware/auth.js';
 import { getDb } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
@@ -11,7 +11,7 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
  * Returns the fleet of a station owned by the authenticated user,
  * including definition data and resource costs.
  */
-export default defineRoute(async (app) => {
+export default (async (app) => {
   app.get('/spacecrafts', { preHandler: [authenticate] }, async (request, reply) => {
     const { stationId } = request.params as { stationId: string };
     const db = getDb();
@@ -33,4 +33,4 @@ export default defineRoute(async (app) => {
       data: { stationId: station.id, spacecrafts },
     });
   });
-});
+}) satisfies FastifyPluginAsync;
