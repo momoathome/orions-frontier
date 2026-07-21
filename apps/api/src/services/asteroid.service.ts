@@ -109,16 +109,25 @@ export const getAsteroidById = async (
       .innerJoin(stations, eq(stations.id, asteroidAssignments.stationId))
       .where(eq(asteroidAssignments.asteroidId, id)),
     db
-      .select({ cargoManifest: spacecraftTrips.cargoManifest })
+      .select({
+        id: spacecraftTrips.id,
+        assignmentId: spacecraftTrips.assignmentId,
+        purpose: spacecraftTrips.purpose,
+        groupSize: spacecraftTrips.groupSize,
+        departedAt: spacecraftTrips.departedAt,
+        arrivesAt: spacecraftTrips.arrivesAt,
+        cargoManifest: spacecraftTrips.cargoManifest,
+      })
       .from(spacecraftTrips)
-      .where(
-        and(
-          eq(spacecraftTrips.fromId, id),
-          eq(spacecraftTrips.fromType, 'asteroid'),
-          eq(spacecraftTrips.status, 'traveling')
-        )
-      ),
+      .innerJoin(asteroidAssignments, eq(spacecraftTrips.assignmentId, asteroidAssignments.id))
+      .where(and(eq(asteroidAssignments.asteroidId, id), eq(spacecraftTrips.status, 'traveling'))),
   ]);
+
+  const activeTrips = new Map(
+    travelingTrips.flatMap((trip) =>
+      trip.assignmentId ? [[trip.assignmentId, trip] as const] : []
+    )
+  );
 
   const inTransit: Record<string, number> = {};
   for (const trip of travelingTrips) {
@@ -152,6 +161,7 @@ export const getAsteroidById = async (
     operationsVisible: mayObserveOperations,
     assignments: visibleAssignments.map((a): AsteroidDetailAssignment => {
       const spacecraft = getSpacecraft(a.spacecraftKey)!;
+      const activeTrip = activeTrips.get(a.id);
       return {
         id: a.id,
         stationId: a.stationId,
@@ -163,6 +173,16 @@ export const getAsteroidById = async (
         assignedAt: a.assignedAt.toISOString(),
         recallRequestedAt: a.recallRequestedAt?.toISOString() ?? null,
         recallRequestedAmount: a.recallRequestedAmount,
+        activeTrip: activeTrip
+          ? {
+              id: activeTrip.id,
+              purpose: activeTrip.purpose as 'mine' | 'mining_return',
+              groupSize: activeTrip.groupSize,
+              departedAt: activeTrip.departedAt.toISOString(),
+              arrivesAt: activeTrip.arrivesAt.toISOString(),
+              cargoManifest: activeTrip.cargoManifest,
+            }
+          : null,
       };
     }),
     inTransit: mayObserveOperations ? inTransit : {},

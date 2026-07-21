@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
@@ -48,6 +48,15 @@ before(async () => {
     spacecraftKey: 'merlin',
     amount: 3,
   });
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 3 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, defenderStationId),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
 });
 
 after(async () => {
@@ -105,9 +114,9 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
   const debris = await app.inject({ method: 'GET', url: `/api/debris/${field!.id}`, headers });
   assert.equal(debris.statusCode, 200);
   assert.deepEqual(debris.json().resources, {
-    carbon: 96,
-    titanium: 66,
-    hydrogenium: 15,
+    carbon: 108,
+    titanium: 78,
+    hydrogenium: 45,
   });
 
   await getDb().insert(stationSpacecrafts).values({

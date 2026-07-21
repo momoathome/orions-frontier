@@ -173,16 +173,10 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
   const defenderFleets = defenderRows
     .map((fleet) => ({ ...fleet, defense: getSpacecraft(fleet.spacecraftKey)!.defense }))
     .sort((a, b) => a.defense - b.defense || a.id.localeCompare(b.id));
-  const guardianLevel = await buildingLevel(tx, mission.defenderStationId, 'guardian');
-  const guardianPower =
-    calculateBuildingEffect('guardian', guardianLevel).find(
-      (effect) => effect.type === 'defense_power'
-    )?.value ?? 0;
-  const defenderPower =
-    defenderFleets.reduce(
-      (sum, fleet) => sum + Math.max(0, fleet.amount - fleet.lockedAmount) * fleet.defense,
-      0
-    ) + guardianPower;
+  const defenderPower = defenderFleets.reduce(
+    (sum, fleet) => sum + Math.max(0, fleet.amount - fleet.lockedAmount) * fleet.defense,
+    0
+  );
   const attackerPower = mission.attackerAmount * attacker.attack;
   const attackerLosses = Math.min(
     mission.attackerAmount,

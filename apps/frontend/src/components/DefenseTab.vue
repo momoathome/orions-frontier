@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import type { CombatReport, StationBuildingWithDefinition } from '@orions-frontier/shared';
+import type { CombatReport } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 
 const props = defineProps<{ stationId: string }>();
 const reports = ref<CombatReport[]>([]);
-const guardian = ref<StationBuildingWithDefinition | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
@@ -18,14 +17,7 @@ const relevantReports = computed(() =>
 
 async function load(): Promise<void> {
   try {
-    const [combatResponse, buildingResponse] = await Promise.all([
-      apiClient.get('/me/combats'),
-      apiClient.get(`/stations/${props.stationId}/buildings`),
-    ]);
-    reports.value = combatResponse;
-    guardian.value = buildingResponse.buildings.find(
-      (building: StationBuildingWithDefinition) => building.definition.key === 'guardian'
-    );
+    reports.value = await apiClient.get('/me/combats');
     error.value = null;
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Defense data could not be loaded');
@@ -43,17 +35,8 @@ onUnmounted(() => clearInterval(interval));
   <div class="grid h-full grid-cols-[220px_1fr] overflow-hidden font-mono text-[10px]">
     <div class="border-r border-white/5 p-4">
       <p class="mb-3 uppercase tracking-[0.3em] text-rose-300/50">Station defense</p>
-      <div class="flex justify-between border-b border-white/5 py-2">
-        <span class="text-white/35">Guardian level</span>
-        <span class="text-rose-200">{{ guardian?.level ?? 0 }}</span>
-      </div>
-      <div class="flex justify-between border-b border-white/5 py-2">
-        <span class="text-white/35">Defense power</span>
-        <span class="text-rose-200">
-          {{ guardian?.effects.find((effect) => effect.type === 'defense_power')?.value ?? 0 }}
-        </span>
-      </div>
-      <p class="mt-3 text-white/25">Available spacecraft defend automatically.</p>
+      <p class="text-white/25">Available spacecraft defend automatically.</p>
+      <p class="mt-3 text-white/15">Further station defense systems will be managed here.</p>
     </div>
     <div class="overflow-y-auto p-4">
       <p class="mb-3 uppercase tracking-[0.3em] text-white/25">Combat reports</p>

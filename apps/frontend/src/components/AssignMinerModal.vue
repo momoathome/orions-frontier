@@ -141,27 +141,27 @@ async function submit() {
       @click.self="emit('close')"
     >
       <div
-        class="bg-[#060c1b] border border-cyan-400/20 rounded p-5 w-80 flex flex-col gap-4 font-mono"
+        class="bg-[#060c1b] border border-cyan-400/20 rounded p-5 w-96 max-w-[calc(100vw-2rem)] flex flex-col gap-4 font-mono"
       >
         <!-- Header -->
         <div class="flex items-center justify-between">
-          <span class="text-[10px] text-white/50 uppercase tracking-widest">Assign Miner</span>
-          <button @click="emit('close')" class="text-white/30 hover:text-white/60 text-[11px]">
+          <span class="text-[12px] text-white/65 uppercase tracking-wider">Assign Miner</span>
+          <button @click="emit('close')" class="text-white/45 hover:text-white/80 text-[14px]">
             ✕
           </button>
         </div>
 
-        <div v-if="miners.length === 0" class="text-[10px] text-white/30 text-center py-3">
+        <div v-if="miners.length === 0" class="text-[12px] text-white/45 text-center py-3">
           No mining spacecraft at station
         </div>
 
         <template v-else>
           <!-- Spacecraft select -->
           <div class="flex flex-col gap-1.5">
-            <label class="text-[9px] text-white/25 uppercase tracking-wider">Spacecraft</label>
+            <label class="text-[10px] text-white/45 uppercase tracking-wide">Spacecraft</label>
             <select
               v-model="selectedSpacecraftKey"
-              class="bg-white/5 border border-white/10 rounded px-2 h-7 text-[11px] text-white/80 focus:outline-none focus:border-cyan-400/40"
+              class="bg-white/5 border border-white/10 rounded px-2 h-8 text-[12px] text-white/85 focus:outline-none focus:border-cyan-400/40"
             >
               <option v-for="m in miners" :key="m.definition.key" :value="m.definition.key">
                 {{ m.definition.name }} (×{{ m.amount - m.lockedAmount }})
@@ -171,11 +171,11 @@ async function submit() {
 
           <!-- Amount -->
           <div class="flex flex-col gap-1.5">
-            <label class="text-[9px] text-white/25 uppercase tracking-wider">Amount</label>
+            <label class="text-[10px] text-white/45 uppercase tracking-wide">Amount</label>
             <div class="flex items-center gap-1 w-full">
               <button
                 @click="assignAmount = Math.max(1, assignAmount - 1)"
-                class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+                class="w-8 h-8 flex items-center justify-center rounded border border-white/10 text-white/60 hover:bg-white/8 hover:text-white/90 transition text-[14px]"
               >
                 −
               </button>
@@ -186,17 +186,17 @@ async function submit() {
                 step="1"
                 :max="selectedMiner ? selectedMiner.amount - selectedMiner.lockedAmount : 1"
                 @change="assignAmount = Math.max(1, Math.floor(assignAmount || 1))"
-                class="flex-1 h-7 text-center text-[12px] text-white/80 bg-white/5 border border-white/12 rounded tabular-nums focus:outline-none focus:border-cyan-500/50"
+                class="flex-1 h-8 text-center text-[13px] text-white/85 bg-white/5 border border-white/12 rounded tabular-nums focus:outline-none focus:border-cyan-500/50"
               />
               <button
                 @click="assignAmount = assignAmount + 1"
-                class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+                class="w-8 h-8 flex items-center justify-center rounded border border-white/10 text-white/60 hover:bg-white/8 hover:text-white/90 transition text-[14px]"
               >
                 +
               </button>
               <button
                 @click="setMaxAmount()"
-                class="px-2 h-7 flex items-center justify-center rounded border border-white/10 text-white/35 hover:bg-white/8 hover:text-white/70 transition text-[9px] uppercase tracking-widest"
+                class="px-3 h-8 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition text-[10px] uppercase tracking-wider"
               >
                 Max
               </button>
@@ -205,10 +205,10 @@ async function submit() {
               v-if="
                 selectedMiner && assignAmount > selectedMiner.amount - selectedMiner.lockedAmount
               "
-              class="text-[9px] text-red-400/80"
+              class="text-[10px] text-red-400/85"
               >Max available: {{ selectedMiner.amount - selectedMiner.lockedAmount }}</span
             >
-            <span v-else-if="selectedMiner" class="text-[9px] text-white/25">
+            <span v-else-if="selectedMiner" class="text-[10px] text-white/45">
               {{ selectedMiner.definition.miningRate }}/h ·
               {{ selectedMiner.definition.cargo }} cargo · speed
               {{ selectedMiner.definition.speed }}
@@ -220,39 +220,39 @@ async function submit() {
             v-if="assignAmount >= 1 && selectedMiner"
             class="flex flex-col gap-1.5 pt-2 border-t border-white/8"
           >
-            <span class="text-[9px] text-white/20 uppercase tracking-wider">Mining Preview</span>
-            <span v-if="previewLoading" class="text-[9px] text-white/25 animate-pulse"
+            <span class="text-[10px] text-white/45 uppercase tracking-wide">Mining Preview</span>
+            <span v-if="previewLoading" class="text-[11px] text-white/45 animate-pulse"
               >Calculating…</span
             >
-            <span v-else-if="previewError" class="text-[9px] text-red-400/70">{{
+            <span v-else-if="previewError" class="text-[11px] text-red-400/80">{{
               previewError
             }}</span>
             <template v-else-if="preview">
-              <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] tabular-nums">
-                <span class="text-white/25">Distance</span>
-                <span class="text-right text-white/60">{{ formatNumber(preview.distance) }}</span>
-                <span class="text-white/25">Flight each way</span>
-                <span class="text-right text-white/60">{{
+              <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] tabular-nums">
+                <span class="text-white/45">Distance</span>
+                <span class="text-right text-white/75">{{ formatNumber(preview.distance) }}</span>
+                <span class="text-white/45">Flight each way</span>
+                <span class="text-right text-white/75">{{
                   formatDuration(preview.oneWayTravelHours)
                 }}</span>
-                <span class="text-white/25">Mining</span>
-                <span class="text-right text-white/60">{{
+                <span class="text-white/45">Mining</span>
+                <span class="text-right text-white/75">{{
                   formatDuration(preview.miningHours)
                 }}</span>
-                <span class="text-white/25">Round trip</span>
-                <span class="text-right text-white/60">{{
+                <span class="text-white/45">Round trip</span>
+                <span class="text-right text-white/75">{{
                   formatDuration(preview.roundTripHours)
                 }}</span>
-                <span class="text-white/25">Delivery</span>
-                <span class="text-right text-cyan-400/80 font-semibold"
+                <span class="text-white/45">Delivery</span>
+                <span class="text-right text-cyan-300/90 font-semibold"
                   >{{ formatNumber(preview.totalDeliveryPerHour) }}/h</span
                 >
-                <span class="text-white/25">Reserve</span>
-                <span class="text-right text-white/60">{{
+                <span class="text-white/45">Reserve</span>
+                <span class="text-right text-white/75">{{
                   formatNumber(preview.remainingAmount)
                 }}</span>
-                <span class="text-white/25">Estimated depletion</span>
-                <span class="text-right text-amber-300/75">{{
+                <span class="text-white/45">Estimated depletion</span>
+                <span class="text-right text-amber-300/85">{{
                   formatDuration(preview.estimatedDepletionHours)
                 }}</span>
               </div>
@@ -260,23 +260,23 @@ async function submit() {
             <div
               v-for="vein in asteroid.veins"
               :key="vein.id"
-              class="flex items-center justify-between text-[9px]"
+              class="flex items-center justify-between text-[11px]"
             >
               <span :style="`color:${resourceColor(vein.resourceKey)}`">{{
                 resourceName(vein.resourceKey)
               }}</span>
-              <span class="text-white/45 tabular-nums">{{
+              <span class="text-white/65 tabular-nums">{{
                 formatNumber(vein.remainingAmount)
               }}</span>
             </div>
           </div>
 
-          <div v-if="assignError" class="text-[9px] text-red-400/80">{{ assignError }}</div>
+          <div v-if="assignError" class="text-[11px] text-red-400/85">{{ assignError }}</div>
 
           <button
             @click="submit"
             :disabled="assigning || !selectedSpacecraftKey"
-            class="h-7 rounded text-[9px] uppercase tracking-widest bg-cyan-400/10 text-cyan-400/80 border border-cyan-400/25 hover:bg-cyan-400/15 hover:text-cyan-400 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            class="h-8 rounded text-[11px] uppercase tracking-wider bg-cyan-400/10 text-cyan-300/90 border border-cyan-400/30 hover:bg-cyan-400/15 hover:text-cyan-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {{ assigning ? 'Assigning…' : 'Assign' }}
           </button>

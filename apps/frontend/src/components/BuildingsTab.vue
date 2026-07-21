@@ -68,12 +68,6 @@ const effectThemes: Record<BuildingEffectType, EffectTheme> = {
     badgeText: 'text-sky-300',
     level: 'text-sky-300',
   },
-  defense_power: {
-    topBar: 'bg-rose-500',
-    badge: 'bg-rose-500/15 border-rose-500/30',
-    badgeText: 'text-rose-300',
-    level: 'text-rose-300',
-  },
   research_capacity: {
     topBar: 'bg-green-500',
     badge: 'bg-green-500/15 border-green-500/30',
@@ -94,7 +88,6 @@ const effectTypeLabels: Record<BuildingEffectType, string> = {
   storage_capacity: 'Storage',
   protected_storage: 'Protection',
   scanner_strength: 'Scanner',
-  defense_power: 'Defense',
   research_capacity: 'Research',
 };
 
@@ -114,8 +107,6 @@ function formatEffect(type: string, value: number): { label: string; display: st
       return { label: 'Protected', display: value.toLocaleString() };
     case 'scanner_strength':
       return { label: 'Scan Range', display: `${value}` };
-    case 'defense_power':
-      return { label: 'Defense', display: `${value}` };
     case 'research_capacity':
       return { label: 'Research capacity', display: `${value}` };
     default:

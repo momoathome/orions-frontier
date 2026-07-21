@@ -58,13 +58,13 @@ export const buildings: BuildingSeedDefinition[] = [
     effectType: 'scanner_strength',
   },
   {
-    key: 'guardian',
-    name: 'Guardian',
-    description: 'Reinforces station turrets and shielding systems against hostile attacks.',
-    image: '/assets/buildings/guardian.webp',
+    key: 'hangar',
+    name: 'Hangar',
+    description: 'Expands fleet capacity, providing space for additional spacecraft.',
+    image: '/assets/buildings/hangar.webp',
     baseBuildTime: 120,
-    maxLevel: 15,
-    effectType: 'defense_power',
+    maxLevel: 20,
+    effectType: 'hangar_capacity',
   },
   {
     key: 'laboratory',
@@ -130,7 +130,7 @@ const UPGRADE_COST_CONFIG: Record<BuildingKey, UpgradeCostConfig> = {
       { resourceKey: 'kyber_crystal', baseAmount: 10, unlocksAtLevel: 10 },
     ],
   },
-  guardian: {
+  hangar: {
     factor: 1.45,
     resourceCosts: [
       { resourceKey: 'titanium', baseAmount: 150 },
@@ -194,10 +194,7 @@ export function calculateBuildingBuildTime(buildingKey: BuildingKey, targetLevel
 export function calculateBuildingEffect(buildingKey: BuildingKey, level: number): BuildingEffect[] {
   switch (buildingKey) {
     case 'core':
-      return [
-        { type: 'station_progression', value: level * 5 },
-        { type: 'hangar_capacity', value: calculateHangarCapacity(level) },
-      ];
+      return [{ type: 'station_progression', value: level * 5 }];
 
     case 'shipyard':
       return [
@@ -214,8 +211,8 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
     case 'scanner':
       return [{ type: 'scanner_strength', value: level * 10 }];
 
-    case 'guardian':
-      return [{ type: 'defense_power', value: level * 15 }];
+    case 'hangar':
+      return [{ type: 'hangar_capacity', value: calculateHangarCapacity(level) }];
 
     case 'laboratory':
       return [{ type: 'research_capacity', value: level * 5 }];
@@ -241,4 +238,4 @@ export const SHIPYARD_UNLOCKS: Record<number, string[]> = {
   12: ['reaper'],
 };
 
-export const calculateHangarCapacity = (coreLevel: number): number => 5 + coreLevel * 5;
+export const calculateHangarCapacity = (hangarLevel: number): number => 5 + hangarLevel * 5;

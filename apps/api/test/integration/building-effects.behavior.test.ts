@@ -57,10 +57,10 @@ afterEach(async () => {
 
 after(closeDb);
 
-test('a completed core upgrade increases the effective hangar capacity', async () => {
+test('a completed hangar upgrade increases the effective hangar capacity', async () => {
   assert.deepEqual(await getStationHangar(stationId), { capacity: 10, used: 1 });
 
-  await completeUpgrade('core');
+  await completeUpgrade('hangar');
 
   assert.deepEqual(await getStationHangar(stationId), { capacity: 15, used: 1 });
 });
@@ -73,7 +73,7 @@ test('a completed scanner upgrade increases the effective scanner strength', asy
   assert.equal(await getUserScannerStrength(userId), 20);
 });
 
-async function completeUpgrade(buildingKey: 'core' | 'scanner'): Promise<void> {
+async function completeUpgrade(buildingKey: 'hangar' | 'scanner'): Promise<void> {
   await startBuildingUpgrade(stationId, buildingKey, userId);
   const completedAt = new Date();
   await getDb()

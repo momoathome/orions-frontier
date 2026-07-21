@@ -7,7 +7,7 @@ export const buildingKeys = [
   'shipyard',
   'warehouse',
   'scanner',
-  'guardian',
+  'hangar',
   'laboratory',
 ] as const;
 
@@ -23,7 +23,6 @@ export type BuildingEffectType =
   | 'storage_capacity'
   | 'protected_storage'
   | 'scanner_strength'
-  | 'defense_power'
   | 'research_capacity';
 
 // Building Definition (static game config)

@@ -1,4 +1,4 @@
-import type { ResourceKey } from './resource.js';
+import type { ResourceKey, ResourceMap } from './resource.js';
 
 export type AsteroidSize = 'small' | 'medium' | 'large' | 'massive';
 
@@ -48,6 +48,14 @@ export interface AsteroidDetailAssignment {
   assignedAt: string;
   recallRequestedAt: string | null;
   recallRequestedAmount: number;
+  activeTrip: {
+    id: string;
+    purpose: 'mine' | 'mining_return';
+    groupSize: number;
+    departedAt: string;
+    arrivesAt: string;
+    cargoManifest: ResourceMap | null;
+  } | null;
 }
 
 export interface AsteroidDetail extends Asteroid {

@@ -52,6 +52,15 @@ beforeEach(async () => {
     spacecraftKey: 'merlin',
     amount: 3,
   });
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 3 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, defenderStationId),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
 });
 
 afterEach(async () => {
@@ -89,14 +98,14 @@ test('combat resolves attacker and defender losses', async () => {
 
   assert.equal(report.status, 'resolved');
   assert.equal(report.winner, 'attacker');
-  assert.equal(report.attackerLosses, 2);
-  assert.equal(report.defenderLosses, 1);
+  assert.equal(report.attackerLosses, 1);
+  assert.equal(report.defenderLosses, 3);
 
   const [attackerFleet, defenderFleet] = await Promise.all([
     getFleet(attackerStationId, 'merlin'),
     getFleet(defenderStationId, 'mole'),
   ]);
-  assert.deepEqual(attackerFleet, { amount: 1, lockedAmount: 0 });
+  assert.deepEqual(attackerFleet, { amount: 2, lockedAmount: 0 });
   assert.deepEqual(defenderFleet, { amount: 0, lockedAmount: 0 });
 });
 
@@ -106,14 +115,14 @@ test('a resolved attack transfers bounded loot and creates debris', async () => 
 
   const report = await resolveAttack();
 
-  assert.deepEqual(report.loot, { carbon: 10 });
-  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 10);
-  assert.equal(await getCarbon(defenderStationId), defenderCarbonBefore - 10);
+  assert.deepEqual(report.loot, { carbon: 15, hydrogenium: 5 });
+  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 15);
+  assert.equal(await getCarbon(defenderStationId), defenderCarbonBefore - 15);
   const [field] = await getDb()
     .select()
     .from(debrisFields)
     .where(eq(debrisFields.sectorId, sectorId));
-  assert.deepEqual(field?.resources, { carbon: 96, titanium: 66, hydrogenium: 15 });
+  assert.deepEqual(field?.resources, { carbon: 108, titanium: 78, hydrogenium: 45 });
 });
 
 test('debris can be salvaged and earned influence can take over a station', async () => {
@@ -132,7 +141,7 @@ test('debris can be salvaged and earned influence can take over a station', asyn
   });
   await resolveSalvage(field.id);
 
-  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 10 + 96);
+  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 15 + 108);
   assert.equal(
     (await getDb().select().from(debrisFields).where(eq(debrisFields.id, field.id))).length,
     0

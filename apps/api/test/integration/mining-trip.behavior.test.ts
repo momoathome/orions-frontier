@@ -211,6 +211,7 @@ test('hides mining groups from players without their own presence at the asteroi
   const foreignView = await getAsteroidById(asteroidId, 0, secondUserId);
   assert.equal(ownerView?.operationsVisible, true);
   assert.equal(ownerView?.assignments.length, 1);
+  assert.equal(ownerView?.assignments[0]?.activeTrip?.purpose, 'mine');
   assert.equal(foreignView?.operationsVisible, false);
   assert.equal(foreignView?.assignments.length, 0);
   assert.deepEqual(foreignView?.inTransit, {});
@@ -258,6 +259,9 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
   assert.ok(firstReturn);
   assert.deepEqual(firstReturn.cargoManifest, { carbon: 50 });
   assert.equal(firstReturn.departedAt.getTime() - firstArrival.getTime(), 10 * 60_000);
+  const miningView = await getAsteroidById(asteroidId, 0, userId);
+  assert.equal(miningView?.assignments[0]?.activeTrip?.purpose, 'mining_return');
+  assert.deepEqual(miningView?.assignments[0]?.activeTrip?.cargoManifest, { carbon: 50 });
   assert.equal(await settleTripArrival(firstReturn), true);
 
   const [secondOutbound] = await db

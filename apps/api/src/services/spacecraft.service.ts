@@ -116,12 +116,12 @@ export async function getStationHangar(stationId: string): Promise<{
   used: number;
 }> {
   const db = getDb();
-  const [core, fleet, queued] = await Promise.all([
+  const [hangar, fleet, queued] = await Promise.all([
     db
       .select({ level: stationBuildings.level })
       .from(stationBuildings)
       .where(
-        and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'core'))
+        and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'hangar'))
       )
       .limit(1),
     db
@@ -134,7 +134,7 @@ export async function getStationHangar(stationId: string): Promise<{
       .where(eq(spacecraftBuildOrders.stationId, stationId)),
   ]);
   return {
-    capacity: calculateHangarCapacity(core[0]?.level ?? 0),
+    capacity: calculateHangarCapacity(hangar[0]?.level ?? 0),
     used: (fleet[0]?.used ?? 0) + (queued[0]?.used ?? 0),
   };
 }
@@ -208,12 +208,15 @@ export const buildSpacecrafts = async (
       }
     }
 
-    const [coreBuilding, fleetUsage, queuedUsage] = await Promise.all([
+    const [hangarBuilding, fleetUsage, queuedUsage] = await Promise.all([
       tx
         .select({ level: stationBuildings.level })
         .from(stationBuildings)
         .where(
-          and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'core'))
+          and(
+            eq(stationBuildings.stationId, stationId),
+            eq(stationBuildings.buildingKey, 'hangar')
+          )
         )
         .limit(1),
       tx
@@ -225,7 +228,7 @@ export const buildSpacecrafts = async (
         .from(spacecraftBuildOrders)
         .where(eq(spacecraftBuildOrders.stationId, stationId)),
     ]);
-    const hangarCapacity = calculateHangarCapacity(coreBuilding[0]?.level ?? 0);
+    const hangarCapacity = calculateHangarCapacity(hangarBuilding[0]?.level ?? 0);
     const hangarUsed = (fleetUsage[0]?.used ?? 0) + (queuedUsage[0]?.used ?? 0);
     const requestedAmount = orders.reduce((sum, order) => sum + order.amount, 0);
     if (hangarUsed + requestedAmount > hangarCapacity) {
