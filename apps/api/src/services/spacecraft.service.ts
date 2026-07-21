@@ -1,26 +1,19 @@
-import { eq, inArray, max, and, sql } from 'drizzle-orm';
+import { eq, max, and, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { publishUserEvent } from '../lib/realtime.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
-import {
-  spacecraftDefinitions,
-  spacecraftDefinitionCosts,
-} from '../lib/db/schema/spacecraft-definitions.js';
 import { spacecraftBuildOrders } from '../lib/db/schema/spacecraft-build-orders.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
-import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { stations } from '../lib/db/schema/stations.js';
 import {
   calculateBuildingEffect,
   calculateHangarCapacity,
+  getSpacecraft,
   SHIPYARD_UNLOCKS,
+  spacecrafts,
 } from '@orions-frontier/game-config';
-import type {
-  SpacecraftRole,
-  StationSpacecraftWithDefinition,
-  ResourceKey,
-} from '@orions-frontier/shared';
+import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { hasCompletedResearch } from './research.service.js';
 
@@ -32,58 +25,32 @@ export const getStationSpacecrafts = async (
   const [shipyard] = await db
     .select({ level: stationBuildings.level })
     .from(stationBuildings)
-    .innerJoin(
-      buildingDefinitions,
-      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+    .where(
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'shipyard'))
     )
-    .where(and(eq(stationBuildings.stationId, stationId), eq(buildingDefinitions.key, 'shipyard')))
     .limit(1);
   const unlockedKeys = Object.entries(SHIPYARD_UNLOCKS)
     .filter(([level]) => (shipyard?.level ?? 0) >= Number(level))
     .flatMap(([, keys]) => keys);
   if (unlockedKeys.length === 0) return [];
 
-  const definitions = await db
-    .select()
-    .from(spacecraftDefinitions)
-    .where(inArray(spacecraftDefinitions.key, unlockedKeys));
-  const definitionIds = definitions.map((definition) => definition.id);
+  const definitions = spacecrafts.filter((definition) => unlockedKeys.includes(definition.key));
   const stationRows = await db
     .select()
     .from(stationSpacecrafts)
     .where(eq(stationSpacecrafts.stationId, stationId));
-  const stationRowByDefinition = new Map(
-    stationRows.map((row) => [row.spacecraftDefinitionId, row])
-  );
-
-  const costs =
-    definitionIds.length > 0
-      ? await db
-          .select()
-          .from(spacecraftDefinitionCosts)
-          .where(inArray(spacecraftDefinitionCosts.spacecraftDefinitionId, definitionIds))
-      : [];
-
-  const costsByDefinitionId = costs.reduce<
-    Record<string, (typeof spacecraftDefinitionCosts.$inferSelect)[]>
-  >((acc, cost) => {
-    (acc[cost.spacecraftDefinitionId] ??= []).push(cost);
-    return acc;
-  }, {});
+  const stationRowByDefinition = new Map(stationRows.map((row) => [row.spacecraftKey, row]));
 
   // Load build orders for all definitions in this station
-  const buildOrderRows =
-    definitionIds.length > 0
-      ? await db
-          .select()
-          .from(spacecraftBuildOrders)
-          .where(eq(spacecraftBuildOrders.stationId, stationId))
-      : [];
+  const buildOrderRows = await db
+    .select()
+    .from(spacecraftBuildOrders)
+    .where(eq(spacecraftBuildOrders.stationId, stationId));
 
-  const buildOrdersByDefId = buildOrderRows.reduce<
+  const buildOrdersByKey = buildOrderRows.reduce<
     Record<string, (typeof spacecraftBuildOrders.$inferSelect)[]>
   >((acc, o) => {
-    (acc[o.spacecraftDefinitionId] ??= []).push(o);
+    (acc[o.spacecraftKey] ??= []).push(o);
     return acc;
   }, {});
 
@@ -103,29 +70,12 @@ export const getStationSpacecrafts = async (
   });
 
   return definitions.map((def) => {
-    const stationRow = stationRowByDefinition.get(def.id);
+    const stationRow = stationRowByDefinition.get(def.key);
     return {
-      definition: {
-        id: def.id,
-        key: def.key,
-        name: def.name,
-        description: def.description,
-        role: def.role as SpacecraftRole,
-        image: def.image,
-        attack: def.attack,
-        defense: def.defense,
-        cargo: def.cargo,
-        speed: def.speed,
-        miningRate: def.miningRate,
-        buildTime: def.buildTime,
-        costs: (costsByDefinitionId[def.id] ?? []).map((c) => ({
-          resourceKey: c.resourceKey as ResourceKey,
-          amount: c.amount,
-        })),
-      },
+      definition: def,
       amount: stationRow?.amount ?? 0,
       lockedAmount: stationRow?.lockedAmount ?? 0,
-      buildOrders: (buildOrdersByDefId[def.id] ?? []).map((o) => ({
+      buildOrders: (buildOrdersByKey[def.key] ?? []).map((o) => ({
         id: o.id,
         amount: o.amount,
         endsAt: o.endsAt.toISOString(),
@@ -134,39 +84,27 @@ export const getStationSpacecrafts = async (
   });
 };
 
-// ============================================================================
 // Seed initial spacecrafts for a newly created station
-// ============================================================================
 
 const INITIAL_SPACECRAFTS: { key: string; amount: number }[] = [{ key: 'mole', amount: 1 }];
 
-type SeedDb = Pick<ReturnType<typeof getDb>, 'select' | 'insert'>;
+type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 
 export const seedStationSpacecrafts = async (
   stationId: string,
   db: SeedDb = getDb()
 ): Promise<void> => {
-  const keys = INITIAL_SPACECRAFTS.map((s) => s.key);
-  const defs = await db
-    .select({ id: spacecraftDefinitions.id, key: spacecraftDefinitions.key })
-    .from(spacecraftDefinitions)
-    .where(inArray(spacecraftDefinitions.key, keys));
-
-  if (defs.length === 0) return;
-
   await db.insert(stationSpacecrafts).values(
-    defs.map((def) => ({
+    INITIAL_SPACECRAFTS.map((spacecraft) => ({
       stationId,
-      spacecraftDefinitionId: def.id,
-      amount: INITIAL_SPACECRAFTS.find((s) => s.key === def.key)!.amount,
+      spacecraftKey: spacecraft.key,
+      amount: spacecraft.amount,
       lockedAmount: 0,
     }))
   );
 };
 
-// ============================================================================
 // Build spacecrafts
-// ============================================================================
 
 export interface BuildOrder {
   spacecraftKey: string;
@@ -182,11 +120,9 @@ export async function getStationHangar(stationId: string): Promise<{
     db
       .select({ level: stationBuildings.level })
       .from(stationBuildings)
-      .innerJoin(
-        buildingDefinitions,
-        eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+      .where(
+        and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'core'))
       )
-      .where(and(eq(stationBuildings.stationId, stationId), eq(buildingDefinitions.key, 'core')))
       .limit(1),
     db
       .select({ used: sql<number>`coalesce(sum(${stationSpacecrafts.amount}), 0)::int` })
@@ -214,12 +150,8 @@ export const buildSpacecrafts = async (
     throw new AppError(ErrorCode.VALIDATION_ERROR, 'No orders provided');
   }
 
-  // Load spacecraft definitions for all requested keys
   const requestedKeys = [...new Set(orders.map((order) => order.spacecraftKey))];
-  const defs = await db
-    .select()
-    .from(spacecraftDefinitions)
-    .where(inArray(spacecraftDefinitions.key, requestedKeys));
+  const defs = requestedKeys.map(getSpacecraft).filter((definition) => definition !== undefined);
 
   if (defs.length !== requestedKeys.length) {
     const foundKeys = new Set(defs.map((d) => d.key));
@@ -228,31 +160,6 @@ export const buildSpacecrafts = async (
   }
 
   const defByKey = new Map(defs.map((d) => [d.key, d]));
-
-  // Load costs for all definitions
-  const defIds = defs.map((d) => d.id);
-  const costs = await db
-    .select()
-    .from(spacecraftDefinitionCosts)
-    .where(inArray(spacecraftDefinitionCosts.spacecraftDefinitionId, defIds));
-
-  const costsByDefId = costs.reduce<
-    Record<string, (typeof spacecraftDefinitionCosts.$inferSelect)[]>
-  >((acc, c) => {
-    (acc[c.spacecraftDefinitionId] ??= []).push(c);
-    return acc;
-  }, {});
-
-  // Load shipyard level
-  const [shipyardDef] = await db
-    .select({ id: buildingDefinitions.id })
-    .from(buildingDefinitions)
-    .where(eq(buildingDefinitions.key, 'shipyard'))
-    .limit(1);
-
-  if (!shipyardDef) {
-    throw new AppError(ErrorCode.NOT_FOUND, 'Shipyard building definition not found');
-  }
 
   for (const order of orders) {
     if (!Number.isInteger(order.amount) || order.amount <= 0) {
@@ -264,8 +171,7 @@ export const buildSpacecrafts = async (
   const totalCosts = new Map<string, number>();
   for (const order of orders) {
     const def = defByKey.get(order.spacecraftKey)!;
-    const defCosts = costsByDefId[def.id] ?? [];
-    for (const cost of defCosts) {
+    for (const cost of def.costs) {
       totalCosts.set(
         cost.resourceKey,
         (totalCosts.get(cost.resourceKey) ?? 0) + cost.amount * order.amount
@@ -285,10 +191,7 @@ export const buildSpacecrafts = async (
       .select({ level: stationBuildings.level })
       .from(stationBuildings)
       .where(
-        and(
-          eq(stationBuildings.stationId, stationId),
-          eq(stationBuildings.buildingDefinitionId, shipyardDef.id)
-        )
+        and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'shipyard'))
       )
       .limit(1);
     const shipyardLevel = shipyardBuilding?.level ?? 0;
@@ -309,11 +212,9 @@ export const buildSpacecrafts = async (
       tx
         .select({ level: stationBuildings.level })
         .from(stationBuildings)
-        .innerJoin(
-          buildingDefinitions,
-          eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+        .where(
+          and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'core'))
         )
-        .where(and(eq(stationBuildings.stationId, stationId), eq(buildingDefinitions.key, 'core')))
         .limit(1),
       tx
         .select({ used: sql<number>`coalesce(sum(${stationSpacecrafts.amount}), 0)::int` })
@@ -357,7 +258,7 @@ export const buildSpacecrafts = async (
         (effect) => effect.type === 'spacecraft_production_bonus'
       )?.value ?? 0;
     const buildTimeMultiplier = Math.max(0.25, 1 - (productionBonus + researchBonus) / 100);
-    const endsAtByDefId = new Map<string, Date>();
+    const endsAtByKey = new Map<string, Date>();
     for (const def of defs) {
       const [row] = await tx
         .select({ maxEndsAt: max(spacecraftBuildOrders.endsAt) })
@@ -365,19 +266,19 @@ export const buildSpacecrafts = async (
         .where(
           and(
             eq(spacecraftBuildOrders.stationId, stationId),
-            eq(spacecraftBuildOrders.spacecraftDefinitionId, def.id)
+            eq(spacecraftBuildOrders.spacecraftKey, def.key)
           )
         );
-      if (row?.maxEndsAt) endsAtByDefId.set(def.id, row.maxEndsAt);
+      if (row?.maxEndsAt) endsAtByKey.set(def.key, row.maxEndsAt);
     }
     const now = Date.now();
     const orderEndsAt = orders.map((order) => {
       const def = defByKey.get(order.spacecraftKey)!;
-      const baseline = Math.max((endsAtByDefId.get(def.id) ?? new Date(0)).getTime(), now);
+      const baseline = Math.max((endsAtByKey.get(def.key) ?? new Date(0)).getTime(), now);
       const endsAt = new Date(
         baseline + Math.ceil(order.amount * def.buildTime * buildTimeMultiplier) * 1000
       );
-      endsAtByDefId.set(def.id, endsAt);
+      endsAtByKey.set(def.key, endsAt);
       return { order, def, endsAt };
     });
 
@@ -397,7 +298,7 @@ export const buildSpacecrafts = async (
     for (const { order, def, endsAt } of orderEndsAt) {
       await tx.insert(spacecraftBuildOrders).values({
         stationId,
-        spacecraftDefinitionId: def.id,
+        spacecraftKey: def.key,
         amount: order.amount,
         endsAt,
       });
@@ -407,7 +308,7 @@ export const buildSpacecrafts = async (
         .insert(stationSpacecrafts)
         .values({
           stationId,
-          spacecraftDefinitionId: def.id,
+          spacecraftKey: def.key,
           amount: 0,
           lockedAmount: 0,
         })

@@ -2,11 +2,9 @@ import { CHUNK_SIZE } from './constants.js';
 import { ZOOM_MIN, ZOOM_MAX } from './constants.js';
 import type { Container } from 'pixi.js';
 
-// ============================================================================
 // Camera
 // Manages the viewport position and zoom level.
 // All coordinate conversions flow through here.
-// ============================================================================
 
 export interface VisibleChunkRange {
   minChunkX: number;
@@ -41,8 +39,6 @@ export class Camera {
     return this.vpH;
   }
 
-  // ── Coordinate conversion ────────────────────────────────────────────────
-
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
     return {
       x: (wx - this.x) * this.zoom + this.vpW / 2,
@@ -56,8 +52,6 @@ export class Camera {
       y: (sy - this.vpH / 2) / this.zoom + this.y,
     };
   }
-
-  // ── Camera manipulation ──────────────────────────────────────────────────
 
   /** Pan by a screen-space delta */
   pan(dsx: number, dsy: number) {
@@ -75,8 +69,6 @@ export class Camera {
     this.x = world.x - (sx - this.vpW / 2) / this.zoom;
     this.y = world.y - (sy - this.vpH / 2) / this.zoom;
   }
-
-  // ── Visibility ───────────────────────────────────────────────────────────
 
   /** World-space AABB of the current viewport, optionally expanded by `margin` world units */
   getVisibleBounds(margin = 0) {
@@ -101,8 +93,6 @@ export class Camera {
       maxChunkY: Math.floor(b.bottom / CHUNK_SIZE),
     };
   }
-
-  // ── PixiJS integration ───────────────────────────────────────────────────
 
   /**
    * Apply the camera transform to a PixiJS container.

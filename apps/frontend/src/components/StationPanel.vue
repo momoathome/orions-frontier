@@ -35,7 +35,6 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
 
     <!-- Content -->
     <div class="relative z-20 flex flex-col h-full">
-      <!-- ── Header ─────────────────────────────────────────────────────────── -->
       <div
         class="flex items-center justify-between px-5 h-11 border-b border-white/[0.07] shrink-0"
       >
@@ -69,7 +68,6 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         </button>
       </div>
 
-      <!-- ── Tab bar ────────────────────────────────────────────────────────── -->
       <div
         class="flex items-center gap-0.5 px-4 h-8 border-b border-white/5 bg-[#040911]/60 shrink-0"
       >
@@ -95,7 +93,6 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         </button>
       </div>
 
-      <!-- ── Empty state ────────────────────────────────────────────────────── -->
       <div v-if="!selectedSection" class="flex-1 flex items-center justify-center">
         <div class="text-center">
           <div class="text-xl text-cyan-500/15 mb-2 tracking-[0.6em]">◎</div>
@@ -103,7 +100,6 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         </div>
       </div>
 
-      <!-- ── Tab content ─────────────────────────────────────────────────────── -->
       <BuildingsTab
         v-if="selectedSection === 'buildings'"
         :station-id="stationId"

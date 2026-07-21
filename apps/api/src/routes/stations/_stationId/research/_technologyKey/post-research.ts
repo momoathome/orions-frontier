@@ -9,6 +9,6 @@ export default (async (app) => {
       technologyKey: string;
     };
     await startResearch(stationId, request.user.userId, technologyKey);
-    return reply.status(201).send({ success: true });
+    return reply.status(202).send();
   });
 }) satisfies FastifyPluginAsync;

@@ -1,12 +1,10 @@
 import { and, between, eq, lte, max } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { asteroids, asteroidVeins, asteroidAssignments } from '../lib/db/schema/asteroids.js';
-import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
-import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stations } from '../lib/db/schema/stations.js';
-import { calculateBuildingEffect } from '@orions-frontier/game-config';
+import { calculateBuildingEffect, getSpacecraft } from '@orions-frontier/game-config';
 import type {
   AsteroidDetail,
   AsteroidDetailAssignment,
@@ -31,11 +29,7 @@ export const getUserScannerStrength = async (userId: string): Promise<number> =>
     .select({ level: max(stationBuildings.level) })
     .from(stationBuildings)
     .innerJoin(stations, eq(stationBuildings.stationId, stations.id))
-    .innerJoin(
-      buildingDefinitions,
-      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
-    )
-    .where(and(eq(stations.userId, userId), eq(buildingDefinitions.key, 'scanner')));
+    .where(and(eq(stations.userId, userId), eq(stationBuildings.buildingKey, 'scanner')));
   return (
     calculateBuildingEffect('scanner', row?.level ?? 0).find(
       (effect) => effect.type === 'scanner_strength'
@@ -104,10 +98,7 @@ export const getAsteroidById = async (
       .select({
         id: asteroidAssignments.id,
         stationId: asteroidAssignments.stationId,
-        spacecraftDefinitionId: asteroidAssignments.spacecraftDefinitionId,
-        spacecraftName: spacecraftDefinitions.name,
-        spacecraftMiningRate: spacecraftDefinitions.miningRate,
-        spacecraftCargo: spacecraftDefinitions.cargo,
+        spacecraftKey: asteroidAssignments.spacecraftKey,
         assignedAmount: asteroidAssignments.assignedAmount,
         assignedAt: asteroidAssignments.assignedAt,
         recallRequestedAt: asteroidAssignments.recallRequestedAt,
@@ -115,10 +106,6 @@ export const getAsteroidById = async (
         ownerUserId: stations.userId,
       })
       .from(asteroidAssignments)
-      .innerJoin(
-        spacecraftDefinitions,
-        eq(spacecraftDefinitions.id, asteroidAssignments.spacecraftDefinitionId)
-      )
       .innerJoin(stations, eq(stations.id, asteroidAssignments.stationId))
       .where(eq(asteroidAssignments.asteroidId, id)),
     db
@@ -163,18 +150,21 @@ export const getAsteroidById = async (
       remainingAmount: v.remainingAmount,
     })),
     operationsVisible: mayObserveOperations,
-    assignments: visibleAssignments.map((a): AsteroidDetailAssignment => ({
-      id: a.id,
-      stationId: a.stationId,
-      spacecraftDefinitionId: a.spacecraftDefinitionId,
-      spacecraftName: a.spacecraftName,
-      spacecraftMiningRate: a.spacecraftMiningRate,
-      spacecraftCargo: a.spacecraftCargo,
-      assignedAmount: a.assignedAmount,
-      assignedAt: a.assignedAt.toISOString(),
-      recallRequestedAt: a.recallRequestedAt?.toISOString() ?? null,
-      recallRequestedAmount: a.recallRequestedAmount,
-    })),
+    assignments: visibleAssignments.map((a): AsteroidDetailAssignment => {
+      const spacecraft = getSpacecraft(a.spacecraftKey)!;
+      return {
+        id: a.id,
+        stationId: a.stationId,
+        spacecraftKey: a.spacecraftKey,
+        spacecraftName: spacecraft.name,
+        spacecraftMiningRate: spacecraft.miningRate,
+        spacecraftCargo: spacecraft.cargo,
+        assignedAmount: a.assignedAmount,
+        assignedAt: a.assignedAt.toISOString(),
+        recallRequestedAt: a.recallRequestedAt?.toISOString() ?? null,
+        recallRequestedAmount: a.recallRequestedAmount,
+      };
+    }),
     inTransit: mayObserveOperations ? inTransit : {},
   };
 };

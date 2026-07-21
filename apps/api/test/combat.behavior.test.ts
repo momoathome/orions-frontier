@@ -9,7 +9,6 @@ import { combatMissions } from '../src/lib/db/schema/combat-missions.js';
 import { debrisFields, salvageMissions } from '../src/lib/db/schema/debris-fields.js';
 import { stationInfluence } from '../src/lib/db/schema/station-influence.js';
 import { sectors } from '../src/lib/db/schema/sectors.js';
-import { spacecraftDefinitions } from '../src/lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../src/lib/db/schema/spacecraft-trips.js';
 import { spawnSlots } from '../src/lib/db/schema/spawn-slots.js';
 import { stationBuildings } from '../src/lib/db/schema/station-buildings.js';
@@ -17,7 +16,6 @@ import { stationResources } from '../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../src/lib/db/schema/stations.js';
 import { users } from '../src/lib/db/schema/users.js';
-import { seedBuildingDefinitions, seedSpacecraftDefinitions } from '../src/lib/seed.js';
 import { getUserCombatReports, startAttack } from '../src/services/combat.service.js';
 import { startSalvage } from '../src/services/salvage.service.js';
 import { getStationInfluence, takeOverStation } from '../src/services/influence.service.js';
@@ -30,12 +28,12 @@ const defenderUserId = randomUUID();
 let attackerStationId = '';
 let defenderStationId = '';
 let sectorId = '';
+const merlinKey = 'merlin';
+const collectorKey = 'collector';
 
 before(async () => {
   await runMigrations();
   await initDb();
-  await seedSpacecraftDefinitions();
-  await seedBuildingDefinitions();
   const db = getDb();
   const suffix = randomUUID();
   await db.insert(users).values([
@@ -55,13 +53,9 @@ before(async () => {
   sectorId = (await db.transaction((tx) => ensureSector(tx, 200, 200, 'settlement'))).id;
   attackerStationId = (await createStation(attackerUserId, { name: 'Attacker', sectorId })).id;
   defenderStationId = (await createStation(defenderUserId, { name: 'Defender', sectorId })).id;
-  const [merlin] = await db
-    .select({ id: spacecraftDefinitions.id })
-    .from(spacecraftDefinitions)
-    .where(eq(spacecraftDefinitions.key, 'merlin'));
   await db.insert(stationSpacecrafts).values({
     stationId: attackerStationId,
-    spacecraftDefinitionId: merlin!.id,
+    spacecraftKey: merlinKey,
     amount: 3,
   });
 });
@@ -101,10 +95,6 @@ after(async () => {
 
 test('combat uses normal flight time, applies losses and returns bounded loot', async () => {
   const db = getDb();
-  const [merlin] = await db
-    .select({ id: spacecraftDefinitions.id })
-    .from(spacecraftDefinitions)
-    .where(eq(spacecraftDefinitions.key, 'merlin'));
   const [beforeAttackerCarbon] = await db
     .select({ amount: stationResources.amount })
     .from(stationResources)
@@ -127,7 +117,7 @@ test('combat uses normal flight time, applies losses and returns bounded loot', 
     userId: attackerUserId,
     stationId: attackerStationId,
     targetStationId: defenderStationId,
-    spacecraftDefinitionId: merlin!.id,
+    spacecraftKey: merlinKey,
     amount: 3,
   });
   const [outbound] = await db
@@ -189,7 +179,7 @@ test('combat uses normal flight time, applies losses and returns bounded loot', 
       .where(
         and(
           eq(stationSpacecrafts.stationId, attackerStationId),
-          eq(stationSpacecrafts.spacecraftDefinitionId, merlin!.id)
+          eq(stationSpacecrafts.spacecraftKey, merlinKey)
         )
       )
       .then((rows) => rows[0]),
@@ -201,20 +191,16 @@ test('combat uses normal flight time, applies losses and returns bounded loot', 
   const [field] = await db.select().from(debrisFields).where(eq(debrisFields.sectorId, sectorId));
   assert.deepEqual(field?.resources, { carbon: 96, titanium: 66, hydrogenium: 15 });
 
-  const [collector] = await db
-    .select({ id: spacecraftDefinitions.id })
-    .from(spacecraftDefinitions)
-    .where(eq(spacecraftDefinitions.key, 'collector'));
   await db.insert(stationSpacecrafts).values({
     stationId: attackerStationId,
-    spacecraftDefinitionId: collector!.id,
+    spacecraftKey: collectorKey,
     amount: 1,
   });
   const salvage = await startSalvage({
     userId: attackerUserId,
     stationId: attackerStationId,
     debrisFieldId: field!.id,
-    spacecraftDefinitionId: collector!.id,
+    spacecraftKey: collectorKey,
     amount: 1,
   });
   const [salvageOutbound] = await db
@@ -253,7 +239,7 @@ test('combat uses normal flight time, applies losses and returns bounded loot', 
       .where(
         and(
           eq(stationSpacecrafts.stationId, attackerStationId),
-          eq(stationSpacecrafts.spacecraftDefinitionId, collector!.id)
+          eq(stationSpacecrafts.spacecraftKey, collectorKey)
         )
       )
       .then((rows) => rows[0]),

@@ -17,8 +17,6 @@ import {
   ASTEROID_DEFAULT_RADIUS,
 } from './constants.js';
 
-// ── Public types ──────────────────────────────────────────────────────────────
-
 /** One assigned mining position — passed to setAssignedAsteroids() */
 export interface AssignedAsteroid {
   asteroidId: string;
@@ -28,14 +26,12 @@ export interface AssignedAsteroid {
   size: string;
 }
 
-// ============================================================================
 // WorldRenderer
 // Main orchestrator — owns the PixiJS Application and ties together:
 //   Camera (pan/zoom/coordinate math)
 //   ChunkStreamer (chunk lifecycle + API fetching)
 //   AsteroidLayer (PixiJS rendering per chunk)
 //   Background (star field + world-aligned grid)
-// ============================================================================
 
 export interface StationInfo {
   id: string;
@@ -45,14 +41,12 @@ export interface StationInfo {
 }
 
 export class WorldRenderer {
-  // ── Core systems ──────────────────────────────────────────────────────────
   readonly camera: Camera;
   private streamer: ChunkStreamer;
   private asteroidLayer: AsteroidLayer;
   private stationLayer: StationLayer;
   private debrisLayer: DebrisLayer;
 
-  // ── PixiJS objects ────────────────────────────────────────────────────────
   private app!: Application;
   /** Transformed by the camera — everything in world space lives here */
   private worldContainer!: Container;
@@ -60,7 +54,6 @@ export class WorldRenderer {
   private screenContainer!: Container;
   private gridGraphics!: Graphics;
 
-  // ── Input state ───────────────────────────────────────────────────────────
   private isDragging = false;
   private pointerDownX = 0;
   private pointerDownY = 0;
@@ -68,7 +61,6 @@ export class WorldRenderer {
   private lastPointerY = 0;
   private activePointerId: number | null = null;
 
-  // ── Route + assignment layers ─────────────────────────────────────────────
   private routeLayer!: RouteLayer;
   private assignmentRingsG!: Graphics;
   // station rings + label
@@ -78,16 +70,13 @@ export class WorldRenderer {
   /** Accumulates each tick — drives dash animation */
   private _routePhase = 0;
 
-  // ── Trip layer (in-flight spacecraft) ────────────────────────────────────
   private tripLayer!: TripLayer;
 
-  // ── Selection / hover rings ──────────────────────────────────────────────
   private hoverRingG!: Graphics;
   private selectionRingG!: Graphics;
   private _selectedAsteroidId: string | null = null;
   private _hoveredAsteroidId: string | null = null;
 
-  // ── Station hover ─────────────────────────────────────────────────────────
   private stationInfo: StationInfo | null = null;
   /** Half the station sprite size in world units — used for hover hit-test */
   private readonly stationRadius = 50;
@@ -96,7 +85,6 @@ export class WorldRenderer {
   private _isHoveringEntity = false;
   private stationOverlay: Container | null = null;
 
-  // ── External callbacks ────────────────────────────────────────────────────
   /** Called when the user clicks an asteroid (provides asteroid id) */
   onAsteroidClick: ((id: string) => void) | null = null;
   /** Called when empty world space is clicked (no asteroid hit) */
@@ -133,8 +121,6 @@ export class WorldRenderer {
     };
   }
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
-
   async mount(el: HTMLElement, station: StationInfo | null = null): Promise<void> {
     const w = el.clientWidth || window.innerWidth;
     const h = el.clientHeight || window.innerHeight;
@@ -146,7 +132,6 @@ export class WorldRenderer {
       this.stationLayer.setActiveStationId(station.id);
     }
 
-    // ── PixiJS Application ──────────────────────────────────────────────────
     this.app = new Application();
     await this.app.init({
       width: w,
@@ -159,7 +144,6 @@ export class WorldRenderer {
 
     el.appendChild(this.app.canvas);
 
-    // ── Textures ─────────────────────────────────────────────────────────────
     const asteroidTextures: Texture[] = await Promise.all(
       [1, 2, 3, 4, 5, 6].map((i) => Assets.load(`/assets/map/asteroid${i}.webp`))
     );
@@ -167,7 +151,6 @@ export class WorldRenderer {
     const stationTexture: Texture = await Assets.load('/assets/map/station.webp');
     this.stationLayer.setTexture(stationTexture);
 
-    // ── Scene graph ─────────────────────────────────────────────────────────
     // Screen-space layer (no camera transform)
     this.screenContainer = new Container();
     this.app.stage.addChild(this.screenContainer);
@@ -224,13 +207,10 @@ export class WorldRenderer {
     this.selectionRingG = new Graphics();
     this.worldContainer.addChild(this.selectionRingG);
 
-    // ── Input & resize ──────────────────────────────────────────────────────
     this._bindInput(el);
 
-    // ── Render loop ─────────────────────────────────────────────────────────
     this.app.ticker.add(() => this._tick());
 
-    // ── Initial chunk load ──────────────────────────────────────────────────
     this.streamer.immediateUpdate(this.camera);
   }
 
@@ -406,8 +386,6 @@ export class WorldRenderer {
     return this.asteroidLayer.loadedChunkCount;
   }
 
-  // ── Render tick ───────────────────────────────────────────────────────────
-
   private _tick() {
     // Apply camera transform to the world container
     this.camera.applyToContainer(this.worldContainer);
@@ -428,8 +406,6 @@ export class WorldRenderer {
     // Draw station rings (world-space) + update label (screen-space)
     this._drawStationRings();
   }
-
-  // ── Background: world-aligned grid ───────────────────────────────────────
 
   private _drawGrid() {
     const { camera } = this;
@@ -461,8 +437,6 @@ export class WorldRenderer {
     g.stroke();
   }
 
-  // ── Station marker ────────────────────────────────────────────────────────
-
   private _buildStationMarker(station: StationInfo, stationTexture: Texture) {
     const { x, y, name } = station;
     this.stationInfo = station;
@@ -476,7 +450,6 @@ export class WorldRenderer {
     sprite.height = size;
     this.worldContainer.addChild(sprite);
 
-    // ── Station overlay (brackets + label — visible on hover/active) ───────
     const overlay = new Container();
     overlay.visible = false;
     this.stationOverlay = overlay;
@@ -516,8 +489,6 @@ export class WorldRenderer {
     g.lineTo(cornerX, cornerY + dirY * size);
     g.stroke({ color: 0x00e6c8, alpha: 0.85, width: 1.5 });
   }
-
-  // ── Input handling ────────────────────────────────────────────────────────
 
   private _bindInput(el: HTMLElement) {
     const { signal } = this.abortController;

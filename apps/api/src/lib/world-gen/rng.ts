@@ -1,7 +1,5 @@
-// ============================================================================
 // world-gen/rng.ts
 // Seeded pseudo-random number generator (mulberry32 variant).
-// ============================================================================
 
 const hashSeed = (seed: string): number => {
   let h = 0x811c9dc5;

@@ -11,7 +11,7 @@ const baseState = (): EconomicBotState => ({
   shipyardUpgradeInProgress: false,
   ships: {
     mole: {
-      definitionId: 'mole-definition',
+      spacecraftKey: 'mole',
       key: 'mole',
       amount: 1,
       lockedAmount: 0,
@@ -21,7 +21,7 @@ const baseState = (): EconomicBotState => ({
       miningRate: 120,
     },
     titan: {
-      definitionId: 'titan-definition',
+      spacecraftKey: 'titan',
       key: 'titan',
       amount: 0,
       lockedAmount: 0,
@@ -56,7 +56,7 @@ test('assigns an available miner to the best valid asteroid candidate', () => {
     type: 'assign_miner',
     stationId: 'station',
     asteroidId: 'carbon-near',
-    spacecraftDefinitionId: 'mole-definition',
+    spacecraftKey: 'mole',
     amount: 1,
     reason: 'mole assigned to the best available mining yield',
   });

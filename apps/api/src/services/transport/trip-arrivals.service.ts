@@ -5,11 +5,9 @@ import { handleMineArrival, handleMiningReturnArrival } from './trip-handlers.js
 import { handleCombatTripArrival } from '../combat.service.js';
 import { handleSalvageTripArrival } from '../salvage.service.js';
 
-// ============================================================================
 // Trip Arrivals Service
 //
 // settleTripArrival   — dispatches a single trip to the correct handler.
-// ============================================================================
 
 export async function settleTripArrival(
   trip: typeof spacecraftTrips.$inferSelect

@@ -12,7 +12,7 @@ const now = ref(Date.now());
 async function load(): Promise<void> {
   try {
     const response = await apiClient.get(`/stations/${props.stationId}/research`);
-    state.value = response.data;
+    state.value = response;
     error.value = null;
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Research could not be loaded');

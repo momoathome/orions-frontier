@@ -1,5 +1,12 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { AppError, ErrorCode } from '@orions-frontier/shared';
+import { AppError, ErrorCode, type JwtPayload } from '@orions-frontier/shared';
+
+declare module '@fastify/jwt' {
+  interface FastifyJWT {
+    payload: JwtPayload;
+    user: JwtPayload;
+  }
+}
 
 /**
  * Fastify preHandler — validates JWT and sets request.user.

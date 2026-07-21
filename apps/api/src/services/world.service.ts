@@ -3,13 +3,13 @@ import { getDb } from '../lib/db/index.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
 import { asteroids } from '../lib/db/schema/asteroids.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
-import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { worldMissions } from '../lib/db/schema/world-missions.js';
 import { debrisFields } from '../lib/db/schema/debris-fields.js';
 import type { VisibleStation, VisibleWorldTrip } from '@orions-frontier/shared';
+import { getSpacecraft } from '@orions-frontier/game-config';
 
 export interface WorldChunkRange {
   minChunkX: number;
@@ -82,18 +82,12 @@ export async function getVisibleWorldTrips(
       arrivesAt: spacecraftTrips.arrivesAt,
       purpose: spacecraftTrips.purpose,
       groupSize: spacecraftTrips.groupSize,
-      name: spacecraftDefinitions.name,
-      image: spacecraftDefinitions.image,
-      role: spacecraftDefinitions.role,
+      spacecraftKey: stationSpacecrafts.spacecraftKey,
       userId: stations.userId,
       botUserId: botControllers.userId,
     })
     .from(spacecraftTrips)
     .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .innerJoin(stations, eq(stationSpacecrafts.stationId, stations.id))
     .leftJoin(botControllers, eq(botControllers.userId, stations.userId))
     .where(eq(spacecraftTrips.status, 'traveling'));
@@ -162,6 +156,7 @@ export async function getVisibleWorldTrips(
     const y = from.y + (to.y - from.y) * progress;
     if (x < bounds.minX || x >= bounds.maxX || y < bounds.minY || y >= bounds.maxY) return [];
 
+    const spacecraft = getSpacecraft(trip.spacecraftKey)!;
     return [
       {
         id: trip.id,
@@ -175,9 +170,9 @@ export async function getVisibleWorldTrips(
         groupSize: trip.userId === userId ? trip.groupSize : null,
         ownerType: trip.botUserId ? 'bot' : 'player',
         spacecraft: {
-          name: trip.name,
-          image: trip.image,
-          role: trip.role as VisibleWorldTrip['spacecraft']['role'],
+          name: spacecraft.name,
+          image: spacecraft.image,
+          role: spacecraft.role,
         },
       },
     ];
@@ -196,22 +191,17 @@ export async function getVisibleWorldTrips(
       arrivesAt: worldMissions.arrivesAt,
       status: worldMissions.status,
       purpose: worldMissions.missionType,
-      name: spacecraftDefinitions.name,
-      image: spacecraftDefinitions.image,
-      role: spacecraftDefinitions.role,
+      spacecraftKey: worldMissions.spacecraftKey,
       userId: worldMissions.userId,
       botUserId: botControllers.userId,
     })
     .from(worldMissions)
     .innerJoin(stations, eq(worldMissions.originStationId, stations.id))
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(worldMissions.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .leftJoin(botControllers, eq(botControllers.userId, worldMissions.userId))
     .where(inArray(worldMissions.status, ['traveling', 'returning']));
 
   const visibleMissions = missions.flatMap((mission): VisibleWorldTrip[] => {
+    const spacecraft = getSpacecraft(mission.spacecraftKey)!;
     const targetX = mission.targetX ?? mission.targetSectorX * WORLD_CONFIG.SECTOR.WIDTH;
     const targetY = mission.targetY ?? mission.targetSectorY * WORLD_CONFIG.SECTOR.HEIGHT;
     const returning = mission.status === 'returning';
@@ -240,9 +230,9 @@ export async function getVisibleWorldTrips(
         groupSize: mission.userId === userId ? 1 : null,
         ownerType: mission.botUserId ? 'bot' : 'player',
         spacecraft: {
-          name: mission.name,
-          image: mission.image,
-          role: mission.role as VisibleWorldTrip['spacecraft']['role'],
+          name: spacecraft.name,
+          image: spacecraft.image,
+          role: spacecraft.role,
         },
       },
     ];

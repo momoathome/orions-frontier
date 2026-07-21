@@ -19,6 +19,6 @@ export default (async (app) => {
     const user = await registerUser(username, email, password);
     const token = app.jwt.sign({ userId: user.id, role: user.role });
 
-    return reply.status(201).send({ success: true, data: { token, user } });
+    return reply.status(201).send({ token, user });
   });
 }) satisfies FastifyPluginAsync;

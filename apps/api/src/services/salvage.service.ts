@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import {
   AppError,
   ErrorCode,
@@ -9,16 +9,13 @@ import {
 } from '@orions-frontier/shared';
 import { getDb } from '../lib/db/index.js';
 import { debrisFields, salvageMissions } from '../lib/db/schema/debris-fields.js';
-import {
-  spacecraftDefinitionCosts,
-  spacecraftDefinitions,
-} from '../lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { calcArrivesAt, calcDistance } from '../lib/travel.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
+import { getSpacecraft } from '@orions-frontier/game-config';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -39,30 +36,19 @@ export async function createDebrisFromLosses(
   stationId: string,
   losses: Map<string, number>
 ): Promise<void> {
-  const definitionIds = [...losses.keys()].filter((id) => (losses.get(id) ?? 0) > 0);
-  if (definitionIds.length === 0) return;
-
-  const [station, costs] = await Promise.all([
-    tx
-      .select({ sectorId: stations.sectorId, x: stations.x, y: stations.y })
-      .from(stations)
-      .where(eq(stations.id, stationId))
-      .then((rows) => rows[0]),
-    tx
-      .select()
-      .from(spacecraftDefinitionCosts)
-      .where(inArray(spacecraftDefinitionCosts.spacecraftDefinitionId, definitionIds)),
-  ]);
+  const [station] = await tx
+    .select({ sectorId: stations.sectorId, x: stations.x, y: stations.y })
+    .from(stations)
+    .where(eq(stations.id, stationId));
   if (!station) throw new Error('Combat station no longer exists');
 
   const resources: ResourceMap = {};
-  for (const cost of costs) {
-    const recovered = Math.floor(
-      cost.amount * (losses.get(cost.spacecraftDefinitionId) ?? 0) * 0.3
-    );
-    if (recovered > 0) {
-      const key = cost.resourceKey as keyof ResourceMap;
-      resources[key] = (resources[key] ?? 0) + recovered;
+  for (const [spacecraftKey, amount] of losses) {
+    for (const cost of getSpacecraft(spacecraftKey)?.costs ?? []) {
+      const recovered = Math.floor(cost.amount * amount * 0.3);
+      if (recovered > 0) {
+        resources[cost.resourceKey] = (resources[cost.resourceKey] ?? 0) + recovered;
+      }
     }
   }
   if (Object.keys(resources).length === 0) return;
@@ -130,7 +116,7 @@ export async function startSalvage(params: {
   userId: string;
   stationId: string;
   debrisFieldId: string;
-  spacecraftDefinitionId: string;
+  spacecraftKey: string;
   amount: number;
 }): Promise<SalvageMission> {
   if (!Number.isInteger(params.amount) || params.amount < 1) {
@@ -156,22 +142,18 @@ export async function startSalvage(params: {
         id: stationSpacecrafts.id,
         amount: stationSpacecrafts.amount,
         lockedAmount: stationSpacecrafts.lockedAmount,
-        role: spacecraftDefinitions.role,
-        speed: spacecraftDefinitions.speed,
+        spacecraftKey: stationSpacecrafts.spacecraftKey,
       })
       .from(stationSpacecrafts)
-      .innerJoin(
-        spacecraftDefinitions,
-        eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-      )
       .where(
         and(
           eq(stationSpacecrafts.stationId, station.id),
-          eq(stationSpacecrafts.spacecraftDefinitionId, params.spacecraftDefinitionId)
+          eq(stationSpacecrafts.spacecraftKey, params.spacecraftKey)
         )
       )
       .limit(1);
-    if (!fleet || fleet.role !== 'salvager' || fleet.speed <= 0) {
+    const spacecraft = fleet ? getSpacecraft(fleet.spacecraftKey) : undefined;
+    if (!fleet || !spacecraft || spacecraft.role !== 'salvager' || spacecraft.speed <= 0) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Selected spacecraft cannot salvage');
     }
     const [locked] = await tx
@@ -197,7 +179,7 @@ export async function startSalvage(params: {
         toType: 'debris',
         toId: debris.id,
         departedAt,
-        arrivesAt: calcArrivesAt(departedAt, calcDistance(station, debris), fleet.speed),
+        arrivesAt: calcArrivesAt(departedAt, calcDistance(station, debris), spacecraft.speed),
         purpose: 'salvage',
       })
       .returning({ id: spacecraftTrips.id });
@@ -228,18 +210,15 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
   if (!mission) return;
 
   const [fleet] = await tx
-    .select({ cargo: spacecraftDefinitions.cargo, speed: spacecraftDefinitions.speed })
+    .select({ spacecraftKey: stationSpacecrafts.spacecraftKey })
     .from(stationSpacecrafts)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .where(eq(stationSpacecrafts.id, mission.stationSpacecraftId));
   const [station] = await tx
     .select({ x: stations.x, y: stations.y })
     .from(stations)
     .where(eq(stations.id, mission.stationId));
   if (!fleet || !station) throw new Error('Salvage fleet or station no longer exists');
+  const spacecraft = getSpacecraft(fleet.spacecraftKey)!;
 
   const debris = mission.debrisFieldId
     ? (
@@ -252,7 +231,7 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
     : undefined;
   if (!debris) throw new Error('Salvage debris no longer exists');
   const cargo: ResourceMap = {};
-  let capacity = fleet.cargo * mission.amount;
+  let capacity = spacecraft.cargo * mission.amount;
   const remaining = { ...(debris.resources as ResourceMap) };
   for (const key of resourceKeys) {
     const amount = Math.min(capacity, remaining[key] ?? 0);
@@ -275,7 +254,7 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
       toType: 'station',
       toId: mission.stationId,
       departedAt,
-      arrivesAt: calcArrivesAt(departedAt, calcDistance(debris, station), fleet.speed),
+      arrivesAt: calcArrivesAt(departedAt, calcDistance(debris, station), spacecraft.speed),
       purpose: 'salvage_return',
       cargoManifest: cargo,
     })

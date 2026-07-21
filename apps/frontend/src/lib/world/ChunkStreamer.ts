@@ -8,11 +8,9 @@ import {
 import type { Camera, VisibleChunkRange } from './Camera.js';
 import { apiClient } from '../api-client.js';
 
-// ============================================================================
 // ChunkStreamer
 // Manages chunk lifecycle: calculates which chunks should be loaded,
 // fetches them from the API, and notifies when chunks should be removed.
-// ============================================================================
 
 export type ChunkKey = string;
 
@@ -43,8 +41,6 @@ export class ChunkStreamer {
   onChunkLoaded: ((key: ChunkKey, chunk: WorldChunk) => void) | null = null;
   onChunkUnloaded: ((key: ChunkKey) => void) | null = null;
 
-  // ── Public interface ────────────────────────────────────────────────────
-
   getLoaded(): ReadonlyMap<ChunkKey, WorldChunk> {
     return this.loadedChunks;
   }
@@ -72,8 +68,6 @@ export class ChunkStreamer {
   destroy() {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
   }
-
-  // ── Internal ────────────────────────────────────────────────────────────
 
   private _update(camera: Camera) {
     const loadRange = camera.getVisibleChunkRange(CHUNK_LOAD_MARGIN);
@@ -137,7 +131,7 @@ export class ChunkStreamer {
     }
 
     try {
-      const response = await apiClient.get<{ success: true; data: WorldChunk }>('/world/chunks', {
+      const response = await apiClient.get<WorldChunk>('/world/chunks', {
         params: {
           minChunkX: sub.minCX,
           maxChunkX: sub.maxCX,
@@ -146,7 +140,7 @@ export class ChunkStreamer {
         },
       });
 
-      const { asteroids, stations, debris } = response.data;
+      const { asteroids, stations, debris } = response;
 
       // Build a per-chunk map covering every chunk in the sub-range
       // (empty chunks are stored too, so they don't get re-requested)

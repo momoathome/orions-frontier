@@ -12,9 +12,7 @@ import {
   type ResourceMap,
 } from '@orions-frontier/shared';
 
-// ============================================================================
 // Initial resource amounts for new stations
-// ============================================================================
 
 const INITIAL_RESOURCES: Record<ResourceKey, number> = {
   carbon: 250,
@@ -26,9 +24,7 @@ const INITIAL_RESOURCES: Record<ResourceKey, number> = {
 
 type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 
-// ============================================================================
 // Seed resources for a newly created station
-// ============================================================================
 
 export const seedStationResources = async (
   stationId: string,
@@ -63,9 +59,7 @@ export const getStationResources = async (
   }, {});
 };
 
-// ============================================================================
 // Get actual mining deliveries during the last hour.
-// ============================================================================
 
 export const getDeliveredResourceRates = async (
   userId: string,

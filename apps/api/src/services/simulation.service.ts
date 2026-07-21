@@ -2,9 +2,7 @@ import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { logger as rootLogger } from '../lib/logger.js';
 import { publishUserEvent } from '../lib/realtime.js';
-import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { spacecraftBuildOrders } from '../lib/db/schema/spacecraft-build-orders.js';
-import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
@@ -13,6 +11,8 @@ import { settleTripArrival } from './transport/trip-arrivals.service.js';
 import { runBotDecisionTick } from './bot/bot.service.js';
 import { completeDueWorldMissions } from './world-mission.service.js';
 import { completeDueResearch } from './research.service.js';
+import { getBuilding } from '@orions-frontier/game-config';
+import type { BuildingKey } from '@orions-frontier/shared';
 
 const logger = rootLogger.child({ name: 'simulation' });
 
@@ -52,23 +52,19 @@ export async function runSimulationTick(now = new Date()): Promise<void> {
       id: stationBuildings.id,
       stationId: stationBuildings.stationId,
       userId: stations.userId,
-      buildingKey: buildingDefinitions.key,
-      maxLevel: buildingDefinitions.maxLevel,
+      buildingKey: stationBuildings.buildingKey,
     })
     .from(stationBuildings)
-    .innerJoin(
-      buildingDefinitions,
-      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
-    )
     .innerJoin(stations, eq(stationBuildings.stationId, stations.id))
     .where(lte(stationBuildings.upgradeEndsAt, now));
 
   for (const building of dueBuildings) {
     try {
+      const maxLevel = getBuilding(building.buildingKey as BuildingKey).maxLevel;
       const [completed] = await db
         .update(stationBuildings)
         .set({
-          level: sql`least(${stationBuildings.level} + 1, ${building.maxLevel})`,
+          level: sql`least(${stationBuildings.level} + 1, ${maxLevel})`,
           upgradeEndsAt: null,
           updatedAt: now,
         })
@@ -90,17 +86,12 @@ export async function runSimulationTick(now = new Date()): Promise<void> {
     .select({
       id: spacecraftBuildOrders.id,
       stationId: spacecraftBuildOrders.stationId,
-      spacecraftDefinitionId: spacecraftBuildOrders.spacecraftDefinitionId,
+      spacecraftKey: spacecraftBuildOrders.spacecraftKey,
       amount: spacecraftBuildOrders.amount,
       userId: stations.userId,
-      spacecraftKey: spacecraftDefinitions.key,
     })
     .from(spacecraftBuildOrders)
     .innerJoin(stations, eq(spacecraftBuildOrders.stationId, stations.id))
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(spacecraftBuildOrders.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .where(lte(spacecraftBuildOrders.endsAt, now));
 
   for (const order of dueBuildOrders) {
@@ -123,7 +114,7 @@ export async function runSimulationTick(now = new Date()): Promise<void> {
           .where(
             and(
               eq(stationSpacecrafts.stationId, order.stationId),
-              eq(stationSpacecrafts.spacecraftDefinitionId, order.spacecraftDefinitionId)
+              eq(stationSpacecrafts.spacecraftKey, order.spacecraftKey)
             )
           );
         return true;

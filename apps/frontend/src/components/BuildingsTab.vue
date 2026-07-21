@@ -23,8 +23,6 @@ const nowInterval = setInterval(() => {
 }, 1000);
 onUnmounted(() => clearInterval(nowInterval));
 
-// ── Theming ────────────────────────────────────────────────────────────────
-
 type EffectTheme = { topBar: string; badge: string; badgeText: string; level: string };
 
 const effectThemes: Record<BuildingEffectType, EffectTheme> = {
@@ -88,8 +86,6 @@ function buildingTheme(effectType: BuildingEffectType): EffectTheme {
   return effectThemes[effectType];
 }
 
-// ── Labels & formatters ────────────────────────────────────────────────────
-
 const effectTypeLabels: Record<BuildingEffectType, string> = {
   station_progression: 'Progression',
   hangar_capacity: 'Hangar',
@@ -147,8 +143,6 @@ function upgradeProgress(building: StationBuildingWithDefinition): number {
   return Math.min(100, Math.max(0, (elapsed / total) * 100));
 }
 
-// ── Data ───────────────────────────────────────────────────────────────────
-
 // Merged current + next effect rows for the detail panel
 const zippedEffects = computed(() => {
   if (!activeBuilding.value) return [];
@@ -164,7 +158,7 @@ async function loadBuildings(force = false) {
   buildingsError.value = null;
   try {
     const response = await apiClient.get(`/stations/${props.stationId}/buildings`);
-    buildings.value = response.data.buildings;
+    buildings.value = response.buildings;
     // Record detection time for any upgrading building we haven't seen yet
     for (const b of buildings.value) {
       if (b.isUpgrading && !upgradeDetectedAt.has(b.definition.key)) {
@@ -249,11 +243,11 @@ onUnmounted(() => unsubscribe());
       <div class="grid grid-cols-3 gap-1.5">
         <div
           v-for="b in buildings"
-          :key="b.definition.id"
+          :key="b.definition.key"
           @click="activeBuilding = b"
           class="flex flex-col items-center gap-1 pt-1.5 pb-2 px-1 rounded cursor-pointer border transition-all"
           :class="
-            activeBuilding?.definition.id === b.definition.id
+            activeBuilding?.definition.key === b.definition.key
               ? 'bg-white/8 border-white/20'
               : 'border-white/5 hover:bg-white/4 hover:border-white/12'
           "

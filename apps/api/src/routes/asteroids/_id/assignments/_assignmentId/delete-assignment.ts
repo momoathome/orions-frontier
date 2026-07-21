@@ -27,6 +27,6 @@ export default (async (app) => {
 
     publishUserEvent(request.user.userId, 'mining_tick_completed');
 
-    return reply.status(202).send({ success: true });
+    return reply.status(202).send();
   });
 }) satisfies FastifyPluginAsync;

@@ -6,9 +6,7 @@ import type {
 } from '@orions-frontier/shared';
 import type { ResourceKey } from '@orions-frontier/shared';
 
-// ============================================================================
 // Seed Definition
-// ============================================================================
 
 export interface BuildingSeedDefinition {
   key: BuildingKey;
@@ -79,9 +77,10 @@ export const buildings: BuildingSeedDefinition[] = [
   },
 ];
 
-// ============================================================================
+export const getBuilding = (key: BuildingKey) =>
+  buildings.find((building) => building.key === key)!;
+
 // Upgrade Cost Config
-// ============================================================================
 
 interface ResourceCostEntry {
   resourceKey: ResourceKey;
@@ -174,9 +173,7 @@ export function calculateBuildingUpgradeCost(
   return costs;
 }
 
-// ============================================================================
 // Build Time Calculation
-// ============================================================================
 
 /**
  * Returns the build time in seconds for upgrading to targetLevel.
@@ -188,9 +185,7 @@ export function calculateBuildingBuildTime(buildingKey: BuildingKey, targetLevel
   return Math.round(def.baseBuildTime * Math.pow(1.4, targetLevel - 1));
 }
 
-// ============================================================================
 // Effect Calculation
-// ============================================================================
 
 /**
  * Calculates explicit building effects for a given level.
@@ -227,9 +222,7 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
   }
 }
 
-// ============================================================================
 // Unlock Milestones
-// ============================================================================
 
 /**
  * Maps shipyard level → spacecraft keys unlocked at that level.

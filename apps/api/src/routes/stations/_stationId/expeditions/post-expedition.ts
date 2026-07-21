@@ -16,6 +16,6 @@ export default (async (app) => {
       stationId,
       ...parsed.data,
     });
-    return reply.status(201).send({ success: true, data: mission });
+    return reply.status(201).send(mission);
   });
 }) satisfies FastifyPluginAsync;

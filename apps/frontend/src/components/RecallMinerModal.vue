@@ -4,7 +4,7 @@ import { apiClient, apiErrorMessage } from '../lib/api-client';
 
 export interface AssignmentGroup {
   stationId: string;
-  spacecraftDefinitionId: string;
+  spacecraftKey: string;
   spacecraftName: string;
   ids: string[];
   totalAmount: number;

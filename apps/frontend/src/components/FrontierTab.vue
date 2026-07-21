@@ -37,17 +37,17 @@ const formatDuration = (hours: number | null) => {
 
 async function load() {
   const [frontierResponse, sectorResponse, missionResponse] = await Promise.all([
-    apiClient.get<{ success: true; data: FrontierTarget[] }>('/world/frontier', {
+    apiClient.get<FrontierTarget[]>('/world/frontier', {
       params: { stationId },
     }),
-    apiClient.get<{ success: true; data: DiscoveredSector[] }>('/world/sectors', {
+    apiClient.get<DiscoveredSector[]>('/world/sectors', {
       params: { stationId },
     }),
-    apiClient.get<{ success: true; data: WorldMission[] }>('/me/world-missions'),
+    apiClient.get<WorldMission[]>('/me/world-missions'),
   ]);
-  frontier.value = frontierResponse.data;
-  sectors.value = sectorResponse.data;
-  missions.value = missionResponse.data;
+  frontier.value = frontierResponse;
+  sectors.value = sectorResponse;
+  missions.value = missionResponse;
 }
 
 async function run(action: () => Promise<unknown>) {

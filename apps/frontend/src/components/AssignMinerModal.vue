@@ -18,9 +18,7 @@ const emit = defineEmits<{
   done: [];
 }>();
 
-// ── Internal state ────────────────────────────────────────────────────────────
-
-const selectedDefId = ref('');
+const selectedSpacecraftKey = ref('');
 const assignAmount = ref(1);
 const assignError = ref<string | null>(null);
 const assigning = ref(false);
@@ -47,7 +45,7 @@ watch(
   () => props.show,
   (val) => {
     if (val) {
-      selectedDefId.value = props.miners[0]?.definition.id ?? '';
+      selectedSpacecraftKey.value = props.miners[0]?.definition.key ?? '';
       assignAmount.value = 1;
       assignError.value = null;
       assigning.value = false;
@@ -57,31 +55,29 @@ watch(
   }
 );
 
-// ── Derived ───────────────────────────────────────────────────────────────────
-
 const selectedMiner = computed(
-  () => props.miners.find((m) => m.definition.id === selectedDefId.value) ?? null
+  () => props.miners.find((m) => m.definition.key === selectedSpacecraftKey.value) ?? null
 );
 
 let previewRequest = 0;
 watch(
-  [() => props.show, selectedDefId, assignAmount],
-  async ([show, spacecraftDefinitionId, minerCount]) => {
+  [() => props.show, selectedSpacecraftKey, assignAmount],
+  async ([show, spacecraftKey, minerCount]) => {
     const requestId = ++previewRequest;
     preview.value = null;
     previewError.value = null;
-    if (!show || !spacecraftDefinitionId || minerCount < 1) return;
+    if (!show || !spacecraftKey || minerCount < 1) return;
 
     previewLoading.value = true;
     try {
       const response = await apiClient.get(`/asteroids/${props.asteroidId}/mining-preview`, {
         params: {
           stationId: props.stationId,
-          spacecraftDefinitionId,
+          spacecraftKey,
           minerCount,
         },
       });
-      if (requestId === previewRequest) preview.value = response.data;
+      if (requestId === previewRequest) preview.value = response;
     } catch (error) {
       if (requestId === previewRequest) {
         previewError.value = apiErrorMessage(error, 'Preview unavailable');
@@ -103,15 +99,13 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(value);
 }
 
-// ── Actions ───────────────────────────────────────────────────────────────────
-
 function setMaxAmount() {
   const max = (selectedMiner.value?.amount ?? 0) - (selectedMiner.value?.lockedAmount ?? 0);
   assignAmount.value = Math.max(1, isFinite(max) ? max : 1);
 }
 
 async function submit() {
-  if (!selectedDefId.value) return;
+  if (!selectedSpacecraftKey.value) return;
   const maxAmount = (selectedMiner.value?.amount ?? 0) - (selectedMiner.value?.lockedAmount ?? 0);
   if (assignAmount.value < 1 || assignAmount.value > maxAmount) {
     assignError.value = `Only ${maxAmount} ${selectedMiner.value?.definition.name ?? 'spacecraft'} available.`;
@@ -122,7 +116,7 @@ async function submit() {
   try {
     await apiClient.post(`/asteroids/${props.asteroidId}/assignments`, {
       stationId: props.stationId,
-      spacecraftDefinitionId: selectedDefId.value,
+      spacecraftKey: selectedSpacecraftKey.value,
       assignedAmount: assignAmount.value,
     });
     emit('done');
@@ -166,10 +160,10 @@ async function submit() {
           <div class="flex flex-col gap-1.5">
             <label class="text-[9px] text-white/25 uppercase tracking-wider">Spacecraft</label>
             <select
-              v-model="selectedDefId"
+              v-model="selectedSpacecraftKey"
               class="bg-white/5 border border-white/10 rounded px-2 h-7 text-[11px] text-white/80 focus:outline-none focus:border-cyan-400/40"
             >
-              <option v-for="m in miners" :key="m.definition.id" :value="m.definition.id">
+              <option v-for="m in miners" :key="m.definition.key" :value="m.definition.key">
                 {{ m.definition.name }} (×{{ m.amount - m.lockedAmount }})
               </option>
             </select>
@@ -281,7 +275,7 @@ async function submit() {
 
           <button
             @click="submit"
-            :disabled="assigning || !selectedDefId"
+            :disabled="assigning || !selectedSpacecraftKey"
             class="h-7 rounded text-[9px] uppercase tracking-widest bg-cyan-400/10 text-cyan-400/80 border border-cyan-400/25 hover:bg-cyan-400/15 hover:text-cyan-400 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {{ assigning ? 'Assigning…' : 'Assign' }}

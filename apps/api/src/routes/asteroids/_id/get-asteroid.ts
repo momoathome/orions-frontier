@@ -19,6 +19,6 @@ export default (async (app) => {
         .send({ message: 'Asteroid not found or not visible at current scanner strength' });
     }
 
-    return reply.send({ data: { asteroid } });
+    return asteroid;
   });
 }) satisfies FastifyPluginAsync;

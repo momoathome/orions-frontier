@@ -5,7 +5,7 @@ import { getDb } from '../../lib/db/index.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { spacecraftDefinitions } from '../../lib/db/schema/spacecraft-definitions.js';
+import { getSpacecraft } from '@orions-frontier/game-config';
 
 /**
  * GET /api/me/trips
@@ -13,7 +13,7 @@ import { spacecraftDefinitions } from '../../lib/db/schema/spacecraft-definition
  * Used by the map to render in-flight spacecraft with interpolated positions.
  */
 export default (async (app) => {
-  app.get('/trips', { preHandler: [authenticate] }, async (request, reply) => {
+  app.get('/trips', { preHandler: [authenticate] }, async (request) => {
     const { userId } = request.user;
     const db = getDb();
 
@@ -24,7 +24,7 @@ export default (async (app) => {
       .where(eq(stations.userId, userId));
 
     if (stationRows.length === 0) {
-      return reply.send({ success: true, data: [] });
+      return [];
     }
 
     const stationIds = stationRows.map((s) => s.id);
@@ -33,21 +33,13 @@ export default (async (app) => {
     const ssRows = await db
       .select({
         id: stationSpacecrafts.id,
-        role: spacecraftDefinitions.role,
-        speed: spacecraftDefinitions.speed,
-        cargo: spacecraftDefinitions.cargo,
-        name: spacecraftDefinitions.name,
-        image: spacecraftDefinitions.image,
+        spacecraftKey: stationSpacecrafts.spacecraftKey,
       })
       .from(stationSpacecrafts)
-      .innerJoin(
-        spacecraftDefinitions,
-        eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-      )
       .where(inArray(stationSpacecrafts.stationId, stationIds));
 
     if (ssRows.length === 0) {
-      return reply.send({ success: true, data: [] });
+      return [];
     }
 
     const ssIds = ssRows.map((s) => s.id);
@@ -66,6 +58,7 @@ export default (async (app) => {
 
     const data = trips.map((trip) => {
       const ss = ssInfoMap.get(trip.stationSpacecraftId);
+      const spacecraft = ss ? getSpacecraft(ss.spacecraftKey) : undefined;
       return {
         id: trip.id,
         groupSize: trip.groupSize,
@@ -77,18 +70,18 @@ export default (async (app) => {
         arrivesAt: trip.arrivesAt.toISOString(),
         purpose: trip.purpose,
         cargoManifest: trip.cargoManifest,
-        spacecraft: ss
+        spacecraft: spacecraft
           ? {
-              role: ss.role,
-              speed: ss.speed,
-              cargo: ss.cargo,
-              name: ss.name,
-              image: ss.image,
+              role: spacecraft.role,
+              speed: spacecraft.speed,
+              cargo: spacecraft.cargo,
+              name: spacecraft.name,
+              image: spacecraft.image,
             }
           : null,
       };
     });
 
-    return reply.send({ success: true, data });
+    return data;
   });
 }) satisfies FastifyPluginAsync;

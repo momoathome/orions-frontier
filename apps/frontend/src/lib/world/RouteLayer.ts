@@ -1,12 +1,10 @@
 import { Graphics } from 'pixi.js';
 
-// ============================================================================
 // RouteLayer
 // Draws animated dashed connection lines in world space.
 // Used for mining assignments from a station to an asteroid.
 //
 // Call setRoutes() to update, redraw(phase) every tick for animation.
-// ============================================================================
 
 export interface RouteEntry {
   /** Unique key — used for deduplication */
@@ -26,8 +24,6 @@ export interface RouteEntry {
   /** Gap length in world units, defaults to 9 */
   gapLen?: number;
 }
-
-// ── Private helpers ───────────────────────────────────────────────────────────
 
 /**
  * Draws a dashed line along (x1,y1)→(x2,y2).
@@ -68,8 +64,6 @@ function drawDashedLine(
     pos += period;
   }
 }
-
-// ── RouteLayer ────────────────────────────────────────────────────────────────
 
 export class RouteLayer {
   /** Add this Graphics to the world container (below asteroids). */

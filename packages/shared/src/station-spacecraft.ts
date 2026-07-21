@@ -3,7 +3,6 @@ import type { ResourceKey } from './resource.js';
 export type SpacecraftRole = 'fighter' | 'miner' | 'salvager';
 
 export interface SpacecraftDefinition {
-  id: string;
   key: string;
   name: string;
   description: string | null;

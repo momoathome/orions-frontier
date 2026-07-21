@@ -30,8 +30,7 @@ async function submit(path: string, payload: LoginRequest | RegisterRequest) {
   isLoading.value = true;
   error.value = null;
   try {
-    const response = await apiClient.post<{ success: true; data: AuthResponse }>(path, payload);
-    setSession(response.data);
+    setSession(await apiClient.post<AuthResponse>(path, payload));
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'An unexpected error occurred');
     throw cause;
@@ -47,8 +46,7 @@ async function restoreSession() {
   token.value = storedToken;
   isLoading.value = true;
   try {
-    const response = await apiClient.get<{ success: true; data: AuthenticatedUser }>('/auth/me');
-    user.value = response.data;
+    user.value = await apiClient.get<AuthenticatedUser>('/auth/me');
   } catch {
     clearSession();
   } finally {

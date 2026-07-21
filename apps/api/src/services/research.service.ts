@@ -6,7 +6,6 @@ import {
   researchDefinitions,
 } from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
-import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResearch } from '../lib/db/schema/station-research.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
@@ -23,12 +22,8 @@ async function laboratoryLevel(db: QueryDb, stationId: string): Promise<number> 
   const [row] = await db
     .select({ level: stationBuildings.level })
     .from(stationBuildings)
-    .innerJoin(
-      buildingDefinitions,
-      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
-    )
     .where(
-      and(eq(stationBuildings.stationId, stationId), eq(buildingDefinitions.key, 'laboratory'))
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'laboratory'))
     );
   return row?.level ?? 0;
 }

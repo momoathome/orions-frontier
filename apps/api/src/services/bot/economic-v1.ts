@@ -8,7 +8,7 @@ import { calculateMiningCycle } from '../../lib/mining-cycle.js';
 import { calcDistance } from '../../lib/travel.js';
 
 export interface BotMiningShip {
-  definitionId: string;
+  spacecraftKey: string;
   key: 'mole' | 'titan';
   amount: number;
   lockedAmount: number;
@@ -41,7 +41,7 @@ export type BotIntent =
       type: 'assign_miner';
       stationId: string;
       asteroidId: string;
-      spacecraftDefinitionId: string;
+      spacecraftKey: string;
       amount: 1;
       reason: string;
     }
@@ -139,7 +139,7 @@ function assignmentIntent(
     type: 'assign_miner',
     stationId: state.station.id,
     asteroidId: asteroid.id,
-    spacecraftDefinitionId: ship.definitionId,
+    spacecraftKey: ship.spacecraftKey,
     amount: 1,
     reason: `${ship.key} assigned to the best available mining yield`,
   };

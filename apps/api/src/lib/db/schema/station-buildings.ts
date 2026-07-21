@@ -1,6 +1,5 @@
-import { pgTable, uuid, integer, timestamp, index, unique } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, integer, timestamp, index, unique, varchar } from 'drizzle-orm/pg-core';
 import { stations } from './stations.js';
-import { buildingDefinitions } from './building-definitions.js';
 
 export const stationBuildings = pgTable(
   'station_buildings',
@@ -9,9 +8,7 @@ export const stationBuildings = pgTable(
     stationId: uuid('station_id')
       .notNull()
       .references(() => stations.id),
-    buildingDefinitionId: uuid('building_definition_id')
-      .notNull()
-      .references(() => buildingDefinitions.id),
+    buildingKey: varchar('building_key', { length: 64 }).notNull(),
     level: integer('level').notNull().default(1),
     upgradeEndsAt: timestamp('upgrade_ends_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -19,9 +16,9 @@ export const stationBuildings = pgTable(
   },
   (table) => ({
     stationIdIdx: index('station_buildings_station_id_idx').on(table.stationId),
-    uniqueStationBuilding: unique('station_buildings_station_id_building_definition_id_unique').on(
+    uniqueStationBuilding: unique('station_buildings_station_id_building_key_unique').on(
       table.stationId,
-      table.buildingDefinitionId
+      table.buildingKey
     ),
   })
 );

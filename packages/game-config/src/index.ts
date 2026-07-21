@@ -1,8 +1,9 @@
 export { COLONIZATION_COST, resources } from './resources.js';
-export { spacecrafts } from './spacecrafts.js';
+export { getSpacecraft, spacecrafts } from './spacecrafts.js';
 export type { SpacecraftSeedDefinition } from './spacecrafts.js';
 export {
   buildings,
+  getBuilding,
   calculateBuildingUpgradeCost,
   calculateBuildingBuildTime,
   calculateBuildingEffect,

@@ -21,7 +21,7 @@ const distance = computed(() =>
 );
 
 const fighters = ref<StationSpacecraftWithDefinition[]>([]);
-const selectedDefinitionId = ref('');
+const selectedSpacecraftKey = ref('');
 const amount = ref(1);
 const feedback = ref<string | null>(null);
 const sending = ref(false);
@@ -37,12 +37,12 @@ watch(
         apiClient.get(`/stations/${stationId}/spacecrafts`),
         apiClient.get(`/stations/${props.station.id}/influence`),
       ]);
-      fighters.value = fleetResponse.data.spacecrafts.filter(
+      fighters.value = fleetResponse.spacecrafts.filter(
         (entry: StationSpacecraftWithDefinition) =>
           entry.definition.role === 'fighter' && entry.amount > entry.lockedAmount
       );
-      selectedDefinitionId.value = fighters.value[0]?.definition.id ?? '';
-      influence.value = influenceResponse.data;
+      selectedSpacecraftKey.value = fighters.value[0]?.definition.key ?? '';
+      influence.value = influenceResponse;
     } catch (error) {
       feedback.value = apiErrorMessage(error, 'Target data could not be loaded');
     }
@@ -51,13 +51,13 @@ watch(
 );
 
 async function attack() {
-  if (!props.origin || !selectedDefinitionId.value) return;
+  if (!props.origin || !selectedSpacecraftKey.value) return;
   sending.value = true;
   feedback.value = null;
   try {
     await apiClient.post(`/stations/${props.origin.id}/attacks`, {
       targetStationId: props.station.id,
-      spacecraftDefinitionId: selectedDefinitionId.value,
+      spacecraftKey: selectedSpacecraftKey.value,
       amount: amount.value,
     });
     feedback.value = 'Attack launched.';
@@ -126,13 +126,13 @@ async function takeOver() {
         <span class="text-[9px] uppercase tracking-[0.3em] text-white/20">Actions</span>
         <template v-if="fighters.length > 0">
           <select
-            v-model="selectedDefinitionId"
+            v-model="selectedSpacecraftKey"
             class="h-7 rounded border border-white/10 bg-[#080d18] px-2 text-[10px] text-white/70"
           >
             <option
               v-for="fighter in fighters"
-              :key="fighter.definition.id"
-              :value="fighter.definition.id"
+              :key="fighter.definition.key"
+              :value="fighter.definition.key"
             >
               {{ fighter.definition.name }} ({{ fighter.amount - fighter.lockedAmount }} ready)
             </option>

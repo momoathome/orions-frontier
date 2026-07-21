@@ -1,13 +1,5 @@
 import type { SpacecraftRole } from '@orions-frontier/shared';
 
-export const ALL_RESOURCES = [
-  'carbon',
-  'titanium',
-  'hydrogenium',
-  'kyber_crystal',
-  'astatine',
-] as const;
-
 export type RoleTheme = {
   topBar: string;
   badge: string;

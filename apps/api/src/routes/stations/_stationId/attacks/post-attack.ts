@@ -6,7 +6,7 @@ import { startAttack } from '../../../../services/combat.service.js';
 
 const BodySchema = z.object({
   targetStationId: z.string().uuid(),
-  spacecraftDefinitionId: z.string().uuid(),
+  spacecraftKey: z.string().min(1),
   amount: z.number().int().positive(),
 });
 
@@ -20,6 +20,6 @@ export default (async (app) => {
       stationId,
       ...parsed.data,
     });
-    return reply.status(201).send({ success: true, data: report });
+    return reply.status(201).send(report);
   });
 }) satisfies FastifyPluginAsync;

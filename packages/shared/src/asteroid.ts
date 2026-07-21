@@ -39,7 +39,7 @@ export interface VisibleAsteroid {
 export interface AsteroidDetailAssignment {
   id: string;
   stationId: string;
-  spacecraftDefinitionId: string;
+  spacecraftKey: string;
   spacecraftName: string;
   spacecraftMiningRate: number;
   /** Cargo capacity per single spacecraft of this type */

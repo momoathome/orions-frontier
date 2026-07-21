@@ -3,28 +3,30 @@ import type { FastifyPluginAsync } from 'fastify';
 import { getDb } from '../../../../lib/db/index.js';
 import { authenticate } from '../../../../middleware/auth.js';
 import { asteroids, asteroidVeins } from '../../../../lib/db/schema/asteroids.js';
-import { spacecraftDefinitions } from '../../../../lib/db/schema/spacecraft-definitions.js';
 import { stationSpacecrafts } from '../../../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../../../lib/db/schema/stations.js';
 import { calculateMiningCycle } from '../../../../lib/mining-cycle.js';
 import { calcDistance } from '../../../../lib/travel.js';
 import { getUserScannerStrength } from '../../../../services/asteroid.service.js';
+import { getSpacecraft } from '@orions-frontier/game-config';
 
 export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request, reply) => {
     const { id: asteroidId } = request.params as { id: string };
     const query = request.query as Record<string, string | undefined>;
     const stationId = query['stationId'];
-    const spacecraftDefinitionId = query['spacecraftDefinitionId'];
+    const spacecraftKey = query['spacecraftKey'];
     const minerCount = Math.floor(Number(query['minerCount'] ?? 1));
 
-    if (!stationId || !spacecraftDefinitionId || !Number.isInteger(minerCount) || minerCount < 1) {
+    if (!stationId || !spacecraftKey || !Number.isInteger(minerCount) || minerCount < 1) {
       return reply
         .status(400)
         .send({ message: 'Valid station, spacecraft and miner count required' });
     }
 
     const db = getDb();
+    const spacecraft = getSpacecraft(spacecraftKey);
+    if (!spacecraft) return reply.status(404).send({ message: 'Spacecraft not found' });
     const scannerStrength = await getUserScannerStrength(request.user.userId);
     const [row] = await db
       .select({
@@ -32,9 +34,6 @@ export default (async (app) => {
         stationY: stations.y,
         asteroidX: asteroids.x,
         asteroidY: asteroids.y,
-        speed: spacecraftDefinitions.speed,
-        miningRate: spacecraftDefinitions.miningRate,
-        cargoCapacity: spacecraftDefinitions.cargo,
         available: sql<number>`${stationSpacecrafts.amount} - ${stationSpacecrafts.lockedAmount}`,
       })
       .from(stations)
@@ -42,12 +41,8 @@ export default (async (app) => {
         stationSpacecrafts,
         and(
           eq(stationSpacecrafts.stationId, stations.id),
-          eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitionId)
+          eq(stationSpacecrafts.spacecraftKey, spacecraftKey)
         )
-      )
-      .innerJoin(
-        spacecraftDefinitions,
-        eq(spacecraftDefinitions.id, stationSpacecrafts.spacecraftDefinitionId)
       )
       .innerJoin(asteroids, eq(asteroids.id, asteroidId))
       .where(
@@ -60,7 +55,7 @@ export default (async (app) => {
       .limit(1);
 
     if (!row) return reply.status(404).send({ message: 'Station, miner or asteroid not found' });
-    if (row.speed <= 0 || row.miningRate <= 0 || row.cargoCapacity <= 0) {
+    if (spacecraft.speed <= 0 || spacecraft.miningRate <= 0 || spacecraft.cargo <= 0) {
       return reply.status(400).send({ message: 'Selected spacecraft cannot perform mining trips' });
     }
     if (minerCount > row.available) {
@@ -77,22 +72,20 @@ export default (async (app) => {
       { x: row.asteroidX, y: row.asteroidY }
     );
 
-    return reply.send({
-      data: {
+    return {
+      distance,
+      speed: spacecraft.speed,
+      miningRate: spacecraft.miningRate,
+      cargoCapacity: spacecraft.cargo,
+      remainingAmount,
+      ...calculateMiningCycle({
         distance,
-        speed: row.speed,
-        miningRate: row.miningRate,
-        cargoCapacity: row.cargoCapacity,
+        speed: spacecraft.speed,
+        miningRate: spacecraft.miningRate,
+        cargoCapacity: spacecraft.cargo,
+        minerCount,
         remainingAmount,
-        ...calculateMiningCycle({
-          distance,
-          speed: row.speed,
-          miningRate: row.miningRate,
-          cargoCapacity: row.cargoCapacity,
-          minerCount,
-          remainingAmount,
-        }),
-      },
-    });
+      }),
+    };
   });
 }) satisfies FastifyPluginAsync;

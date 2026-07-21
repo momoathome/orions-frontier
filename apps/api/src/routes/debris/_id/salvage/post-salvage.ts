@@ -6,7 +6,7 @@ import { startSalvage } from '../../../../services/salvage.service.js';
 
 const BodySchema = z.object({
   stationId: z.string().uuid(),
-  spacecraftDefinitionId: z.string().uuid(),
+  spacecraftKey: z.string().min(1),
   amount: z.number().int().positive(),
 });
 
@@ -20,6 +20,6 @@ export default (async (app) => {
       debrisFieldId: id,
       ...parsed.data,
     });
-    return reply.status(201).send({ success: true, data: mission });
+    return reply.status(201).send(mission);
   });
 }) satisfies FastifyPluginAsync;

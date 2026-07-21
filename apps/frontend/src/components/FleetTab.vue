@@ -43,7 +43,6 @@ const allBuildOrders = computed((): BuildOrder[] => {
   return orders.sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime());
 });
 
-// ── Stat bars ─────────────────────────────────────────────────────────────────
 // Reference maxes per stat. Using fleet-local maxes so bars are always relative
 // to what the player has — a ship that dominates in a stat always looks dominant.
 
@@ -68,21 +67,19 @@ function statPct(value: number, max: number): number {
   return max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
 }
 
-// ── Fleet loading ─────────────────────────────────────────────────────────────
-
 async function loadFleet(force = false) {
   if (fleet.value.length > 0 && !force) return;
   if (!force) fleetLoading.value = true;
   fleetError.value = null;
   try {
     const response = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
-    fleet.value = response.data.spacecrafts;
-    hangar.value = response.data.hangar;
+    fleet.value = response.spacecrafts;
+    hangar.value = response.hangar;
     if (!activeShip.value && fleet.value.length > 0) {
       activeShip.value = fleet.value[0]!;
     } else if (activeShip.value) {
       const refreshed = fleet.value.find(
-        (e) => e.definition.id === activeShip.value!.definition.id
+        (e) => e.definition.key === activeShip.value!.definition.key
       );
       if (refreshed) activeShip.value = refreshed;
     }
@@ -203,15 +200,14 @@ onUnmounted(() => {
           : {}
       "
     >
-      <!-- ── Col 1: Fleet list ──────────────────────────────────────────────── -->
       <div class="border-r border-white/5 overflow-y-auto flex flex-col gap-px p-2">
         <button
           v-for="entry in filteredFleet"
-          :key="entry.definition.id"
+          :key="entry.definition.key"
           @click="activeShip = entry"
           class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded text-left transition-all border"
           :class="
-            activeShip?.definition.id === entry.definition.id
+            activeShip?.definition.key === entry.definition.key
               ? 'bg-white/7 border-white/12'
               : 'border-transparent hover:bg-white/3 hover:border-white/6'
           "
@@ -272,7 +268,6 @@ onUnmounted(() => {
         </p>
       </div>
 
-      <!-- ── Col 2: Tactical Overview ───────────────────────────────────────── -->
       <div v-if="activeShip" class="overflow-y-auto flex flex-col">
         <!-- Compact header: image + name + badge + counts in one row -->
         <div class="flex items-center relative gap-3 px-4 py-3 border-b border-white/5 shrink-0">

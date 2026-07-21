@@ -5,9 +5,6 @@ import { getStationInfluence } from '../../../../services/influence.service.js';
 export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request) => {
     const { stationId } = request.params as { stationId: string };
-    return {
-      success: true,
-      data: await getStationInfluence(request.user.userId, stationId),
-    };
+    return getStationInfluence(request.user.userId, stationId);
   });
 }) satisfies FastifyPluginAsync;

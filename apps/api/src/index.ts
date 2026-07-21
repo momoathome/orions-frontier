@@ -2,20 +2,15 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import autoload from '@fastify/autoload';
+import fastifyJwt from '@fastify/jwt';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { errorHandler } from './plugins/error-handler.js';
-import jwtPlugin from './plugins/jwt.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
 import { attachRealtimeServer } from './lib/realtime.js';
 import { runWorldTick, startSimulationScheduler } from './services/simulation.service.js';
-import {
-  seedSpacecraftDefinitions,
-  seedBuildingDefinitions,
-  seedAsteroidWorld,
-  seedDevUser,
-} from './lib/seed.js';
+import { seedAsteroidWorld, seedDevUser } from './lib/seed.js';
 import { seedBotsForOccupiedSectors } from './services/bot/bot-provision.service.js';
 import { runMigrations } from './lib/db/migrate.js';
 
@@ -50,9 +45,11 @@ const start = async () => {
       methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     });
 
-    // Custom plugins
-    await fastify.register(errorHandler);
-    await fastify.register(jwtPlugin);
+    fastify.setErrorHandler(errorHandler);
+    await fastify.register(fastifyJwt, {
+      secret: process.env['JWT_SECRET']!,
+      sign: { expiresIn: process.env['JWT_EXPIRES_IN'] ?? '7d' },
+    });
 
     // Initialize database
     await initDb();
@@ -61,13 +58,6 @@ const start = async () => {
     // Run migrations before any seeding or queries
     await runMigrations();
     fastify.log.info('Migrations applied');
-
-    // Seed static data
-    await seedSpacecraftDefinitions();
-    fastify.log.info('Spacecraft definitions seeded');
-
-    await seedBuildingDefinitions();
-    fastify.log.info('Building definitions seeded');
 
     await seedAsteroidWorld();
     fastify.log.info('Asteroid world seeded');

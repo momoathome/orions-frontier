@@ -4,9 +4,7 @@ import { after, before, test } from 'node:test';
 import { eq, inArray } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
 import { runMigrations } from '../src/lib/db/migrate.js';
-import { buildingDefinitions } from '../src/lib/db/schema/building-definitions.js';
 import { spacecraftBuildOrders } from '../src/lib/db/schema/spacecraft-build-orders.js';
-import { spacecraftDefinitions } from '../src/lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../src/lib/db/schema/spacecraft-trips.js';
 import { sectors } from '../src/lib/db/schema/sectors.js';
 import { stationResources } from '../src/lib/db/schema/station-resources.js';
@@ -19,11 +17,10 @@ import { runSimulationTick } from '../src/services/simulation.service.js';
 
 let userId: string;
 let stationId: string;
-let definitionId: string;
+const spacecraftKey = 'mole';
 let stationSpacecraftId: string;
 const sectorId = randomUUID();
 const tripIds: string[] = [];
-let buildingDefinitionId: string | undefined;
 
 before(async () => {
   await runMigrations();
@@ -51,13 +48,9 @@ before(async () => {
     .insert(stations)
     .values({ userId, sectorId, name: 'Phase 1', x: 0, y: 0 })
     .returning({ id: stations.id });
-  [{ id: definitionId }] = await db
-    .insert(spacecraftDefinitions)
-    .values({ key: `phase1-${suffix}`, name: 'Phase 1', role: 'mining', cargo: 100 })
-    .returning({ id: spacecraftDefinitions.id });
   [{ id: stationSpacecraftId }] = await db
     .insert(stationSpacecrafts)
-    .values({ stationId, spacecraftDefinitionId: definitionId, amount: 2, lockedAmount: 2 })
+    .values({ stationId, spacecraftKey, amount: 2, lockedAmount: 2 })
     .returning({ id: stationSpacecrafts.id });
 });
 
@@ -71,10 +64,6 @@ after(async () => {
   await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.id, stationSpacecraftId));
   await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(spacecraftDefinitions).where(eq(spacecraftDefinitions.id, definitionId));
-  if (buildingDefinitionId) {
-    await db.delete(buildingDefinitions).where(eq(buildingDefinitions.id, buildingDefinitionId));
-  }
   await db.delete(users).where(eq(users.id, userId));
   await db.delete(sectors).where(eq(sectors.id, sectorId));
   await closeDb();
@@ -191,21 +180,11 @@ test('a failing due trip does not block later simulation work', async () => {
 test('simulation tick completes due building and spacecraft work exactly once', async () => {
   const db = getDb();
   const now = new Date();
-  [{ id: buildingDefinitionId }] = await db
-    .insert(buildingDefinitions)
-    .values({
-      key: `scheduler-${randomUUID()}`,
-      name: 'Scheduler Test',
-      description: 'Test',
-      effectType: 'test',
-      maxLevel: 3,
-    })
-    .returning({ id: buildingDefinitions.id });
   const [building] = await db
     .insert(stationBuildings)
     .values({
       stationId,
-      buildingDefinitionId,
+      buildingKey: 'core',
       level: 1,
       upgradeEndsAt: new Date(now.getTime() - 1_000),
     })
@@ -214,7 +193,7 @@ test('simulation tick completes due building and spacecraft work exactly once', 
     .insert(spacecraftBuildOrders)
     .values({
       stationId,
-      spacecraftDefinitionId: definitionId,
+      spacecraftKey,
       amount: 3,
       endsAt: new Date(now.getTime() - 1_000),
     })

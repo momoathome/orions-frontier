@@ -77,11 +77,10 @@ manuelle Wiederholung nötig und lädt dabei die lokale `.env`-Datei.
 `npm run world:report` erzeugt die konfigurierte Startwelt rein im Speicher und gibt Asteroidenzahl
 sowie Ressourcenmenge je Sektor aus.
 
-Die Migrationen `0026_remove_world_legacy.sql` und `0027_sector_role.sql` setzen die noch nicht
-produktive Entwicklungswelt beim Wechsel auf die neuen Sektorregeln zurück. Menschliche
-Benutzerkonten bleiben erhalten; Entwicklungswelt, Demo-Station und Bots werden beim nächsten
-API-Start neu angelegt. Andere bestehende Benutzer können danach wieder eine Anfangsstation
-gründen. Ein eigener Daten-Backfill ist deshalb nicht vorgesehen.
+Die noch nicht produktive Migrationshistorie ist zu `0000_initial.sql` zusammengefasst. Nach diesem
+Wechsel muss ein vorhandenes lokales Volume einmalig mit `docker compose down -v` entfernt werden;
+beim nächsten Start legt die API die aktuelle Entwicklungswelt neu an. Ein Daten-Backfill ist für
+diesen Entwicklungsstand nicht vorgesehen.
 
 `npm run test:behavior` startet PostgreSQL über Docker und prüft unter anderem konkurrierende
 Ressourcenausgaben und Mining-Zugriffe, vollständige Mining-Rundläufe, Recall und Erschöpfung,

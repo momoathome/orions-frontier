@@ -10,9 +10,6 @@ export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request) => {
     const parsed = QuerySchema.safeParse(request.query);
     if (!parsed.success) throw new AppError(ErrorCode.VALIDATION_ERROR, 'stationId is required');
-    return {
-      success: true,
-      data: await getFrontierTargets(request.user.userId, parsed.data.stationId),
-    };
+    return getFrontierTargets(request.user.userId, parsed.data.stationId);
   });
 }) satisfies FastifyPluginAsync;

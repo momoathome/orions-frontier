@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
-import { COLONIZATION_COST } from '@orions-frontier/game-config';
+import { COLONIZATION_COST, getSpacecraft } from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
 import { runMigrations } from '../src/lib/db/migrate.js';
 import { asteroids } from '../src/lib/db/schema/asteroids.js';
@@ -14,8 +14,6 @@ import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js'
 import { stations } from '../src/lib/db/schema/stations.js';
 import { users } from '../src/lib/db/schema/users.js';
 import { worldMissions } from '../src/lib/db/schema/world-missions.js';
-import { spacecraftDefinitions } from '../src/lib/db/schema/spacecraft-definitions.js';
-import { seedBuildingDefinitions, seedSpacecraftDefinitions } from '../src/lib/seed.js';
 import { WORLD_CONFIG } from '../src/lib/world-config.js';
 import { calcDistance, calcTravelHours } from '../src/lib/travel.js';
 import { ensureSector } from '../src/services/sector.service.js';
@@ -37,8 +35,6 @@ let botStationId = '';
 before(async () => {
   await runMigrations();
   await initDb();
-  await seedSpacecraftDefinitions();
-  await seedBuildingDefinitions();
   const db = getDb();
   const suffix = randomUUID();
   await db.insert(users).values([
@@ -317,10 +313,10 @@ test('expedition returns and colonization transfers a miner to the second statio
   assert.equal(ships.length, 1);
 
   const [colonizationMission] = await db
-    .select({ spacecraftDefinitionId: worldMissions.spacecraftDefinitionId })
+    .select({ spacecraftKey: worldMissions.spacecraftKey })
     .from(worldMissions)
     .where(eq(worldMissions.id, colonization.id));
-  assert.equal(ships[0]?.spacecraftDefinitionId, colonizationMission?.spacecraftDefinitionId);
+  assert.equal(ships[0]?.spacecraftKey, colonizationMission?.spacecraftKey);
   assert.equal(ships[0]?.amount, 1);
   assert.equal(ships[0]?.lockedAmount, 0);
 
@@ -345,12 +341,8 @@ test('bot expedition and colonization use the same travel and resource rules', a
   const [[station], [mission]] = await Promise.all([
     db.select({ x: stations.x, y: stations.y }).from(stations).where(eq(stations.id, botStationId)),
     db
-      .select({ speed: spacecraftDefinitions.speed })
+      .select({ spacecraftKey: worldMissions.spacecraftKey })
       .from(worldMissions)
-      .innerJoin(
-        spacecraftDefinitions,
-        eq(worldMissions.spacecraftDefinitionId, spacecraftDefinitions.id)
-      )
       .where(eq(worldMissions.id, expedition.id)),
   ]);
   const target = {
@@ -360,7 +352,13 @@ test('bot expedition and colonization use the same travel and resource rules', a
   const actualTravelHours =
     (Date.parse(expedition.arrivesAt) - Date.parse(expedition.departedAt)) / 3_600_000;
   assert.ok(
-    Math.abs(actualTravelHours - calcTravelHours(calcDistance(station!, target), mission!.speed)) <
+    Math.abs(
+      actualTravelHours -
+        calcTravelHours(
+          calcDistance(station!, target),
+          getSpacecraft(mission!.spacecraftKey)!.speed
+        )
+    ) <
       1 / 3_600_000
   );
 

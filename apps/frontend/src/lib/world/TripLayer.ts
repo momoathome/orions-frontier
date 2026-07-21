@@ -1,7 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import { getMiningTripPhase } from '@orions-frontier/shared';
 
-// ============================================================================
 // TripLayer
 // Renders in-flight spacecraft as animated dots moving along their trip path.
 // Position is interpolated client-side from departedAt/arrivesAt timestamps —
@@ -9,7 +8,6 @@ import { getMiningTripPhase } from '@orions-frontier/shared';
 //
 // Add TripLayer.container to the worldContainer so it moves with the camera.
 // Call redraw() each frame and setTrips() when trip data changes.
-// ============================================================================
 
 export interface ActiveTrip {
   id: string;

@@ -1,9 +1,7 @@
 import { and, eq, inArray, lte } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
-import { buildingDefinitions } from '../../lib/db/schema/building-definitions.js';
 import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
-import { spacecraftDefinitions } from '../../lib/db/schema/spacecraft-definitions.js';
 import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
 import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
@@ -11,6 +9,7 @@ import { stations } from '../../lib/db/schema/stations.js';
 import { getUserScannerStrength } from '../asteroid.service.js';
 import type { BotAsteroidCandidate, BotMiningShip, EconomicBotState } from './economic-v1.js';
 import type { ResourceKey, ResourceMap } from '@orions-frontier/shared';
+import { spacecrafts } from '@orions-frontier/game-config';
 
 const MINER_KEYS = ['mole', 'titan'] as const;
 
@@ -24,20 +23,21 @@ export async function loadEconomicBotState(userId: string): Promise<EconomicBotS
   if (!station) return null;
 
   const scannerStrength = await getUserScannerStrength(userId);
-  const [resourceRows, shipyardRows, definitions, asteroidRows] = await Promise.all([
+  const definitions = spacecrafts.filter((spacecraft) =>
+    MINER_KEYS.includes(spacecraft.key as (typeof MINER_KEYS)[number])
+  );
+  const [resourceRows, shipyardRows, asteroidRows] = await Promise.all([
     db.select().from(stationResources).where(eq(stationResources.stationId, station.id)),
     db
       .select({ level: stationBuildings.level, upgradeEndsAt: stationBuildings.upgradeEndsAt })
       .from(stationBuildings)
-      .innerJoin(
-        buildingDefinitions,
-        eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
-      )
       .where(
-        and(eq(stationBuildings.stationId, station.id), eq(buildingDefinitions.key, 'shipyard'))
+        and(
+          eq(stationBuildings.stationId, station.id),
+          eq(stationBuildings.buildingKey, 'shipyard')
+        )
       )
       .limit(1),
-    db.select().from(spacecraftDefinitions).where(inArray(spacecraftDefinitions.key, MINER_KEYS)),
     db
       .select({
         id: asteroids.id,
@@ -53,27 +53,27 @@ export async function loadEconomicBotState(userId: string): Promise<EconomicBotS
       ),
   ]);
 
-  const definitionIds = definitions.map((definition) => definition.id);
+  const definitionKeys = definitions.map((definition) => definition.key);
   const [fleetRows, buildOrderRows] = await Promise.all([
-    definitionIds.length
+    definitionKeys.length
       ? db
           .select()
           .from(stationSpacecrafts)
           .where(
             and(
               eq(stationSpacecrafts.stationId, station.id),
-              inArray(stationSpacecrafts.spacecraftDefinitionId, definitionIds)
+              inArray(stationSpacecrafts.spacecraftKey, definitionKeys)
             )
           )
       : [],
-    definitionIds.length
+    definitionKeys.length
       ? db
           .select()
           .from(spacecraftBuildOrders)
           .where(
             and(
               eq(spacecraftBuildOrders.stationId, station.id),
-              inArray(spacecraftBuildOrders.spacecraftDefinitionId, definitionIds)
+              inArray(spacecraftBuildOrders.spacecraftKey, definitionKeys)
             )
           )
       : [],
@@ -85,14 +85,14 @@ export async function loadEconomicBotState(userId: string): Promise<EconomicBotS
   const ships: EconomicBotState['ships'] = {};
   for (const definition of definitions) {
     const key = definition.key as BotMiningShip['key'];
-    const fleet = fleetRows.find((entry) => entry.spacecraftDefinitionId === definition.id);
+    const fleet = fleetRows.find((entry) => entry.spacecraftKey === definition.key);
     ships[key] = {
-      definitionId: definition.id,
+      spacecraftKey: definition.key,
       key,
       amount: fleet?.amount ?? 0,
       lockedAmount: fleet?.lockedAmount ?? 0,
       inBuild: buildOrderRows
-        .filter((order) => order.spacecraftDefinitionId === definition.id)
+        .filter((order) => order.spacecraftKey === definition.key)
         .reduce((sum, order) => sum + order.amount, 0),
       cargo: definition.cargo,
       speed: definition.speed,

@@ -6,11 +6,10 @@ import {
   type FrontierTarget,
   type WorldMission,
 } from '@orions-frontier/shared';
-import { COLONIZATION_COST } from '@orions-frontier/game-config';
+import { COLONIZATION_COST, getSpacecraft } from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
 import { asteroids } from '../lib/db/schema/asteroids.js';
 import { sectors } from '../lib/db/schema/sectors.js';
-import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -56,6 +55,12 @@ const frontierCoordinates = (known: { sectorX: number; sectorY: number }[]) => {
   return [...candidates.values()];
 };
 
+const fastestAvailable = <T extends { spacecraftKey: string }>(rows: T[], role?: 'miner') =>
+  rows
+    .map((row) => ({ ...row, definition: getSpacecraft(row.spacecraftKey)! }))
+    .filter((row) => row.definition.speed > 0 && (!role || row.definition.role === role))
+    .sort((a, b) => b.definition.speed - a.definition.speed)[0];
+
 export async function getFrontierTargets(
   userId: string,
   stationId: string
@@ -77,23 +82,17 @@ export async function getFrontierTargets(
   const [known, fastestShip, scannerStrength] = await Promise.all([
     db.select({ sectorX: sectors.sectorX, sectorY: sectors.sectorY }).from(sectors),
     db
-      .select({ speed: spacecraftDefinitions.speed })
+      .select({ spacecraftKey: stationSpacecrafts.spacecraftKey })
       .from(stationSpacecrafts)
-      .innerJoin(
-        spacecraftDefinitions,
-        eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-      )
       .where(
         and(
           eq(stationSpacecrafts.stationId, stationId),
-          sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`,
-          sql`${spacecraftDefinitions.speed} > 0`
+          sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`
         )
-      )
-      .orderBy(desc(spacecraftDefinitions.speed))
-      .limit(1),
+      ),
     getUserScannerStrength(userId),
   ]);
+  const fastest = fastestAvailable(fastestShip);
 
   return frontierCoordinates(known)
     .filter((target) => isWithinScannerRange(station, target, scannerStrength))
@@ -105,7 +104,7 @@ export async function getFrontierTargets(
         sectorY,
         ...center,
         distance,
-        travelHours: fastestShip[0] ? calcTravelHours(distance, fastestShip[0].speed) : null,
+        travelHours: fastest ? calcTravelHours(distance, fastest.definition.speed) : null,
       };
     })
     .sort(
@@ -137,25 +136,18 @@ export async function getDiscoveredSectors(
     db.select().from(sectors),
     db.select({ sectorId: stations.sectorId }).from(stations).where(eq(stations.userId, userId)),
     db
-      .select({ speed: spacecraftDefinitions.speed })
+      .select({ spacecraftKey: stationSpacecrafts.spacecraftKey })
       .from(stationSpacecrafts)
-      .innerJoin(
-        spacecraftDefinitions,
-        eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-      )
       .where(
         and(
           eq(stationSpacecrafts.stationId, stationId),
-          sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`,
-          sql`${spacecraftDefinitions.speed} > 0`,
-          eq(spacecraftDefinitions.role, 'miner')
+          sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`
         )
-      )
-      .orderBy(desc(spacecraftDefinitions.speed))
-      .limit(1),
+      ),
     getUserScannerStrength(userId),
   ]);
   const ownSectorIds = new Set(ownStations.map((entry) => entry.sectorId));
+  const fastestMiner = fastestAvailable(fastestShip, 'miner');
   return sectorRows
     .filter((sector) => isWithinScannerRange(station, sector, scannerStrength))
     .map((sector): DiscoveredSector => {
@@ -169,7 +161,7 @@ export async function getDiscoveredSectors(
         hasOwnStation: ownSectorIds.has(sector.id),
         ...center,
         distance,
-        travelHours: fastestShip[0] ? calcTravelHours(distance, fastestShip[0].speed) : null,
+        travelHours: fastestMiner ? calcTravelHours(distance, fastestMiner.definition.speed) : null,
       };
     })
     .sort(
@@ -185,26 +177,24 @@ async function lockAvailableShip(
   stationId: string,
   role?: 'miner'
 ) {
-  const conditions = [
-    eq(stationSpacecrafts.stationId, stationId),
-    sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`,
-    sql`${spacecraftDefinitions.speed} > 0`,
-  ];
-  if (role) conditions.push(eq(spacecraftDefinitions.role, role));
-  const [ship] = await tx
+  const rows = await tx
     .select({
       stationSpacecraftId: stationSpacecrafts.id,
-      spacecraftDefinitionId: spacecraftDefinitions.id,
-      speed: spacecraftDefinitions.speed,
+      spacecraftKey: stationSpacecrafts.spacecraftKey,
     })
     .from(stationSpacecrafts)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
-    .where(and(...conditions))
-    .orderBy(desc(spacecraftDefinitions.speed))
-    .limit(1);
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, stationId),
+        sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`
+      )
+    );
+  const available = fastestAvailable(rows, role);
+  const ship = available && {
+    stationSpacecraftId: available.stationSpacecraftId,
+    spacecraftKey: available.spacecraftKey,
+    speed: available.definition.speed,
+  };
   if (!ship) {
     throw new AppError(
       ErrorCode.VALIDATION_ERROR,
@@ -289,7 +279,7 @@ export async function startExpedition(params: {
         userId: params.userId,
         originStationId: station.id,
         stationSpacecraftId: ship.stationSpacecraftId,
-        spacecraftDefinitionId: ship.spacecraftDefinitionId,
+        spacecraftKey: ship.spacecraftKey,
         missionType: 'expedition',
         targetSectorX: params.sectorX,
         targetSectorY: params.sectorY,
@@ -448,7 +438,7 @@ export async function startColonization(params: {
         userId: params.userId,
         originStationId: station.id,
         stationSpacecraftId: ship.stationSpacecraftId,
-        spacecraftDefinitionId: ship.spacecraftDefinitionId,
+        spacecraftKey: ship.spacecraftKey,
         missionType: 'colonization',
         targetSectorX: params.sectorX,
         targetSectorY: params.sectorY,
@@ -466,27 +456,23 @@ export async function startColonization(params: {
 
 async function missionWithSpacecraftName(missionId: string): Promise<WorldMission> {
   const [mission] = await getDb()
-    .select({ mission: worldMissions, spacecraftName: spacecraftDefinitions.name })
+    .select()
     .from(worldMissions)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(worldMissions.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .where(eq(worldMissions.id, missionId));
   if (!mission) throw new Error('World mission disappeared');
   return {
-    id: mission.mission.id,
-    originStationId: mission.mission.originStationId,
-    missionType: mission.mission.missionType as WorldMission['missionType'],
-    targetSectorX: mission.mission.targetSectorX,
-    targetSectorY: mission.mission.targetSectorY,
-    targetX: mission.mission.targetX,
-    targetY: mission.mission.targetY,
-    colonyName: mission.mission.colonyName,
-    status: mission.mission.status as WorldMission['status'],
-    spacecraftName: mission.spacecraftName,
-    departedAt: mission.mission.departedAt.toISOString(),
-    arrivesAt: mission.mission.arrivesAt.toISOString(),
+    id: mission.id,
+    originStationId: mission.originStationId,
+    missionType: mission.missionType as WorldMission['missionType'],
+    targetSectorX: mission.targetSectorX,
+    targetSectorY: mission.targetSectorY,
+    targetX: mission.targetX,
+    targetY: mission.targetY,
+    colonyName: mission.colonyName,
+    status: mission.status as WorldMission['status'],
+    spacecraftName: getSpacecraft(mission.spacecraftKey)!.name,
+    departedAt: mission.departedAt.toISOString(),
+    arrivesAt: mission.arrivesAt.toISOString(),
   };
 }
 
@@ -539,18 +525,11 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
           .where(eq(worldMissions.id, mission.id));
       } else if (mission.missionType === 'expedition') {
         await ensureSector(tx, mission.targetSectorX, mission.targetSectorY, 'frontier');
-        const [origin, spacecraft] = await Promise.all([
-          tx
-            .select({ x: stations.x, y: stations.y })
-            .from(stations)
-            .where(eq(stations.id, mission.originStationId))
-            .then((rows) => rows[0]),
-          tx
-            .select({ speed: spacecraftDefinitions.speed })
-            .from(spacecraftDefinitions)
-            .where(eq(spacecraftDefinitions.id, mission.spacecraftDefinitionId))
-            .then((rows) => rows[0]),
-        ]);
+        const [origin] = await tx
+          .select({ x: stations.x, y: stations.y })
+          .from(stations)
+          .where(eq(stations.id, mission.originStationId));
+        const spacecraft = getSpacecraft(mission.spacecraftKey);
         if (!origin || !spacecraft) throw new Error('Expedition origin or spacecraft is missing');
         const departedAt = mission.arrivesAt;
         const target = sectorCenter(mission.targetSectorX, mission.targetSectorY);
@@ -607,11 +586,11 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
           .insert(stationSpacecrafts)
           .values({
             stationId: station!.id,
-            spacecraftDefinitionId: mission.spacecraftDefinitionId,
+            spacecraftKey: mission.spacecraftKey,
             amount: 1,
           })
           .onConflictDoUpdate({
-            target: [stationSpacecrafts.stationId, stationSpacecrafts.spacecraftDefinitionId],
+            target: [stationSpacecrafts.stationId, stationSpacecrafts.spacecraftKey],
             set: { amount: sql`${stationSpacecrafts.amount} + 1` },
           });
         await tx

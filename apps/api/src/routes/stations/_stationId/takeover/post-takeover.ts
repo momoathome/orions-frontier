@@ -6,6 +6,6 @@ export default (async (app) => {
   app.post('/', { preHandler: [authenticate] }, async (request) => {
     const { stationId } = request.params as { stationId: string };
     await takeOverStation(request.user.userId, stationId);
-    return { success: true };
+    return null;
   });
 }) satisfies FastifyPluginAsync;

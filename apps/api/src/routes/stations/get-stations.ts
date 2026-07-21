@@ -7,8 +7,7 @@ import { getUserStations } from '../../services/station.service.js';
  * Returns all stations belonging to the authenticated user.
  */
 export default (async (app) => {
-  app.get('/', { preHandler: [authenticate] }, async (request, reply) => {
-    const data = await getUserStations(request.user.userId);
-    return reply.send({ success: true, data });
+  app.get('/', { preHandler: [authenticate] }, async (request) => {
+    return getUserStations(request.user.userId);
   });
 }) satisfies FastifyPluginAsync;

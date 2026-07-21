@@ -115,15 +115,15 @@ async function loadAll() {
       apiClient.get(`/stations/${props.stationId}/spacecrafts`),
       apiClient.get('/me/trips'),
     ]);
-    assignments.value = assignmentResponse.data.assignments;
-    fleet.value = fleetResponse.data.spacecrafts;
-    trips.value = tripResponse.data;
+    assignments.value = assignmentResponse.assignments;
+    fleet.value = fleetResponse.spacecrafts;
+    trips.value = tripResponse;
 
     const asteroidIds = [...new Set(assignments.value.map((assignment) => assignment.asteroidId))];
     const loaded = await Promise.all(
       asteroidIds.map(async (asteroidId) => {
         const response = await apiClient.get(`/asteroids/${asteroidId}`);
-        return [asteroidId, response.data.asteroid] as const;
+        return [asteroidId, response] as const;
       })
     );
     details.value = Object.fromEntries(loaded);

@@ -1,24 +1,18 @@
 import { z } from 'zod';
 
-// ============================================================================
 // Roles & Status
-// ============================================================================
 
 export type UserRole = 'admin' | 'player';
 export type UserStatus = 'active' | 'inactive' | 'banned';
 
-// ============================================================================
 // JWT
-// ============================================================================
 
 export interface JwtPayload {
   userId: string;
   role: UserRole;
 }
 
-// ============================================================================
 // Safe user representation (no password hash)
-// ============================================================================
 
 export interface AuthenticatedUser {
   id: string;
@@ -30,9 +24,7 @@ export interface AuthenticatedUser {
   updatedAt: Date;
 }
 
-// ============================================================================
 // Request schemas
-// ============================================================================
 
 export const RegisterRequestSchema = z.object({
   username: z.string().min(3).max(50),
@@ -47,9 +39,7 @@ export const LoginRequestSchema = z.object({
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
-// ============================================================================
 // Response schema
-// ============================================================================
 
 export interface AuthResponse {
   token: string;

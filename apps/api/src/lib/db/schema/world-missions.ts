@@ -7,7 +7,6 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
-import { spacecraftDefinitions } from './spacecraft-definitions.js';
 import { stationSpacecrafts } from './station-spacecrafts.js';
 import { stations } from './stations.js';
 import { users } from './users.js';
@@ -25,9 +24,7 @@ export const worldMissions = pgTable(
     stationSpacecraftId: uuid('station_spacecraft_id')
       .notNull()
       .references(() => stationSpacecrafts.id),
-    spacecraftDefinitionId: uuid('spacecraft_definition_id')
-      .notNull()
-      .references(() => spacecraftDefinitions.id),
+    spacecraftKey: varchar('spacecraft_key', { length: 64 }).notNull(),
     missionType: varchar('mission_type', { length: 16 }).notNull(),
     targetSectorX: integer('target_sector_x').notNull(),
     targetSectorY: integer('target_sector_y').notNull(),

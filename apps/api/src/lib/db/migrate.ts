@@ -34,7 +34,6 @@ export const runMigrations = async (): Promise<void> => {
   await client.end();
 };
 
-// ── Standalone script mode (npm run db:migrate) ──────────────────────────────
 const isMain = process.argv[1] === __filename;
 if (isMain) {
   console.log('🔄 Running migrations...');

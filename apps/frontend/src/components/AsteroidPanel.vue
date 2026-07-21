@@ -15,8 +15,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: []; refresh: [] }>();
 
-// ── Data fetch ───────────────────────────────────────────────────────────────
-
 const asteroid = ref<AsteroidDetail | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -27,7 +25,7 @@ async function loadAsteroid(id: string, showLoading = true) {
   if (showLoading) asteroid.value = null;
   try {
     const response = await apiClient.get(`/asteroids/${id}`);
-    asteroid.value = response.data.asteroid;
+    asteroid.value = response;
   } catch (cause) {
     if (cause instanceof ApiError && cause.status === 404) {
       emit('close');
@@ -56,15 +54,13 @@ onUnmounted(() => {
   unsubTrips();
 });
 
-// ── Assign Modal ─────────────────────────────────────────────────────────────
-
 const showAssignModal = ref(false);
 const miners = ref<StationSpacecraftWithDefinition[]>([]);
 
 async function openAssignModal() {
   if (props.stationId && miners.value.length === 0) {
     const response = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
-    miners.value = (response.data.spacecrafts as StationSpacecraftWithDefinition[]).filter(
+    miners.value = (response.spacecrafts as StationSpacecraftWithDefinition[]).filter(
       (s) =>
         s.definition.role === 'miner' &&
         s.definition.miningRate > 0 &&
@@ -81,8 +77,6 @@ async function onAssignDone() {
   await loadAsteroid(props.asteroidId);
 }
 
-// ── Recall Modal ─────────────────────────────────────────────────────────────
-
 const showRecallModal = ref(false);
 
 function openRecallModal() {
@@ -95,12 +89,10 @@ async function onRecallDone() {
   await loadAsteroid(props.asteroidId);
 }
 
-// ── Derived ──────────────────────────────────────────────────────────────────
-
 const groupedAssignments = computed<AssignmentGroup[]>(() => {
   return (asteroid.value?.assignments ?? []).map((assignment) => ({
     stationId: assignment.stationId,
-    spacecraftDefinitionId: assignment.spacecraftDefinitionId,
+    spacecraftKey: assignment.spacecraftKey,
     spacecraftName: assignment.spacecraftName,
     ids: [assignment.id],
     totalAmount: assignment.assignedAmount,
@@ -140,8 +132,6 @@ const totalRemaining = computed(
 const totalInTransit = computed(() =>
   Object.values(asteroid.value?.inTransit ?? {}).reduce((s, n) => s + n, 0)
 );
-
-// ── Display helpers ───────────────────────────────────────────────────────────
 
 const SIZE_LABELS: Record<string, string> = {
   small: 'SMALL',

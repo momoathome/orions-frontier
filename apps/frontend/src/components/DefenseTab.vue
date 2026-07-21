@@ -22,8 +22,8 @@ async function load(): Promise<void> {
       apiClient.get('/me/combats'),
       apiClient.get(`/stations/${props.stationId}/buildings`),
     ]);
-    reports.value = combatResponse.data;
-    guardian.value = buildingResponse.data.buildings.find(
+    reports.value = combatResponse;
+    guardian.value = buildingResponse.buildings.find(
       (building: StationBuildingWithDefinition) => building.definition.key === 'guardian'
     );
     error.value = null;

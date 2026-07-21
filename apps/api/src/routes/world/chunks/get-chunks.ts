@@ -23,7 +23,7 @@ const MAX_CHUNK_RANGE = 20;
  *   minChunkY, maxChunkY  — chunk Y range (inclusive)
  */
 export default (async (app) => {
-  app.get('/', { preHandler: [authenticate] }, async (request, reply) => {
+  app.get('/', { preHandler: [authenticate] }, async (request) => {
     const q = request.query as Record<string, string | undefined>;
 
     const minChunkX = parseInt(q['minChunkX'] ?? '', 10);
@@ -62,6 +62,6 @@ export default (async (app) => {
       getVisibleDebris({ minChunkX, maxChunkX, minChunkY, maxChunkY }),
     ]);
 
-    return reply.send({ success: true, data: { asteroids, stations, debris } });
+    return { asteroids, stations, debris };
   });
 }) satisfies FastifyPluginAsync;

@@ -8,6 +8,6 @@ export default (async (app) => {
     const { id } = request.params as { id: string };
     const debris = await getDebrisById(id);
     if (!debris) throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
-    return { success: true, data: debris };
+    return debris;
   });
 }) satisfies FastifyPluginAsync;

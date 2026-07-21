@@ -1,6 +1,4 @@
-// ============================================================================
 // Renderer constants
-// ============================================================================
 
 /** Must match WORLD_CONFIG.CHUNK_SIZE in apps/api/src/lib/world-config.ts */
 export const CHUNK_SIZE = 1000;
@@ -39,7 +37,6 @@ export const GRID_WORLD_SIZE = 500;
 /** Minimum grid spacing in screen pixels before the grid is hidden */
 export const GRID_MIN_PX = 16;
 
-// ── Resource visual identity ──────────────────────────────────────────────────
 //
 // Tint color applied to asteroid sprites per primary resource.
 // Used by AsteroidLayer to give each resource type a distinct visual identity.

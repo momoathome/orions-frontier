@@ -11,15 +11,12 @@ export default (async (app) => {
     const { id: asteroidId } = request.params as { id: string };
     const body = request.body as {
       stationId?: string;
-      spacecraftDefinitionId?: string;
+      spacecraftKey?: string;
       assignedAmount?: number;
     };
 
-    if (!body.stationId || !body.spacecraftDefinitionId) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'stationId and spacecraftDefinitionId are required'
-      );
+    if (!body.stationId || !body.spacecraftKey) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'stationId and spacecraftKey are required');
     }
 
     const assignedAmount = body.assignedAmount ?? 1;
@@ -31,7 +28,7 @@ export default (async (app) => {
       userId: request.user.userId,
       asteroidId,
       stationId: body.stationId,
-      spacecraftDefinitionId: body.spacecraftDefinitionId,
+      spacecraftKey: body.spacecraftKey,
       assignedAmount,
     });
 
@@ -42,6 +39,6 @@ export default (async (app) => {
 
     publishUserEvent(request.user.userId, 'mining_tick_completed');
 
-    return reply.status(201).send({ data: { assignmentId: result.id } });
+    return reply.status(201).send({ assignmentId: result.id });
   });
 }) satisfies FastifyPluginAsync;

@@ -9,12 +9,10 @@ import {
 import { chunkKey } from './ChunkStreamer.js';
 import type { ChunkKey } from './ChunkStreamer.js';
 
-// ============================================================================
 // AsteroidLayer
 // Manages one PixiJS Container per loaded chunk.
 // Asteroids in a chunk are drawn onto a single Graphics object
 // (one draw call per chunk) for high throughput with thousands of asteroids.
-// ============================================================================
 
 export interface AsteroidHit {
   id: string;
@@ -41,8 +39,6 @@ export class AsteroidLayer {
   setTextures(textures: Texture[]) {
     this.textures = textures;
   }
-
-  // ── Public interface ────────────────────────────────────────────────────
 
   addChunk(key: ChunkKey, asteroids: VisibleAsteroid[]) {
     this.removeChunk(key); // idempotent
@@ -117,8 +113,6 @@ export class AsteroidLayer {
     return this.chunkContainers.size;
   }
 
-  // ── Hit testing ────────────────────────────────────────────────────────────
-
   /**
    * Returns the asteroid at world position (wx, wy) within the given tolerance,
    * or null if none. Only checks the chunk that contains the point.
@@ -150,8 +144,6 @@ export class AsteroidLayer {
   getAsteroidPosition(id: string): AsteroidHit | undefined {
     return this.asteroidById.get(id);
   }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
 
   /** Deterministically picks one of the 6 asteroid textures from an asteroid id. */
   private _textureFor(id: string): Texture {

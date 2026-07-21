@@ -1,30 +1,26 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidVeins, asteroidAssignments } from '../../lib/db/schema/asteroids.js';
-import { spacecraftDefinitions } from '../../lib/db/schema/spacecraft-definitions.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import type { AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getUserScannerStrength } from '../asteroid.service.js';
+import { getSpacecraft } from '@orions-frontier/game-config';
 
-// ============================================================================
 // Assignment Service
 //
 // Manages the full lifecycle of asteroid mining assignments:
 //   createAsteroidAssignment   — assign spacecraft to an asteroid (lock ships)
 //   requestAsteroidAssignmentRecall — stop selected ships at their next station arrival
 //   getStationMiningAssignments — list all assignments for a station
-// ============================================================================
-
-// ── createAsteroidAssignment ─────────────────────────────────────────────────
 
 export interface CreateAssignmentParams {
   userId: string;
   asteroidId: string;
   stationId: string;
-  spacecraftDefinitionId: string;
+  spacecraftKey: string;
   assignedAmount: number;
 }
 
@@ -42,7 +38,7 @@ export const createAsteroidAssignment = async (
   params: CreateAssignmentParams
 ): Promise<{ id: string } | CreateAssignmentError> => {
   const db = getDb();
-  const { userId, asteroidId, stationId, spacecraftDefinitionId, assignedAmount } = params;
+  const { userId, asteroidId, stationId, spacecraftKey, assignedAmount } = params;
   if (!Number.isInteger(assignedAmount) || assignedAmount < 1) {
     return { code: 'INVALID_AMOUNT', message: 'assignedAmount must be a positive integer' };
   }
@@ -64,17 +60,7 @@ export const createAsteroidAssignment = async (
     .limit(1);
   if (!station) return { code: 'STATION_NOT_FOUND', message: 'Station not found' };
 
-  // Validate spacecraft definition exists
-  const [scraft] = await db
-    .select({
-      id: spacecraftDefinitions.id,
-      cargo: spacecraftDefinitions.cargo,
-      miningRate: spacecraftDefinitions.miningRate,
-      speed: spacecraftDefinitions.speed,
-    })
-    .from(spacecraftDefinitions)
-    .where(eq(spacecraftDefinitions.id, spacecraftDefinitionId))
-    .limit(1);
+  const scraft = getSpacecraft(spacecraftKey);
   if (!scraft) return { code: 'SPACECRAFT_NOT_FOUND', message: 'Spacecraft definition not found' };
   if (scraft.cargo <= 0 || scraft.miningRate <= 0 || scraft.speed <= 0) {
     return { code: 'SPACECRAFT_NOT_FOUND', message: 'Spacecraft cannot perform mining trips' };
@@ -91,7 +77,7 @@ export const createAsteroidAssignment = async (
     .where(
       and(
         eq(stationSpacecrafts.stationId, stationId),
-        eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitionId)
+        eq(stationSpacecrafts.spacecraftKey, spacecraftKey)
       )
     )
     .limit(1);
@@ -135,7 +121,7 @@ export const createAsteroidAssignment = async (
       .values({
         asteroidId,
         stationId,
-        spacecraftDefinitionId,
+        spacecraftKey,
         assignedAmount,
         status: 'traveling_to_asteroid',
       })
@@ -173,8 +159,6 @@ export const createAsteroidAssignment = async (
   return { id: created.assignmentId };
 };
 
-// ── requestAsteroidAssignmentRecall ──────────────────────────────────────────
-
 export const requestAsteroidAssignmentRecall = async (params: {
   assignmentId: string;
   asteroidId: string;
@@ -205,8 +189,6 @@ export const requestAsteroidAssignmentRecall = async (params: {
   return result.length > 0;
 };
 
-// ── getStationMiningAssignments ───────────────────────────────────────────────
-
 export interface StationMiningAssignment {
   id: string;
   asteroidId: string;
@@ -214,7 +196,7 @@ export interface StationMiningAssignment {
   asteroidY: number;
   asteroidSize: AsteroidSize;
   asteroidPrimaryResourceKey: string | null;
-  spacecraftDefinitionId: string;
+  spacecraftKey: string;
   spacecraftName: string;
   spacecraftMiningRate: number;
   assignedAmount: number;
@@ -233,7 +215,7 @@ export const getStationMiningAssignments = async (
     .select({
       id: asteroidAssignments.id,
       asteroidId: asteroidAssignments.asteroidId,
-      spacecraftDefinitionId: asteroidAssignments.spacecraftDefinitionId,
+      spacecraftKey: asteroidAssignments.spacecraftKey,
       assignedAmount: asteroidAssignments.assignedAmount,
       assignedAt: asteroidAssignments.assignedAt,
       status: asteroidAssignments.status,
@@ -243,15 +225,9 @@ export const getStationMiningAssignments = async (
       asteroidY: asteroids.y,
       asteroidSize: asteroids.size,
       asteroidPrimaryResourceKey: asteroidVeins.resourceKey,
-      spacecraftName: spacecraftDefinitions.name,
-      spacecraftMiningRate: spacecraftDefinitions.miningRate,
     })
     .from(asteroidAssignments)
     .innerJoin(asteroids, eq(asteroids.id, asteroidAssignments.asteroidId))
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(spacecraftDefinitions.id, asteroidAssignments.spacecraftDefinitionId)
-    )
     .leftJoin(
       asteroidVeins,
       and(
@@ -268,9 +244,9 @@ export const getStationMiningAssignments = async (
     asteroidY: r.asteroidY,
     asteroidSize: r.asteroidSize as AsteroidSize,
     asteroidPrimaryResourceKey: r.asteroidPrimaryResourceKey ?? null,
-    spacecraftDefinitionId: r.spacecraftDefinitionId,
-    spacecraftName: r.spacecraftName,
-    spacecraftMiningRate: r.spacecraftMiningRate,
+    spacecraftKey: r.spacecraftKey,
+    spacecraftName: getSpacecraft(r.spacecraftKey)!.name,
+    spacecraftMiningRate: getSpacecraft(r.spacecraftKey)!.miningRate,
     assignedAmount: r.assignedAmount,
     assignedAt: r.assignedAt.toISOString(),
     status: r.status,

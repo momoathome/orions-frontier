@@ -21,7 +21,7 @@ async function executeIntent(userId: string, intent: BotIntent): Promise<void> {
         userId,
         asteroidId: intent.asteroidId,
         stationId: intent.stationId,
-        spacecraftDefinitionId: intent.spacecraftDefinitionId,
+        spacecraftKey: intent.spacecraftKey,
         assignedAmount: intent.amount,
       });
       if ('code' in result) throw new Error(`${result.code}: ${result.message}`);

@@ -1,10 +1,8 @@
 import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
 import { AppError, ErrorCode, type CombatReport } from '@orions-frontier/shared';
-import { calculateBuildingEffect } from '@orions-frontier/game-config';
+import { calculateBuildingEffect, getSpacecraft } from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
 import { combatMissions } from '../lib/db/schema/combat-missions.js';
-import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
-import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
@@ -35,7 +33,7 @@ export async function startAttack(params: {
   userId: string;
   stationId: string;
   targetStationId: string;
-  spacecraftDefinitionId: string;
+  spacecraftKey: string;
   amount: number;
 }): Promise<CombatReport> {
   if (!Number.isInteger(params.amount) || params.amount < 1) {
@@ -63,25 +61,18 @@ export async function startAttack(params: {
         id: stationSpacecrafts.id,
         amount: stationSpacecrafts.amount,
         lockedAmount: stationSpacecrafts.lockedAmount,
-        attack: spacecraftDefinitions.attack,
-        defense: spacecraftDefinitions.defense,
-        cargo: spacecraftDefinitions.cargo,
-        speed: spacecraftDefinitions.speed,
-        role: spacecraftDefinitions.role,
+        spacecraftKey: stationSpacecrafts.spacecraftKey,
       })
       .from(stationSpacecrafts)
-      .innerJoin(
-        spacecraftDefinitions,
-        eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-      )
       .where(
         and(
           eq(stationSpacecrafts.stationId, attacker.id),
-          eq(stationSpacecrafts.spacecraftDefinitionId, params.spacecraftDefinitionId)
+          eq(stationSpacecrafts.spacecraftKey, params.spacecraftKey)
         )
       )
       .limit(1);
-    if (!fleet || fleet.role !== 'fighter' || fleet.speed <= 0) {
+    const spacecraft = fleet ? getSpacecraft(fleet.spacecraftKey) : undefined;
+    if (!fleet || !spacecraft || spacecraft.role !== 'fighter' || spacecraft.speed <= 0) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Selected spacecraft cannot attack');
     }
     if (fleet.amount - fleet.lockedAmount < params.amount) {
@@ -100,7 +91,7 @@ export async function startAttack(params: {
     if (!locked) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Not enough spacecraft available');
 
     const departedAt = new Date();
-    const arrivesAt = calcArrivesAt(departedAt, calcDistance(attacker, defender), fleet.speed);
+    const arrivesAt = calcArrivesAt(departedAt, calcDistance(attacker, defender), spacecraft.speed);
     const [trip] = await tx
       .insert(spacecraftTrips)
       .values({
@@ -145,11 +136,9 @@ async function buildingLevel(tx: Tx, stationId: string, buildingKey: string): Pr
   const [building] = await tx
     .select({ level: stationBuildings.level })
     .from(stationBuildings)
-    .innerJoin(
-      buildingDefinitions,
-      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+    .where(
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, buildingKey))
     )
-    .where(and(eq(stationBuildings.stationId, stationId), eq(buildingDefinitions.key, buildingKey)))
     .limit(1);
   return building?.level ?? 0;
 }
@@ -164,36 +153,26 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
 
   const [attackerFleet] = await tx
     .select({
-      definitionId: stationSpacecrafts.spacecraftDefinitionId,
-      attack: spacecraftDefinitions.attack,
-      defense: spacecraftDefinitions.defense,
-      cargo: spacecraftDefinitions.cargo,
-      speed: spacecraftDefinitions.speed,
+      spacecraftKey: stationSpacecrafts.spacecraftKey,
     })
     .from(stationSpacecrafts)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .where(eq(stationSpacecrafts.id, mission.attackerStationSpacecraftId));
   if (!attackerFleet) throw new Error('Attacking fleet no longer exists');
+  const attacker = getSpacecraft(attackerFleet.spacecraftKey)!;
 
-  const defenderFleets = await tx
+  const defenderRows = await tx
     .select({
       id: stationSpacecrafts.id,
-      definitionId: stationSpacecrafts.spacecraftDefinitionId,
+      spacecraftKey: stationSpacecrafts.spacecraftKey,
       amount: stationSpacecrafts.amount,
       lockedAmount: stationSpacecrafts.lockedAmount,
-      defense: spacecraftDefinitions.defense,
     })
     .from(stationSpacecrafts)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(stationSpacecrafts.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .where(eq(stationSpacecrafts.stationId, mission.defenderStationId))
-    .orderBy(asc(spacecraftDefinitions.defense), asc(stationSpacecrafts.id))
     .for('update');
+  const defenderFleets = defenderRows
+    .map((fleet) => ({ ...fleet, defense: getSpacecraft(fleet.spacecraftKey)!.defense }))
+    .sort((a, b) => a.defense - b.defense || a.id.localeCompare(b.id));
   const guardianLevel = await buildingLevel(tx, mission.defenderStationId, 'guardian');
   const guardianPower =
     calculateBuildingEffect('guardian', guardianLevel).find(
@@ -204,17 +183,17 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
       (sum, fleet) => sum + Math.max(0, fleet.amount - fleet.lockedAmount) * fleet.defense,
       0
     ) + guardianPower;
-  const attackerPower = mission.attackerAmount * attackerFleet.attack;
+  const attackerPower = mission.attackerAmount * attacker.attack;
   const attackerLosses = Math.min(
     mission.attackerAmount,
-    Math.floor(defenderPower / Math.max(1, attackerFleet.defense))
+    Math.floor(defenderPower / Math.max(1, attacker.defense))
   );
   const survivors = mission.attackerAmount - attackerLosses;
 
   let remainingDamage = attackerPower;
   let defenderLosses = 0;
   const destroyed = new Map<string, number>();
-  if (attackerLosses > 0) destroyed.set(attackerFleet.definitionId, attackerLosses);
+  if (attackerLosses > 0) destroyed.set(attackerFleet.spacecraftKey, attackerLosses);
   for (const fleet of defenderFleets) {
     const losses = Math.min(
       Math.max(0, fleet.amount - fleet.lockedAmount),
@@ -222,7 +201,7 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
     );
     if (losses === 0) continue;
     defenderLosses += losses;
-    destroyed.set(fleet.definitionId, (destroyed.get(fleet.definitionId) ?? 0) + losses);
+    destroyed.set(fleet.spacecraftKey, (destroyed.get(fleet.spacecraftKey) ?? 0) + losses);
     remainingDamage -= losses * Math.max(1, fleet.defense);
     await tx
       .update(stationSpacecrafts)
@@ -235,7 +214,7 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
   const winner = survivors > 0 && attackerPower > defenderPower ? 'attacker' : 'defender';
   const loot: Record<string, number> = {};
   if (winner === 'attacker') {
-    let cargoLeft = survivors * attackerFleet.cargo;
+    let cargoLeft = survivors * attacker.cargo;
     const warehouseLevel = await buildingLevel(tx, mission.defenderStationId, 'warehouse');
     const protectedAmount =
       calculateBuildingEffect('warehouse', warehouseLevel).find(
@@ -311,7 +290,7 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
   const arrivesAt = calcArrivesAt(
     departedAt,
     calcDistance(defenderStation, attackerStation),
-    attackerFleet.speed
+    attacker.speed
   );
   const [returnTrip] = await tx
     .insert(spacecraftTrips)

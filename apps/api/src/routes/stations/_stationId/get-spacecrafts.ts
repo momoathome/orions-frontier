@@ -12,7 +12,7 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
  * including definition data and resource costs.
  */
 export default (async (app) => {
-  app.get('/spacecrafts', { preHandler: [authenticate] }, async (request, reply) => {
+  app.get('/spacecrafts', { preHandler: [authenticate] }, async (request) => {
     const { stationId } = request.params as { stationId: string };
     const db = getDb();
 
@@ -31,9 +31,6 @@ export default (async (app) => {
       getStationHangar(station.id),
     ]);
 
-    return reply.send({
-      success: true,
-      data: { stationId: station.id, spacecrafts, hangar },
-    });
+    return { stationId: station.id, spacecrafts, hangar };
   });
 }) satisfies FastifyPluginAsync;

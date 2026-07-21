@@ -10,12 +10,14 @@ import { wsClient } from '../lib/ws-client';
 import { WorldRenderer } from '../lib/world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from '../lib/world/WorldRenderer.js';
 import type { ActiveTrip } from '../lib/world/TripLayer.js';
-import type { VisibleWorldTrip } from '@orions-frontier/shared';
-import { useSelectionStore } from '../stores/selection';
+import type { DebrisField, VisibleStation, VisibleWorldTrip } from '@orions-frontier/shared';
 
-const selectionStore = useSelectionStore();
-
-// ── Station data ─────────────────────────────────────────────────────────────
+type SelectedEntity =
+  | { type: 'asteroid'; id: string }
+  | { type: 'station'; station: VisibleStation }
+  | { type: 'debris'; field: DebrisField };
+const selectedEntity = ref<SelectedEntity | null>(null);
+const deselect = () => (selectedEntity.value = null);
 
 const stationId = ref<string | null>(null);
 const stationName = ref<string | undefined>(undefined);
@@ -32,8 +34,7 @@ async function loadUserStation(): Promise<StationInfo | null> {
     const response = await apiClient.get('/stations');
     const preferredId = localStorage.getItem('active_station_id');
     const first =
-      response.data?.find((station: { id: string }) => station.id === preferredId) ??
-      response.data?.[0];
+      response.find((station: { id: string }) => station.id === preferredId) ?? response[0];
     if (first) {
       stationId.value = first.id;
       stationName.value = first.name;
@@ -58,25 +59,20 @@ async function createFirstStation() {
   }
 }
 
-// ── Active trips (in-flight spacecraft) ─────────────────────────────────────
-
 async function loadTrips(): Promise<void> {
   if (!renderer) return;
   try {
     const range = renderer.getVisibleChunkRange();
-    const response = await apiClient.get<{ success: true; data: VisibleWorldTrip[] }>(
-      '/world/trips',
-      {
-        params: {
-          minChunkX: range.minChunkX,
-          maxChunkX: range.maxChunkX,
-          minChunkY: range.minChunkY,
-          maxChunkY: range.maxChunkY,
-        },
-      }
-    );
+    const response = await apiClient.get<VisibleWorldTrip[]>('/world/trips', {
+      params: {
+        minChunkX: range.minChunkX,
+        maxChunkX: range.maxChunkX,
+        minChunkY: range.minChunkY,
+        maxChunkY: range.maxChunkY,
+      },
+    });
     renderer.setActiveTrips(
-      response.data.map((trip): ActiveTrip => ({
+      response.map((trip): ActiveTrip => ({
         id: trip.id,
         fromX: trip.fromX,
         fromY: trip.fromY,
@@ -93,13 +89,11 @@ async function loadTrips(): Promise<void> {
   }
 }
 
-// ── Assignment markers ───────────────────────────────────────────────────
-
 async function loadAssignments(): Promise<void> {
   if (!renderer || !stationId.value) return;
   try {
     const response = await apiClient.get(`/stations/${stationId.value}/mining-assignments`);
-    const raw = (response.data?.assignments ?? []) as Array<{
+    const raw = (response.assignments ?? []) as Array<{
       asteroidId: string;
       asteroidX: number;
       asteroidY: number;
@@ -130,8 +124,6 @@ async function refreshMiningState(): Promise<void> {
   await loadTrips();
 }
 
-// ── PixiJS World Renderer ────────────────────────────────────────────────────
-
 const worldRef = ref<HTMLDivElement | null>(null);
 let renderer: WorldRenderer | null = null;
 let stationInfo: StationInfo | null = null;
@@ -161,15 +153,15 @@ onMounted(async () => {
     hoveringEntity.value = isHovering;
   };
 
-  // Asteroid clicked → select in store (closes station panel)
+  // Asteroid clicked → select it and close the station panel
   renderer.onAsteroidClick = (id) => {
     stationPanelOpen.value = false;
-    selectionStore.select({ type: 'asteroid', id });
+    selectedEntity.value = { type: 'asteroid', id };
   };
 
   // Station clicked → open station panel
   renderer.onStationClick = () => {
-    selectionStore.deselect();
+    deselect();
     stationPanelOpen.value = true;
   };
 
@@ -180,17 +172,17 @@ onMounted(async () => {
       return;
     }
     stationPanelOpen.value = false;
-    selectionStore.select({ type: 'station', station });
+    selectedEntity.value = { type: 'station', station };
   };
 
   renderer.onDebrisClick = (field) => {
     stationPanelOpen.value = false;
-    selectionStore.select({ type: 'debris', field });
+    selectedEntity.value = { type: 'debris', field };
   };
 
   // Empty space clicked → deselect all
   renderer.onEmptyClick = () => {
-    selectionStore.deselect();
+    deselect();
     stationPanelOpen.value = false;
   };
 
@@ -217,17 +209,14 @@ onMounted(async () => {
 });
 
 // Sync selected asteroid → renderer selection ring
-watch(
-  () => selectionStore.selected,
-  (entity) => {
-    if (!renderer) return;
-    if (entity?.type === 'asteroid') {
-      renderer.setSelectedAsteroid(entity.id);
-    } else {
-      renderer.setSelectedAsteroid(null);
-    }
+watch(selectedEntity, (entity) => {
+  if (!renderer) return;
+  if (entity?.type === 'asteroid') {
+    renderer.setSelectedAsteroid(entity.id);
+  } else {
+    renderer.setSelectedAsteroid(null);
   }
-);
+});
 
 onUnmounted(() => {
   unsubTransportTick?.();
@@ -236,10 +225,9 @@ onUnmounted(() => {
   if (tripRefreshInterval) clearInterval(tripRefreshInterval);
   renderer?.destroy();
   renderer = null;
-  selectionStore.deselect();
+  deselect();
 });
 
-// ── Cursor class ──────────────────────────────────────────────────────────────
 function cursorClass() {
   if (isDragging.value) return 'cursor-grabbing';
   if (hoveringEntity.value) return 'cursor-pointer';
@@ -327,10 +315,10 @@ function cursorClass() {
       leave-to-class="translate-y-full"
     >
       <TargetStationPanel
-        v-if="selectionStore.selected?.type === 'station'"
-        :station="selectionStore.selected.station"
+        v-if="selectedEntity?.type === 'station'"
+        :station="selectedEntity.station"
         :origin="stationInfo"
-        @close="selectionStore.deselect()"
+        @close="deselect()"
       />
     </transition>
 
@@ -344,12 +332,12 @@ function cursorClass() {
       leave-to-class="translate-y-full"
     >
       <AsteroidPanel
-        v-if="selectionStore.selected?.type === 'asteroid'"
-        :asteroid-id="selectionStore.selected.id"
+        v-if="selectedEntity?.type === 'asteroid'"
+        :asteroid-id="selectedEntity.id"
         :station-id="stationId"
         @close="
           () => {
-            selectionStore.deselect();
+            deselect();
             loadAssignments();
           }
         "
@@ -366,10 +354,10 @@ function cursorClass() {
       leave-to-class="translate-y-full"
     >
       <DebrisPanel
-        v-if="selectionStore.selected?.type === 'debris' && stationId"
-        :field="selectionStore.selected.field"
+        v-if="selectedEntity?.type === 'debris' && stationId"
+        :field="selectedEntity.field"
         :station-id="stationId"
-        @close="selectionStore.deselect()"
+        @close="deselect()"
         @launched="loadTrips"
       />
     </transition>

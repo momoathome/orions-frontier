@@ -1,4 +1,3 @@
-// ============================================================================
 // travel.ts — Utilities for time-based spacecraft travel calculations.
 //
 // All spacecraft travel in real time. Travel time is derived from:
@@ -6,7 +5,6 @@
 //
 // The arrivesAt timestamp is stored on the spacecraft_trip record.
 // Map position during travel is interpolated client-side — no polling needed.
-// ============================================================================
 
 import { WORLD_CONFIG } from './world-config.js';
 
@@ -35,7 +33,7 @@ export function calcTravelHours(distance: number, speed: number): number {
  * Calculate the arrival timestamp for a spacecraft trip.
  * @param departedAt  Departure time
  * @param distance    Euclidean distance in world units
- * @param speed       Spacecraft speed stat (from spacecraft_definitions.speed)
+ * @param speed       Spacecraft speed from the game config
  * @returns           Arrival Date
  */
 export function calcArrivesAt(departedAt: Date, distance: number, speed: number): Date {

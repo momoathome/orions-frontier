@@ -9,7 +9,7 @@ import { getVisibleWorldTrips } from '../../../services/world.service.js';
 const MAX_CHUNK_RANGE = 100;
 
 export default (async (app) => {
-  app.get('/', { preHandler: [authenticate] }, async (request, reply) => {
+  app.get('/', { preHandler: [authenticate] }, async (request) => {
     const query = request.query as Record<string, string | undefined>;
     const number = (value: string | undefined) =>
       value === undefined || value.trim() === '' ? Number.NaN : Number(value);
@@ -32,9 +32,6 @@ export default (async (app) => {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid or oversized chunk range');
     }
 
-    return reply.send({
-      success: true,
-      data: await getVisibleWorldTrips(range, request.user.userId),
-    });
+    return getVisibleWorldTrips(range, request.user.userId);
   });
 }) satisfies FastifyPluginAsync;

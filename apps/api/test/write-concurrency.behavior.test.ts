@@ -5,7 +5,6 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { calculateBuildingUpgradeCost, spacecrafts } from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
 import { runMigrations } from '../src/lib/db/migrate.js';
-import { buildingDefinitions } from '../src/lib/db/schema/building-definitions.js';
 import { asteroids } from '../src/lib/db/schema/asteroids.js';
 import { sectors } from '../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../src/lib/db/schema/spacecraft-build-orders.js';
@@ -17,7 +16,6 @@ import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js'
 import { stations } from '../src/lib/db/schema/stations.js';
 import { spacecraftTrips } from '../src/lib/db/schema/spacecraft-trips.js';
 import { users } from '../src/lib/db/schema/users.js';
-import { seedBuildingDefinitions, seedSpacecraftDefinitions } from '../src/lib/seed.js';
 import { seedStationBuildings, startBuildingUpgrade } from '../src/services/building.service.js';
 import {
   buildSpacecrafts,
@@ -47,8 +45,6 @@ const testSlotIds: string[] = [];
 before(async () => {
   await runMigrations();
   await initDb();
-  await seedSpacecraftDefinitions();
-  await seedBuildingDefinitions();
   const db = getDb();
   const suffix = randomUUID();
 
@@ -195,18 +191,11 @@ test('Warehouse is a playable upgrade with active protection', async () => {
 
 test('parallel spacecraft orders cannot spend the same resources twice', async () => {
   const db = getDb();
-  const shipyard = await db
-    .select({ id: buildingDefinitions.id })
-    .from(buildingDefinitions)
-    .where(eq(buildingDefinitions.key, 'shipyard'));
   await db
     .update(stationBuildings)
     .set({ upgradeEndsAt: null })
     .where(
-      and(
-        eq(stationBuildings.stationId, stationId),
-        eq(stationBuildings.buildingDefinitionId, shipyard[0]!.id)
-      )
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'shipyard'))
     );
   const mole = spacecrafts.find((spacecraft) => spacecraft.key === 'mole')!;
   await setResources(Object.fromEntries(mole.costs.map((cost) => [cost.resourceKey, cost.amount])));
@@ -226,18 +215,11 @@ test('parallel spacecraft orders cannot spend the same resources twice', async (
 
 test('shipyard unlocks expose buildable spacecraft without an existing fleet row', async () => {
   const db = getDb();
-  const [shipyard] = await db
-    .select({ id: buildingDefinitions.id })
-    .from(buildingDefinitions)
-    .where(eq(buildingDefinitions.key, 'shipyard'));
   await db
     .update(stationBuildings)
     .set({ level: 5 })
     .where(
-      and(
-        eq(stationBuildings.stationId, stationId),
-        eq(stationBuildings.buildingDefinitionId, shipyard!.id)
-      )
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'shipyard'))
     );
 
   const fleet = await getStationSpacecrafts(stationId);

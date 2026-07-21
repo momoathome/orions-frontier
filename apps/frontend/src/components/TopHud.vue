@@ -3,8 +3,7 @@ import { ref, onUnmounted } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { apiClient } from '../lib/api-client.js';
 import { wsClient } from '../lib/ws-client.js';
-import type { ResourceKey, UserResourceSummary } from '@orions-frontier/shared';
-import { ALL_RESOURCES } from '../lib/spacecraft-utils';
+import { resourceKeys, type ResourceKey, type UserResourceSummary } from '@orions-frontier/shared';
 
 const { stationId } = defineProps<{ stationId: string }>();
 
@@ -32,8 +31,9 @@ function scheduleFetch() {
 }
 
 function applyResourceSummary(summary: UserResourceSummary) {
-  resourceEntries.value = ALL_RESOURCES.filter((key) => summary.resources[key] !== undefined).map(
-    (key) => {
+  resourceEntries.value = resourceKeys
+    .filter((key) => summary.resources[key] !== undefined)
+    .map((key) => {
       const def = resources[key as ResourceKey];
       return {
         key: key as ResourceKey,
@@ -42,17 +42,15 @@ function applyResourceSummary(summary: UserResourceSummary) {
         amount: summary.resources[key] as number,
         ratePerHour: summary.rates[key] ?? 0,
       };
-    }
-  );
+    });
 }
 
 async function fetchResources() {
   try {
-    const response = await apiClient.get<{ success: true; data: UserResourceSummary }>(
-      '/me/resources',
-      { params: { stationId } }
-    );
-    applyResourceSummary(response.data);
+    const response = await apiClient.get<UserResourceSummary>('/me/resources', {
+      params: { stationId },
+    });
+    applyResourceSummary(response);
     isOnline.value = true;
   } catch {
     isOnline.value = false;

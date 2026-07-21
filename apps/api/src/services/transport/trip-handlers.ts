@@ -1,15 +1,14 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidAssignments, asteroidVeins } from '../../lib/db/schema/asteroids.js';
-import { spacecraftDefinitions } from '../../lib/db/schema/spacecraft-definitions.js';
 import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { claimMiningCargo } from '../mining/mining-claim.service.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
+import { getSpacecraft } from '@orions-frontier/game-config';
 
-// ============================================================================
 // Trip Handlers
 //
 // Each handler receives the drizzle transaction (tx) and the arrived trip row.
@@ -18,11 +17,9 @@ import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 // Handler → condition:
 //   handleMineArrival          purpose='mine'          toType='asteroid'
 //   handleMiningReturnArrival  purpose='mining_return' toType='station'
-// ============================================================================
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
-// ── Miner arrived at asteroid ────────────────────────────────────────────────
 // Linked groups claim one load and create their timed mining return trip.
 export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
   if (!trip.assignmentId) return;
@@ -32,9 +29,7 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
       id: asteroidAssignments.id,
       stationId: asteroidAssignments.stationId,
       assignedAmount: asteroidAssignments.assignedAmount,
-      cargo: spacecraftDefinitions.cargo,
-      miningRate: spacecraftDefinitions.miningRate,
-      speed: spacecraftDefinitions.speed,
+      spacecraftKey: asteroidAssignments.spacecraftKey,
       stationX: stations.x,
       stationY: stations.y,
       asteroidX: asteroids.x,
@@ -42,10 +37,6 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
       recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
     })
     .from(asteroidAssignments)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(asteroidAssignments.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
     .innerJoin(asteroids, eq(asteroidAssignments.asteroidId, asteroids.id))
     .where(
@@ -57,21 +48,22 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
     .limit(1);
 
   if (!assignment) return;
+  const spacecraft = getSpacecraft(assignment.spacecraftKey)!;
 
   const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
   const activeGroupSize = Math.max(0, groupSize - assignment.recallRequestedAmount);
   const claim =
     activeGroupSize === 0
       ? { claimedAmount: 0, cargoManifest: {} }
-      : await claimMiningCargo(tx, trip.toId, activeGroupSize * assignment.cargo);
+      : await claimMiningCargo(tx, trip.toId, activeGroupSize * spacecraft.cargo);
   const miningHours =
-    claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (activeGroupSize * assignment.miningRate);
+    claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (activeGroupSize * spacecraft.miningRate);
   const departedAt = new Date(trip.arrivesAt.getTime() + miningHours * 3_600_000);
   const distance = calcDistance(
     { x: assignment.asteroidX, y: assignment.asteroidY },
     { x: assignment.stationX, y: assignment.stationY }
   );
-  const arrivesAt = calcArrivesAt(departedAt, distance, assignment.speed);
+  const arrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
 
   await tx.insert(spacecraftTrips).values({
     stationSpacecraftId: trip.stationSpacecraftId,
@@ -93,7 +85,6 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
     .where(eq(asteroidAssignments.id, assignment.id));
 }
 
-// ── Miner delivered one claimed load ─────────────────────────────────────────
 // Starts the next outbound leg while free resources remain; otherwise the
 // assignment ends and its ships become available at the station.
 export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<void> {
@@ -116,7 +107,7 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<voi
     .select({
       id: asteroidAssignments.id,
       asteroidId: asteroidAssignments.asteroidId,
-      speed: spacecraftDefinitions.speed,
+      spacecraftKey: asteroidAssignments.spacecraftKey,
       stationX: stations.x,
       stationY: stations.y,
       asteroidX: asteroids.x,
@@ -125,16 +116,13 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<voi
       assignedAmount: asteroidAssignments.assignedAmount,
     })
     .from(asteroidAssignments)
-    .innerJoin(
-      spacecraftDefinitions,
-      eq(asteroidAssignments.spacecraftDefinitionId, spacecraftDefinitions.id)
-    )
     .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
     .innerJoin(asteroids, eq(asteroidAssignments.asteroidId, asteroids.id))
     .where(eq(asteroidAssignments.id, trip.assignmentId))
     .limit(1);
 
   if (!assignment) return;
+  const spacecraft = getSpacecraft(assignment.spacecraftKey)!;
 
   // Serialize the final returns for one asteroid. Without this lock, two groups
   // could both observe the other assignment and leave an exhausted asteroid behind.
@@ -199,7 +187,7 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<voi
     { x: assignment.stationX, y: assignment.stationY },
     { x: assignment.asteroidX, y: assignment.asteroidY }
   );
-  const arrivesAt = calcArrivesAt(departedAt, distance, assignment.speed);
+  const arrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
   await tx.insert(spacecraftTrips).values({
     stationSpacecraftId: trip.stationSpacecraftId,
     assignmentId: assignment.id,

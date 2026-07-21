@@ -11,7 +11,7 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
  * Returns all buildings for the station with computed effects, costs, and milestones.
  */
 export default (async (app) => {
-  app.get('/buildings', { preHandler: [authenticate] }, async (request, reply) => {
+  app.get('/buildings', { preHandler: [authenticate] }, async (request) => {
     const { stationId } = request.params as { stationId: string };
     const db = getDb();
 
@@ -27,6 +27,6 @@ export default (async (app) => {
 
     const buildings = await getStationBuildings(station.id);
 
-    return reply.send({ success: true, data: { stationId: station.id, buildings } });
+    return { stationId: station.id, buildings };
   });
 }) satisfies FastifyPluginAsync;

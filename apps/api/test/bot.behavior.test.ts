@@ -6,9 +6,7 @@ import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
 import { runMigrations } from '../src/lib/db/migrate.js';
 import { asteroids, asteroidAssignments, asteroidVeins } from '../src/lib/db/schema/asteroids.js';
 import { botControllers } from '../src/lib/db/schema/bot-controllers.js';
-import { buildingDefinitions } from '../src/lib/db/schema/building-definitions.js';
 import { spacecraftBuildOrders } from '../src/lib/db/schema/spacecraft-build-orders.js';
-import { spacecraftDefinitions } from '../src/lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../src/lib/db/schema/station-resources.js';
@@ -17,7 +15,6 @@ import { stations } from '../src/lib/db/schema/stations.js';
 import { users } from '../src/lib/db/schema/users.js';
 import { sectors } from '../src/lib/db/schema/sectors.js';
 import { spawnSlots } from '../src/lib/db/schema/spawn-slots.js';
-import { seedBuildingDefinitions, seedSpacecraftDefinitions } from '../src/lib/seed.js';
 import { runBotDecisionTick } from '../src/services/bot/bot.service.js';
 import { loadEconomicBotState } from '../src/services/bot/bot-state.service.js';
 import { seedStationBuildings } from '../src/services/building.service.js';
@@ -31,16 +28,14 @@ const userId = randomUUID();
 const stationId = randomUUID();
 const asteroidIds = [randomUUID(), randomUUID(), randomUUID()];
 const testNow = new Date(Date.now() + 24 * 60 * 60 * 1_000);
-let moleDefinitionId = '';
-let titanDefinitionId = '';
-let shipyardDefinitionId = '';
+const moleKey = 'mole';
+const titanKey = 'titan';
+const shipyardKey = 'shipyard';
 let sectorId = '';
 
 before(async () => {
   await runMigrations();
   await initDb();
-  await seedSpacecraftDefinitions();
-  await seedBuildingDefinitions();
   const db = getDb();
   const suffix = randomUUID();
 
@@ -64,18 +59,6 @@ before(async () => {
   await seedStationResources(stationId);
   await seedStationBuildings(stationId);
   await seedStationSpacecrafts(stationId);
-
-  const definitions = await db
-    .select({ id: spacecraftDefinitions.id, key: spacecraftDefinitions.key })
-    .from(spacecraftDefinitions)
-    .where(inArray(spacecraftDefinitions.key, ['mole', 'titan']));
-  moleDefinitionId = definitions.find((definition) => definition.key === 'mole')!.id;
-  titanDefinitionId = definitions.find((definition) => definition.key === 'titan')!.id;
-  const [shipyard] = await db
-    .select({ id: buildingDefinitions.id })
-    .from(buildingDefinitions)
-    .where(eq(buildingDefinitions.key, 'shipyard'));
-  shipyardDefinitionId = shipyard!.id;
 
   await db.insert(asteroids).values({
     id: asteroidIds[0],
@@ -225,7 +208,7 @@ test('bot builds a Mole through the normal resource and build queue', async () =
     .where(
       and(
         eq(stationSpacecrafts.stationId, stationId),
-        eq(stationSpacecrafts.spacecraftDefinitionId, moleDefinitionId)
+        eq(stationSpacecrafts.spacecraftKey, moleKey)
       )
     );
   const [beforeCarbon] = await db
@@ -243,7 +226,7 @@ test('bot builds a Mole through the normal resource and build queue', async () =
     .where(
       and(
         eq(spacecraftBuildOrders.stationId, stationId),
-        eq(spacecraftBuildOrders.spacecraftDefinitionId, moleDefinitionId)
+        eq(spacecraftBuildOrders.spacecraftKey, moleKey)
       )
     );
   assert.equal(orders.length, 1);
@@ -266,7 +249,7 @@ test('bot upgrades Shipyard, builds Titan and prefers it for mining', async () =
     .where(
       and(
         eq(stationSpacecrafts.stationId, stationId),
-        eq(stationSpacecrafts.spacecraftDefinitionId, moleDefinitionId)
+        eq(stationSpacecrafts.spacecraftKey, moleKey)
       )
     );
   await db
@@ -284,7 +267,7 @@ test('bot upgrades Shipyard, builds Titan and prefers it for mining', async () =
       .where(
         and(
           eq(stationBuildings.stationId, stationId),
-          eq(stationBuildings.buildingDefinitionId, shipyardDefinitionId)
+          eq(stationBuildings.buildingKey, shipyardKey)
         )
       );
     assert.ok(building?.upgradeEndsAt);
@@ -300,7 +283,7 @@ test('bot upgrades Shipyard, builds Titan and prefers it for mining', async () =
     .where(
       and(
         eq(spacecraftBuildOrders.stationId, stationId),
-        eq(spacecraftBuildOrders.spacecraftDefinitionId, titanDefinitionId)
+        eq(spacecraftBuildOrders.spacecraftKey, titanKey)
       )
     );
   assert.ok(titanOrder);
@@ -326,7 +309,7 @@ test('bot upgrades Shipyard, builds Titan and prefers it for mining', async () =
   await runBotDecisionTick(titanMineAt);
 
   const [assignment] = await db
-    .select({ spacecraftDefinitionId: asteroidAssignments.spacecraftDefinitionId })
+    .select({ spacecraftKey: asteroidAssignments.spacecraftKey })
     .from(asteroidAssignments)
     .where(
       and(
@@ -334,7 +317,7 @@ test('bot upgrades Shipyard, builds Titan and prefers it for mining', async () =
         eq(asteroidAssignments.asteroidId, asteroidIds[1]!)
       )
     );
-  assert.equal(assignment?.spacecraftDefinitionId, titanDefinitionId);
+  assert.equal(assignment?.spacecraftKey, titanKey);
 });
 
 test('bot wait decision leaves the playable state unchanged', async () => {

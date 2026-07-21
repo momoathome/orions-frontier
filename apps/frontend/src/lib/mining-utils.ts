@@ -1,4 +1,7 @@
-export const RESOURCE_COLORS: Record<string, string> = {
+import { resources } from '@orions-frontier/game-config';
+import type { ResourceKey } from '@orions-frontier/shared';
+
+const RESOURCE_COLORS: Record<string, string> = {
   carbon: '#778899',
   titanium: '#6699bb',
   hydrogenium: '#22ccee',
@@ -6,17 +9,10 @@ export const RESOURCE_COLORS: Record<string, string> = {
   astatine: '#ff5533',
 };
 
-export const RESOURCE_NAMES: Record<string, string> = {
-  carbon: 'Carbon',
-  titanium: 'Titanium',
-  hydrogenium: 'Hydrogenium',
-  kyber_crystal: 'Kyber Crystal',
-  astatine: 'Astatine',
-};
 export function resourceColor(key: string | null): string {
   return key ? (RESOURCE_COLORS[key] ?? '#888888') : '#888888';
 }
 
 export function resourceName(key: string): string {
-  return RESOURCE_NAMES[key] ?? key.toUpperCase();
+  return resources[key as ResourceKey]?.name ?? key.toUpperCase();
 }

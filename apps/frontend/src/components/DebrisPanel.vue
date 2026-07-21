@@ -8,7 +8,7 @@ const emit = defineEmits<{ close: []; launched: [] }>();
 
 const current = ref(props.field);
 const salvagers = ref<StationSpacecraftWithDefinition[]>([]);
-const selectedDefinitionId = ref('');
+const selectedSpacecraftKey = ref('');
 const amount = ref(1);
 const sending = ref(false);
 const feedback = ref<string | null>(null);
@@ -21,18 +21,18 @@ watch(
   async () => {
     feedback.value = null;
     salvagers.value = [];
-    selectedDefinitionId.value = '';
+    selectedSpacecraftKey.value = '';
     try {
       const [fieldResponse, fleetResponse] = await Promise.all([
         apiClient.get(`/debris/${props.field.id}`),
         apiClient.get(`/stations/${props.stationId}/spacecrafts`),
       ]);
-      current.value = fieldResponse.data;
-      salvagers.value = fleetResponse.data.spacecrafts.filter(
+      current.value = fieldResponse;
+      salvagers.value = fleetResponse.spacecrafts.filter(
         (entry: StationSpacecraftWithDefinition) =>
           entry.definition.role === 'salvager' && entry.amount > entry.lockedAmount
       );
-      selectedDefinitionId.value = salvagers.value[0]?.definition.id ?? '';
+      selectedSpacecraftKey.value = salvagers.value[0]?.definition.key ?? '';
     } catch (error) {
       feedback.value = apiErrorMessage(error, 'Debris data could not be loaded');
     }
@@ -41,13 +41,13 @@ watch(
 );
 
 async function launch(): Promise<void> {
-  if (!selectedDefinitionId.value) return;
+  if (!selectedSpacecraftKey.value) return;
   sending.value = true;
   feedback.value = null;
   try {
     await apiClient.post(`/debris/${current.value.id}/salvage`, {
       stationId: props.stationId,
-      spacecraftDefinitionId: selectedDefinitionId.value,
+      spacecraftKey: selectedSpacecraftKey.value,
       amount: amount.value,
     });
     feedback.value = 'Salvage launched.';
@@ -84,10 +84,14 @@ async function launch(): Promise<void> {
         <p class="text-[9px] uppercase tracking-[0.3em] text-white/20">Salvage</p>
         <template v-if="salvagers.length">
           <select
-            v-model="selectedDefinitionId"
+            v-model="selectedSpacecraftKey"
             class="h-7 rounded border border-white/10 bg-[#080d18] px-2"
           >
-            <option v-for="ship in salvagers" :key="ship.definition.id" :value="ship.definition.id">
+            <option
+              v-for="ship in salvagers"
+              :key="ship.definition.key"
+              :value="ship.definition.key"
+            >
               {{ ship.definition.name }} ({{ ship.amount - ship.lockedAmount }} ready)
             </option>
           </select>

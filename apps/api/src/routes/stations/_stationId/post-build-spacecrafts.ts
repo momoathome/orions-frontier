@@ -57,6 +57,6 @@ export default (async (app) => {
       orders as { spacecraftKey: string; amount: number }[]
     );
 
-    return reply.status(202).send({ success: true });
+    return reply.status(202).send();
   });
 }) satisfies FastifyPluginAsync;

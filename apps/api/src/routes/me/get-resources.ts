@@ -10,7 +10,7 @@ import {
 const QuerySchema = z.object({ stationId: z.string().uuid() });
 
 export default (async (app) => {
-  app.get('/resources', { preHandler: [authenticate] }, async (request, reply) => {
+  app.get('/resources', { preHandler: [authenticate] }, async (request) => {
     const parsed = QuerySchema.safeParse(request.query);
     if (!parsed.success) throw new AppError(ErrorCode.VALIDATION_ERROR, 'stationId is required');
     const { userId } = request.user;
@@ -20,9 +20,6 @@ export default (async (app) => {
       getDeliveredResourceRates(userId, stationId),
     ]);
 
-    return reply.send({
-      success: true,
-      data: { resources, rates },
-    });
+    return { resources, rates };
   });
 }) satisfies FastifyPluginAsync;

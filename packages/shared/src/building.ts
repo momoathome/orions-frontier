@@ -1,8 +1,6 @@
 import type { ResourceKey } from './resource.js';
 
-// ============================================================================
 // Building Keys
-// ============================================================================
 
 export const buildingKeys = [
   'core',
@@ -15,9 +13,7 @@ export const buildingKeys = [
 
 export type BuildingKey = (typeof buildingKeys)[number];
 
-// ============================================================================
 // Building Effect Types
-// ============================================================================
 
 export type BuildingEffectType =
   | 'station_progression'
@@ -30,12 +26,9 @@ export type BuildingEffectType =
   | 'defense_power'
   | 'research_capacity';
 
-// ============================================================================
-// Building Definition (static / seeded)
-// ============================================================================
+// Building Definition (static game config)
 
 export interface BuildingDefinition {
-  id: string;
   key: BuildingKey;
   name: string;
   description: string;
@@ -43,34 +36,23 @@ export interface BuildingDefinition {
   baseBuildTime: number;
   maxLevel: number;
   effectType: BuildingEffectType;
-  createdAt: string;
 }
 
-// ============================================================================
-// Station Building (runtime per station)
-// ============================================================================
-
-// ============================================================================
 // Upgrade Cost
-// ============================================================================
 
 export interface BuildingUpgradeCost {
   resourceKey: ResourceKey;
   amount: number;
 }
 
-// ============================================================================
 // Building Effect (calculated)
-// ============================================================================
 
 export interface BuildingEffect {
   type: BuildingEffectType;
   value: number;
 }
 
-// ============================================================================
 // Full station building with computed data
-// ============================================================================
 
 export interface StationBuildingWithDefinition {
   definition: BuildingDefinition;

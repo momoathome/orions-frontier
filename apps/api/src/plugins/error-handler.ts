@@ -1,54 +1,45 @@
-import fp from 'fastify-plugin';
-import type { FastifyPluginAsync, FastifyError } from 'fastify';
+import type { FastifyError, FastifyReply } from 'fastify';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
-const errorHandlerPlugin: FastifyPluginAsync = async (fastify) => {
-  fastify.setErrorHandler((error: FastifyError, _request, reply) => {
-    if (error instanceof AppError) {
-      return reply.status(getStatusCode(error.code)).send({
-        success: false,
-        error: error.toJSON(),
-      });
-    }
+export function errorHandler(
+  this: { log: { error(error: unknown): void } },
+  error: FastifyError,
+  _request: unknown,
+  reply: FastifyReply
+) {
+  if (error instanceof AppError) {
+    return reply.status(getStatusCode(error.code)).send({
+      error: error.toJSON(),
+    });
+  }
 
-    // Validation errors
-    if (error.validation) {
-      return reply.status(400).send({
-        success: false,
-        error: {
-          code: ErrorCode.VALIDATION_ERROR,
-          message: 'Validation failed',
-          details: error.validation as unknown[],
-        },
-      });
-    }
-
-    if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
-      return reply.status(error.statusCode).send({
-        success: false,
-        error: {
-          code: ErrorCode.INVALID_INPUT,
-          message: error.message,
-        },
-      });
-    }
-
-    // Default error
-    fastify.log.error(error);
-    return reply.status(500).send({
-      success: false,
+  if (error.validation) {
+    return reply.status(400).send({
       error: {
-        code: ErrorCode.INTERNAL_ERROR,
-        message: 'Internal server error',
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'Validation failed',
+        details: error.validation as unknown[],
       },
     });
-  });
-};
+  }
 
-export const errorHandler = fp(errorHandlerPlugin, {
-  name: 'error-handler',
-  fastify: '5.x',
-});
+  if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
+    return reply.status(error.statusCode).send({
+      error: {
+        code: ErrorCode.INVALID_INPUT,
+        message: error.message,
+      },
+    });
+  }
+
+  this.log.error(error);
+  return reply.status(500).send({
+    error: {
+      code: ErrorCode.INTERNAL_ERROR,
+      message: 'Internal server error',
+    },
+  });
+}
 
 const getStatusCode = (code: ErrorCode): number => {
   switch (code) {

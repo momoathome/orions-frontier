@@ -11,7 +11,7 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
  * Returns all active mining assignments for a station.
  */
 export default (async (app) => {
-  app.get('/mining-assignments', { preHandler: [authenticate] }, async (request, reply) => {
+  app.get('/mining-assignments', { preHandler: [authenticate] }, async (request) => {
     const { stationId } = request.params as { stationId: string };
     const db = getDb();
 
@@ -27,6 +27,6 @@ export default (async (app) => {
 
     const assignments = await getStationMiningAssignments(station.id);
 
-    return reply.send({ success: true, data: { assignments } });
+    return { assignments };
   });
 }) satisfies FastifyPluginAsync;

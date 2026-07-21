@@ -16,7 +16,6 @@ export interface SpacecraftSeedDefinition {
 }
 
 export const spacecrafts: SpacecraftSeedDefinition[] = [
-  // ── Fighters ────────────────────────────────────────────────────────────────
   {
     key: 'merlin',
     name: 'Merlin',
@@ -167,7 +166,6 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     ],
   },
 
-  // ── Miners ──────────────────────────────────────────────────────────────────
   {
     key: 'mole',
     name: 'Mole',
@@ -244,3 +242,6 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     ],
   },
 ];
+
+export const getSpacecraft = (key: string) =>
+  spacecrafts.find((spacecraft) => spacecraft.key === key);

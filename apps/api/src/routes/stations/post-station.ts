@@ -28,6 +28,6 @@ export default (async (app) => {
       app.log.error({ error, sectorId: station.sectorId }, 'Failed to provision sector bots');
     });
 
-    return reply.status(201).send({ success: true, data: station });
+    return reply.status(201).send(station);
   });
 }) satisfies FastifyPluginAsync;

@@ -11,7 +11,6 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { stations } from './stations.js';
-import { spacecraftDefinitions } from './spacecraft-definitions.js';
 import { sectors } from './sectors.js';
 
 export const assignmentStatusEnum = pgEnum('assignment_status', [
@@ -19,9 +18,7 @@ export const assignmentStatusEnum = pgEnum('assignment_status', [
   'traveling_to_station',
 ]);
 
-// ============================================================================
 // asteroids — Persistent runtime asteroid instances
-// ============================================================================
 
 export const asteroids = pgTable(
   'asteroids',
@@ -49,10 +46,8 @@ export const asteroids = pgTable(
   })
 );
 
-// ============================================================================
 // asteroid_veins — Resource veins within an asteroid
 // Each asteroid has 1–3 veins (primary, optional secondary, optional trace).
-// ============================================================================
 
 export const asteroidVeins = pgTable(
   'asteroid_veins',
@@ -77,10 +72,8 @@ export const asteroidVeins = pgTable(
   })
 );
 
-// ============================================================================
 // asteroid_assignments — Persistent miner assignments
 // Ships from a station permanently assigned to mine an asteroid.
-// ============================================================================
 
 export const asteroidAssignments = pgTable(
   'asteroid_assignments',
@@ -94,9 +87,7 @@ export const asteroidAssignments = pgTable(
       .notNull()
       .references(() => stations.id, { onDelete: 'cascade' }),
     /** Which ship type is assigned */
-    spacecraftDefinitionId: uuid('spacecraft_definition_id')
-      .notNull()
-      .references(() => spacecraftDefinitions.id),
+    spacecraftKey: varchar('spacecraft_key', { length: 64 }).notNull(),
     /** Number of ships assigned */
     assignedAmount: integer('assigned_amount').notNull().default(1),
     assignedAt: timestamp('assigned_at').notNull().defaultNow(),

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
-import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
+import { resourceKeys, type StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { ALL_RESOURCES, formatBuildTime } from '../lib/spacecraft-utils';
+import { formatBuildTime } from '../lib/spacecraft-utils';
 
 const props = defineProps<{
   stationId: string;
@@ -19,11 +19,10 @@ const playerResources = ref<Record<string, number>>({});
 
 async function fetchPlayerResources() {
   try {
-    const response = await apiClient.get<{
-      success: true;
-      data: { resources: Record<string, number> };
-    }>('/me/resources', { params: { stationId: props.stationId } });
-    playerResources.value = response.data.resources;
+    const response = await apiClient.get<{ resources: Record<string, number> }>('/me/resources', {
+      params: { stationId: props.stationId },
+    });
+    playerResources.value = response.resources;
   } catch {
     // silently ignore – Max button simply won't work without fresh data
   }
@@ -121,7 +120,7 @@ async function submitBuild() {
     <div class="flex flex-col gap-1.5">
       <span class="text-[9px] text-white/20 uppercase tracking-widest">Total</span>
       <div class="flex items-center gap-x-6">
-        <div v-for="res in ALL_RESOURCES" :key="res" class="flex items-center gap-1.5 h-6">
+        <div v-for="res in resourceKeys" :key="res" class="flex items-center gap-1.5 h-6">
           <img
             :src="`/assets/resources/${res}.png`"
             :alt="res"

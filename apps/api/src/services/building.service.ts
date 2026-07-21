@@ -1,7 +1,6 @@
-import { eq, and, sql, asc } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { publishUserEvent } from '../lib/realtime.js';
 import { getDb } from '../lib/db/index.js';
-import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -9,43 +8,34 @@ import {
   calculateBuildingUpgradeCost,
   calculateBuildingBuildTime,
   calculateBuildingEffect,
+  buildings,
+  getBuilding,
   getBuildingUnlockMilestones,
 } from '@orions-frontier/game-config';
-import type {
-  StationBuildingWithDefinition,
-  BuildingKey,
-  BuildingDefinition,
-} from '@orions-frontier/shared';
+import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
-// ============================================================================
 // Seed station buildings (initialize all buildings at level 1 for new station)
-// ============================================================================
 
-type SeedDb = Pick<ReturnType<typeof getDb>, 'select' | 'insert'>;
+type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 
 export const seedStationBuildings = async (
   stationId: string,
   db: SeedDb = getDb()
 ): Promise<void> => {
-  const defs = await db.select().from(buildingDefinitions);
-  if (defs.length === 0) return;
-
   await db
     .insert(stationBuildings)
     .values(
-      defs.map((def) => ({
+      buildings.map((building) => ({
         stationId,
-        buildingDefinitionId: def.id,
+        buildingKey: building.key,
         level: 1,
       }))
     )
     .onConflictDoNothing();
 };
 
-// ============================================================================
 // Get all buildings for a station (with computed effects / costs)
-// ============================================================================
 
 export const getStationBuildings = async (
   stationId: string
@@ -53,55 +43,36 @@ export const getStationBuildings = async (
   const db = getDb();
 
   const rows = await db
-    .select({
-      building: stationBuildings,
-      definition: buildingDefinitions,
-    })
+    .select()
     .from(stationBuildings)
-    .innerJoin(
-      buildingDefinitions,
-      eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
-    )
-    .where(eq(stationBuildings.stationId, stationId))
-    .orderBy(asc(buildingDefinitions.key));
+    .where(eq(stationBuildings.stationId, stationId));
 
   const now = new Date();
 
-  return rows.map(({ building, definition }) => {
-    const key = definition.key as BuildingKey;
-    const level = building.level;
-    const upgradeEndsAt = building.upgradeEndsAt;
-    const isUpgrading = upgradeEndsAt !== null && upgradeEndsAt > now;
-    const isAtMax = level >= definition.maxLevel;
+  return rows
+    .map((building) => {
+      const key = building.buildingKey as BuildingKey;
+      const definition = getBuilding(key);
+      const level = building.level;
+      const upgradeEndsAt = building.upgradeEndsAt;
+      const isUpgrading = upgradeEndsAt !== null && upgradeEndsAt > now;
+      const isAtMax = level >= definition.maxLevel;
 
-    const sharedDef: BuildingDefinition = {
-      id: definition.id,
-      key,
-      name: definition.name,
-      description: definition.description,
-      image: definition.image,
-      baseBuildTime: definition.baseBuildTime,
-      maxLevel: definition.maxLevel,
-      effectType: definition.effectType as BuildingDefinition['effectType'],
-      createdAt: definition.createdAt.toISOString(),
-    };
-
-    return {
-      definition: sharedDef,
-      level,
-      upgradeEndsAt: upgradeEndsAt ? upgradeEndsAt.toISOString() : null,
-      isUpgrading,
-      effects: calculateBuildingEffect(key, level),
-      nextLevelEffects: isAtMax ? null : calculateBuildingEffect(key, level + 1),
-      upgradeCosts: isAtMax ? [] : calculateBuildingUpgradeCost(key, level + 1),
-      unlockMilestones: getBuildingUnlockMilestones(key),
-    };
-  });
+      return {
+        definition,
+        level,
+        upgradeEndsAt: upgradeEndsAt ? upgradeEndsAt.toISOString() : null,
+        isUpgrading,
+        effects: calculateBuildingEffect(key, level),
+        nextLevelEffects: isAtMax ? null : calculateBuildingEffect(key, level + 1),
+        upgradeCosts: isAtMax ? [] : calculateBuildingUpgradeCost(key, level + 1),
+        unlockMilestones: getBuildingUnlockMilestones(key),
+      };
+    })
+    .sort((a, b) => a.definition.key.localeCompare(b.definition.key));
 };
 
-// ============================================================================
 // Start building upgrade
-// ============================================================================
 
 export const startBuildingUpgrade = async (
   stationId: string,
@@ -110,16 +81,7 @@ export const startBuildingUpgrade = async (
 ): Promise<StationBuildingWithDefinition> => {
   const db = getDb();
 
-  // Load definition
-  const [def] = await db
-    .select()
-    .from(buildingDefinitions)
-    .where(eq(buildingDefinitions.key, buildingKey))
-    .limit(1);
-
-  if (!def) {
-    throw new AppError(ErrorCode.NOT_FOUND, `Building definition '${buildingKey}' not found`);
-  }
+  const def = getBuilding(buildingKey);
 
   const resourceMap = await db.transaction(async (tx) => {
     const [station] = await tx
@@ -135,7 +97,7 @@ export const startBuildingUpgrade = async (
       .where(
         and(
           eq(stationBuildings.stationId, stationId),
-          eq(stationBuildings.buildingDefinitionId, def.id)
+          eq(stationBuildings.buildingKey, buildingKey)
         )
       )
       .limit(1)
