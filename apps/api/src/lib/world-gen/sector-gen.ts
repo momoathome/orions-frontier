@@ -184,23 +184,23 @@ export function generateSector(
 
   for (let field = 0; field < distribution.fieldCount; field += 1) {
     const center = {
-      x: rng.nextFloat(bounds.minX + 2_500, bounds.maxX - 2_500),
-      y: rng.nextFloat(bounds.minY + 2_500, bounds.maxY - 2_500),
+      x: rng.nextFloat(bounds.minX + 1_250, bounds.maxX - 1_250),
+      y: rng.nextFloat(bounds.minY + 1_250, bounds.maxY - 1_250),
     };
     const points =
       field % 2 === 0
         ? sampleCloud(
             center.x,
             center.y,
-            rng.nextFloat(1_200, 2_200),
+            rng.nextFloat(600, 1_100),
             distribution.asteroidsPerField,
             rng
           )
         : sampleBelt(
             center.x,
             center.y,
-            rng.nextFloat(2_500, 4_500),
-            rng.nextFloat(500, 1_000),
+            rng.nextFloat(1_250, 2_250),
+            rng.nextFloat(250, 500),
             distribution.asteroidsPerField,
             rng
           );

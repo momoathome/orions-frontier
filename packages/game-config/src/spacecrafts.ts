@@ -174,9 +174,9 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     image: '/assets/spacecrafts/mole.webp',
     attack: 3,
     defense: 3,
-    cargo: 100,
+    cargo: 50,
     speed: 80,
-    miningRate: 120,
+    miningRate: 300,
     buildTime: 60,
     costs: [
       { resourceKey: 'carbon', amount: 80 },
@@ -192,9 +192,9 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     image: '/assets/spacecrafts/titan.webp',
     attack: 5,
     defense: 10,
-    cargo: 300,
+    cargo: 150,
     speed: 70,
-    miningRate: 500,
+    miningRate: 900,
     buildTime: 360,
     costs: [
       { resourceKey: 'carbon', amount: 250 },

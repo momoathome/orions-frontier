@@ -101,7 +101,7 @@ before(async () => {
     asteroidId,
     veinType: 'primary',
     resourceKey: 'carbon',
-    remainingAmount: 150,
+    remainingAmount: 75,
   });
 });
 
@@ -157,12 +157,12 @@ async function resetMiningState() {
       asteroidId,
       veinType: 'primary',
       resourceKey: 'carbon',
-      remainingAmount: 150,
+      remainingAmount: 75,
     });
   } else {
     await db
       .update(asteroidVeins)
-      .set({ remainingAmount: 150 })
+      .set({ remainingAmount: 75 })
       .where(eq(asteroidVeins.asteroidId, asteroidId));
   }
   await db
@@ -256,8 +256,8 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
       )
     );
   assert.ok(firstReturn);
-  assert.deepEqual(firstReturn.cargoManifest, { carbon: 100 });
-  assert.equal(firstReturn.departedAt.getTime() - firstArrival.getTime(), 50 * 60_000);
+  assert.deepEqual(firstReturn.cargoManifest, { carbon: 50 });
+  assert.equal(firstReturn.departedAt.getTime() - firstArrival.getTime(), 10 * 60_000);
   assert.equal(await settleTripArrival(firstReturn), true);
 
   const [secondOutbound] = await db
@@ -285,8 +285,8 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
     );
   const secondReturn = pendingReturns[0];
   assert.ok(secondReturn);
-  assert.deepEqual(secondReturn.cargoManifest, { carbon: 50 });
-  assert.equal(secondReturn.departedAt.getTime() - secondOutbound.arrivesAt.getTime(), 25 * 60_000);
+  assert.deepEqual(secondReturn.cargoManifest, { carbon: 25 });
+  assert.equal(secondReturn.departedAt.getTime() - secondOutbound.arrivesAt.getTime(), 5 * 60_000);
 
   assert.equal(await settleTripArrival(secondReturn), true);
 
@@ -309,7 +309,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
     .from(asteroids)
     .where(eq(asteroids.id, asteroidId));
 
-  assert.equal(resource?.amount, 150);
+  assert.equal(resource?.amount, 75);
   assert.equal(fleet?.lockedAmount, 0);
   assert.equal(assignment, undefined);
   assert.equal(asteroid, undefined);
@@ -393,8 +393,8 @@ test('recall finishes the claimed load and stops the group at its station', asyn
       )
     );
 
-  assert.equal(resource?.amount, 100);
-  assert.equal(reserve?.amount, 50);
+  assert.equal(resource?.amount, 50);
+  assert.equal(reserve?.amount, 25);
   assert.equal(fleet?.lockedAmount, 0);
   assert.equal(assignment, undefined);
   assert.equal(nextOutbound.length, 0);
@@ -456,7 +456,7 @@ test('recall during outbound flight returns without claiming a new load', async 
     .from(stationSpacecrafts)
     .where(eq(stationSpacecrafts.id, stationSpacecraftId));
 
-  assert.equal(reserve?.amount, 150);
+  assert.equal(reserve?.amount, 75);
   assert.equal(resource, undefined);
   assert.equal(fleet?.lockedAmount, 0);
 });
@@ -512,7 +512,7 @@ test('recalls one miner while the rest of its group continues mining', async () 
     );
   assert.ok(returnTrip);
   assert.equal(returnTrip.groupSize, 3);
-  assert.deepEqual(returnTrip.cargoManifest, { carbon: 200 });
+  assert.deepEqual(returnTrip.cargoManifest, { carbon: 100 });
   assert.equal(await settleTripArrival(returnTrip), true);
 
   const [assignment] = await db

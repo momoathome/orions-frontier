@@ -44,6 +44,11 @@ const PURPOSE_COLOR: Record<Exclude<ActiveTrip['purpose'], 'mine' | 'mining_retu
   salvage_return: 0xddbbff,
 };
 
+// ponytail: cap per-trip dots; switch to batched sprites if exact larger formations matter.
+const MAX_VISIBLE_SHIPS = 25;
+const SHIP_RADIUS = 3;
+const SHIP_SPACING = 8;
+
 export class TripLayer {
   /** Add this to the world container */
   readonly container = new Container();
@@ -59,6 +64,25 @@ export class TripLayer {
     this.trips = trips;
   }
 
+  private drawFormation(x: number, y: number, color: number, groupSize: number) {
+    const shipCount = Math.min(Math.max(groupSize, 1), MAX_VISIBLE_SHIPS);
+    const columns = Math.ceil(Math.sqrt(shipCount));
+    const rows = Math.ceil(shipCount / columns);
+
+    for (let row = 0; row < rows; row += 1) {
+      const rowCount = Math.min(columns, shipCount - row * columns);
+      for (let column = 0; column < rowCount; column += 1) {
+        const shipX = x + (column - (rowCount - 1) / 2) * SHIP_SPACING;
+        const shipY = y + (row - (rows - 1) / 2) * SHIP_SPACING;
+
+        this.graphics.circle(shipX, shipY, SHIP_RADIUS + 3);
+        this.graphics.fill({ color, alpha: 0.2 });
+        this.graphics.circle(shipX, shipY, SHIP_RADIUS);
+        this.graphics.fill({ color, alpha: 0.9 });
+      }
+    }
+  }
+
   /**
    * Redraws all in-flight ship markers at their interpolated positions.
    * Call this every frame from the PixiJS ticker.
@@ -69,14 +93,14 @@ export class TripLayer {
 
     for (const trip of this.trips) {
       const miningPhase = getMiningTripPhase(trip, now);
-      const radius = 4 + Math.min(trip.groupSize - 1, 4);
 
       if (miningPhase === 'mining') {
         const pulse = 2 + 1.5 * Math.sin(now / 250);
-        this.graphics.circle(trip.fromX, trip.fromY, radius + 5 + pulse);
+        const formationRadius =
+          Math.ceil(Math.sqrt(Math.min(trip.groupSize, MAX_VISIBLE_SHIPS))) * 4;
+        this.graphics.circle(trip.fromX, trip.fromY, formationRadius + 5 + pulse);
         this.graphics.stroke({ color: PHASE_COLOR.mining, alpha: 0.55, width: 1.5 });
-        this.graphics.circle(trip.fromX, trip.fromY, radius);
-        this.graphics.fill({ color: PHASE_COLOR.mining, alpha: 0.95 });
+        this.drawFormation(trip.fromX, trip.fromY, PHASE_COLOR.mining, trip.groupSize);
         continue;
       }
 
@@ -98,11 +122,14 @@ export class TripLayer {
         ? PHASE_COLOR[miningPhase]
         : (PURPOSE_COLOR[trip.purpose as keyof typeof PURPOSE_COLOR] ?? 0xffffff);
 
-      // Glow ring
+      if (miningPhase) {
+        this.drawFormation(x, y, color, trip.groupSize);
+        continue;
+      }
+
+      const radius = 4 + Math.min(trip.groupSize - 1, 4);
       this.graphics.circle(x, y, radius + 3);
       this.graphics.fill({ color, alpha: 0.2 });
-
-      // Core dot
       this.graphics.circle(x, y, radius);
       this.graphics.fill({ color, alpha: 0.9 });
     }

@@ -77,7 +77,7 @@ before(async () => {
     asteroidId: asteroidIds[0],
     veinType: 'primary',
     resourceKey: 'carbon',
-    remainingAmount: 100,
+    remainingAmount: 50,
   });
   await db.insert(botControllers).values({ userId, nextDecisionAt: testNow });
 });
@@ -199,7 +199,7 @@ test('parallel bot ticks create one normal mining assignment and delivery', asyn
     .where(
       and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
     );
-  assert.equal(deliveredResource?.amount, (beforeResource?.amount ?? 0) + 100);
+  assert.equal(deliveredResource?.amount, (beforeResource?.amount ?? 0) + 50);
 });
 
 test('bot builds a Mole through the normal resource and build queue', async () => {

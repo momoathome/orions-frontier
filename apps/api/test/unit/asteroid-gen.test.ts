@@ -73,6 +73,14 @@ test('only settlement sectors contain local player and bot slots', () => {
   assert.equal(frontier.spawnSlots.length, 0);
 });
 
+test('settlement sectors are dense and mostly contain small asteroids', () => {
+  const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
+  const smallCount = sector.asteroids.filter((asteroid) => asteroid.size === 'small').length;
+
+  assert.ok(sector.asteroids.length >= 50);
+  assert.ok(smallCount / sector.asteroids.length >= 0.6);
+});
+
 test('starter pocket is separate and guarantees all three core resources', () => {
   const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
   const pocket = generateStarterPocket(sector.spawnSlots[0]!, sector.seed);
@@ -100,7 +108,7 @@ test('orthogonal sectors contain opposite rare resources without cross-contamina
   assert.equal(resources(odd).has('kyber_crystal'), false);
 });
 
-test('starter economy has an idle-friendly but finite baseline', () => {
+test('starter miners make frequent trips and deplete small asteroids quickly', () => {
   const mole = spacecrafts.find((spacecraft) => spacecraft.key === 'mole')!;
   const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
   const pockets = sector.spawnSlots.flatMap((slot) =>
@@ -129,10 +137,10 @@ test('starter economy has an idle-friendly but finite baseline', () => {
 
   assert.ok(Math.min(...travelMinutes) >= 2.5);
   assert.ok(Math.max(...travelMinutes) <= 7);
-  assert.ok(Math.min(...roundTripMinutes) >= 55);
-  assert.ok(Math.max(...roundTripMinutes) <= 65);
-  assert.ok(Math.min(...smallDepletionHours) >= 24);
-  assert.ok(Math.max(...smallDepletionHours) <= 48);
+  assert.ok(Math.min(...roundTripMinutes) >= 15);
+  assert.ok(Math.max(...roundTripMinutes) <= 24);
+  assert.ok(Math.min(...smallDepletionHours) >= 0.5);
+  assert.ok(Math.max(...smallDepletionHours) <= 1.5);
 
   const totalReserve = [...sector.asteroids, ...pockets.map(({ asteroid }) => asteroid)].reduce(
     (sum, asteroid) =>
@@ -150,6 +158,6 @@ test('starter economy has an idle-friendly but finite baseline', () => {
   const fullSectorRunwayDays =
     totalReserve / (WORLD_CONFIG.SECTOR.STATION_CAPACITY * 3 * referenceDeliveryPerHour * 24);
 
-  assert.ok(fullSectorRunwayDays >= 30);
-  assert.ok(fullSectorRunwayDays <= 60);
+  assert.ok(fullSectorRunwayDays >= 1.5);
+  assert.ok(fullSectorRunwayDays <= 3);
 });
