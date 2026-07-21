@@ -1,12 +1,8 @@
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import * as schema from './schema/index.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 /**
  * Runs all pending database migrations.
@@ -15,7 +11,7 @@ const __dirname = dirname(__filename);
 export const runMigrations = async (): Promise<void> => {
   if (!process.env['DATABASE_URL']) {
     try {
-      process.loadEnvFile(join(__dirname, '../../../../../.env'));
+      process.loadEnvFile(join(import.meta.dirname, '../../../../../.env'));
     } catch {
       // Docker injects the environment; a local .env file is optional.
     }
@@ -29,13 +25,12 @@ export const runMigrations = async (): Promise<void> => {
   const client = postgres(connectionString, { max: 1 });
   const db = drizzle(client, { schema });
 
-  await migrate(db, { migrationsFolder: join(__dirname, 'migrations') });
+  await migrate(db, { migrationsFolder: join(import.meta.dirname, 'migrations') });
 
   await client.end();
 };
 
-const isMain = process.argv[1] === __filename;
-if (isMain) {
+if (import.meta.main) {
   console.log('🔄 Running migrations...');
   runMigrations()
     .then(() => {

@@ -258,15 +258,6 @@ export class WorldRenderer {
     this.tripLayer.setTrips(trips);
   }
 
-  /**
-   * Returns world coordinates for a loaded asteroid, or null if the chunk
-   * isn't loaded yet. Used to resolve trip endpoint coordinates.
-   */
-  getAsteroidWorldPos(id: string): { x: number; y: number } | null {
-    const hit = this.asteroidLayer.getAsteroidPosition(id);
-    return hit ? { x: hit.x, y: hit.y } : null;
-  }
-
   getVisibleChunkRange(margin = 1) {
     return this.camera.getVisibleChunkRange(margin);
   }
@@ -380,10 +371,6 @@ export class WorldRenderer {
   /** Reload visible world entities after server-side changes such as depletion. */
   refreshVisibleChunks() {
     this.streamer.refresh(this.camera);
-  }
-
-  get loadedChunkCount() {
-    return this.asteroidLayer.loadedChunkCount;
   }
 
   private _tick() {

@@ -19,8 +19,6 @@ export interface AsteroidHit {
   x: number;
   y: number;
   r: number;
-  primaryResourceKey: string;
-  size: string;
 }
 
 export class AsteroidLayer {
@@ -74,8 +72,6 @@ export class AsteroidLayer {
       x: a.x,
       y: a.y,
       r: ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS,
-      primaryResourceKey: a.primaryResourceKey,
-      size: a.size,
     }));
     this.chunkAsteroidData.set(key, hitData);
     for (const h of hitData) {
@@ -107,10 +103,6 @@ export class AsteroidLayer {
     }
     this.asteroidById.clear();
     this.chunkAsteroidData.clear();
-  }
-
-  get loadedChunkCount() {
-    return this.chunkContainers.size;
   }
 
   /**

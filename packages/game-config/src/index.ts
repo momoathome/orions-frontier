@@ -8,7 +8,6 @@ export {
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   calculateHangarCapacity,
-  getBuildingUnlockMilestones,
   SHIPYARD_UNLOCKS,
 } from './buildings.js';
 export type { BuildingSeedDefinition } from './buildings.js';

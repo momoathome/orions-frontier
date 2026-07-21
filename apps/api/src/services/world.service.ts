@@ -8,7 +8,12 @@ import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { worldMissions } from '../lib/db/schema/world-missions.js';
 import { debrisFields } from '../lib/db/schema/debris-fields.js';
-import type { VisibleStation, VisibleWorldTrip } from '@orions-frontier/shared';
+import {
+  AppError,
+  ErrorCode,
+  type VisibleStation,
+  type VisibleWorldTrip,
+} from '@orions-frontier/shared';
 import { getSpacecraft } from '@orions-frontier/game-config';
 
 export interface WorldChunkRange {
@@ -16,6 +21,30 @@ export interface WorldChunkRange {
   maxChunkX: number;
   minChunkY: number;
   maxChunkY: number;
+}
+
+export function parseChunkRange(query: unknown, maxSpan: number): WorldChunkRange {
+  const values = query as Record<string, string | undefined>;
+  const number = (value: string | undefined) =>
+    value === undefined || value.trim() === '' ? Number.NaN : Number(value);
+  const range = {
+    minChunkX: number(values['minChunkX']),
+    maxChunkX: number(values['maxChunkX']),
+    minChunkY: number(values['minChunkY']),
+    maxChunkY: number(values['maxChunkY']),
+  };
+
+  if (
+    !Object.values(range).every(Number.isInteger) ||
+    range.minChunkX > range.maxChunkX ||
+    range.minChunkY > range.maxChunkY ||
+    range.maxChunkX - range.minChunkX > maxSpan ||
+    range.maxChunkY - range.minChunkY > maxSpan
+  ) {
+    throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid or oversized chunk range');
+  }
+
+  return range;
 }
 
 const worldBounds = (range: WorldChunkRange) => ({

@@ -107,9 +107,4 @@ export class TripLayer {
       this.graphics.fill({ color, alpha: 0.9 });
     }
   }
-
-  destroy() {
-    this.graphics.destroy();
-    this.container.destroy();
-  }
 }

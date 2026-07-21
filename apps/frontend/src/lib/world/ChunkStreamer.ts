@@ -41,10 +41,6 @@ export class ChunkStreamer {
   onChunkLoaded: ((key: ChunkKey, chunk: WorldChunk) => void) | null = null;
   onChunkUnloaded: ((key: ChunkKey) => void) | null = null;
 
-  getLoaded(): ReadonlyMap<ChunkKey, WorldChunk> {
-    return this.loadedChunks;
-  }
-
   /** Debounced update — call on every camera move */
   scheduleUpdate(camera: Camera) {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);

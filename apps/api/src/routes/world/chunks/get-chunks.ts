@@ -4,8 +4,7 @@ import {
   getUserScannerStrength,
   getVisibleChunkAsteroids,
 } from '../../../services/asteroid.service.js';
-import { AppError, ErrorCode } from '@orions-frontier/shared';
-import { getVisibleChunkStations } from '../../../services/world.service.js';
+import { getVisibleChunkStations, parseChunkRange } from '../../../services/world.service.js';
 import { getVisibleDebris } from '../../../services/salvage.service.js';
 
 /** Maximum allowed chunk range per axis to prevent oversized queries */
@@ -24,30 +23,8 @@ const MAX_CHUNK_RANGE = 20;
  */
 export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request) => {
-    const q = request.query as Record<string, string | undefined>;
-
-    const minChunkX = parseInt(q['minChunkX'] ?? '', 10);
-    const maxChunkX = parseInt(q['maxChunkX'] ?? '', 10);
-    const minChunkY = parseInt(q['minChunkY'] ?? '', 10);
-    const maxChunkY = parseInt(q['maxChunkY'] ?? '', 10);
-
-    if (isNaN(minChunkX) || isNaN(maxChunkX) || isNaN(minChunkY) || isNaN(maxChunkY)) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        'minChunkX, maxChunkX, minChunkY, maxChunkY are required integer query parameters'
-      );
-    }
-
-    if (minChunkX > maxChunkX || minChunkY > maxChunkY) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'min chunk values must not exceed max values');
-    }
-
-    if (maxChunkX - minChunkX > MAX_CHUNK_RANGE || maxChunkY - minChunkY > MAX_CHUNK_RANGE) {
-      throw new AppError(
-        ErrorCode.VALIDATION_ERROR,
-        `Chunk range per axis must not exceed ${MAX_CHUNK_RANGE}`
-      );
-    }
+    const range = parseChunkRange(request.query, MAX_CHUNK_RANGE);
+    const { minChunkX, maxChunkX, minChunkY, maxChunkY } = range;
 
     const scannerStrength = await getUserScannerStrength(request.user.userId);
     const [asteroids, stations, debris] = await Promise.all([
@@ -58,8 +35,8 @@ export default (async (app) => {
         maxChunkY,
         scannerStrength,
       }),
-      getVisibleChunkStations({ minChunkX, maxChunkX, minChunkY, maxChunkY }, request.user.userId),
-      getVisibleDebris({ minChunkX, maxChunkX, minChunkY, maxChunkY }),
+      getVisibleChunkStations(range, request.user.userId),
+      getVisibleDebris(range),
     ]);
 
     return { asteroids, stations, debris };

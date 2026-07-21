@@ -242,16 +242,3 @@ export const SHIPYARD_UNLOCKS: Record<number, string[]> = {
 };
 
 export const calculateHangarCapacity = (coreLevel: number): number => 5 + coreLevel * 5;
-
-/**
- * Returns all unlock milestones for a given building.
- * Key = required level, value = list of unlocked entity keys.
- */
-export function getBuildingUnlockMilestones(buildingKey: BuildingKey): Record<number, string[]> {
-  switch (buildingKey) {
-    case 'shipyard':
-      return SHIPYARD_UNLOCKS;
-    default:
-      return {};
-  }
-}

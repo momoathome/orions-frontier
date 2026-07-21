@@ -10,7 +10,7 @@ import {
   calculateBuildingEffect,
   buildings,
   getBuilding,
-  getBuildingUnlockMilestones,
+  SHIPYARD_UNLOCKS,
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
@@ -66,7 +66,7 @@ export const getStationBuildings = async (
         effects: calculateBuildingEffect(key, level),
         nextLevelEffects: isAtMax ? null : calculateBuildingEffect(key, level + 1),
         upgradeCosts: isAtMax ? [] : calculateBuildingUpgradeCost(key, level + 1),
-        unlockMilestones: getBuildingUnlockMilestones(key),
+        unlockMilestones: key === 'shipyard' ? SHIPYARD_UNLOCKS : {},
       };
     })
     .sort((a, b) => a.definition.key.localeCompare(b.definition.key));

@@ -3,8 +3,7 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import autoload from '@fastify/autoload';
 import fastifyJwt from '@fastify/jwt';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import { errorHandler } from './plugins/error-handler.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
@@ -13,9 +12,6 @@ import { runWorldTick, startSimulationScheduler } from './services/simulation.se
 import { seedAsteroidWorld, seedDevUser } from './lib/seed.js';
 import { seedBotsForOccupiedSectors } from './services/bot/bot-provision.service.js';
 import { runMigrations } from './lib/db/migrate.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const start = async () => {
   try {
@@ -77,7 +73,7 @@ const start = async () => {
 
     // File-based routing with AutoLoad
     await fastify.register(autoload, {
-      dir: join(__dirname, 'routes'),
+      dir: join(import.meta.dirname, 'routes'),
       options: {
         prefix: '/api',
       },

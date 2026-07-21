@@ -75,11 +75,6 @@ export class RouteLayer {
     this.routes = routes;
   }
 
-  clear(): void {
-    this.routes = [];
-    this.graphics.clear();
-  }
-
   /**
    * Redraws all routes with the given phase offset.
    * phase increases each frame → dashes animate toward destination.
