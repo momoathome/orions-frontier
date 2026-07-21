@@ -11,13 +11,18 @@ import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { buildingDefinitions } from '../lib/db/schema/building-definitions.js';
 import { stations } from '../lib/db/schema/stations.js';
-import { SHIPYARD_UNLOCKS } from '@orions-frontier/game-config';
+import {
+  calculateBuildingEffect,
+  calculateHangarCapacity,
+  SHIPYARD_UNLOCKS,
+} from '@orions-frontier/game-config';
 import type {
   SpacecraftRole,
   StationSpacecraftWithDefinition,
   ResourceKey,
 } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
+import { hasCompletedResearch } from './research.service.js';
 
 export const getStationSpacecrafts = async (
   stationId: string
@@ -168,6 +173,36 @@ export interface BuildOrder {
   amount: number;
 }
 
+export async function getStationHangar(stationId: string): Promise<{
+  capacity: number;
+  used: number;
+}> {
+  const db = getDb();
+  const [core, fleet, queued] = await Promise.all([
+    db
+      .select({ level: stationBuildings.level })
+      .from(stationBuildings)
+      .innerJoin(
+        buildingDefinitions,
+        eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+      )
+      .where(and(eq(stationBuildings.stationId, stationId), eq(buildingDefinitions.key, 'core')))
+      .limit(1),
+    db
+      .select({ used: sql<number>`coalesce(sum(${stationSpacecrafts.amount}), 0)::int` })
+      .from(stationSpacecrafts)
+      .where(eq(stationSpacecrafts.stationId, stationId)),
+    db
+      .select({ used: sql<number>`coalesce(sum(${spacecraftBuildOrders.amount}), 0)::int` })
+      .from(spacecraftBuildOrders)
+      .where(eq(spacecraftBuildOrders.stationId, stationId)),
+  ]);
+  return {
+    capacity: calculateHangarCapacity(core[0]?.level ?? 0),
+    used: (fleet[0]?.used ?? 0) + (queued[0]?.used ?? 0),
+  };
+}
+
 export const buildSpacecrafts = async (
   stationId: string,
   userId: string,
@@ -270,6 +305,35 @@ export const buildSpacecrafts = async (
       }
     }
 
+    const [coreBuilding, fleetUsage, queuedUsage] = await Promise.all([
+      tx
+        .select({ level: stationBuildings.level })
+        .from(stationBuildings)
+        .innerJoin(
+          buildingDefinitions,
+          eq(stationBuildings.buildingDefinitionId, buildingDefinitions.id)
+        )
+        .where(and(eq(stationBuildings.stationId, stationId), eq(buildingDefinitions.key, 'core')))
+        .limit(1),
+      tx
+        .select({ used: sql<number>`coalesce(sum(${stationSpacecrafts.amount}), 0)::int` })
+        .from(stationSpacecrafts)
+        .where(eq(stationSpacecrafts.stationId, stationId)),
+      tx
+        .select({ used: sql<number>`coalesce(sum(${spacecraftBuildOrders.amount}), 0)::int` })
+        .from(spacecraftBuildOrders)
+        .where(eq(spacecraftBuildOrders.stationId, stationId)),
+    ]);
+    const hangarCapacity = calculateHangarCapacity(coreBuilding[0]?.level ?? 0);
+    const hangarUsed = (fleetUsage[0]?.used ?? 0) + (queuedUsage[0]?.used ?? 0);
+    const requestedAmount = orders.reduce((sum, order) => sum + order.amount, 0);
+    if (hangarUsed + requestedAmount > hangarCapacity) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Hangar capacity exceeded: ${hangarUsed}/${hangarCapacity} occupied`
+      );
+    }
+
     const resourceRows = await tx
       .select()
       .from(stationResources)
@@ -285,6 +349,14 @@ export const buildSpacecrafts = async (
       }
     }
 
+    const researchBonus = (await hasCompletedResearch(tx, stationId, 'automated_shipyard'))
+      ? 10
+      : 0;
+    const productionBonus =
+      calculateBuildingEffect('shipyard', shipyardLevel).find(
+        (effect) => effect.type === 'spacecraft_production_bonus'
+      )?.value ?? 0;
+    const buildTimeMultiplier = Math.max(0.25, 1 - (productionBonus + researchBonus) / 100);
     const endsAtByDefId = new Map<string, Date>();
     for (const def of defs) {
       const [row] = await tx
@@ -302,7 +374,9 @@ export const buildSpacecrafts = async (
     const orderEndsAt = orders.map((order) => {
       const def = defByKey.get(order.spacecraftKey)!;
       const baseline = Math.max((endsAtByDefId.get(def.id) ?? new Date(0)).getTime(), now);
-      const endsAt = new Date(baseline + order.amount * def.buildTime * 1000);
+      const endsAt = new Date(
+        baseline + Math.ceil(order.amount * def.buildTime * buildTimeMultiplier) * 1000
+      );
       endsAtByDefId.set(def.id, endsAt);
       return { order, def, endsAt };
     });

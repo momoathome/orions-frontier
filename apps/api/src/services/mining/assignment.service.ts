@@ -6,7 +6,6 @@ import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import type { AsteroidSize } from '@orions-frontier/shared';
-import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getUserScannerStrength } from '../asteroid.service.js';
 
@@ -32,7 +31,6 @@ export interface CreateAssignmentParams {
 export interface CreateAssignmentError {
   code:
     | 'ASTEROID_NOT_FOUND'
-    | 'SLOTS_FULL'
     | 'STATION_NOT_FOUND'
     | 'SPACECRAFT_NOT_FOUND'
     | 'INVALID_AMOUNT'
@@ -40,11 +38,8 @@ export interface CreateAssignmentError {
   message: string;
 }
 
-type ScheduleTripArrival = (tripId: string, arrivesAt: Date) => Promise<void>;
-
 export const createAsteroidAssignment = async (
-  params: CreateAssignmentParams,
-  schedule?: ScheduleTripArrival
+  params: CreateAssignmentParams
 ): Promise<{ id: string } | CreateAssignmentError> => {
   const db = getDb();
   const { userId, asteroidId, stationId, spacecraftDefinitionId, assignedAmount } = params;
@@ -55,7 +50,7 @@ export const createAsteroidAssignment = async (
   const scannerStrength = await getUserScannerStrength(userId);
   // Validate asteroid exists and is visible to this player.
   const [asteroid] = await db
-    .select({ id: asteroids.id, size: asteroids.size, x: asteroids.x, y: asteroids.y })
+    .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
     .from(asteroids)
     .where(and(eq(asteroids.id, asteroidId), sql`${asteroids.hiddenLevel} <= ${scannerStrength}`))
     .limit(1);
@@ -111,7 +106,6 @@ export const createAsteroidAssignment = async (
     };
   }
 
-  const maxSlots = WORLD_CONFIG.MINING_SLOTS[asteroid.size] ?? 1;
   const departedAt = new Date();
   const distance = calcDistance({ x: station.x, y: station.y }, { x: asteroid.x, y: asteroid.y });
   const arrivesAt = calcArrivesAt(departedAt, distance, scraft.speed);
@@ -122,27 +116,6 @@ export const createAsteroidAssignment = async (
       .where(eq(asteroids.id, asteroidId))
       .for('update');
     if (!lockedAsteroid) return { kind: 'asteroid_missing' } as const;
-
-    const [existingStation] = await tx
-      .select({ id: asteroidAssignments.id })
-      .from(asteroidAssignments)
-      .where(
-        and(
-          eq(asteroidAssignments.asteroidId, asteroidId),
-          eq(asteroidAssignments.stationId, stationId)
-        )
-      )
-      .limit(1);
-    if (!existingStation) {
-      const [slotRow] = await tx
-        .select({ count: sql<number>`count(distinct station_id)::int` })
-        .from(asteroidAssignments)
-        .where(eq(asteroidAssignments.asteroidId, asteroidId));
-      const usedSlots = slotRow?.count ?? 0;
-      if (usedSlots >= maxSlots) {
-        return { kind: 'slots_full', usedSlots } as const;
-      }
-    }
 
     const [locked] = await tx
       .update(stationSpacecrafts)
@@ -190,20 +163,12 @@ export const createAsteroidAssignment = async (
   if (created.kind === 'asteroid_missing') {
     return { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' };
   }
-  if (created.kind === 'slots_full') {
-    return {
-      code: 'SLOTS_FULL',
-      message: `Asteroid is already claimed by ${created.usedSlots}/${maxSlots} player(s)`,
-    };
-  }
   if (created.kind === 'insufficient_spacecraft') {
     return {
       code: 'INSUFFICIENT_SPACECRAFT',
       message: 'Spacecraft were assigned by another request',
     };
   }
-
-  if (schedule) await schedule(created.trip.id, created.trip.arrivesAt);
 
   return { id: created.assignmentId };
 };
@@ -254,7 +219,7 @@ export interface StationMiningAssignment {
   spacecraftMiningRate: number;
   assignedAmount: number;
   assignedAt: string;
-  status: 'traveling_to_asteroid' | 'at_asteroid' | 'traveling_to_station';
+  status: 'traveling_to_asteroid' | 'traveling_to_station';
   recallRequestedAt: string | null;
   recallRequestedAmount: number;
 }

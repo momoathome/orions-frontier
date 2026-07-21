@@ -5,11 +5,13 @@ Status: erste wirtschaftliche Ausbaustufe abgeschlossen am 20. Juli 2026.
 Umgesetzt sind die Schritte 8.1 bis 9.3: abgesicherte gemeinsame Domain-Services, persistente
 Bot-Controller und idempotente Seeds, die deterministische Strategie `economic_v1`, der
 restart-sichere Entscheidungstakt sowie reguläres Mining und Wachstum über die vorhandenen
-Queues. Bot-Stationen und laufende Reisen erscheinen in der gemeinsamen Weltansicht, ohne private
-Bestände oder Ladungen offenzulegen. Die unter „Vorbereitung zukünftiger Systeme“ beschriebenen
-Mechaniken bleiben bewusst vorgemerkt, bis sie auch für Spieler existieren.
+persistierten Bauaufträge. Bot-Stationen und laufende Reisen erscheinen in der gemeinsamen
+Weltansicht, ohne private Bestände oder Ladungen offenzulegen. Mehrere der unter „Vorbereitung
+zukünftiger Systeme“ beschriebenen Spielermechaniken sind inzwischen vorhanden; Handel,
+Betriebskosten, Diplomatie und weitere Botstrategien bleiben bewusst offen. `economic_v1` bleibt
+absichtlich wirtschaftlich und löst die neuen Spieleraktionen noch nicht selbst aus.
 
-Dieses Dokument detailliert die Phasen 8 bis 10 des
+Dieses Dokument detailliert die Phasen 8 und 9 des
 [Umsetzungsplans](./implementation-plan.md). Das Ziel ist eine belebte persistente Welt, in der
 Bots und Spieler dieselben fachlichen Regeln verwenden. Der erste Bot ist ein wirtschaftlicher
 Akteur mit einer Station. Er weist Miner zu, erhält reguläre Lieferungen und investiert diese über
@@ -50,7 +52,7 @@ Browsergame können einfache Prioritäten als Orientierung dienen. Nicht überno
 
 Für den ersten vertikalen Schnitt gelten folgende Startwerte:
 
-- drei Bots in freien Spawn-Slots des Startsektors;
+- die konfigurierte Botanzahl in jedem bewohnten Ansiedlungssektor, derzeit zwei;
 - eine Station und dieselbe Startausstattung wie bei einem neuen Spieler;
 - eine Strategie `economic_v1`;
 - eine Entscheidung pro Bot und Minute;
@@ -85,9 +87,9 @@ genau eine Station. Später kann derselbe Controller mehrere eigene Stationen be
 Datenmodell zu ändern. Erst wenn viele Stationen nachweislich unabhängige Entscheidungstakte
 benötigen, kommt ein stationseigener Controller-Zustand hinzu.
 
-Ein Bot-Benutzer bleibt über die vorhandene Benutzer-ID Eigentümer seiner Station. Die Existenz
-eines `bot_controllers`-Eintrags kennzeichnet ihn als Bot; `users` benötigt kein zusätzliches
-`actorType`. Das beim Seed erzeugte Passwort wird verworfen und kann nicht zum Login verwendet
+Ein Bot-Benutzer bleibt über die vorhandene Benutzer-ID Eigentümer seiner Station. `users.role`
+kennzeichnet ihn als Bot; `bot_controllers` enthält ausschließlich Strategie und
+Entscheidungszeitpunkt. Bot-Zugangsdaten sind deaktiviert und können nicht zum Login verwendet
 werden.
 
 Nicht gespeichert werden Entscheidungs-Snapshots, Aktionsqueues, Ziele als JSON oder ein
@@ -98,13 +100,13 @@ Fehlersuche.
 
 Der Bot darf ausschließlich folgende vorhandene Aktionen auslösen:
 
-| Aktion             | Vorhandener Service               | Vorbereitende Änderung                                             |
-| ------------------ | --------------------------------- | ------------------------------------------------------------------ |
-| Miner zuweisen     | `createAsteroidAssignment`        | bereits mit Eigentum, Sichtbarkeit, Slots und Schiffen abgesichert |
-| Mining zurückrufen | `requestAsteroidAssignmentRecall` | `userId` in den Service aufnehmen und Eigentum dort prüfen         |
-| Schiff bauen       | `buildSpacecrafts`                | Station innerhalb der Transaktion auch über `userId` prüfen        |
-| Gebäude ausbauen   | `startBuildingUpgrade`            | Station innerhalb der Transaktion auch über `userId` prüfen        |
-| Station gründen    | `createStation`                   | für den idempotenten Bot-Seed wiederverwenden                      |
+| Aktion             | Vorhandener Service               | Vorbereitende Änderung                                      |
+| ------------------ | --------------------------------- | ----------------------------------------------------------- |
+| Miner zuweisen     | `createAsteroidAssignment`        | bereits mit Eigentum, Sichtbarkeit und Schiffen abgesichert |
+| Mining zurückrufen | `requestAsteroidAssignmentRecall` | `userId` in den Service aufnehmen und Eigentum dort prüfen  |
+| Schiff bauen       | `buildSpacecrafts`                | Station innerhalb der Transaktion auch über `userId` prüfen |
+| Gebäude ausbauen   | `startBuildingUpgrade`            | Station innerhalb der Transaktion auch über `userId` prüfen |
+| Station gründen    | `createStation`                   | für den idempotenten Bot-Seed wiederverwenden               |
 
 HTTP-Routen dürfen ihre Vorprüfung behalten, aber Sicherheit und Spielregeln müssen im Service
 liegen. Dadurch kann kein zukünftiger Aufrufer – Bot, Admin-Werkzeug oder weiterer Transport – die
@@ -129,7 +131,7 @@ Er enthält nur Daten, die für eine heutige Entscheidung nötig sind:
 - Shipyard-Level und laufendes Upgrade;
 - vorhandene, gebundene und in Bau befindliche Mole und Titan;
 - sichtbare, nicht erschöpfte Asteroiden mit Adern und Restmengen;
-- Entfernung, freie Mining-Slots und vorhandene Zuweisungen;
+- die für die Bewertung benötigten Positionen;
 - Kosten des nächsten wirtschaftlichen Ziels.
 
 Die Asteroidensichtbarkeit wird mit `getUserScannerStrength` und derselben `hiddenLevel`-Regel wie
@@ -186,12 +188,11 @@ mit der bereits vorhandenen tatsächlichen Lieferleistung bewertet:
 Bewertung = erwartete Lieferleistung × Ressourcenbedarf
 ```
 
-Nicht sichtbar, erschöpft oder vollständig durch andere Stationen belegte Asteroiden sind keine
-Kandidaten. Bei gleicher Bewertung gewinnt die stabile Sortierung nach Asteroiden-ID. Zufall wird
-im ersten Verhalten nicht benötigt.
+Nicht sichtbare oder erschöpfte Asteroiden sind keine Kandidaten. Bei gleicher Bewertung gewinnt
+die stabile Sortierung nach Asteroiden-ID. Zufall wird im ersten Verhalten nicht benötigt.
 
-Die finale Zuweisung bleibt trotzdem fehlbar: Ein anderer Akteur kann den letzten Slot oder Vorrat
-zwischen Entscheidung und Ausführung erhalten. Der Domain-Service lehnt dann regulär ab. Der Bot
+Die finale Zuweisung bleibt trotzdem fehlbar: Ein anderer Akteur kann den letzten Vorrat zwischen
+Entscheidung und Ausführung erhalten. Der Domain-Service lehnt dann regulär ab. Der Bot
 wartet bis zur nächsten Entscheidung und erhält keine Sonderbehandlung.
 
 ## Ausführung und Zeit
@@ -223,19 +224,16 @@ Aktions-ID geloggt.
 ## Sichtbare gemeinsame Welt
 
 Bots erfüllen ihren Zweck erst, wenn Spieler ihre Stationen und Aktivitäten beobachten können.
-Der heutige Stand zeigt über die Chunk-Abfrage nur Asteroiden und über `/me/trips` nur eigene
-Reisen.
+Die gemeinsame Weltprojektion enthält:
 
-Der kleinste Ausbau besteht aus:
-
-- sichtbaren Stationen in der bestehenden Chunk-Antwort;
-- einer sichtbarkeitsgefilterten Weltabfrage für laufende fremde Reisen;
-- einer `StationLayer` für eigene und fremde Stationen;
-- der vorhandenen `TripLayer` auch für sichtbare fremde Minerflüge.
+- sichtbare Stationen in der bestehenden Chunk-Antwort;
+- eine sichtbarkeitsgefilterte Weltabfrage für laufende fremde Reisen;
+- eine `StationLayer` für eigene und fremde Stationen;
+- die vorhandene `TripLayer` auch für sichtbare fremde Minerflüge.
 
 Öffentlich sichtbar sind nur Station-ID, Name, Position und Bot-/Spieler-Kennzeichnung sowie bei
-Reisen Position, Gruppengröße, Schiffsdarstellung, Zweck und Zeit. Ressourcenbestände,
-Ladungsinhalt, Bauaufträge und interne Bot-Gründe bleiben privat.
+Reisen Position, Schiffsdarstellung, Zweck und Zeit. Die exakte Gruppengröße sehen nur Eigentümer.
+Ressourcenbestände, Ladungsinhalt, Bauaufträge und interne Bot-Gründe bleiben privat.
 
 Stationen sind ortsfest und passen in den Chunk-Lebenszyklus. Laufende Reisen werden separat
 aktualisiert, weil ihre Position wechselt. Die bestehende `/me/trips`-Abfrage bleibt für private
@@ -276,14 +274,17 @@ Neue beziehungsweise betroffene Dateien:
 Arbeiten:
 
 1. Tabelle und Index aus dem oben beschriebenen Modell anlegen.
-2. `seedWorldBots(3)` idempotent nach Welt und Spawn-Slots ausführen.
+2. Bots idempotent pro bewohntem Ansiedlungssektor und dessen Bot-Slots erzeugen.
 3. Bot-Benutzer über stabile interne E-Mail-Namen wiederfinden, fehlende Benutzer erzeugen und
    deren nicht verwendbares Passwort verwerfen.
 4. Für jeden neuen Benutzer `createStation` aufrufen, damit Startressourcen, Gebäude und Mole exakt
    dem Spielerstart entsprechen.
-5. Bei zu wenigen freien Spawn-Slots nur eine Warnung schreiben und den API-Start nicht abbrechen.
+5. Ausschließlich die für den Sektor generierten Bot-Slots verwenden; die Konfiguration bestimmt
+   deren Anzahl gemeinsam mit der Sektorerzeugung.
 
 Der Seed ergänzt fehlende Bots, löscht aber niemals bestehende Bot-Stationen oder deren Fortschritt.
+Ist ein vorheriger Start nach Benutzer und Controller, aber vor der Stationsgründung abgebrochen,
+wird genau diese Gründung beim nächsten Lauf idempotent nachgeholt.
 
 ### 8.3 Zustand laden und Entscheidung rein testen
 
@@ -330,7 +331,7 @@ Arbeiten:
 2. Bot mit derselben Mole auf einen regulär sichtbaren Asteroiden schicken.
 3. Vorhandene Trip- und Mining-Simulation bis zur Lieferung laufen lassen.
 4. Prüfen, dass der Bot-Bestand ausschließlich um die gelieferte Ladung wächst.
-5. Konkurrenztest mit einem Spieler und einem Bot am selben Asteroiden ergänzen.
+5. Konkurrenz über denselben transaktionalen Claim bei Ankunft absichern.
 
 Dies ist der erste lauffähige Zwischenstand und wird vor weiterem Wachstum im Browser geprüft.
 
@@ -371,7 +372,7 @@ Bots ohne Zugriff auf dessen private Wirtschaft beobachten kann.
 ### Reine Entscheidungstests
 
 - freier Miner wählt den besten gültigen Asteroiden;
-- erschöpfte, unsichtbare und voll belegte Asteroiden werden ignoriert;
+- erschöpfte und unsichtbare Asteroiden werden ignoriert;
 - fehlende Ressource verändert die Zielgewichtung nachvollziehbar;
 - Flotten- und Ausbauziele erzeugen die erwartete nächste Absicht;
 - gleicher Zustand erzeugt immer dieselbe Absicht.
@@ -384,14 +385,15 @@ Bots ohne Zugriff auf dessen private Wirtschaft beobachten kann.
 - Bot-Mining erzeugt dieselben Assignment- und Trip-Daten wie Spieler-Mining;
 - Bot-Ressourcen entstehen nur durch Startausstattung und reguläre Lieferungen;
 - Schiffsbau und Upgrade verwenden normale Kosten, Queues und Fertigstellung;
-- Spieler und Bot konkurrieren über dieselben Mining-Slots und Restvorräte;
+- Spieler und Bot konkurrieren über dieselben Restvorräte;
 - fehlende Handlung lässt Ressourcen und Spielzustand unverändert.
 
 ### Gesamtabnahme
 
 Die erste Bot-Phase ist abgeschlossen, wenn:
 
-1. nach einem frischen Docker-Start drei Bot-Stationen und die Spielerstation existieren;
+1. nach einem frischen Docker-Start die konfigurierte Botanzahl im bewohnten Ansiedlungssektor
+   existiert;
 2. Bots ohne Benutzerinteraktion Miner versenden;
 3. Miner sichtbar fliegen, abbauen, zurückkehren und regulär liefern;
 4. Bots aus diesen Ressourcen über die bestehenden Queues wachsen;
@@ -404,7 +406,7 @@ Die erste Bot-Phase ist abgeschlossen, wenn:
 Die Erweiterbarkeit entsteht durch gemeinsame Domain-Services und den kleinen Entscheidungs-Switch,
 nicht durch vorab gebaute Frameworks.
 
-| Zukünftiges System      | Gemeinsame Spielermechanik zuerst                                     | Spätere Bot-Erweiterung                                              |
+| System                  | Gemeinsame Spielermechanik                                            | Spätere Bot-Erweiterung                                              |
 | ----------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | Hangarplätze            | Kapazität bei jedem Schiffsbau prüfen; abwesende Schiffe zählen mit   | Flottenziel zusätzlich durch freie Plätze begrenzen                  |
 | Scanner und Entdeckung  | zentraler sichtbarer Weltzustand pro Benutzer                         | nur bekannte beziehungsweise sichtbare Ziele bewerten                |
@@ -438,12 +440,12 @@ werden folgende Schritte geprüft:
 Diese Skalierung verändert nicht die Domain-Services und damit nicht die Gleichheit von Spieler-
 und Bot-Regeln.
 
-## Nicht Teil der ersten Implementierung
+## Nicht Teil der wirtschaftlichen Botstrategie
 
 - unterschiedliche Fraktionen oder Persönlichkeiten;
 - adaptive Schwierigkeit oder Lernen aus Spielerverhalten;
 - koordinierte Angriffe mehrerer Bots;
-- Diplomatie, Handel, Kampf, Salvage und Expeditionen;
+- Diplomatie, Handel sowie selbst gewählte Kampf-, Salvage- und Expeditionsaktionen;
 - Respawn oder künstlicher Schutz besiegter Bots;
 - administratives Bot-Dashboard;
 - vollständige historische Erklärbarkeit jeder verworfenen Option.

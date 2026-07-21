@@ -10,7 +10,6 @@ import {
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   getBuildingUnlockMilestones,
-  isBuildingPlayable,
 } from '@orions-frontier/game-config';
 import type {
   StationBuildingWithDefinition,
@@ -52,17 +51,6 @@ export const getStationBuildings = async (
   stationId: string
 ): Promise<StationBuildingWithDefinition[]> => {
   const db = getDb();
-
-  // Auto-seed buildings for stations created before the building system existed
-  const existing = await db
-    .select({ id: stationBuildings.id })
-    .from(stationBuildings)
-    .where(eq(stationBuildings.stationId, stationId))
-    .limit(1);
-
-  if (existing.length === 0) {
-    await seedStationBuildings(stationId);
-  }
 
   const rows = await db
     .select({
@@ -120,10 +108,6 @@ export const startBuildingUpgrade = async (
   buildingKey: BuildingKey,
   userId: string
 ): Promise<StationBuildingWithDefinition> => {
-  if (!isBuildingPlayable(buildingKey)) {
-    throw new AppError(ErrorCode.VALIDATION_ERROR, `${buildingKey} is not available yet`);
-  }
-
   const db = getDb();
 
   // Load definition

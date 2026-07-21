@@ -4,6 +4,7 @@ import TopHud from '../components/TopHud.vue';
 import StationPanel from '../components/StationPanel.vue';
 import TargetStationPanel from '../components/TargetStationPanel.vue';
 import AsteroidPanel from '../components/AsteroidPanel.vue';
+import DebrisPanel from '../components/DebrisPanel.vue';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { WorldRenderer } from '../lib/world/WorldRenderer.js';
@@ -29,7 +30,10 @@ const creatingStation = ref(false);
 async function loadUserStation(): Promise<StationInfo | null> {
   try {
     const response = await apiClient.get('/stations');
-    const first = response.data?.[0];
+    const preferredId = localStorage.getItem('active_station_id');
+    const first =
+      response.data?.find((station: { id: string }) => station.id === preferredId) ??
+      response.data?.[0];
     if (first) {
       stationId.value = first.id;
       stationName.value = first.name;
@@ -81,7 +85,7 @@ async function loadTrips(): Promise<void> {
         departedAt: new Date(trip.departedAt).getTime(),
         arrivesAt: new Date(trip.arrivesAt).getTime(),
         purpose: trip.purpose,
-        groupSize: trip.groupSize,
+        groupSize: trip.groupSize ?? 1,
       }))
     );
   } catch {
@@ -170,8 +174,18 @@ onMounted(async () => {
   };
 
   renderer.onForeignStationClick = (station) => {
+    if (station.isOwn) {
+      localStorage.setItem('active_station_id', station.id);
+      window.location.reload();
+      return;
+    }
     stationPanelOpen.value = false;
     selectionStore.select({ type: 'station', station });
+  };
+
+  renderer.onDebrisClick = (field) => {
+    stationPanelOpen.value = false;
+    selectionStore.select({ type: 'debris', field });
   };
 
   // Empty space clicked → deselect all
@@ -269,7 +283,7 @@ function cursorClass() {
     </div>
 
     <!-- Top HUD -->
-    <TopHud v-if="stationId" />
+    <TopHud v-if="stationId" :station-id="stationId" />
 
     <div
       v-if="stationId"
@@ -340,6 +354,23 @@ function cursorClass() {
           }
         "
         @refresh="loadAssignments"
+      />
+    </transition>
+
+    <transition
+      enter-active-class="transition-transform duration-300 ease-out"
+      enter-from-class="translate-y-full"
+      enter-to-class="translate-y-0"
+      leave-active-class="transition-transform duration-200 ease-in"
+      leave-from-class="translate-y-0"
+      leave-to-class="translate-y-full"
+    >
+      <DebrisPanel
+        v-if="selectionStore.selected?.type === 'debris' && stationId"
+        :field="selectionStore.selected.field"
+        :station-id="stationId"
+        @close="selectionStore.deselect()"
+        @launched="loadTrips"
       />
     </transition>
   </div>

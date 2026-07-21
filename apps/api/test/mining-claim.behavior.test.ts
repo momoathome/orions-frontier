@@ -5,18 +5,27 @@ import { eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
 import { runMigrations } from '../src/lib/db/migrate.js';
 import { asteroids, asteroidVeins } from '../src/lib/db/schema/asteroids.js';
+import { sectors } from '../src/lib/db/schema/sectors.js';
 import { claimMiningCargo } from '../src/services/mining/mining-claim.service.js';
 
 const asteroidId = randomUUID();
+const sectorId = randomUUID();
 
 before(async () => {
   await runMigrations();
   await initDb();
   const db = getDb();
+  await db.insert(sectors).values({
+    id: sectorId,
+    sectorX: 410,
+    sectorY: 410,
+    role: 'frontier',
+    seed: sectorId,
+  });
 
   await db
     .insert(asteroids)
-    .values({ id: asteroidId, x: 0, y: 0, chunkX: 0, chunkY: 0, size: 'small' });
+    .values({ id: asteroidId, sectorId, x: 0, y: 0, chunkX: 0, chunkY: 0, size: 'small' });
 
   await db.insert(asteroidVeins).values([
     {
@@ -37,6 +46,7 @@ before(async () => {
 after(async () => {
   const db = getDb();
   await db.delete(asteroids).where(eq(asteroids.id, asteroidId));
+  await db.delete(sectors).where(eq(sectors.id, sectorId));
   await closeDb();
 });
 

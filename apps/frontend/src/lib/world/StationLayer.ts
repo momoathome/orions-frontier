@@ -7,31 +7,36 @@ export class StationLayer {
   private chunks = new Map<ChunkKey, Container>();
   private stationsByChunk = new Map<ChunkKey, VisibleStation[]>();
   private texture: Texture = Texture.WHITE;
+  private activeStationId: string | null = null;
 
   setTexture(texture: Texture): void {
     this.texture = texture;
   }
 
+  setActiveStationId(stationId: string | null): void {
+    this.activeStationId = stationId;
+  }
+
   addChunk(key: ChunkKey, stations: VisibleStation[]): void {
     this.removeChunk(key);
     const chunk = new Container();
-    const foreignStations = stations.filter((entry) => !entry.isOwn);
+    const visibleStations = stations.filter((entry) => entry.id !== this.activeStationId);
 
-    for (const station of foreignStations) {
+    for (const station of visibleStations) {
       const sprite = new Sprite(this.texture);
       sprite.anchor.set(0.5);
       sprite.position.set(station.x, station.y);
       sprite.width = 72;
       sprite.height = 72;
-      sprite.tint = station.ownerType === 'bot' ? 0x55d6a9 : 0xffd766;
+      sprite.tint = station.isOwn ? 0x44aaff : station.ownerType === 'bot' ? 0x55d6a9 : 0xffd766;
       chunk.addChild(sprite);
 
       const label = new Text({
-        text: `${station.ownerType === 'bot' ? '[BOT] ' : ''}${station.name}`,
+        text: `${station.isOwn ? '[OWN] ' : station.ownerType === 'bot' ? '[BOT] ' : ''}${station.name}`,
         style: {
           fontFamily: 'monospace',
           fontSize: 10,
-          fill: station.ownerType === 'bot' ? 0x8fffd8 : 0xffe7a3,
+          fill: station.isOwn ? 0x88ccff : station.ownerType === 'bot' ? 0x8fffd8 : 0xffe7a3,
         },
       });
       label.anchor.set(0.5, 1);
@@ -39,7 +44,7 @@ export class StationLayer {
       chunk.addChild(label);
     }
 
-    this.stationsByChunk.set(key, foreignStations);
+    this.stationsByChunk.set(key, visibleStations);
     this.chunks.set(key, chunk);
     this.container.addChild(chunk);
   }

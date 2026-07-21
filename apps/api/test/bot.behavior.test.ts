@@ -15,8 +15,11 @@ import { stationResources } from '../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../src/lib/db/schema/stations.js';
 import { users } from '../src/lib/db/schema/users.js';
+import { sectors } from '../src/lib/db/schema/sectors.js';
+import { spawnSlots } from '../src/lib/db/schema/spawn-slots.js';
 import { seedBuildingDefinitions, seedSpacecraftDefinitions } from '../src/lib/seed.js';
 import { runBotDecisionTick } from '../src/services/bot/bot.service.js';
+import { loadEconomicBotState } from '../src/services/bot/bot-state.service.js';
 import { seedStationBuildings } from '../src/services/building.service.js';
 import { runSimulationTick } from '../src/services/simulation.service.js';
 import { seedStationResources } from '../src/services/station-resource.service.js';
@@ -26,11 +29,12 @@ import { getVisibleChunkStations, getVisibleWorldTrips } from '../src/services/w
 
 const userId = randomUUID();
 const stationId = randomUUID();
-const asteroidIds = [randomUUID(), randomUUID()];
+const asteroidIds = [randomUUID(), randomUUID(), randomUUID()];
 const testNow = new Date(Date.now() + 24 * 60 * 60 * 1_000);
 let moleDefinitionId = '';
 let titanDefinitionId = '';
 let shipyardDefinitionId = '';
+let sectorId = '';
 
 before(async () => {
   await runMigrations();
@@ -46,7 +50,17 @@ before(async () => {
     email: `bot-behavior-${suffix}@example.test`,
     passwordHash: 'not-used',
   });
-  await db.insert(stations).values({ id: stationId, userId, name: 'Behavior Bot', x: 0, y: 0 });
+  sectorId = randomUUID();
+  await db.insert(sectors).values({
+    id: sectorId,
+    sectorX: 300,
+    sectorY: 300,
+    role: 'frontier',
+    seed: suffix,
+  });
+  await db
+    .insert(stations)
+    .values({ id: stationId, userId, sectorId, name: 'Behavior Bot', x: 0, y: 0 });
   await seedStationResources(stationId);
   await seedStationBuildings(stationId);
   await seedStationSpacecrafts(stationId);
@@ -70,6 +84,7 @@ before(async () => {
     chunkX: 0,
     chunkY: 0,
     size: 'small',
+    sectorId,
   });
   await db.insert(asteroidVeins).values({
     asteroidId: asteroidIds[0],
@@ -102,6 +117,8 @@ after(async () => {
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
   await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
   await db.delete(stations).where(eq(stations.id, stationId));
+  await db.delete(spawnSlots).where(eq(spawnSlots.sectorId, sectorId));
+  await db.delete(sectors).where(eq(sectors.id, sectorId));
   await db.delete(users).where(eq(users.id, userId));
   await closeDb();
 });
@@ -112,6 +129,33 @@ async function setBotDue(now: Date): Promise<void> {
     .set({ nextDecisionAt: now })
     .where(eq(botControllers.userId, userId));
 }
+
+test('bot state excludes asteroids outside scanner visibility', async () => {
+  const db = getDb();
+  await db.insert(asteroids).values({
+    id: asteroidIds[2],
+    x: 50,
+    y: 0,
+    chunkX: 0,
+    chunkY: 0,
+    size: 'small',
+    sectorId,
+    hiddenLevel: 99,
+  });
+  await db.insert(asteroidVeins).values({
+    asteroidId: asteroidIds[2],
+    veinType: 'primary',
+    resourceKey: 'carbon',
+    remainingAmount: 1_000_000,
+  });
+
+  const state = await loadEconomicBotState(userId);
+
+  assert.equal(
+    state?.asteroids.some((asteroid) => asteroid.id === asteroidIds[2]),
+    false
+  );
+});
 
 test('parallel bot ticks create one normal mining assignment and delivery', async () => {
   const db = getDb();
@@ -269,6 +313,7 @@ test('bot upgrades Shipyard, builds Titan and prefers it for mining', async () =
     chunkX: 0,
     chunkY: 0,
     size: 'medium',
+    sectorId,
   });
   await db.insert(asteroidVeins).values({
     asteroidId: asteroidIds[1],
@@ -283,8 +328,43 @@ test('bot upgrades Shipyard, builds Titan and prefers it for mining', async () =
   const [assignment] = await db
     .select({ spacecraftDefinitionId: asteroidAssignments.spacecraftDefinitionId })
     .from(asteroidAssignments)
-    .where(eq(asteroidAssignments.stationId, stationId));
+    .where(
+      and(
+        eq(asteroidAssignments.stationId, stationId),
+        eq(asteroidAssignments.asteroidId, asteroidIds[1]!)
+      )
+    );
   assert.equal(assignment?.spacecraftDefinitionId, titanDefinitionId);
+});
+
+test('bot wait decision leaves the playable state unchanged', async () => {
+  const db = getDb();
+  const now = new Date(testNow.getTime() + 80 * 60_000);
+  await setBotDue(now);
+  const before = await Promise.all([
+    db.select().from(stationResources).where(eq(stationResources.stationId, stationId)),
+    db.select().from(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId)),
+    db.select().from(stationBuildings).where(eq(stationBuildings.stationId, stationId)),
+    db.select().from(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId)),
+    db.select().from(asteroidAssignments).where(eq(asteroidAssignments.stationId, stationId)),
+  ]);
+
+  await runBotDecisionTick(now);
+
+  const after = await Promise.all([
+    db.select().from(stationResources).where(eq(stationResources.stationId, stationId)),
+    db.select().from(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId)),
+    db.select().from(stationBuildings).where(eq(stationBuildings.stationId, stationId)),
+    db.select().from(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId)),
+    db.select().from(asteroidAssignments).where(eq(asteroidAssignments.stationId, stationId)),
+  ]);
+  const [controller] = await db
+    .select({ lastAction: botControllers.lastAction })
+    .from(botControllers)
+    .where(eq(botControllers.userId, userId));
+
+  assert.deepEqual(after, before);
+  assert.equal(controller?.lastAction, 'wait');
 });
 
 test('world projection exposes bot activity without private cargo or resources', async () => {
@@ -304,8 +384,31 @@ test('world projection exposes bot activity without private cargo or resources',
       and(eq(stationSpacecrafts.stationId, stationId), eq(spacecraftTrips.status, 'traveling'))
     );
   assert.ok(activeTrip);
-  const trips = await getVisibleWorldTrips(range);
+  const trips = await getVisibleWorldTrips(range, userId);
   const visibleTrip = trips.find((entry) => entry.id === activeTrip.id);
   assert.equal(visibleTrip?.ownerType, 'bot');
+  assert.equal(visibleTrip?.groupSize, 1);
   assert.equal(visibleTrip ? 'cargoManifest' in visibleTrip : true, false);
+
+  const foreignTrips = await getVisibleWorldTrips(range, randomUUID());
+  assert.equal(foreignTrips.find((entry) => entry.id === activeTrip.id)?.groupSize, null);
+});
+
+test('an overdue bot decision survives a database reconnect', async () => {
+  const dueAt = new Date(testNow.getTime() + 2 * 60 * 60_000);
+  await setBotDue(dueAt);
+  await closeDb();
+  await initDb();
+
+  await runBotDecisionTick(dueAt);
+
+  const [controller] = await getDb()
+    .select({
+      nextDecisionAt: botControllers.nextDecisionAt,
+      lastAction: botControllers.lastAction,
+    })
+    .from(botControllers)
+    .where(eq(botControllers.userId, userId));
+  assert.ok(controller?.nextDecisionAt.getTime() > dueAt.getTime());
+  assert.ok(controller?.lastAction);
 });

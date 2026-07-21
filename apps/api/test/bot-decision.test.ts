@@ -38,22 +38,18 @@ const baseState = (): EconomicBotState => ({
       y: 0,
       remainingByResource: { carbon: 10_000 },
       remainingAmount: 10_000,
-      hasOwnAssignment: false,
-      freeSlots: 1,
     },
   ],
 });
 
-test('assigns an available miner through the best valid asteroid candidate', () => {
+test('assigns an available miner to the best valid asteroid candidate', () => {
   const state = baseState();
   state.asteroids.unshift({
-    id: 'blocked',
-    x: 1,
+    id: 'empty',
+    x: 10,
     y: 0,
-    remainingByResource: { carbon: 10_000 },
-    remainingAmount: 10_000,
-    hasOwnAssignment: false,
-    freeSlots: 0,
+    remainingByResource: { carbon: 0 },
+    remainingAmount: 0,
   });
 
   assert.deepEqual(decideEconomicAction(state), {
@@ -110,4 +106,10 @@ test('waits without inventing progress when no action is affordable', () => {
     type: 'wait',
     reason: 'Saving resources for a Mole',
   });
+});
+
+test('returns the same intent for the same state', () => {
+  const state = baseState();
+
+  assert.deepEqual(decideEconomicAction(state), decideEconomicAction(state));
 });

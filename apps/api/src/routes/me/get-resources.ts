@@ -1,20 +1,23 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
+import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { authenticate } from '../../middleware/auth.js';
 import {
-  getUserAggregatedResources,
+  getStationResources,
   getDeliveredResourceRates,
 } from '../../services/station-resource.service.js';
 
-/**
- * GET /api/me/resources
- * Returns aggregated resources and actual deliveries during the last hour.
- */
+const QuerySchema = z.object({ stationId: z.string().uuid() });
+
 export default (async (app) => {
   app.get('/resources', { preHandler: [authenticate] }, async (request, reply) => {
+    const parsed = QuerySchema.safeParse(request.query);
+    if (!parsed.success) throw new AppError(ErrorCode.VALIDATION_ERROR, 'stationId is required');
     const { userId } = request.user;
+    const { stationId } = parsed.data;
     const [resources, rates] = await Promise.all([
-      getUserAggregatedResources(userId),
-      getDeliveredResourceRates(userId),
+      getStationResources(userId, stationId),
+      getDeliveredResourceRates(userId, stationId),
     ]);
 
     return reply.send({

@@ -2,7 +2,6 @@
 import { ref, computed, onUnmounted } from 'vue';
 import { wsClient } from '../lib/ws-client';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { isBuildingPlayable } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingEffectType } from '@orions-frontier/shared';
 
 const props = defineProps<{ stationId: string }>();
@@ -34,6 +33,12 @@ const effectThemes: Record<BuildingEffectType, EffectTheme> = {
     badge: 'bg-cyan-500/15 border-cyan-500/30',
     badgeText: 'text-cyan-300',
     level: 'text-cyan-300',
+  },
+  hangar_capacity: {
+    topBar: 'bg-cyan-400',
+    badge: 'bg-cyan-400/15 border-cyan-400/30',
+    badgeText: 'text-cyan-200',
+    level: 'text-cyan-200',
   },
   spacecraft_unlock: {
     topBar: 'bg-violet-500',
@@ -71,7 +76,7 @@ const effectThemes: Record<BuildingEffectType, EffectTheme> = {
     badgeText: 'text-rose-300',
     level: 'text-rose-300',
   },
-  research_points: {
+  research_capacity: {
     topBar: 'bg-green-500',
     badge: 'bg-green-500/15 border-green-500/30',
     badgeText: 'text-green-300',
@@ -87,19 +92,22 @@ function buildingTheme(effectType: BuildingEffectType): EffectTheme {
 
 const effectTypeLabels: Record<BuildingEffectType, string> = {
   station_progression: 'Progression',
+  hangar_capacity: 'Hangar',
   spacecraft_unlock: 'Shipyard',
   spacecraft_production_bonus: 'Production',
   storage_capacity: 'Storage',
   protected_storage: 'Protection',
   scanner_strength: 'Scanner',
   defense_power: 'Defense',
-  research_points: 'Research',
+  research_capacity: 'Research',
 };
 
 function formatEffect(type: string, value: number): { label: string; display: string } {
   switch (type as BuildingEffectType) {
     case 'station_progression':
       return { label: 'Station Score', display: `+${value}` };
+    case 'hangar_capacity':
+      return { label: 'Hangar slots', display: `${value}` };
     case 'spacecraft_unlock':
       return { label: 'Ship Tier', display: `Tier ${value}` };
     case 'spacecraft_production_bonus':
@@ -112,8 +120,8 @@ function formatEffect(type: string, value: number): { label: string; display: st
       return { label: 'Scan Range', display: `${value}` };
     case 'defense_power':
       return { label: 'Defense', display: `${value}` };
-    case 'research_points':
-      return { label: 'Research / tick', display: `+${value}` };
+    case 'research_capacity':
+      return { label: 'Research capacity', display: `${value}` };
     default:
       return { label: type.replace(/_/g, ' '), display: `${value}` };
   }
@@ -156,10 +164,7 @@ async function loadBuildings(force = false) {
   buildingsError.value = null;
   try {
     const response = await apiClient.get(`/stations/${props.stationId}/buildings`);
-    buildings.value = response.data.buildings.sort(
-      (a: StationBuildingWithDefinition, b: StationBuildingWithDefinition) =>
-        Number(isBuildingPlayable(b.definition.key)) - Number(isBuildingPlayable(a.definition.key))
-    );
+    buildings.value = response.data.buildings;
     // Record detection time for any upgrading building we haven't seen yet
     for (const b of buildings.value) {
       if (b.isUpgrading && !upgradeDetectedAt.has(b.definition.key)) {
@@ -183,9 +188,7 @@ async function loadBuildings(force = false) {
 }
 
 async function startUpgrade(building: StationBuildingWithDefinition) {
-  if (upgrading.value || building.isUpgrading || !isBuildingPlayable(building.definition.key)) {
-    return;
-  }
+  if (upgrading.value || building.isUpgrading) return;
   upgrading.value = building.definition.key;
   try {
     await apiClient.post(
@@ -333,15 +336,8 @@ onUnmounted(() => unsubscribe());
           {{ activeBuilding.definition.description }}
         </p>
 
-        <p
-          v-if="!isBuildingPlayable(activeBuilding.definition.key)"
-          class="text-[10px] text-amber-300/60 uppercase tracking-widest"
-        >
-          Planned module — effects are not active yet
-        </p>
-
         <!-- Effects + Costs: side by side, like SpacecraftStats -->
-        <div v-if="isBuildingPlayable(activeBuilding.definition.key)" class="flex gap-12">
+        <div class="flex gap-12">
           <!-- Effects column -->
           <div class="flex flex-col gap-1 shrink-0">
             <span class="text-[9px] text-white/20 uppercase tracking-widest mb-0.5">Effects</span>
@@ -436,14 +432,12 @@ onUnmounted(() => unsubscribe());
         <button
           @click="startUpgrade(activeBuilding)"
           :disabled="
-            !isBuildingPlayable(activeBuilding.definition.key) ||
             activeBuilding.isUpgrading ||
             activeBuilding.level >= activeBuilding.definition.maxLevel ||
             !!upgrading
           "
           class="w-full py-2.5 rounded border text-[10px] uppercase tracking-[0.2em] font-semibold transition"
           :class="
-            !isBuildingPlayable(activeBuilding.definition.key) ||
             activeBuilding.isUpgrading ||
             activeBuilding.level >= activeBuilding.definition.maxLevel ||
             !!upgrading
@@ -451,10 +445,7 @@ onUnmounted(() => unsubscribe());
               : 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200'
           "
         >
-          <span v-if="!isBuildingPlayable(activeBuilding.definition.key)">Coming Soon</span>
-          <span v-else-if="activeBuilding.level >= activeBuilding.definition.maxLevel"
-            >Max Level</span
-          >
+          <span v-if="activeBuilding.level >= activeBuilding.definition.maxLevel">Max Level</span>
           <span v-else-if="activeBuilding.isUpgrading">Upgrading…</span>
           <span v-else-if="upgrading === activeBuilding.definition.key">Starting…</span>
           <span v-else>Upgrade</span>

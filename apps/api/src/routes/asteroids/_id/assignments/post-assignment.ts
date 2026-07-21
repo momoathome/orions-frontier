@@ -36,8 +36,7 @@ export default (async (app) => {
     });
 
     if ('code' in result) {
-      const status =
-        result.code === 'SLOTS_FULL' ? 409 : result.code === 'ASTEROID_NOT_FOUND' ? 404 : 400;
+      const status = result.code === 'ASTEROID_NOT_FOUND' ? 404 : 400;
       return reply.status(status).send({ message: result.message });
     }
 

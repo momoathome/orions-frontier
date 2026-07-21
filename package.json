@@ -25,6 +25,7 @@
     "verify": "npm run check && npm run build && npm run test:behavior",
     "clean": "npm run clean --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace @orions-frontier/api",
+    "world:report": "npm run world:report --workspace @orions-frontier/api",
     "docker:rebuild": "docker compose up -d --build"
   },
   "devDependencies": {

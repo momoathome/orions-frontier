@@ -15,6 +15,7 @@ const fleetLoading = ref(false);
 const fleetError = ref<string | null>(null);
 const roleFilter = ref<SpacecraftRole | 'all'>('all');
 const activeShip = ref<StationSpacecraftWithDefinition | null>(null);
+const hangar = ref({ used: 0, capacity: 0 });
 
 const uniqueRoles = computed(
   () => [...new Set(fleet.value.map((e) => e.definition.role))] as SpacecraftRole[]
@@ -76,6 +77,7 @@ async function loadFleet(force = false) {
   try {
     const response = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
     fleet.value = response.data.spacecrafts;
+    hangar.value = response.data.hangar;
     if (!activeShip.value && fleet.value.length > 0) {
       activeShip.value = fleet.value[0]!;
     } else if (activeShip.value) {
@@ -114,12 +116,18 @@ watch(activeOrdersCount, (count) => emit('queueCount', count), { immediate: true
 
 loadFleet();
 
-const unsubscribe = wsClient.on('spacecraft_build_completed', (payload) => {
+const unsubscribeBuild = wsClient.on('spacecraft_build_completed', (payload) => {
   const p = payload as { stationId?: string };
   if (p?.stationId === props.stationId) loadFleet(true);
 });
+const unsubscribeMining = wsClient.on('mining_tick_completed', () => loadFleet(true));
+const unsubscribeTransport = wsClient.on('transport_tick_completed', () => loadFleet(true));
 
-onUnmounted(() => unsubscribe());
+onUnmounted(() => {
+  unsubscribeBuild();
+  unsubscribeMining();
+  unsubscribeTransport();
+});
 </script>
 
 <template>
@@ -149,6 +157,9 @@ onUnmounted(() => unsubscribe());
     <div
       class="flex items-center gap-0.5 px-3 h-8 border-b border-white/5 bg-[#040911]/40 shrink-0"
     >
+      <span class="mr-3 text-[9px] text-white/35">
+        Hangar {{ hangar.used }}/{{ hangar.capacity }}
+      </span>
       <button
         @click="roleFilter = 'all'"
         class="px-2.5 h-5 rounded text-[9px] uppercase tracking-[0.2em] transition"

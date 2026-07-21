@@ -8,10 +8,11 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "clean": "rm -rf dist",
-    "test:behavior": "tsx --test test/*.test.ts",
+    "test:behavior": "tsx --test --test-concurrency=1 test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "db:migrate": "tsx src/lib/db/migrate.ts"
+    "db:migrate": "tsx src/lib/db/migrate.ts",
+    "world:report": "node --import tsx src/lib/world-gen/report.ts"
   },
   "dependencies": {
     "@fastify/autoload": "^6.3.1",

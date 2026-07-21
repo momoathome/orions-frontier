@@ -24,8 +24,6 @@ export interface BotAsteroidCandidate {
   y: number;
   remainingByResource: ResourceMap;
   remainingAmount: number;
-  hasOwnAssignment: boolean;
-  freeSlots: number;
 }
 
 export interface EconomicBotState {
@@ -107,10 +105,7 @@ function selectAsteroid(
 ): BotAsteroidCandidate | undefined {
   const weights = resourceWeights(state);
   return state.asteroids
-    .filter(
-      (asteroid) =>
-        asteroid.remainingAmount > 0 && (asteroid.hasOwnAssignment || asteroid.freeSlots > 0)
-    )
+    .filter((asteroid) => asteroid.remainingAmount > 0)
     .map((asteroid) => {
       const distance = calcDistance(state.station, asteroid);
       const delivery = calculateMiningCycle({

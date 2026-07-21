@@ -32,3 +32,9 @@ export const resources: Record<ResourceKey, ResourceDefinition> = {
     rarity: 'rare',
   },
 };
+
+export const COLONIZATION_COST = {
+  carbon: 1_500,
+  titanium: 1_500,
+  hydrogenium: 750,
+} as const satisfies Partial<Record<ResourceKey, number>>;

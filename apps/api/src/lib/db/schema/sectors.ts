@@ -8,34 +8,18 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-// ============================================================================
-// sectors — Persistent metadata for independently-generated world sectors.
-//
-// Each sector has its own seed, archetype, and coordinate in the infinite grid.
-// Coordinate rules:
-//   sectorCenterX = sectorX * SECTOR_WIDTH   (currently 8000 world units)
-//   sectorCenterY = sectorY * SECTOR_HEIGHT
-//   sector (0,0) is centred at world origin.
-// ============================================================================
-
 export const sectors = pgTable(
   'sectors',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    /** Sector grid column — negative = west of origin */
     sectorX: integer('sector_x').notNull(),
-    /** Sector grid row — negative = north of origin */
     sectorY: integer('sector_y').notNull(),
-    /** Archetype id (e.g. 'balanced', 'crystal-belt') */
-    archetypeId: varchar('archetype_id', { length: 64 }).notNull(),
-    /** Deterministic per-sector seed used during generation */
+    role: varchar('role', { length: 16 }).notNull(),
     seed: varchar('seed', { length: 256 }).notNull(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => ({
     coordsUnique: uniqueIndex('sectors_coords_unique').on(table.sectorX, table.sectorY),
-    archetypeIdx: index('sectors_archetype_id_idx').on(table.archetypeId),
+    roleIdx: index('sectors_role_idx').on(table.role),
   })
 );
-// Cross-table relations (sectors → asteroids / spawn_slots) are defined in
-// schema/index.ts to avoid circular imports.

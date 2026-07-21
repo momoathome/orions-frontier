@@ -1,12 +1,8 @@
-// ============================================================================
-// world-gen/types.ts
-// All generation-result interfaces. AsteroidSize and VeinType are
-// imported from @orions-frontier/shared — single source of truth.
-// ============================================================================
-
 import type { AsteroidSize, VeinType } from '@orions-frontier/shared';
 
 export type { AsteroidSize, VeinType };
+export type SectorRole = 'settlement' | 'frontier';
+export type SpawnSlotType = 'player' | 'bot';
 
 export interface GeneratedVein {
   veinType: VeinType;
@@ -20,13 +16,13 @@ export interface GeneratedAsteroid {
   chunkX: number;
   chunkY: number;
   size: AsteroidSize;
-  /** Always 0 — column kept in DB for future scanner gameplay. */
   hiddenLevel: number;
   veins: GeneratedVein[];
 }
 
 export interface GeneratedSpawnSlot {
   slotIndex: number;
+  slotType: SpawnSlotType;
   x: number;
   y: number;
 }
@@ -34,8 +30,7 @@ export interface GeneratedSpawnSlot {
 export interface GeneratedSector {
   sectorX: number;
   sectorY: number;
-  /** Always 'none' — kept for DB schema compatibility. */
-  archetypeId: string;
+  role: SectorRole;
   seed: string;
   asteroids: GeneratedAsteroid[];
   spawnSlots: GeneratedSpawnSlot[];

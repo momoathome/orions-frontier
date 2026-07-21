@@ -1,10 +1,9 @@
 # Umsetzungsplan
 
 Dieser Plan führt den bestehenden Orion-Stand zum vereinfachten Idle-Mining-Spiel. Der
-Mining-Rundlauf aus Hinflug, Abbau, Rückflug und Lieferung ist spielbar. Der nächste fachliche
-Meilenstein ist eine belebte Welt mit ersten wirtschaftlichen Bots. Jeder Bot besitzt wie ein
-Spieler eine Station und handelt unter denselben Kosten-, Zeit- und Kapazitätsregeln. Technische
-Aufräumarbeiten sind diesem Ziel untergeordnet.
+Mining-Rundlauf aus Hinflug, Abbau, Rückflug und Lieferung, der erste wirtschaftliche Bot sowie
+die nachvollziehbar verteilte, durch Exploration und Kolonisation wachsende Welt sind spielbar.
+Weitere Balanceänderungen und Botstrategien folgen erst aus beobachtetem spielerischem Bedarf.
 
 ## Leitentscheidung
 
@@ -20,9 +19,12 @@ Spieler ihn ändert oder der Asteroid erschöpft ist.
   Ressourcen oder Schiffe und verkürzt keine Wartezeit.
 - Technik wird nur entfernt, wenn sie für den neuen Ablauf ersetzt wurde oder nachweislich
   ungenutzt ist.
+- Die Welt ist noch nicht produktiv. Entwicklungsstände dürfen ohne Kompatibilitätspfad ersetzt
+  und anschließend neu erzeugt werden.
 - Neue Kataloge, Abstraktionen und Zukunftssysteme entstehen erst aus einem spielbaren Bedarf.
 
-Das fachliche Zielbild steht in [mining-loop.md](./mining-loop.md).
+Die fachlichen Zielbilder stehen in [mining-loop.md](./mining-loop.md) und
+[world-generation.md](./world-generation.md).
 
 ## Bot-Grundsatz
 
@@ -74,8 +76,8 @@ Bereits umgesetzt:
   vollständigen Erschöpfung.
 - serverseitige Mining-Vorschau und erste UI für Restvorrat, Entfernung, Flugzeit, Rundlaufzeit,
   Lieferleistung und Erschöpfungsdauer.
-- gruppenbasierter Recall ohne Teleportation: laufende Ladungen werden geliefert, danach endet der
-  Auftrag an der Station.
+- einzelner oder gruppenweiser Recall ohne Teleportation: laufende Ladungen werden geliefert,
+  danach endet der gewählte Teil des Auftrags an der Station.
 - periodische Mining-/Transport-Ticks, Asteroidenpuffer-Produktion, automatische Selbst-Recalls und
   Transporter-Disposition aus dem Laufzeitpfad entfernt;
 - Logistikansicht auf reale Minergruppen, Hinflüge, Abbau/Rückflüge und Restvorräte reduziert.
@@ -120,8 +122,8 @@ Status: abgeschlossen am 16. Juli 2026.
 6. Neustart und Offline-Zeit werden anhand persistierter Fälligkeitszeitpunkte nachgeholt.
 7. Der bisherige Transporter- und Puffer-Laufzeitpfad sowie seine ungenutzten Schemafelder und
    Konfigurationswerte für Yield, Reinheit und Stabilität sind entfernt.
-8. Recall beendet immer eine vollständige Minergruppe an der Station; Teil-Recall wird erst bei
-   einem nachgewiesenen spielerischen Bedarf ergänzt.
+8. Recall kann einzelne Miner oder eine vollständige Gruppe an deren nächster Stationsankunft aus
+   dem Auftrag lösen.
 
 Abgeschlossen, wenn ein Asteroid vom ersten Hinflug bis zur vollständigen Erschöpfung ohne
 manuelle Zwischenaktion korrekt abgearbeitet wird.
@@ -190,8 +192,7 @@ abzusichern, dass HTTP-Routen und Bots sie gleichermaßen verwenden können.
    zunächst genau einer Strategie. Ressourcen-, Gebäude-, Schiffs- oder Queue-Tabellen werden nicht
    dupliziert.
 3. Einen kompakten Stationszustand für Entscheidungen laden: Ressourcen, laufende Bauaufträge,
-   Gebäude, verfügbare und gebundene Schiffe, sichtbare Asteroiden, Restmengen, Entfernungen und
-   belegte Mining-Slots.
+   Gebäude, verfügbare und gebundene Schiffe, sichtbare Asteroiden, Restmengen und Entfernungen.
 4. Fällige Bot-Entscheidungen im bestehenden API-Prozess verarbeiten. `nextDecisionAt` bleibt in
    PostgreSQL, damit ein Neustart keinen Bot zurücksetzt. Pro Entscheidung darf zunächst höchstens
    eine erfolgreiche Aktion ausgelöst werden.
@@ -210,7 +211,7 @@ Die erste Version erhält eine kleine, feste Prioritätsliste statt Persönlichk
 Zufallsentscheidungen oder langfristigem Planer:
 
 1. Hat die Station einen freien Miner, wählt der Bot einen sichtbaren, nicht erschöpften Asteroiden
-   mit freiem Slot und weist den Miner über `createAsteroidAssignment` zu.
+   und weist den Miner über `createAsteroidAssignment` zu.
 2. Kandidaten werden mit der bereits vorhandenen Rundlauf- und Lieferleistungsberechnung bewertet.
    Benötigte Ressourcen für die nächste Investition erhalten mehr Gewicht; bei Gleichstand sorgt
    eine stabile ID-Sortierung für reproduzierbares Verhalten.
@@ -229,27 +230,98 @@ Die Umsetzung erfolgt in drei einzeln prüfbaren Scheiben:
 - Mit regulär gelieferten Ressourcen einen Mole über die vorhandene Bau-Queue bauen.
 - Das Shipyard über die vorhandene Gebäude-Queue ausbauen und einen Titan freischalten.
 
-Damit die Welt tatsächlich belebt wirkt, müssen sichtbare Bot-Stationen und ihre laufenden Reisen
-in der Weltansicht erscheinen. Die Chunk-Abfrage liefert derzeit nur Asteroiden und `/me/trips` nur
-eigene Reisen. Dafür wird eine sichtbarkeitsgefilterte Weltprojektion für fremde Stationen und
-Reisen ergänzt; private Bestände und Aufträge bleiben verborgen.
+Bot-Stationen und ihre laufenden Reisen erscheinen über die sichtbarkeitsgefilterte Weltprojektion;
+private Bestände, Aufträge und fremde Flottengrößen bleiben verborgen.
 
 Abgeschlossen, wenn ein Bot nach einem Neustart weiterhandelt, seine Ressourcen ausschließlich
 durch reguläre Lieferungen erhält und ein Spieler Station, Minerflug und Konkurrenz am Asteroiden
 beobachten kann.
 
-### 10. Neue Bot-Aktionen nur mit gemeinsamen Spielmechaniken ergänzen
+### 10. Weltverteilung und konfigurierbare Startwelt
 
-Status: vorgemerkt.
+Status: abgeschlossen am 21. Juli 2026.
+
+Der konkrete fachliche und technische Ablauf steht in
+[Weltgenerierung und persistente Frontier](./world-generation.md).
+
+1. Den Generator mit puren Tests für Determinismus, Sektorgrenzen, Mindestabstände und
+   Ressourcenmengen absichern.
+2. Eine konfigurierbare Startwelt einführen. Der Standardradius `1` erzeugt einen
+   zusammenhängenden `3x3`-Bereich; `(0,0)` ist Ansiedlungssektor, die übrigen Sektoren sind
+   Frontier.
+3. `SECTOR_PERSONALITIES`, indirekte Dichteformeln und nicht benötigte Feldformen durch einen
+   festen Ablauf aus wenigen Fields und dünnem Hintergrund ersetzen.
+4. Vor dem Ausbau einen bewussten Aufräumschnitt durch `world-config.ts`, `sector-gen.ts`,
+   `asteroid-gen.ts`, `shapes.ts` sowie die aufrufenden Sector-, Seed-, Stations-, Bot- und
+   Asteroiden-Services durchführen. Jede Datei behält nur ihre im neuen Ablauf benötigte Aufgabe.
+   Nicht mehr benötigte Konstanten, Exporte, Helfer, Typen, Fallbacks, Tests und Legacy-Pfade
+   werden gelöscht, nicht deaktiviert oder parallel erhalten. Der letzte alte Sektorbegriff
+   `archetypeId` wird dabei durch die konkrete Datenbankspalte `role` ersetzt.
+5. Stationskapazität und Botanzahl getrennt konfigurieren. Acht Gesamtplätze und zwei Bots sind
+   Startwerte, keine fest verdrahtete Aufteilung.
+6. Startertaschen erst transaktional bei einer Stationsgründung erzeugen und Carbon, Titanium
+   sowie Hydrogenium garantieren.
+7. Spawn-Slots als lokale Spieler- oder Bot-Plätze pro Sektor speichern.
+8. Die Begrenzung konkurrierender Stationen durch `MINING_SLOTS` entfernen. Endlicher Vorrat,
+   Flugzeit und transaktionale Beanspruchung bei Ankunft genügen.
+
+Abgeschlossen, wenn eine frische Datenbank eine reproduzierbare `3x3`-Welt mit konfigurierbarer
+Belegung, freien Stationsräumen und erst bei Gründung erzeugten Startertaschen enthält und kein
+alter Generatorpfad mehr im Laufzeitcode existiert. Typecheck, Generator-Tests und Quellcodesuchen
+nach den entfernten Begriffen bilden dabei die technische Abnahme; alte Entwicklungsdaten müssen
+nicht migriert werden.
+
+### 11. Sektorgebundene Bots und neue Aufnahme-Sektoren
+
+Status: abgeschlossen am 21. Juli 2026.
+
+1. Die frühere globale Bot-Erzeugung durch eine konfigurierte Zielzahl je Ansiedlungssektor
+   ersetzen.
+2. Bots frühestens mit dem ersten menschlichen Bewohner eines Sektors erzeugen und normale
+   `bot`-Slots belegen lassen.
+3. Für Spielergründungen den aktuellen Ansiedlungssektor auswählen statt den global nächsten
+   freien Slot zu verwenden.
+4. Bei voller Spieler-Kapazität den nächsten zusammenhängenden Ansiedlungssektor erzeugen.
+5. Parallele Stationsgründungen gegen doppelte Sektoren, Slots und Startertaschen absichern.
+
+Abgeschlossen, wenn zusätzliche Accounts auch nach einem vollen Startsektor einen frischen,
+persistenten Einstieg erhalten und dabei nicht pro Spieler neue Bots entstehen.
+
+### 12. Exploration, Frontier und weitere Stationen
+
+Status: abgeschlossen am 21. Juli 2026.
+
+1. Unbekannte angrenzende Sektoren als Expeditionsziele anzeigen.
+2. Eine Expedition als reguläre persistierte Spieleraktion mit normaler Flugzeit umsetzen.
+3. Den Zielsektor erst bei erfolgreicher Ankunft deterministisch und idempotent erzeugen und für
+   die gemeinsame Welt entdecken. Danach kehrt das eingesetzte Schiff mit normaler Flugzeit zur
+   Ursprungsstation zurück. Das Verschieben der Kamera erzeugt keine Welt.
+4. Bots dürfen die fertige Expedition später über denselben fachlichen Service auswählen.
+5. Danach eine zweite Station beziehungsweise Kolonisation in einem entdeckten Frontier-Sektor
+   mit normalen Kosten, Reise- oder Bauzeit und Standortprüfung ermöglichen. Der dafür eingesetzte
+   Miner wird aus der Ursprungsflotte entfernt und als erste arbeitsfähige Einheit der Kolonie
+   übertragen; kostenlose Ressourcen oder weitere Schiffe gibt es dort nicht.
+6. Erst wenn Nachbarsektoren erreichbar und kolonisierbar sind, seltene Ressourcen konsequent
+   spezialisieren:
+   `abs(sectorX + sectorY)` gerade bedeutet Kyber-, ungerade Astatine-Schwerpunkt.
+
+Abgeschlossen, wenn dieselbe Spielergruppe die bekannte Welt ohne neue Accounts erweitern, einen
+neuen Sektor besiedeln und für die jeweils andere seltene Ressource einen Nachbarsektor aufsuchen
+kann.
+
+### 13. Neue Bot-Aktionen nur mit gemeinsamen Spielmechaniken ergänzen
+
+Status: gemeinsame Spielermechaniken abgeschlossen am 21. Juli 2026; zusätzliche Botstrategien
+bleiben bis zu ihrem spielerischen Bedarf offen.
 
 Jede neue Fähigkeit wird zuerst als reguläre Spielermechanik mit serverseitiger Fachaktion gebaut.
 Erst danach darf der Bot diese Aktion auswählen. Die voraussichtliche Reihenfolge ist:
 
 1. Hangarplätze als gemeinsame harte Flottengrenze für Spieler und Bots.
-2. Scanner und Entdeckung als gemeinsame Sichtbarkeitsregel.
+2. Scannerreichweite auf die in Phase 12 eingeführte Entdeckung anwenden.
 3. Kampfauftrag, Flug, Auflösung, Verluste, Beute und Stationsverteidigung.
 4. Wracks beziehungsweise Trümmerfelder und ein regulärer Salvage-Auftrag.
-5. Einfluss, Stationsübernahme und später mehrere Stationen pro Akteur.
+5. Einfluss und Stationsübernahme auf Basis der bereits eingeführten Mehrstationsfähigkeit.
 6. Weitere tatsächlich wirksame Module wie Warehouse, Guardian, Core und Laboratory.
 
 Persönlichkeiten wie wirtschaftlich, defensiv oder aggressiv bestehen später nur aus anderen
@@ -259,7 +331,7 @@ Spielermechaniken simuliert.
 
 Für die Bot-Phasen werden mindestens folgende Verhaltenschecks ergänzt:
 
-- Bots können Eigentum, Sichtbarkeit, Freischaltungen, Ressourcen und Mining-Slots nicht umgehen.
+- Bots können Eigentum, Sichtbarkeit, Freischaltungen und Ressourcen nicht umgehen.
 - Ein fälliger Entscheidungszeitpunkt löst höchstens eine erfolgreiche Aktion aus und wird
   restart-sicher fortgeschrieben.
 - Derselbe Mining-Auftrag erzeugt für Spieler und Bot dieselben Trips und Lieferungen.
@@ -267,23 +339,48 @@ Für die Bot-Phasen werden mindestens folgende Verhaltenschecks ergänzt:
   doppelt abbauen.
 - Ohne gültige Aktion bleibt ein Bot untätig und erhält keinen Ausgleich aus einem Sonderpfad.
 
-### 11. Kapazität und Werte abstimmen
+### 14. Kapazität, Werte und Erschöpfung abstimmen
 
-Status: offen; letzter geplanter Schritt.
+Status: erste spielbare Baseline abgeschlossen am 21. Juli 2026; weitere Anpassungen erfolgen nur
+anhand echter Spielverläufe.
 
-Dieser Schritt bleibt bewusst der letzte, weil seine Werte über längere Zeit anhand echter
-Spielerfahrung angepasst werden.
+Dieser Schritt bleibt bewusst der letzte. Die Startwerte sind jetzt durch einen ausführbaren
+Baseline-Test abgesichert; ihre weitere Abstimmung bleibt eine laufende Produktentscheidung anhand
+echter Spielerfahrung.
 
 - Vorratsgrößen so festlegen, dass der frühe Spielfluss auch über Nacht sinnvoll bleibt.
+- Sektorvorräte aus aktiven Stationen, typischer Minerzahl, Lieferleistung und gewünschter
+  Lebensdauer ableiten.
+- Stationskapazität, Botanzahl, Field-Anzahl und Flugzeiten anhand echter gemeinsamer Spielstände
+  abstimmen.
 - Startflotte und erste Minerwerte auf nachvollziehbare Entscheidungen prüfen.
 - Die zuvor eingeführten Hangarplätze anhand echten Wachstumsverhaltens abstimmen.
 - Hydrogenium-Verbrauch von Mining-Aufträgen nur ergänzen, wenn er eine verständliche Entscheidung
   erzeugt und nicht bloß eine weitere laufende Zahl ist.
+- Asteroiden-Nachschub nur planen, wenn Exploration, Kolonisation und späterer Handel alte
+  Stationen nachweislich nicht ausreichend tragen. Bis dahin bleiben erschöpfte Gebiete leer.
 
-Abgeschlossen, wenn der frühe Mining-Ausbau weder sofort erschöpft noch dauerhaft wartungsfrei ist.
+Abgeschlossen, wenn der frühe Mining-Ausbau weder sofort erschöpft noch dauerhaft wartungsfrei
+ist und alte Stationen ohne vorsorgliches Respawn-System eine sinnvolle Rolle behalten.
+
+Die aktuelle Baseline erfüllt dafür folgende Verträge:
+
+- Starterziele liegen mit einer Mole ungefähr 3 bis 7 Flugminuten entfernt; der erste volle
+  Rundlauf dauert ungefähr 56 bis 65 Minuten.
+- Selbst drei Mole benötigen für einen Starterasteroiden mindestens 24 Stunden. Ein einzelner
+  normaler Offline-Zeitraum leert ihn daher nicht unbemerkt.
+- Ein voll belegter Ansiedlungssektor besitzt einschließlich aller Startertaschen bei drei Mole je
+  Station ungefähr 30 bis 60 Tage Referenzvorrat. Mehr Miner verkürzen diese Zeit als bewusste
+  Investitionsentscheidung.
+- Die anfängliche Core-Kapazität begrenzt die Flotte bereits, lässt aber den wirtschaftlichen
+  Ausbau auf drei Mole zu.
+- Exploration und Kolonisation geben erschöpften Standorten eine Expansionsroute; automatischer
+  Asteroiden-Nachschub und zusätzlicher Hydrogenium-Verbrauch bleiben mangels nachgewiesenem Bedarf
+  bewusst aus.
 
 ## Arbeitsweise
 
-Es wird nur die jeweils nächste Phase detailliert. Jede Phase hinterlässt einen lauffähigen Stand.
-Der erste Bot wird als vertikaler Schnitt gebaut; allgemeines technisches Aufräumen und weitere
-Bot-Fähigkeiten folgen dem nachgewiesenen Bedarf und laufen ihm nicht voraus.
+Es wird nur die jeweils nächste Phase implementierungsnah detailliert. Jede Phase hinterlässt
+einen lauffähigen Stand. Die Weltverteilung wird zuerst in der vorhandenen Mechanik spielbar
+gemacht; automatische Frontier, Kolonisation, weitere Bot-Fähigkeiten und möglicher
+Asteroiden-Nachschub folgen nur in dieser Abhängigkeitsreihenfolge.

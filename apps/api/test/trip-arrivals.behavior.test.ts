@@ -8,6 +8,7 @@ import { buildingDefinitions } from '../src/lib/db/schema/building-definitions.j
 import { spacecraftBuildOrders } from '../src/lib/db/schema/spacecraft-build-orders.js';
 import { spacecraftDefinitions } from '../src/lib/db/schema/spacecraft-definitions.js';
 import { spacecraftTrips } from '../src/lib/db/schema/spacecraft-trips.js';
+import { sectors } from '../src/lib/db/schema/sectors.js';
 import { stationResources } from '../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js';
 import { stationBuildings } from '../src/lib/db/schema/station-buildings.js';
@@ -20,6 +21,7 @@ let userId: string;
 let stationId: string;
 let definitionId: string;
 let stationSpacecraftId: string;
+const sectorId = randomUUID();
 const tripIds: string[] = [];
 let buildingDefinitionId: string | undefined;
 
@@ -28,6 +30,14 @@ before(async () => {
   await initDb();
   const db = getDb();
   const suffix = randomUUID();
+
+  await db.insert(sectors).values({
+    id: sectorId,
+    sectorX: 412,
+    sectorY: 412,
+    role: 'frontier',
+    seed: suffix,
+  });
 
   [{ id: userId }] = await db
     .insert(users)
@@ -39,7 +49,7 @@ before(async () => {
     .returning({ id: users.id });
   [{ id: stationId }] = await db
     .insert(stations)
-    .values({ userId, name: 'Phase 1', x: 0, y: 0 })
+    .values({ userId, sectorId, name: 'Phase 1', x: 0, y: 0 })
     .returning({ id: stations.id });
   [{ id: definitionId }] = await db
     .insert(spacecraftDefinitions)
@@ -66,6 +76,7 @@ after(async () => {
     await db.delete(buildingDefinitions).where(eq(buildingDefinitions.id, buildingDefinitionId));
   }
   await db.delete(users).where(eq(users.id, userId));
+  await db.delete(sectors).where(eq(sectors.id, sectorId));
   await closeDb();
 });
 

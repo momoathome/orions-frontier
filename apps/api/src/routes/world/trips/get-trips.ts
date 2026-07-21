@@ -32,6 +32,9 @@ export default (async (app) => {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid or oversized chunk range');
     }
 
-    return reply.send({ success: true, data: await getVisibleWorldTrips(range) });
+    return reply.send({
+      success: true,
+      data: await getVisibleWorldTrips(range, request.user.userId),
+    });
   });
 }) satisfies FastifyPluginAsync;

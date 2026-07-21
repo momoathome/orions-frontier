@@ -22,15 +22,10 @@ import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
-export interface CreatedTrip {
-  id: string;
-  arrivesAt: Date;
-}
-
 // ── Miner arrived at asteroid ────────────────────────────────────────────────
 // Linked groups claim one load and create their timed mining return trip.
-export async function handleMineArrival(tx: Tx, trip: Trip): Promise<CreatedTrip | null> {
-  if (!trip.assignmentId) return null;
+export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
+  if (!trip.assignmentId) return;
 
   const [assignment] = await tx
     .select({
@@ -61,7 +56,7 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<CreatedTrip
     )
     .limit(1);
 
-  if (!assignment) return null;
+  if (!assignment) return;
 
   const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
   const activeGroupSize = Math.max(0, groupSize - assignment.recallRequestedAmount);
@@ -78,35 +73,30 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<CreatedTrip
   );
   const arrivesAt = calcArrivesAt(departedAt, distance, assignment.speed);
 
-  const [returnTrip] = await tx
-    .insert(spacecraftTrips)
-    .values({
-      stationSpacecraftId: trip.stationSpacecraftId,
-      assignmentId: assignment.id,
-      groupSize,
-      fromType: 'asteroid',
-      fromId: trip.toId,
-      toType: 'station',
-      toId: assignment.stationId,
-      departedAt,
-      arrivesAt,
-      purpose: 'mining_return',
-      cargoManifest: claim.claimedAmount > 0 ? claim.cargoManifest : null,
-    })
-    .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
+  await tx.insert(spacecraftTrips).values({
+    stationSpacecraftId: trip.stationSpacecraftId,
+    assignmentId: assignment.id,
+    groupSize,
+    fromType: 'asteroid',
+    fromId: trip.toId,
+    toType: 'station',
+    toId: assignment.stationId,
+    departedAt,
+    arrivesAt,
+    purpose: 'mining_return',
+    cargoManifest: claim.claimedAmount > 0 ? claim.cargoManifest : null,
+  });
 
   await tx
     .update(asteroidAssignments)
     .set({ status: 'traveling_to_station' })
     .where(eq(asteroidAssignments.id, assignment.id));
-
-  return returnTrip ?? null;
 }
 
 // ── Miner delivered one claimed load ─────────────────────────────────────────
 // Starts the next outbound leg while free resources remain; otherwise the
 // assignment ends and its ships become available at the station.
-export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<CreatedTrip | null> {
+export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<void> {
   if (trip.cargoManifest) {
     for (const [resourceKey, amount] of Object.entries(trip.cargoManifest)) {
       if (amount <= 0) continue;
@@ -120,7 +110,7 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<Cre
     }
   }
 
-  if (!trip.assignmentId) return null;
+  if (!trip.assignmentId) return;
 
   const [assignment] = await tx
     .select({
@@ -144,7 +134,7 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<Cre
     .where(eq(asteroidAssignments.id, trip.assignmentId))
     .limit(1);
 
-  if (!assignment) return null;
+  if (!assignment) return;
 
   // Serialize the final returns for one asteroid. Without this lock, two groups
   // could both observe the other assignment and leave an exhausted asteroid behind.
@@ -183,7 +173,7 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<Cre
       }
     }
 
-    return null;
+    return;
   }
 
   if (recalledAmount > 0) {
@@ -210,26 +200,21 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<Cre
     { x: assignment.asteroidX, y: assignment.asteroidY }
   );
   const arrivesAt = calcArrivesAt(departedAt, distance, assignment.speed);
-  const [outboundTrip] = await tx
-    .insert(spacecraftTrips)
-    .values({
-      stationSpacecraftId: trip.stationSpacecraftId,
-      assignmentId: assignment.id,
-      groupSize: continuingAmount,
-      fromType: 'station',
-      fromId: trip.toId,
-      toType: 'asteroid',
-      toId: assignment.asteroidId,
-      departedAt,
-      arrivesAt,
-      purpose: 'mine',
-    })
-    .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
+  await tx.insert(spacecraftTrips).values({
+    stationSpacecraftId: trip.stationSpacecraftId,
+    assignmentId: assignment.id,
+    groupSize: continuingAmount,
+    fromType: 'station',
+    fromId: trip.toId,
+    toType: 'asteroid',
+    toId: assignment.asteroidId,
+    departedAt,
+    arrivesAt,
+    purpose: 'mine',
+  });
 
   await tx
     .update(asteroidAssignments)
     .set({ status: 'traveling_to_asteroid' })
     .where(eq(asteroidAssignments.id, assignment.id));
-
-  return outboundTrip ?? null;
 }

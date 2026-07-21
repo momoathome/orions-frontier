@@ -1,10 +1,4 @@
-// ============================================================================
-// Game Configuration
-// Diese Datei enthält die Spielkonfiguration und Balancing-Werte.
-// In späteren Phasen wird dies erweitert.
-// ============================================================================
-
-export { resources } from './resources.js';
+export { COLONIZATION_COST, resources } from './resources.js';
 export { spacecrafts } from './spacecrafts.js';
 export type { SpacecraftSeedDefinition } from './spacecrafts.js';
 export {
@@ -12,8 +6,10 @@ export {
   calculateBuildingUpgradeCost,
   calculateBuildingBuildTime,
   calculateBuildingEffect,
+  calculateHangarCapacity,
   getBuildingUnlockMilestones,
-  isBuildingPlayable,
   SHIPYARD_UNLOCKS,
 } from './buildings.js';
 export type { BuildingSeedDefinition } from './buildings.js';
+export { getResearchDefinition, researchDefinitions } from './research.js';
+export type { ResearchDefinition } from './research.js';

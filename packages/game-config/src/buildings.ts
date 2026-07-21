@@ -71,11 +71,11 @@ export const buildings: BuildingSeedDefinition[] = [
   {
     key: 'laboratory',
     name: 'Laboratory',
-    description: 'Generates research points used for unlocking advanced technologies.',
+    description: 'Provides capacity for researching advanced technologies.',
     image: '/assets/buildings/laboratory.webp',
     baseBuildTime: 90,
     maxLevel: 15,
-    effectType: 'research_points',
+    effectType: 'research_capacity',
   },
 ];
 
@@ -199,7 +199,10 @@ export function calculateBuildingBuildTime(buildingKey: BuildingKey, targetLevel
 export function calculateBuildingEffect(buildingKey: BuildingKey, level: number): BuildingEffect[] {
   switch (buildingKey) {
     case 'core':
-      return [{ type: 'station_progression', value: level * 5 }];
+      return [
+        { type: 'station_progression', value: level * 5 },
+        { type: 'hangar_capacity', value: calculateHangarCapacity(level) },
+      ];
 
     case 'shipyard':
       return [
@@ -220,7 +223,7 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
       return [{ type: 'defense_power', value: level * 15 }];
 
     case 'laboratory':
-      return [{ type: 'research_points', value: level * 5 }];
+      return [{ type: 'research_capacity', value: level * 5 }];
   }
 }
 
@@ -234,14 +237,18 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
  */
 export const SHIPYARD_UNLOCKS: Record<number, string[]> = {
   1: ['mole'],
+  2: ['merlin', 'collector'],
+  3: ['comet'],
+  4: ['javelin', 'sentinel'],
   5: ['titan'],
+  6: ['reclaimer'],
+  7: ['ares'],
+  8: ['nova'],
+  10: ['horus'],
+  12: ['reaper'],
 };
 
-const PLAYABLE_BUILDING_KEYS = new Set<BuildingKey>(['shipyard']);
-
-export function isBuildingPlayable(buildingKey: BuildingKey): boolean {
-  return PLAYABLE_BUILDING_KEYS.has(buildingKey);
-}
+export const calculateHangarCapacity = (coreLevel: number): number => 5 + coreLevel * 5;
 
 /**
  * Returns all unlock milestones for a given building.

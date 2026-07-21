@@ -3,7 +3,10 @@ import { ref, computed } from 'vue';
 import BuildingsTab from './BuildingsTab.vue';
 import FleetTab from './FleetTab.vue';
 import LogisticsTab from './LogisticsTab.vue';
-type Section = 'buildings' | 'fleet' | 'logistics' | 'defense';
+import FrontierTab from './FrontierTab.vue';
+import ResearchTab from './ResearchTab.vue';
+import DefenseTab from './DefenseTab.vue';
+type Section = 'buildings' | 'fleet' | 'logistics' | 'research' | 'frontier' | 'defense';
 
 const { stationId, stationName } = defineProps<{
   stationId: string;
@@ -71,7 +74,14 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         class="flex items-center gap-0.5 px-4 h-8 border-b border-white/5 bg-[#040911]/60 shrink-0"
       >
         <button
-          v-for="tab in ['buildings', 'fleet', 'logistics', 'defense'] as Section[]"
+          v-for="tab in [
+            'buildings',
+            'fleet',
+            'logistics',
+            'research',
+            'frontier',
+            'defense',
+          ] as Section[]"
           :key="tab"
           @click="selectedSection = tab"
           class="px-3 h-5 rounded text-[9px] uppercase tracking-[0.25em] transition"
@@ -111,10 +121,21 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         :station-id="stationId"
         class="flex-1 overflow-hidden flex flex-col"
       />
-      <!-- ── Placeholder tabs ───────────────────────────────────────────────── -->
-      <div v-show="selectedSection === 'defense'" class="flex-1 flex items-center justify-center">
-        <p class="text-white/15 text-[9px] uppercase tracking-[0.4em]">defense — coming soon</p>
-      </div>
+      <FrontierTab
+        v-if="selectedSection === 'frontier'"
+        :station-id="stationId"
+        class="flex-1 overflow-hidden"
+      />
+      <ResearchTab
+        v-if="selectedSection === 'research'"
+        :station-id="stationId"
+        class="flex-1 overflow-hidden"
+      />
+      <DefenseTab
+        v-if="selectedSection === 'defense'"
+        :station-id="stationId"
+        class="flex-1 overflow-hidden"
+      />
     </div>
   </div>
 </template>

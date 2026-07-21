@@ -5,7 +5,8 @@ import { AsteroidLayer } from './AsteroidLayer.js';
 import { RouteLayer } from './RouteLayer.js';
 import { TripLayer, type ActiveTrip } from './TripLayer.js';
 import { StationLayer } from './StationLayer.js';
-import type { VisibleStation } from '@orions-frontier/shared';
+import { DebrisLayer } from './DebrisLayer.js';
+import type { DebrisField, VisibleStation } from '@orions-frontier/shared';
 import {
   ZOOM_INITIAL,
   ZOOM_STEP,
@@ -49,6 +50,7 @@ export class WorldRenderer {
   private streamer: ChunkStreamer;
   private asteroidLayer: AsteroidLayer;
   private stationLayer: StationLayer;
+  private debrisLayer: DebrisLayer;
 
   // ── PixiJS objects ────────────────────────────────────────────────────────
   private app!: Application;
@@ -103,6 +105,8 @@ export class WorldRenderer {
   onStationClick: (() => void) | null = null;
   /** Called when the user clicks another player's or bot's station. */
   onForeignStationClick: ((station: VisibleStation) => void) | null = null;
+  /** Called when the user clicks salvageable wreckage. */
+  onDebrisClick: ((field: DebrisField) => void) | null = null;
   /** Called whenever drag state changes (for cursor updates in Vue) */
   onDragStateChange: ((dragging: boolean) => void) | null = null;
   /** Called when hover enters/leaves an asteroid (for cursor updates) */
@@ -115,14 +119,17 @@ export class WorldRenderer {
     this.streamer = new ChunkStreamer();
     this.asteroidLayer = new AsteroidLayer();
     this.stationLayer = new StationLayer();
+    this.debrisLayer = new DebrisLayer();
 
     this.streamer.onChunkLoaded = (key, chunk) => {
       this.asteroidLayer.addChunk(key, chunk.asteroids);
       this.stationLayer.addChunk(key, chunk.stations);
+      this.debrisLayer.addChunk(key, chunk.debris);
     };
     this.streamer.onChunkUnloaded = (key) => {
       this.asteroidLayer.removeChunk(key);
       this.stationLayer.removeChunk(key);
+      this.debrisLayer.removeChunk(key);
     };
   }
 
@@ -136,6 +143,7 @@ export class WorldRenderer {
     if (station) {
       this.camera.x = station.x;
       this.camera.y = station.y;
+      this.stationLayer.setActiveStationId(station.id);
     }
 
     // ── PixiJS Application ──────────────────────────────────────────────────
@@ -178,6 +186,9 @@ export class WorldRenderer {
 
     // Asteroid layer lives in world space
     this.worldContainer.addChild(this.asteroidLayer.container);
+
+    // Salvageable wreckage.
+    this.worldContainer.addChild(this.debrisLayer.container);
 
     // Other stations are loaded with their chunks.
     this.worldContainer.addChild(this.stationLayer.container);
@@ -380,6 +391,7 @@ export class WorldRenderer {
     this.streamer.destroy();
     this.asteroidLayer.clear();
     this.stationLayer.clear();
+    this.debrisLayer.clear();
     if (this.app) {
       this.app.destroy({ removeView: true }, { children: true });
     }
@@ -568,6 +580,7 @@ export class WorldRenderer {
               this.stationRadius + 5
             : false;
           const foreignStation = this.stationLayer.hitTest(world.x, world.y, tolerance);
+          const debris = this.debrisLayer.hitTest(world.x, world.y, tolerance);
           if (newHoveredStation !== this._hoveredStation) {
             this._hoveredStation = newHoveredStation;
             if (this.stationOverlay) {
@@ -576,7 +589,8 @@ export class WorldRenderer {
           }
 
           // Unified cursor callback
-          const isHovering = newId !== null || newHoveredStation || foreignStation !== null;
+          const isHovering =
+            newId !== null || newHoveredStation || foreignStation !== null || debris !== null;
           if (isHovering !== this._isHoveringEntity) {
             this._isHoveringEntity = isHovering;
             this.onHoverEntityChange?.(isHovering);
@@ -604,7 +618,11 @@ export class WorldRenderer {
             this.stationRadius + 5
           : false;
         const foreignStationHit = this.stationLayer.hitTest(world.x, world.y, tolerance);
-        if (hit) {
+        const debrisHit = this.debrisLayer.hitTest(world.x, world.y, tolerance);
+        if (debrisHit) {
+          this._selectedStation = false;
+          this.onDebrisClick?.(debrisHit);
+        } else if (hit) {
           this._selectedStation = false;
           if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;
           this.onAsteroidClick?.(hit.id);

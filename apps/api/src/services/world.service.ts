@@ -7,6 +7,8 @@ import { spacecraftDefinitions } from '../lib/db/schema/spacecraft-definitions.j
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
+import { worldMissions } from '../lib/db/schema/world-missions.js';
+import { debrisFields } from '../lib/db/schema/debris-fields.js';
 import type { VisibleStation, VisibleWorldTrip } from '@orions-frontier/shared';
 
 export interface WorldChunkRange {
@@ -63,6 +65,7 @@ export async function getVisibleChunkStations(
 
 export async function getVisibleWorldTrips(
   range: WorldChunkRange,
+  userId: string,
   now = new Date()
 ): Promise<VisibleWorldTrip[]> {
   const db = getDb();
@@ -82,6 +85,7 @@ export async function getVisibleWorldTrips(
       name: spacecraftDefinitions.name,
       image: spacecraftDefinitions.image,
       role: spacecraftDefinitions.role,
+      userId: stations.userId,
       botUserId: botControllers.userId,
     })
     .from(spacecraftTrips)
@@ -110,7 +114,15 @@ export async function getVisibleWorldTrips(
       ])
     ),
   ];
-  const [stationRows, asteroidRows] = await Promise.all([
+  const debrisIds = [
+    ...new Set(
+      trips.flatMap((trip) => [
+        ...(trip.fromType === 'debris' ? [trip.fromId] : []),
+        ...(trip.toType === 'debris' ? [trip.toId] : []),
+      ])
+    ),
+  ];
+  const [stationRows, asteroidRows, debrisRows] = await Promise.all([
     stationIds.length
       ? db
           .select({ id: stations.id, x: stations.x, y: stations.y })
@@ -123,13 +135,19 @@ export async function getVisibleWorldTrips(
           .from(asteroids)
           .where(inArray(asteroids.id, asteroidIds))
       : [],
+    debrisIds.length
+      ? db
+          .select({ id: debrisFields.id, x: debrisFields.x, y: debrisFields.y })
+          .from(debrisFields)
+          .where(inArray(debrisFields.id, debrisIds))
+      : [],
   ]);
   const positions = new Map(
-    [...stationRows, ...asteroidRows].map((position) => [position.id, position])
+    [...stationRows, ...asteroidRows, ...debrisRows].map((position) => [position.id, position])
   );
   const bounds = worldBounds(range);
 
-  return trips.flatMap((trip): VisibleWorldTrip[] => {
+  const visibleTrips = trips.flatMap((trip): VisibleWorldTrip[] => {
     const from = positions.get(trip.fromId);
     const to = positions.get(trip.toId);
     if (!from || !to) return [];
@@ -154,7 +172,7 @@ export async function getVisibleWorldTrips(
         departedAt: trip.departedAt.toISOString(),
         arrivesAt: trip.arrivesAt.toISOString(),
         purpose: trip.purpose,
-        groupSize: trip.groupSize,
+        groupSize: trip.userId === userId ? trip.groupSize : null,
         ownerType: trip.botUserId ? 'bot' : 'player',
         spacecraft: {
           name: trip.name,
@@ -164,4 +182,71 @@ export async function getVisibleWorldTrips(
       },
     ];
   });
+
+  const missions = await db
+    .select({
+      id: worldMissions.id,
+      fromX: stations.x,
+      fromY: stations.y,
+      targetSectorX: worldMissions.targetSectorX,
+      targetSectorY: worldMissions.targetSectorY,
+      targetX: worldMissions.targetX,
+      targetY: worldMissions.targetY,
+      departedAt: worldMissions.departedAt,
+      arrivesAt: worldMissions.arrivesAt,
+      status: worldMissions.status,
+      purpose: worldMissions.missionType,
+      name: spacecraftDefinitions.name,
+      image: spacecraftDefinitions.image,
+      role: spacecraftDefinitions.role,
+      userId: worldMissions.userId,
+      botUserId: botControllers.userId,
+    })
+    .from(worldMissions)
+    .innerJoin(stations, eq(worldMissions.originStationId, stations.id))
+    .innerJoin(
+      spacecraftDefinitions,
+      eq(worldMissions.spacecraftDefinitionId, spacecraftDefinitions.id)
+    )
+    .leftJoin(botControllers, eq(botControllers.userId, worldMissions.userId))
+    .where(inArray(worldMissions.status, ['traveling', 'returning']));
+
+  const visibleMissions = missions.flatMap((mission): VisibleWorldTrip[] => {
+    const targetX = mission.targetX ?? mission.targetSectorX * WORLD_CONFIG.SECTOR.WIDTH;
+    const targetY = mission.targetY ?? mission.targetSectorY * WORLD_CONFIG.SECTOR.HEIGHT;
+    const returning = mission.status === 'returning';
+    const fromX = returning ? targetX : mission.fromX;
+    const fromY = returning ? targetY : mission.fromY;
+    const toX = returning ? mission.fromX : targetX;
+    const toY = returning ? mission.fromY : targetY;
+    const duration = mission.arrivesAt.getTime() - mission.departedAt.getTime();
+    const progress =
+      duration <= 0
+        ? 1
+        : Math.max(0, Math.min(1, (now.getTime() - mission.departedAt.getTime()) / duration));
+    const x = fromX + (toX - fromX) * progress;
+    const y = fromY + (toY - fromY) * progress;
+    if (x < bounds.minX || x >= bounds.maxX || y < bounds.minY || y >= bounds.maxY) return [];
+    return [
+      {
+        id: mission.id,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        departedAt: mission.departedAt.toISOString(),
+        arrivesAt: mission.arrivesAt.toISOString(),
+        purpose: mission.purpose as VisibleWorldTrip['purpose'],
+        groupSize: mission.userId === userId ? 1 : null,
+        ownerType: mission.botUserId ? 'bot' : 'player',
+        spacecraft: {
+          name: mission.name,
+          image: mission.image,
+          role: mission.role as VisibleWorldTrip['spacecraft']['role'],
+        },
+      },
+    ];
+  });
+
+  return [...visibleTrips, ...visibleMissions];
 }

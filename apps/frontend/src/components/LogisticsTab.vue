@@ -18,7 +18,7 @@ interface MiningAssignment {
   asteroidPrimaryResourceKey: string | null;
   spacecraftName: string;
   assignedAmount: number;
-  status: 'traveling_to_asteroid' | 'at_asteroid' | 'traveling_to_station';
+  status: 'traveling_to_asteroid' | 'traveling_to_station';
   recallRequestedAt: string | null;
   recallRequestedAmount: number;
 }
@@ -29,7 +29,7 @@ interface Trip {
   toId: string;
   departedAt: string;
   arrivesAt: string;
-  purpose: 'mine' | 'mining_return' | 'transport' | 'recall' | 'return' | 'combat';
+  purpose: 'mine' | 'mining_return' | 'combat' | 'combat_return' | 'salvage' | 'salvage_return';
 }
 
 const props = defineProps<{ stationId: string }>();

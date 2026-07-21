@@ -16,7 +16,6 @@ import { sectors } from './sectors.js';
 
 export const assignmentStatusEnum = pgEnum('assignment_status', [
   'traveling_to_asteroid',
-  'at_asteroid', // Legacy assignments created before timed mining returns
   'traveling_to_station',
 ]);
 
@@ -32,12 +31,13 @@ export const asteroids = pgTable(
     y: doublePrecision('y').notNull(),
     chunkX: integer('chunk_x').notNull(),
     chunkY: integer('chunk_y').notNull(),
-    /** Size category: determines reserve range and mining slot count */
+    /** Size category: determines its finite reserve range. */
     size: varchar('size', { length: 16 }).notNull(),
     /** Minimum scanner strength required to detect; 0 = always visible */
     hiddenLevel: integer('hidden_level').notNull().default(0),
-    /** Sector this asteroid belongs to; null for asteroids generated before sector system */
-    sectorId: uuid('sector_id').references(() => sectors.id),
+    sectorId: uuid('sector_id')
+      .notNull()
+      .references(() => sectors.id),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -101,7 +101,7 @@ export const asteroidAssignments = pgTable(
     assignedAmount: integer('assigned_amount').notNull().default(1),
     assignedAt: timestamp('assigned_at').notNull().defaultNow(),
     /** Current status of the miner group for this assignment */
-    status: assignmentStatusEnum('status').notNull().default('at_asteroid'),
+    status: assignmentStatusEnum('status').notNull().default('traveling_to_asteroid'),
     /** When set, the group stops after reaching its station again. */
     recallRequestedAt: timestamp('recall_requested_at'),
     /** Number of ships that stop at the station after the current round trip. */

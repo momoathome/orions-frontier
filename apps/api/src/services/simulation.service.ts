@@ -11,6 +11,8 @@ import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { settleTripArrival } from './transport/trip-arrivals.service.js';
 import { runBotDecisionTick } from './bot/bot.service.js';
+import { completeDueWorldMissions } from './world-mission.service.js';
+import { completeDueResearch } from './research.service.js';
 
 const logger = rootLogger.child({ name: 'simulation' });
 
@@ -30,6 +32,15 @@ export async function runSimulationTick(now = new Date()): Promise<void> {
     try {
       if (await settleTripArrival(trip)) {
         publishUserEvent(userId, 'transport_tick_completed', { settled: 1 });
+        if (trip.purpose === 'combat' && trip.toType === 'station') {
+          const [defender] = await db
+            .select({ userId: stations.userId })
+            .from(stations)
+            .where(eq(stations.id, trip.toId));
+          if (defender && defender.userId !== userId) {
+            publishUserEvent(defender.userId, 'transport_tick_completed', { settled: 1 });
+          }
+        }
       }
     } catch (error) {
       logger.error({ tripId: trip.id, error }, 'Failed to settle due trip');
@@ -130,10 +141,13 @@ export async function runSimulationTick(now = new Date()): Promise<void> {
       logger.error({ orderId: order.id, error }, 'Failed to complete spacecraft build');
     }
   }
+
+  await completeDueResearch(now);
 }
 
 export async function runWorldTick(now = new Date()): Promise<void> {
   await runSimulationTick(now);
+  await completeDueWorldMissions(now);
   await runBotDecisionTick(now);
 }
 

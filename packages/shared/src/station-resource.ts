@@ -1,8 +1,8 @@
 import type { ResourceMap } from './resource.js';
 
-/** Response shape of GET /me/resources */
+/** Resource balance and recent deliveries for one station. */
 export interface UserResourceSummary {
-  /** Aggregated resource amounts across all stations */
+  /** Current resource amounts of one station */
   resources: ResourceMap;
   /** Resources delivered during the last hour */
   rates: ResourceMap;

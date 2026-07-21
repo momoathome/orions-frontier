@@ -6,6 +6,7 @@ import {
 } from '../../../services/asteroid.service.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { getVisibleChunkStations } from '../../../services/world.service.js';
+import { getVisibleDebris } from '../../../services/salvage.service.js';
 
 /** Maximum allowed chunk range per axis to prevent oversized queries */
 const MAX_CHUNK_RANGE = 20;
@@ -49,7 +50,7 @@ export default (async (app) => {
     }
 
     const scannerStrength = await getUserScannerStrength(request.user.userId);
-    const [asteroids, stations] = await Promise.all([
+    const [asteroids, stations, debris] = await Promise.all([
       getVisibleChunkAsteroids({
         minChunkX,
         maxChunkX,
@@ -58,8 +59,9 @@ export default (async (app) => {
         scannerStrength,
       }),
       getVisibleChunkStations({ minChunkX, maxChunkX, minChunkY, maxChunkY }, request.user.userId),
+      getVisibleDebris({ minChunkX, maxChunkX, minChunkY, maxChunkY }),
     ]);
 
-    return reply.send({ success: true, data: { asteroids, stations } });
+    return reply.send({ success: true, data: { asteroids, stations, debris } });
   });
 }) satisfies FastifyPluginAsync;

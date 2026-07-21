@@ -17,16 +17,6 @@ import type {
 } from '@orions-frontier/shared';
 import type { ResourceKey } from '@orions-frontier/shared';
 
-// ============================================================================
-// Asteroid Service — asteroid data and map queries
-//
-// getVisibleChunkAsteroids — chunk-based map query with scanner filter
-// getAsteroidById          — full asteroid detail with lazy tick trigger
-//
-// Assignment management (create/update/remove) lives in:
-//   services/mining/assignment.service.ts
-// ============================================================================
-
 export interface ChunkQueryParams {
   minChunkX: number;
   maxChunkX: number;
@@ -53,10 +43,6 @@ export const getUserScannerStrength = async (userId: string): Promise<number> =>
   );
 };
 
-/**
- * Returns all visible asteroids within the requested chunk rectangle.
- * Joins asteroid_veins to get the primary resource key for map rendering.
- */
 export const getVisibleChunkAsteroids = async (
   params: ChunkQueryParams
 ): Promise<VisibleAsteroid[]> => {
@@ -97,10 +83,6 @@ export const getVisibleChunkAsteroids = async (
   }));
 };
 
-// ============================================================================
-// getAsteroidById — returns full detail
-// ============================================================================
-
 export const getAsteroidById = async (
   id: string,
   scannerStrength: number,
@@ -139,7 +121,6 @@ export const getAsteroidById = async (
       )
       .innerJoin(stations, eq(stations.id, asteroidAssignments.stationId))
       .where(eq(asteroidAssignments.asteroidId, id)),
-    // Traveling trips departing FROM this asteroid carrying cargo
     db
       .select({ cargoManifest: spacecraftTrips.cargoManifest })
       .from(spacecraftTrips)
@@ -152,7 +133,6 @@ export const getAsteroidById = async (
       ),
   ]);
 
-  // Sum cargoManifest amounts across all traveling trips from this asteroid
   const inTransit: Record<string, number> = {};
   for (const trip of travelingTrips) {
     if (!trip.cargoManifest) continue;

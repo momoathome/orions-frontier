@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../middleware/auth.js';
 import { createStation } from '../../services/station.service.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
+import { seedBotsForSector } from '../../services/bot/bot-provision.service.js';
 
 const CreateStationSchema = z.object({
   name: z.string().min(1).max(128),
@@ -23,6 +24,9 @@ export default (async (app) => {
 
     const { name } = parsed.data;
     const station = await createStation(request.user.userId, { name });
+    void seedBotsForSector(station.sectorId).catch((error) => {
+      app.log.error({ error, sectorId: station.sectorId }, 'Failed to provision sector bots');
+    });
 
     return reply.status(201).send({ success: true, data: station });
   });

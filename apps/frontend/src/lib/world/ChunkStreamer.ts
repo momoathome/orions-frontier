@@ -1,4 +1,4 @@
-import type { VisibleAsteroid, VisibleStation } from '@orions-frontier/shared';
+import type { DebrisField, VisibleAsteroid, VisibleStation } from '@orions-frontier/shared';
 import {
   CHUNK_LOAD_MARGIN,
   CHUNK_UNLOAD_MARGIN,
@@ -19,6 +19,7 @@ export type ChunkKey = string;
 export interface WorldChunk {
   asteroids: VisibleAsteroid[];
   stations: VisibleStation[];
+  debris: DebrisField[];
 }
 
 export function chunkKey(cx: number, cy: number): ChunkKey {
@@ -145,14 +146,14 @@ export class ChunkStreamer {
         },
       });
 
-      const { asteroids, stations } = response.data;
+      const { asteroids, stations, debris } = response.data;
 
       // Build a per-chunk map covering every chunk in the sub-range
       // (empty chunks are stored too, so they don't get re-requested)
       const byChunk = new Map<ChunkKey, WorldChunk>();
       for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
         for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {
-          byChunk.set(chunkKey(cx, cy), { asteroids: [], stations: [] });
+          byChunk.set(chunkKey(cx, cy), { asteroids: [], stations: [], debris: [] });
         }
       }
       for (const a of asteroids) {
@@ -162,6 +163,10 @@ export class ChunkStreamer {
       for (const station of stations) {
         const key = chunkKey(station.chunkX, station.chunkY);
         byChunk.get(key)?.stations.push(station);
+      }
+      for (const field of debris) {
+        const key = chunkKey(field.chunkX, field.chunkY);
+        byChunk.get(key)?.debris.push(field);
       }
 
       for (const [key, chunk] of byChunk) {

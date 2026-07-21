@@ -19,7 +19,15 @@ export interface ActiveTrip {
   toY: number;
   departedAt: number; // ms timestamp
   arrivesAt: number; // ms timestamp
-  purpose: 'mine' | 'mining_return' | 'transport' | 'recall' | 'return' | 'combat';
+  purpose:
+    | 'mine'
+    | 'mining_return'
+    | 'combat'
+    | 'combat_return'
+    | 'expedition'
+    | 'colonization'
+    | 'salvage'
+    | 'salvage_return';
   groupSize: number;
 }
 
@@ -30,10 +38,12 @@ const PHASE_COLOR = {
 } as const;
 
 const PURPOSE_COLOR: Record<Exclude<ActiveTrip['purpose'], 'mine' | 'mining_return'>, number> = {
-  transport: 0x44ff88, // green
-  recall: 0xffaa22, // orange
-  return: 0x44aaff, // blue (same as mine, but could be different if desired)
   combat: 0xff4444, // red
+  combat_return: 0xff7777,
+  expedition: 0xaa88ff,
+  colonization: 0xffcc66,
+  salvage: 0xbb88ff,
+  salvage_return: 0xddbbff,
 };
 
 export class TripLayer {

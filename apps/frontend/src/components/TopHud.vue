@@ -6,6 +6,8 @@ import { wsClient } from '../lib/ws-client.js';
 import type { ResourceKey, UserResourceSummary } from '@orions-frontier/shared';
 import { ALL_RESOURCES } from '../lib/spacecraft-utils';
 
+const { stationId } = defineProps<{ stationId: string }>();
+
 type ResourceEntry = {
   key: ResourceKey;
   name: string;
@@ -47,7 +49,8 @@ function applyResourceSummary(summary: UserResourceSummary) {
 async function fetchResources() {
   try {
     const response = await apiClient.get<{ success: true; data: UserResourceSummary }>(
-      '/me/resources'
+      '/me/resources',
+      { params: { stationId } }
     );
     applyResourceSummary(response.data);
     isOnline.value = true;
@@ -58,8 +61,8 @@ async function fetchResources() {
 
 // Instant update when resources are deducted (building upgrade / spacecraft build)
 const unsubscribeResources = wsClient.on('resources_updated', (payload) => {
-  const p = payload as { resources?: UserResourceSummary['resources'] };
-  if (p?.resources) {
+  const p = payload as { stationId?: string; resources?: UserResourceSummary['resources'] };
+  if (p?.stationId === stationId && p.resources) {
     // Merge amounts only — rates remain until next full fetch
     resourceEntries.value = resourceEntries.value.map((e) => ({
       ...e,

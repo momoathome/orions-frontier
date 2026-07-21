@@ -2,8 +2,8 @@
 
 Orion's Frontier ist ein persistentes Idle-Browsergame. Spieler und wirtschaftliche Bots
 erschließen endliche Asteroiden, weisen Miner zu und beobachten ihre vollständigen Rundläufe in
-einer lebenden Welt. Bots verwenden dieselben Ressourcen, Bau-Queues, Reisezeiten und
-Mining-Regeln wie Spieler.
+einer lebenden Sektorwelt. Exploration, weitere Stationen, Kampf, Bergung und Forschung verwenden
+dieselben persistenten Reise-, Kosten- und Zeitregeln.
 
 Das Repository ist ein npm-Monorepo mit zwei Anwendungen und zwei gemeinsam genutzten
 TypeScript-Paketen.
@@ -69,16 +69,25 @@ npm run typecheck
 npm run lint
 npm run format
 npm run db:migrate
+npm run world:report
 ```
 
 Die API führt Migrationen beim Start automatisch aus. `npm run db:migrate` ist nur für eine
 manuelle Wiederholung nötig und lädt dabei die lokale `.env`-Datei.
+`npm run world:report` erzeugt die konfigurierte Startwelt rein im Speicher und gibt Asteroidenzahl
+sowie Ressourcenmenge je Sektor aus.
+
+Die Migrationen `0026_remove_world_legacy.sql` und `0027_sector_role.sql` setzen die noch nicht
+produktive Entwicklungswelt beim Wechsel auf die neuen Sektorregeln zurück. Menschliche
+Benutzerkonten bleiben erhalten; Entwicklungswelt, Demo-Station und Bots werden beim nächsten
+API-Start neu angelegt. Andere bestehende Benutzer können danach wieder eine Anfangsstation
+gründen. Ein eigener Daten-Backfill ist deshalb nicht vorgesehen.
 
 `npm run test:behavior` startet PostgreSQL über Docker und prüft unter anderem konkurrierende
 Ressourcenausgaben und Mining-Zugriffe, vollständige Mining-Rundläufe, Recall und Erschöpfung,
-das Aufholen nach einem Neustart, Bot-Entscheidungen und -Wachstum sowie die
-WebSocket-Authentifizierung. Mit `npm run verify` laufen statische Checks, Build und
-Verhaltenschecks gemeinsam.
+das Aufholen nach einem Neustart, Bot-Entscheidungen und -Wachstum, Exploration, Kolonisation,
+Kampf, Bergung, Einfluss, Forschung sowie die WebSocket-Authentifizierung. Mit `npm run verify`
+laufen statische Checks, Build und Verhaltenschecks gemeinsam.
 
 Einzelne Workspaces lassen sich direkt ansprechen:
 
@@ -97,5 +106,5 @@ Wir erweitern den vorhandenen technischen Vorsprung nicht um weitere klassische
 Browsergame-Kataloge. Neue Arbeit stärkt den spielergesteuerten Idle-Kern: endliche Asteroiden,
 sichtbare Mining-Rundläufe, verständliche Leistungswerte und bewusste Investitionsentscheidungen.
 
-Die geplante schrittweise Umstellung ist im [Umsetzungsplan](docs/implementation-plan.md)
-festgehalten.
+Der aktuelle Stand und die verbleibende Balancingphase sind im
+[Umsetzungsplan](docs/implementation-plan.md) festgehalten.

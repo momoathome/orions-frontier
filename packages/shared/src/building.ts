@@ -21,13 +21,14 @@ export type BuildingKey = (typeof buildingKeys)[number];
 
 export type BuildingEffectType =
   | 'station_progression'
+  | 'hangar_capacity'
   | 'spacecraft_unlock'
   | 'spacecraft_production_bonus'
   | 'storage_capacity'
   | 'protected_storage'
   | 'scanner_strength'
   | 'defense_power'
-  | 'research_points';
+  | 'research_capacity';
 
 // ============================================================================
 // Building Definition (static / seeded)

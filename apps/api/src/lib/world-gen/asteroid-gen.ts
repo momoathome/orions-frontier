@@ -1,10 +1,3 @@
-// ============================================================================
-// world-gen/asteroid-gen.ts
-// Asteroid and vein construction helpers.
-//
-// buildAsteroidBase() keeps shared size, reserve and chunk logic in one place.
-// ============================================================================
-
 import { WORLD_CONFIG } from '../world-config.js';
 import type { AsteroidSize, VeinType } from '@orions-frontier/shared';
 import type { GeneratedAsteroid, GeneratedVein } from './types.js';
@@ -12,16 +5,15 @@ import type { SeededRng } from './rng.js';
 
 const { CHUNK_SIZE } = WORLD_CONFIG;
 
-// ── Chunk coordinate helper ────────────────────────────────────────────────────
-
-export const worldToChunk = (x: number, y: number): { chunkX: number; chunkY: number } => ({
+const worldToChunk = (x: number, y: number): { chunkX: number; chunkY: number } => ({
   chunkX: Math.floor(x / CHUNK_SIZE),
   chunkY: Math.floor(y / CHUNK_SIZE),
 });
 
-// ── Weighted random pick ───────────────────────────────────────────────────────
-
-export function pickWeighted(pool: { resource: string; weight: number }[], rng: SeededRng): string {
+export function pickWeighted(
+  pool: readonly { resource: string; weight: number }[],
+  rng: SeededRng
+): string {
   const total = pool.reduce((s, p) => s + p.weight, 0);
   if (total <= 0) return pool[0]!.resource;
   let roll = rng.next() * total;
@@ -32,8 +24,6 @@ export function pickWeighted(pool: { resource: string; weight: number }[], rng: 
   return pool[pool.length - 1]!.resource;
 }
 
-// ── Size picker ────────────────────────────────────────────────────────────────
-
 export interface SizeWeights {
   small: number;
   medium: number;
@@ -41,8 +31,8 @@ export interface SizeWeights {
   massive: number;
 }
 
-export function pickSize(rng: SeededRng, weights?: SizeWeights): AsteroidSize {
-  const w = weights ?? WORLD_CONFIG.SIZE_WEIGHTS;
+function pickSize(rng: SeededRng, weights: SizeWeights): AsteroidSize {
+  const w = weights;
   const total = w.small + w.medium + w.large + w.massive;
   const roll = rng.next() * total;
   let acc = w.small;
@@ -53,8 +43,6 @@ export function pickSize(rng: SeededRng, weights?: SizeWeights): AsteroidSize {
   if (roll < acc) return 'large';
   return 'massive';
 }
-
-// ── Shared asteroid base ───────────────────────────────────────────────────────
 
 interface AsteroidBase {
   size: AsteroidSize;
@@ -72,17 +60,15 @@ function buildAsteroidBase(x: number, y: number, size: AsteroidSize, rng: Seeded
   return { size, resourceAmount, chunkX, chunkY };
 }
 
-// ── Core asteroid builder ──────────────────────────────────────────────────────
-
 const VEIN_TYPES: readonly VeinType[] = ['primary', 'secondary', 'trace'];
 
 export function buildAsteroid(
   x: number,
   y: number,
   primaryResource: string,
-  secondaryPool: { resource: string; weight: number }[],
+  secondaryPool: readonly { resource: string; weight: number }[],
   rng: SeededRng,
-  sizeWeights?: SizeWeights
+  sizeWeights: SizeWeights
 ): GeneratedAsteroid {
   const size = pickSize(rng, sizeWeights);
   const base = buildAsteroidBase(x, y, size, rng);
@@ -91,24 +77,21 @@ export function buildAsteroid(
   const veinCount = rng.nextInt(veinRange.min, veinRange.max);
   const amountWeights = Array.from({ length: veinCount }, (_, index) => {
     const veinType = VEIN_TYPES[Math.min(index, VEIN_TYPES.length - 1)]!;
-    return veinCount === 1 ? 1 : WORLD_CONFIG.VEIN_MODIFIER[veinType];
+    return veinCount === 1 ? 1 : WORLD_CONFIG.VEIN_WEIGHTS[veinType];
   });
   const totalAmountWeight = amountWeights.reduce((sum, weight) => sum + weight, 0);
   let allocatedAmount = 0;
 
-  // Track used resources so no two veins share the same resource.
   const usedResources = new Set<string>([primaryResource]);
 
   const veins: GeneratedVein[] = [];
   for (let i = 0; i < veinCount; i++) {
-    // Clamp index so veinType is always valid even if VEIN_COUNT max ever exceeds 3.
     const veinType = VEIN_TYPES[Math.min(i, VEIN_TYPES.length - 1)]!;
 
     let resourceKey: string;
     if (i === 0) {
       resourceKey = primaryResource;
     } else {
-      // Filter out already-used resources; fall back to full pool if nothing remains.
       const available = secondaryPool.filter((p) => !usedResources.has(p.resource));
       resourceKey = pickWeighted(available.length > 0 ? available : secondaryPool, rng);
       usedResources.add(resourceKey);
@@ -134,25 +117,20 @@ export function buildAsteroid(
   };
 }
 
-// ── Starter asteroid builder ───────────────────────────────────────────────────
-//
-// Starter asteroids always have a single primary vein with guaranteed resource.
-
 export function buildStarterAsteroid(
   x: number,
   y: number,
-  guaranteed: { primaryResource: string; size: string },
+  guaranteed: { primaryResource: string; size: AsteroidSize },
   rng: SeededRng
 ): GeneratedAsteroid {
-  const size = guaranteed.size as AsteroidSize;
-  const base = buildAsteroidBase(x, y, size, rng);
+  const base = buildAsteroidBase(x, y, guaranteed.size, rng);
 
   return {
     x,
     y,
     chunkX: base.chunkX,
     chunkY: base.chunkY,
-    size,
+    size: guaranteed.size,
     hiddenLevel: 0,
     veins: [
       {

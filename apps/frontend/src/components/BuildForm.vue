@@ -22,7 +22,7 @@ async function fetchPlayerResources() {
     const response = await apiClient.get<{
       success: true;
       data: { resources: Record<string, number> };
-    }>('/me/resources');
+    }>('/me/resources', { params: { stationId: props.stationId } });
     playerResources.value = response.data.resources;
   } catch {
     // silently ignore – Max button simply won't work without fresh data

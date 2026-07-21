@@ -14,10 +14,9 @@ import {
   seedSpacecraftDefinitions,
   seedBuildingDefinitions,
   seedAsteroidWorld,
-  seedSpawnSlots,
   seedDevUser,
-  seedWorldBots,
 } from './lib/seed.js';
+import { seedBotsForOccupiedSectors } from './services/bot/bot-provision.service.js';
 import { runMigrations } from './lib/db/migrate.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -73,15 +72,12 @@ const start = async () => {
     await seedAsteroidWorld();
     fastify.log.info('Asteroid world seeded');
 
-    await seedSpawnSlots();
-    fastify.log.info('Spawn slots seeded');
-
     if (process.env['NODE_ENV'] === 'development') {
       await seedDevUser();
       fastify.log.info('Dev user seeded');
     }
 
-    await seedWorldBots();
+    await seedBotsForOccupiedSectors();
     fastify.log.info('World bots seeded');
 
     // Complete overdue work before accepting traffic, then poll PostgreSQL.

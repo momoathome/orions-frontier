@@ -19,8 +19,17 @@ export interface VisibleWorldTrip {
   toY: number;
   departedAt: string;
   arrivesAt: string;
-  purpose: 'mine' | 'mining_return' | 'transport' | 'recall' | 'return' | 'combat';
-  groupSize: number;
+  purpose:
+    | 'mine'
+    | 'mining_return'
+    | 'combat'
+    | 'combat_return'
+    | 'expedition'
+    | 'colonization'
+    | 'salvage'
+    | 'salvage_return';
+  /** Exact fleet size is private to its owner. */
+  groupSize: number | null;
   ownerType: 'player' | 'bot';
   spacecraft: {
     name: string;

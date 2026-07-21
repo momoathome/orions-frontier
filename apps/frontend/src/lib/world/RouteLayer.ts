@@ -3,9 +3,7 @@ import { Graphics } from 'pixi.js';
 // ============================================================================
 // RouteLayer
 // Draws animated dashed connection lines in world space.
-// Used for:
-//   - Mining assignments (station → asteroid)
-//   - Transporter routes (station → asteroid, later)
+// Used for mining assignments from a station to an asteroid.
 //
 // Call setRoutes() to update, redraw(phase) every tick for animation.
 // ============================================================================

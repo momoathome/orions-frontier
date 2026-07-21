@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../middleware/auth.js';
 import { getDb } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
-import { getStationSpacecrafts } from '../../../services/spacecraft.service.js';
+import { getStationHangar, getStationSpacecrafts } from '../../../services/spacecraft.service.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 /**
@@ -26,11 +26,14 @@ export default (async (app) => {
       throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
     }
 
-    const spacecrafts = await getStationSpacecrafts(station.id);
+    const [spacecrafts, hangar] = await Promise.all([
+      getStationSpacecrafts(station.id),
+      getStationHangar(station.id),
+    ]);
 
     return reply.send({
       success: true,
-      data: { stationId: station.id, spacecrafts },
+      data: { stationId: station.id, spacecrafts, hangar },
     });
   });
 }) satisfies FastifyPluginAsync;

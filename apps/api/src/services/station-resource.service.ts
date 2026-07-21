@@ -4,7 +4,13 @@ import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
-import type { ResourceKey, ResourceMap } from '@orions-frontier/shared';
+import {
+  AppError,
+  ErrorCode,
+  resourceKeys,
+  type ResourceKey,
+  type ResourceMap,
+} from '@orions-frontier/shared';
 
 // ============================================================================
 // Initial resource amounts for new stations
@@ -26,45 +32,33 @@ type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 
 export const seedStationResources = async (
   stationId: string,
-  db: SeedDb = getDb()
+  db: SeedDb = getDb(),
+  amounts: ResourceMap = INITIAL_RESOURCES
 ): Promise<void> => {
-  const rows = (Object.entries(INITIAL_RESOURCES) as [ResourceKey, number][]).map(
-    ([resourceKey, amount]) => ({
-      stationId,
-      resourceKey,
-      amount,
-    })
-  );
+  const rows = resourceKeys.map((resourceKey) => ({
+    stationId,
+    resourceKey,
+    amount: amounts[resourceKey] ?? 0,
+  }));
 
   await db.insert(stationResources).values(rows);
 };
 
-// ============================================================================
-// Aggregate resources across all stations of a user
-// ============================================================================
-
-export const getUserAggregatedResources = async (userId: string): Promise<ResourceMap> => {
+export const getStationResources = async (
+  userId: string,
+  stationId: string
+): Promise<ResourceMap> => {
   const db = getDb();
-
-  const userStations = await db
-    .select({ id: stations.id })
-    .from(stations)
-    .where(eq(stations.userId, userId));
-
-  if (userStations.length === 0) {
-    return {};
-  }
-
-  const stationIds = userStations.map((s) => s.id);
-
   const rows = await db
-    .select()
+    .select({ resource: stationResources })
     .from(stationResources)
-    .where(inArray(stationResources.stationId, stationIds));
+    .innerJoin(stations, eq(stationResources.stationId, stations.id))
+    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)));
+  if (rows.length === 0) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
   return rows.reduce<ResourceMap>((acc, row) => {
-    const key = row.resourceKey as ResourceKey;
-    acc[key] = (acc[key] ?? 0) + row.amount;
+    const key = row.resource.resourceKey as ResourceKey;
+    acc[key] = row.resource.amount;
     return acc;
   }, {});
 };
@@ -73,23 +67,21 @@ export const getUserAggregatedResources = async (userId: string): Promise<Resour
 // Get actual mining deliveries during the last hour.
 // ============================================================================
 
-export const getDeliveredResourceRates = async (userId: string): Promise<ResourceMap> => {
+export const getDeliveredResourceRates = async (
+  userId: string,
+  stationId: string
+): Promise<ResourceMap> => {
   const db = getDb();
-
-  const userStations = await db
+  const [station] = await db
     .select({ id: stations.id })
     .from(stations)
-    .where(eq(stations.userId, userId));
+    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)));
+  if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-  if (userStations.length === 0) return {};
-
-  const stationIds = userStations.map((s) => s.id);
-
-  // Find all stationSpacecraft IDs for this user
   const ssRows = await db
     .select({ id: stationSpacecrafts.id })
     .from(stationSpacecrafts)
-    .where(inArray(stationSpacecrafts.stationId, stationIds));
+    .where(eq(stationSpacecrafts.stationId, stationId));
 
   if (ssRows.length === 0) return {};
 
@@ -107,6 +99,7 @@ export const getDeliveredResourceRates = async (userId: string): Promise<Resourc
       and(
         inArray(spacecraftTrips.stationSpacecraftId, ssIds),
         eq(spacecraftTrips.status, 'arrived'),
+        eq(spacecraftTrips.purpose, 'mining_return'),
         eq(spacecraftTrips.toType, 'station'),
         gte(spacecraftTrips.arrivesAt, oneHourAgo)
       )

@@ -65,7 +65,7 @@ Größe erzeugt und auf die vorhandenen Adern verteilt. Dafür kann die bestehen
 Primär-, Sekundär- und Spurader zunächst weiterverwendet werden; sie ist dann nur noch eine
 Verteilungsregel und kein Förderlimit.
 
-Beispielhafte, noch nicht balancierte Vorratsbereiche:
+Aktuelle Vorratsbereiche der spielbaren Baseline:
 
 | Größe  |    Gesamtvorrat |
 | ------ | --------------: |
@@ -74,7 +74,8 @@ Beispielhafte, noch nicht balancierte Vorratsbereiche:
 | groß   |   50.000–80.000 |
 | massiv | 120.000–200.000 |
 
-Die Werte sind Startwerte für den spielbaren Durchstich, keine endgültige Balance. Ressourcen
+Die Werte bilden den messbaren Startvertrag für den spielbaren Durchstich. Weiteres Balancing
+erfolgt anhand echter Spielsessions. Ressourcen
 werden als ganze Einheiten gespeichert. Ein Asteroid gilt ohne zusätzliches Statusfeld als
 erschöpft, sobald alle seine Adern `remainingAmount = 0` besitzen. Er bleibt nur so lange in der Welt,
 bis alle bereits aktiven Minergruppen ihre beanspruchte Ladung abgeliefert haben. Mit der Rückkehr
@@ -217,13 +218,14 @@ Der erste Schnitt erhält keine weitere Verbrauchsregel nur um ihrer selbst will
 Separate Frachter und lokale Ressourcenpuffer sind kein Teil des ersten Kerns. Sie werden nicht als
 bereits geplantes Ausbaulevel vorgebaut.
 
-## Noch festzulegen
+## Aktuelle Balancing-Baseline
 
-Diese Werte und Darstellungsfragen werden anhand des ersten spielbaren Rundlaufs entschieden:
+- Ein kleiner Starterasteroid hält mit einer Mole ungefähr 80-117 Stunden, mit drei Mole noch
+  ungefähr 27-40 Stunden.
+- Eine neue Station beginnt mit einer Mole (`120/h`, 100 Frachtraum, Geschwindigkeit 80).
+- Starterziele ergeben damit ungefähr eine Stunde bis zur ersten vollen Lieferung.
+- Core-Level 1 bietet zehn Hangarplätze. Der Spieler kann seine erste Miningflotte ausbauen, muss
+  vor größeren zivilen und militärischen Flotten aber in den Core investieren.
 
-1. Wie lange hält ein kleiner früher Asteroid bei einem üblichen Miner ungefähr?
-2. Welche Miner und Schiffswerte besitzt eine neue Station zu Beginn?
-3. Wann werden Hangarplätze erstmals spielerisch notwendig?
-
-Sie blockieren die technische Vorbereitung nicht. Für den ersten Durchstich genügen klar
-gekennzeichnete Startwerte, die anschließend anhand des Spielgefühls geändert werden.
+Diese Werte sind als Regressionstest festgehalten. Sie werden nur anhand realer Spielverläufe
+verändert, nicht durch eine zweite vorsorgliche Balanceformel.

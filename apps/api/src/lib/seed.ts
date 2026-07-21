@@ -1,5 +1,4 @@
 import bcrypt from 'bcrypt';
-import { randomUUID } from 'node:crypto';
 import { eq, or } from 'drizzle-orm';
 import { getDb } from './db/index.js';
 import {
@@ -7,23 +6,15 @@ import {
   spacecraftDefinitionCosts,
 } from './db/schema/spacecraft-definitions.js';
 import { buildingDefinitions } from './db/schema/building-definitions.js';
-import { asteroids, asteroidVeins } from './db/schema/asteroids.js';
-import { spawnSlots } from './db/schema/spawn-slots.js';
 import { sectors } from './db/schema/sectors.js';
 import { users } from './db/schema/users.js';
 import { stations } from './db/schema/stations.js';
-import { botControllers } from './db/schema/bot-controllers.js';
-import { stationBuildings } from './db/schema/station-buildings.js';
-import { stationSpacecrafts } from './db/schema/station-spacecrafts.js';
-import { stationResources } from './db/schema/station-resources.js';
 import { spacecrafts, buildings } from '@orions-frontier/game-config';
-import { seedStationSpacecrafts } from '../services/spacecraft.service.js';
-import { generateSector } from './world-gen/sector-gen.js';
-import { resourceKeys } from '@orions-frontier/shared';
 import { sql } from 'drizzle-orm';
 import { WORLD_CONFIG } from './world-config.js';
 import { logger } from './logger.js';
 import { createStation } from '../services/station.service.js';
+import { ensureSector } from '../services/sector.service.js';
 
 // ============================================================================
 // Seed all static game data from game-config into the database (idempotent).
@@ -33,25 +24,12 @@ import { createStation } from '../services/station.service.js';
 export const seedSpacecraftDefinitions = async (): Promise<void> => {
   const db = getDb();
 
-  for (const def of spacecrafts) {
-    const [upserted] = await db
-      .insert(spacecraftDefinitions)
-      .values({
-        key: def.key,
-        name: def.name,
-        description: def.description,
-        role: def.role,
-        image: def.image,
-        attack: def.attack,
-        defense: def.defense,
-        cargo: def.cargo,
-        speed: def.speed,
-        miningRate: def.miningRate,
-        buildTime: def.buildTime,
-      })
-      .onConflictDoUpdate({
-        target: spacecraftDefinitions.key,
-        set: {
+  await db.transaction(async (tx) => {
+    for (const def of spacecrafts) {
+      const [upserted] = await tx
+        .insert(spacecraftDefinitions)
+        .values({
+          key: def.key,
           name: def.name,
           description: def.description,
           role: def.role,
@@ -62,26 +40,41 @@ export const seedSpacecraftDefinitions = async (): Promise<void> => {
           speed: def.speed,
           miningRate: def.miningRate,
           buildTime: def.buildTime,
-        },
-      })
-      .returning({ id: spacecraftDefinitions.id, key: spacecraftDefinitions.key });
+        })
+        .onConflictDoUpdate({
+          target: spacecraftDefinitions.key,
+          set: {
+            name: def.name,
+            description: def.description,
+            role: def.role,
+            image: def.image,
+            attack: def.attack,
+            defense: def.defense,
+            cargo: def.cargo,
+            speed: def.speed,
+            miningRate: def.miningRate,
+            buildTime: def.buildTime,
+          },
+        })
+        .returning({ id: spacecraftDefinitions.id, key: spacecraftDefinitions.key });
 
-    if (!upserted) continue;
+      if (!upserted) continue;
 
-    // Replace costs entirely so removed/changed costs are cleaned up.
-    await db
-      .delete(spacecraftDefinitionCosts)
-      .where(eq(spacecraftDefinitionCosts.spacecraftDefinitionId, upserted.id));
-    if (def.costs.length > 0) {
-      await db.insert(spacecraftDefinitionCosts).values(
-        def.costs.map((cost) => ({
-          spacecraftDefinitionId: upserted.id,
-          resourceKey: cost.resourceKey,
-          amount: cost.amount,
-        }))
-      );
+      // Replace costs while the upsert lock serializes concurrent startup/test seeds.
+      await tx
+        .delete(spacecraftDefinitionCosts)
+        .where(eq(spacecraftDefinitionCosts.spacecraftDefinitionId, upserted.id));
+      if (def.costs.length > 0) {
+        await tx.insert(spacecraftDefinitionCosts).values(
+          def.costs.map((cost) => ({
+            spacecraftDefinitionId: upserted.id,
+            resourceKey: cost.resourceKey,
+            amount: cost.amount,
+          }))
+        );
+      }
     }
-  }
+  });
 };
 
 export const seedBuildingDefinitions = async (): Promise<void> => {
@@ -113,144 +106,24 @@ export const seedBuildingDefinitions = async (): Promise<void> => {
   }
 };
 
-// ============================================================================
-// Asteroid world seeder
-// Seeds the full asteroid world procedurally using the sector-based generator.
-// Idempotent: skips if the initial sector already exists.
-// If asteroids exist but have no veins (stale migration state), clears and reseeds.
-//
-// Initial world: sector (0,0), centred at world origin.
-// ============================================================================
-
-const ASTEROID_BATCH_SIZE = 500;
-
 export const seedAsteroidWorld = async (): Promise<void> => {
   const db = getDb();
-
-  // Sector metadata remains after its last asteroid is exhausted. It therefore
-  // distinguishes a mined-out persistent world from a database not seeded yet.
   const [sectorCount] = await db.select({ count: sql<number>`count(*)::int` }).from(sectors);
   if ((sectorCount?.count ?? 0) > 0) return;
-
-  // Keep worlds created before sector metadata was introduced.
-  const [veinCount] = await db.select({ count: sql<number>`count(*)::int` }).from(asteroidVeins);
-  if ((veinCount?.count ?? 0) > 0) return;
-
-  // Clear stale asteroids (no veins = invalid state from migration)
-  await db.delete(asteroids);
-  await db.delete(sectors);
-
-  // Generate sector (0,0) — the starting sector
-  const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED);
-  const { asteroids: generatedAsteroids } = sector;
-
-  logger.info(
-    {
-      archetype: sector.archetypeId,
-      asteroids: generatedAsteroids.length,
-      spawnSlots: sector.spawnSlots.length,
-    },
-    'World generated'
-  );
-
-  if (generatedAsteroids.length === 0) return;
-
-  // Persist sector metadata first
-  const [insertedSector] = await db
-    .insert(sectors)
-    .values({
-      sectorX: sector.sectorX,
-      sectorY: sector.sectorY,
-      archetypeId: sector.archetypeId,
-      seed: sector.seed,
-    })
-    .returning({ id: sectors.id });
-
-  const sectorId = insertedSector!.id;
-
-  // Batch-insert asteroids and collect IDs
-  const allInsertedAsteroids: { id: string }[] = [];
-
-  for (let i = 0; i < generatedAsteroids.length; i += ASTEROID_BATCH_SIZE) {
-    const batch = generatedAsteroids.slice(i, i + ASTEROID_BATCH_SIZE);
-    const inserted = await db
-      .insert(asteroids)
-      .values(
-        batch.map((a) => ({
-          x: a.x,
-          y: a.y,
-          chunkX: a.chunkX,
-          chunkY: a.chunkY,
-          size: a.size,
-          hiddenLevel: a.hiddenLevel,
-          sectorId,
-        }))
-      )
-      .returning({ id: asteroids.id });
-
-    allInsertedAsteroids.push(...inserted);
-  }
-
-  // Build vein inserts
-  const veinValues: {
-    asteroidId: string;
-    veinType: string;
-    resourceKey: string;
-    remainingAmount: number;
-  }[] = [];
-
-  for (let i = 0; i < allInsertedAsteroids.length; i++) {
-    const asteroidId = allInsertedAsteroids[i]!.id;
-    const generated = generatedAsteroids[i]!;
-
-    for (const vein of generated.veins) {
-      veinValues.push({
-        asteroidId,
-        veinType: vein.veinType,
-        resourceKey: vein.resourceKey,
-        remainingAmount: vein.remainingAmount,
-      });
+  const radius = WORLD_CONFIG.INITIAL_SECTOR_RADIUS;
+  await db.transaction(async (tx) => {
+    for (let sectorY = -radius; sectorY <= radius; sectorY += 1) {
+      for (let sectorX = -radius; sectorX <= radius; sectorX += 1) {
+        await ensureSector(
+          tx,
+          sectorX,
+          sectorY,
+          sectorX === 0 && sectorY === 0 ? 'settlement' : 'frontier'
+        );
+      }
     }
-  }
-
-  // Batch-insert veins
-  for (let i = 0; i < veinValues.length; i += ASTEROID_BATCH_SIZE) {
-    await db.insert(asteroidVeins).values(veinValues.slice(i, i + ASTEROID_BATCH_SIZE));
-  }
-};
-
-// ============================================================================
-// seedSpawnSlots
-// Generates and stores the deterministic spawn slot positions for sector (0,0).
-// Idempotent: skips if slots already exist.
-// Must be called before seedDevUser and before any station is created.
-// ============================================================================
-
-export const seedSpawnSlots = async (): Promise<void> => {
-  const db = getDb();
-
-  const [slotCount] = await db.select({ count: sql<number>`count(*)::int` }).from(spawnSlots);
-  if ((slotCount?.count ?? 0) > 0) return;
-
-  // Resolve sector (0,0) so we can set the FK
-  const [sector0] = await db
-    .select({ id: sectors.id })
-    .from(sectors)
-    .where(eq(sectors.sectorX, 0))
-    .limit(1);
-
-  // sector (0,0) may not exist yet if seedAsteroidWorld hasn't run;
-  // generate the slot positions deterministically regardless.
-  const { spawnSlots: generatedSlots } = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED);
-
-  await db.insert(spawnSlots).values(
-    generatedSlots.map((s) => ({
-      slotIndex: s.slotIndex,
-      x: s.x,
-      y: s.y,
-      sectorId: sector0?.id ?? null,
-    }))
-  );
+  });
+  logger.info({ radius, sectors: (radius * 2 + 1) ** 2 }, 'Initial world generated');
 };
 
 // ============================================================================
@@ -263,12 +136,9 @@ export const seedSpawnSlots = async (): Promise<void> => {
 
 const DEV_EMAIL = 'dev@orion.local';
 const DEV_PASSWORD = 'dev123';
-const DEV_RESOURCE_AMOUNT = 200;
-
 export const seedDevUser = async (): Promise<void> => {
   const db = getDb();
 
-  // Check if dev user exists
   const existing = await db
     .select({ id: users.id })
     .from(users)
@@ -297,164 +167,10 @@ export const seedDevUser = async (): Promise<void> => {
     devUserId = devUser.id;
   }
 
-  // Check if station already exists for this user
-  const existingStation = await db
+  const [existingStation] = await db
     .select({ id: stations.id })
     .from(stations)
     .where(eq(stations.userId, devUserId))
     .limit(1);
-
-  let devStationId: string;
-
-  if (existingStation.length > 0) {
-    // Station exists — check if it's fully equipped and fill in any missing parts
-    devStationId = existingStation[0]!.id;
-
-    const [existingResources, existingBuildings, existingSpacecrafts] = await Promise.all([
-      db
-        .select({ id: stationResources.resourceKey })
-        .from(stationResources)
-        .where(eq(stationResources.stationId, devStationId))
-        .limit(1),
-      db
-        .select({ id: stationBuildings.id })
-        .from(stationBuildings)
-        .where(eq(stationBuildings.stationId, devStationId))
-        .limit(1),
-      db
-        .select({ id: stationSpacecrafts.id })
-        .from(stationSpacecrafts)
-        .where(eq(stationSpacecrafts.stationId, devStationId))
-        .limit(1),
-    ]);
-
-    if (existingResources.length === 0) {
-      await db.insert(stationResources).values(
-        resourceKeys.map((key) => ({
-          stationId: devStationId,
-          resourceKey: key,
-          amount: DEV_RESOURCE_AMOUNT,
-        }))
-      );
-    }
-
-    if (existingBuildings.length === 0) {
-      const allBuildings = await db
-        .select({ id: buildingDefinitions.id })
-        .from(buildingDefinitions);
-      if (allBuildings.length > 0) {
-        await db.insert(stationBuildings).values(
-          allBuildings.map((b) => ({
-            stationId: devStationId,
-            buildingDefinitionId: b.id,
-            level: 1,
-          }))
-        );
-      }
-    }
-
-    if (existingSpacecrafts.length === 0) {
-      await seedStationSpacecrafts(devStationId);
-    }
-
-    return;
-  }
-
-  // 2. Create station at spawn slot 0
-  const [slot0] = await db.select().from(spawnSlots).where(eq(spawnSlots.slotIndex, 0)).limit(1);
-
-  if (!slot0) throw new Error('Spawn slot 0 not found — run seedSpawnSlots first');
-
-  const [devStation] = await db
-    .insert(stations)
-    .values({
-      userId: devUserId,
-      name: 'Dev Station Alpha',
-      x: slot0.x,
-      y: slot0.y,
-    })
-    .returning({ id: stations.id });
-
-  if (!devStation) throw new Error('Failed to create dev station');
-
-  devStationId = devStation.id;
-
-  // Mark slot 0 as claimed
-  await db.update(spawnSlots).set({ stationId: devStationId }).where(eq(spawnSlots.id, slot0.id));
-
-  // 3. Seed resources
-  await db.insert(stationResources).values(
-    resourceKeys.map((key) => ({
-      stationId: devStationId,
-      resourceKey: key,
-      amount: DEV_RESOURCE_AMOUNT,
-    }))
-  );
-
-  // 4. Assign all building definitions at level 1
-  const allBuildings = await db.select({ id: buildingDefinitions.id }).from(buildingDefinitions);
-
-  if (allBuildings.length > 0) {
-    await db.insert(stationBuildings).values(
-      allBuildings.map((b) => ({
-        stationId: devStationId,
-        buildingDefinitionId: b.id,
-        level: 1,
-      }))
-    );
-  }
-
-  // 5. Assign the normal initial fleet
-  await seedStationSpacecrafts(devStationId);
-};
-
-// ============================================================================
-// seedWorldBots
-// Creates persistent economic actors through the same station setup as players.
-// Existing bot users, stations and progress are never reset.
-// ============================================================================
-
-export const seedWorldBots = async (count = 3): Promise<void> => {
-  const db = getDb();
-
-  for (let index = 1; index <= count; index += 1) {
-    const suffix = String(index).padStart(2, '0');
-    const username = `orion-bot-${suffix}`;
-    const email = `${username}@system.invalid`;
-    const [existingUser] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
-
-    let userId = existingUser?.id;
-    if (!userId) {
-      const passwordHash = await bcrypt.hash(randomUUID(), 10);
-      const [createdUser] = await db
-        .insert(users)
-        .values({ username, email, passwordHash })
-        .returning({ id: users.id });
-      userId = createdUser!.id;
-    }
-
-    const [existingStation] = await db
-      .select({ id: stations.id })
-      .from(stations)
-      .where(eq(stations.userId, userId))
-      .limit(1);
-
-    if (!existingStation) {
-      try {
-        await createStation(userId, { name: `Prospector ${suffix}` });
-      } catch (error) {
-        logger.warn({ botUserId: userId, error }, 'Bot station could not claim a spawn slot');
-        continue;
-      }
-    }
-
-    await db
-      .insert(botControllers)
-      .values({ userId })
-      .onConflictDoNothing({ target: botControllers.userId });
-  }
+  if (!existingStation) await createStation(devUserId, { name: 'Dev Station Alpha' });
 };

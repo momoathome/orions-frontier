@@ -15,7 +15,7 @@ const __dirname = dirname(__filename);
 export const runMigrations = async (): Promise<void> => {
   if (!process.env['DATABASE_URL']) {
     try {
-      process.loadEnvFile();
+      process.loadEnvFile(join(__dirname, '../../../../../.env'));
     } catch {
       // Docker injects the environment; a local .env file is optional.
     }
