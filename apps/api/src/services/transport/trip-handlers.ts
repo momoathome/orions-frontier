@@ -44,7 +44,7 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<CreatedTrip
       stationY: stations.y,
       asteroidX: asteroids.x,
       asteroidY: asteroids.y,
-      recallRequestedAt: asteroidAssignments.recallRequestedAt,
+      recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
     })
     .from(asteroidAssignments)
     .innerJoin(
@@ -64,11 +64,13 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<CreatedTrip
   if (!assignment) return null;
 
   const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
-  const claim = assignment.recallRequestedAt
-    ? { claimedAmount: 0, cargoManifest: {} }
-    : await claimMiningCargo(tx, trip.toId, groupSize * assignment.cargo);
+  const activeGroupSize = Math.max(0, groupSize - assignment.recallRequestedAmount);
+  const claim =
+    activeGroupSize === 0
+      ? { claimedAmount: 0, cargoManifest: {} }
+      : await claimMiningCargo(tx, trip.toId, activeGroupSize * assignment.cargo);
   const miningHours =
-    claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (groupSize * assignment.miningRate);
+    claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (activeGroupSize * assignment.miningRate);
   const departedAt = new Date(trip.arrivesAt.getTime() + miningHours * 3_600_000);
   const distance = calcDistance(
     { x: assignment.asteroidX, y: assignment.asteroidY },
@@ -129,7 +131,8 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<Cre
       stationY: stations.y,
       asteroidX: asteroids.x,
       asteroidY: asteroids.y,
-      recallRequestedAt: asteroidAssignments.recallRequestedAt,
+      recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
+      assignedAmount: asteroidAssignments.assignedAmount,
     })
     .from(asteroidAssignments)
     .innerJoin(
@@ -156,7 +159,10 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<Cre
     .from(asteroidVeins)
     .where(eq(asteroidVeins.asteroidId, assignment.asteroidId));
 
-  if (assignment.recallRequestedAt || (reserve?.amount ?? 0) <= 0) {
+  const recalledAmount = Math.min(assignment.recallRequestedAmount, trip.groupSize);
+  const continuingAmount = trip.groupSize - recalledAmount;
+
+  if (continuingAmount <= 0 || (reserve?.amount ?? 0) <= 0) {
     await tx.delete(asteroidAssignments).where(eq(asteroidAssignments.id, assignment.id));
     await tx
       .update(stationSpacecrafts)
@@ -180,6 +186,24 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<Cre
     return null;
   }
 
+  if (recalledAmount > 0) {
+    await tx
+      .update(stationSpacecrafts)
+      .set({
+        lockedAmount: sql`GREATEST(0, ${stationSpacecrafts.lockedAmount} - ${recalledAmount})`,
+      })
+      .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId));
+
+    await tx
+      .update(asteroidAssignments)
+      .set({
+        assignedAmount: assignment.assignedAmount - recalledAmount,
+        recallRequestedAmount: 0,
+        recallRequestedAt: null,
+      })
+      .where(eq(asteroidAssignments.id, assignment.id));
+  }
+
   const departedAt = trip.arrivesAt;
   const distance = calcDistance(
     { x: assignment.stationX, y: assignment.stationY },
@@ -191,7 +215,7 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<Cre
     .values({
       stationSpacecraftId: trip.stationSpacecraftId,
       assignmentId: assignment.id,
-      groupSize: trip.groupSize,
+      groupSize: continuingAmount,
       fromType: 'station',
       fromId: trip.toId,
       toType: 'asteroid',

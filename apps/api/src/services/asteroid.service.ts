@@ -103,7 +103,8 @@ export const getVisibleChunkAsteroids = async (
 
 export const getAsteroidById = async (
   id: string,
-  scannerStrength: number
+  scannerStrength: number,
+  userId: string
 ): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
@@ -128,12 +129,15 @@ export const getAsteroidById = async (
         assignedAmount: asteroidAssignments.assignedAmount,
         assignedAt: asteroidAssignments.assignedAt,
         recallRequestedAt: asteroidAssignments.recallRequestedAt,
+        recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
+        ownerUserId: stations.userId,
       })
       .from(asteroidAssignments)
       .innerJoin(
         spacecraftDefinitions,
         eq(spacecraftDefinitions.id, asteroidAssignments.spacecraftDefinitionId)
       )
+      .innerJoin(stations, eq(stations.id, asteroidAssignments.stationId))
       .where(eq(asteroidAssignments.asteroidId, id)),
     // Traveling trips departing FROM this asteroid carrying cargo
     db
@@ -157,6 +161,11 @@ export const getAsteroidById = async (
     }
   }
 
+  const mayObserveOperations = assignmentRows.some(
+    (assignment) => assignment.ownerUserId === userId
+  );
+  const visibleAssignments = mayObserveOperations ? assignmentRows : [];
+
   return {
     id: row.id,
     x: row.x,
@@ -173,7 +182,8 @@ export const getAsteroidById = async (
       resourceKey: v.resourceKey as ResourceKey,
       remainingAmount: v.remainingAmount,
     })),
-    assignments: assignmentRows.map((a): AsteroidDetailAssignment => ({
+    operationsVisible: mayObserveOperations,
+    assignments: visibleAssignments.map((a): AsteroidDetailAssignment => ({
       id: a.id,
       stationId: a.stationId,
       spacecraftDefinitionId: a.spacecraftDefinitionId,
@@ -183,7 +193,8 @@ export const getAsteroidById = async (
       assignedAmount: a.assignedAmount,
       assignedAt: a.assignedAt.toISOString(),
       recallRequestedAt: a.recallRequestedAt?.toISOString() ?? null,
+      recallRequestedAmount: a.recallRequestedAmount,
     })),
-    inTransit,
+    inTransit: mayObserveOperations ? inTransit : {},
   };
 };

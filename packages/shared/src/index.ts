@@ -44,3 +44,4 @@ export * from './resource';
 export * from './building';
 export * from './asteroid';
 export * from './mining-trip';
+export * from './world';

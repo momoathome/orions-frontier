@@ -1,4 +1,4 @@
-import type { VisibleAsteroid } from '@orions-frontier/shared';
+import type { VisibleAsteroid, VisibleStation } from '@orions-frontier/shared';
 import {
   CHUNK_LOAD_MARGIN,
   CHUNK_UNLOAD_MARGIN,
@@ -16,6 +16,11 @@ import { apiClient } from '../api-client.js';
 
 export type ChunkKey = string;
 
+export interface WorldChunk {
+  asteroids: VisibleAsteroid[];
+  stations: VisibleStation[];
+}
+
 export function chunkKey(cx: number, cy: number): ChunkKey {
   return `${cx}:${cy}`;
 }
@@ -29,17 +34,17 @@ type SubRange = {
 
 export class ChunkStreamer {
   /** All currently loaded chunk data */
-  private loadedChunks = new Map<ChunkKey, VisibleAsteroid[]>();
+  private loadedChunks = new Map<ChunkKey, WorldChunk>();
   /** Chunks whose fetch is in-flight */
   private pendingChunks = new Set<ChunkKey>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  onChunkLoaded: ((key: ChunkKey, asteroids: VisibleAsteroid[]) => void) | null = null;
+  onChunkLoaded: ((key: ChunkKey, chunk: WorldChunk) => void) | null = null;
   onChunkUnloaded: ((key: ChunkKey) => void) | null = null;
 
   // ── Public interface ────────────────────────────────────────────────────
 
-  getLoaded(): ReadonlyMap<ChunkKey, VisibleAsteroid[]> {
+  getLoaded(): ReadonlyMap<ChunkKey, WorldChunk> {
     return this.loadedChunks;
   }
 
@@ -131,37 +136,38 @@ export class ChunkStreamer {
     }
 
     try {
-      const response = await apiClient.get<{ success: true; data: VisibleAsteroid[] }>(
-        '/world/chunks',
-        {
-          params: {
-            minChunkX: sub.minCX,
-            maxChunkX: sub.maxCX,
-            minChunkY: sub.minCY,
-            maxChunkY: sub.maxCY,
-          },
-        }
-      );
+      const response = await apiClient.get<{ success: true; data: WorldChunk }>('/world/chunks', {
+        params: {
+          minChunkX: sub.minCX,
+          maxChunkX: sub.maxCX,
+          minChunkY: sub.minCY,
+          maxChunkY: sub.maxCY,
+        },
+      });
 
-      const asteroids = response.data;
+      const { asteroids, stations } = response.data;
 
       // Build a per-chunk map covering every chunk in the sub-range
       // (empty chunks are stored too, so they don't get re-requested)
-      const byChunk = new Map<ChunkKey, VisibleAsteroid[]>();
+      const byChunk = new Map<ChunkKey, WorldChunk>();
       for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
         for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {
-          byChunk.set(chunkKey(cx, cy), []);
+          byChunk.set(chunkKey(cx, cy), { asteroids: [], stations: [] });
         }
       }
       for (const a of asteroids) {
         const key = chunkKey(a.chunkX, a.chunkY);
-        byChunk.get(key)?.push(a);
+        byChunk.get(key)?.asteroids.push(a);
+      }
+      for (const station of stations) {
+        const key = chunkKey(station.chunkX, station.chunkY);
+        byChunk.get(key)?.stations.push(station);
       }
 
-      for (const [key, list] of byChunk) {
+      for (const [key, chunk] of byChunk) {
         this.pendingChunks.delete(key);
-        this.loadedChunks.set(key, list);
-        this.onChunkLoaded?.(key, list);
+        this.loadedChunks.set(key, chunk);
+        this.onChunkLoaded?.(key, chunk);
       }
     } catch {
       // Clear pending so the chunks can be retried on the next camera update

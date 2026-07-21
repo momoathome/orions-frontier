@@ -20,6 +20,7 @@ interface MiningAssignment {
   assignedAmount: number;
   status: 'traveling_to_asteroid' | 'at_asteroid' | 'traveling_to_station';
   recallRequestedAt: string | null;
+  recallRequestedAmount: number;
 }
 
 interface Trip {
@@ -98,7 +99,10 @@ const asteroidRows = computed(() => {
     assignments: group,
     detail: details.value[asteroidId] ?? null,
     totalMiners: group.reduce((sum, assignment) => sum + assignment.assignedAmount, 0),
-    recallRequested: group.some((assignment) => assignment.recallRequestedAt !== null),
+    recallRequestedAmount: group.reduce(
+      (sum, assignment) => sum + assignment.recallRequestedAmount,
+      0
+    ),
   }));
 });
 
@@ -192,14 +196,21 @@ onUnmounted(() => {
               {{ resourceName(row.assignments[0]?.asteroidPrimaryResourceKey ?? 'unknown') }}
             </span>
             <span class="text-[8px] text-white/20">#{{ row.asteroidId.slice(0, 6) }}</span>
-            <span v-if="row.recallRequested" class="text-[8px] text-amber-300/60 uppercase">
-              returning
+            <span v-if="row.recallRequestedAmount" class="text-[8px] text-amber-300/60 uppercase">
+              {{ row.recallRequestedAmount }} returning
             </span>
           </div>
           <span class="text-[9px] text-white/30 truncate">
             {{
               row.assignments
-                .map((assignment) => `${assignment.assignedAmount}× ${assignment.spacecraftName}`)
+                .map(
+                  (assignment) =>
+                    `${assignment.assignedAmount}× ${assignment.spacecraftName}${
+                      assignment.recallRequestedAmount
+                        ? ` (${assignment.recallRequestedAmount} returning)`
+                        : ''
+                    }`
+                )
                 .join(' · ')
             }}
           </span>

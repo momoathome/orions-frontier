@@ -10,6 +10,7 @@ import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { settleTripArrival } from './transport/trip-arrivals.service.js';
+import { runBotDecisionTick } from './bot/bot.service.js';
 
 const logger = rootLogger.child({ name: 'simulation' });
 
@@ -131,12 +132,17 @@ export async function runSimulationTick(now = new Date()): Promise<void> {
   }
 }
 
+export async function runWorldTick(now = new Date()): Promise<void> {
+  await runSimulationTick(now);
+  await runBotDecisionTick(now);
+}
+
 export function startSimulationScheduler(intervalMs = 1_000): NodeJS.Timeout {
   let running = false;
   return setInterval(() => {
     if (running) return;
     running = true;
-    void runSimulationTick()
+    void runWorldTick()
       .catch((error) => logger.error({ error }, 'Simulation tick failed'))
       .finally(() => {
         running = false;

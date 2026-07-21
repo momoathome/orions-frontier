@@ -107,6 +107,20 @@
       "when": 1784437200000,
       "tag": "0015_remove_future_world_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1784584800000,
+      "tag": "0016_bot_controllers",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1784618506000,
+      "tag": "0017_individual_miner_recall",
+      "breakpoints": true
     }
   ]
 }

@@ -104,9 +104,15 @@ export const asteroidAssignments = pgTable(
     status: assignmentStatusEnum('status').notNull().default('at_asteroid'),
     /** When set, the group stops after reaching its station again. */
     recallRequestedAt: timestamp('recall_requested_at'),
+    /** Number of ships that stop at the station after the current round trip. */
+    recallRequestedAmount: integer('recall_requested_amount').notNull().default(0),
   },
   (table) => ({
     asteroidIdIdx: index('asteroid_assignments_asteroid_id_idx').on(table.asteroidId),
     stationIdIdx: index('asteroid_assignments_station_id_idx').on(table.stationId),
+    recallRequestedAmountValid: check(
+      'asteroid_assignments_recall_requested_amount_valid',
+      sql`${table.recallRequestedAmount} >= 0 AND ${table.recallRequestedAmount} <= ${table.assignedAmount}`
+    ),
   })
 );

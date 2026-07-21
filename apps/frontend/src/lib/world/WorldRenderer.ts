@@ -4,6 +4,8 @@ import { ChunkStreamer } from './ChunkStreamer.js';
 import { AsteroidLayer } from './AsteroidLayer.js';
 import { RouteLayer } from './RouteLayer.js';
 import { TripLayer, type ActiveTrip } from './TripLayer.js';
+import { StationLayer } from './StationLayer.js';
+import type { VisibleStation } from '@orions-frontier/shared';
 import {
   ZOOM_INITIAL,
   ZOOM_STEP,
@@ -35,6 +37,7 @@ export interface AssignedAsteroid {
 // ============================================================================
 
 export interface StationInfo {
+  id: string;
   x: number;
   y: number;
   name: string;
@@ -45,6 +48,7 @@ export class WorldRenderer {
   readonly camera: Camera;
   private streamer: ChunkStreamer;
   private asteroidLayer: AsteroidLayer;
+  private stationLayer: StationLayer;
 
   // ── PixiJS objects ────────────────────────────────────────────────────────
   private app!: Application;
@@ -97,6 +101,8 @@ export class WorldRenderer {
   onEmptyClick: ((worldX: number, worldY: number) => void) | null = null;
   /** Called when the user clicks the station */
   onStationClick: (() => void) | null = null;
+  /** Called when the user clicks another player's or bot's station. */
+  onForeignStationClick: ((station: VisibleStation) => void) | null = null;
   /** Called whenever drag state changes (for cursor updates in Vue) */
   onDragStateChange: ((dragging: boolean) => void) | null = null;
   /** Called when hover enters/leaves an asteroid (for cursor updates) */
@@ -108,12 +114,15 @@ export class WorldRenderer {
     this.camera = new Camera(ZOOM_INITIAL);
     this.streamer = new ChunkStreamer();
     this.asteroidLayer = new AsteroidLayer();
+    this.stationLayer = new StationLayer();
 
-    this.streamer.onChunkLoaded = (key, asteroids) => {
-      this.asteroidLayer.addChunk(key, asteroids);
+    this.streamer.onChunkLoaded = (key, chunk) => {
+      this.asteroidLayer.addChunk(key, chunk.asteroids);
+      this.stationLayer.addChunk(key, chunk.stations);
     };
     this.streamer.onChunkUnloaded = (key) => {
       this.asteroidLayer.removeChunk(key);
+      this.stationLayer.removeChunk(key);
     };
   }
 
@@ -148,6 +157,7 @@ export class WorldRenderer {
     );
     this.asteroidLayer.setTextures(asteroidTextures);
     const stationTexture: Texture = await Assets.load('/assets/map/station.webp');
+    this.stationLayer.setTexture(stationTexture);
 
     // ── Scene graph ─────────────────────────────────────────────────────────
     // Screen-space layer (no camera transform)
@@ -168,6 +178,9 @@ export class WorldRenderer {
 
     // Asteroid layer lives in world space
     this.worldContainer.addChild(this.asteroidLayer.container);
+
+    // Other stations are loaded with their chunks.
+    this.worldContainer.addChild(this.stationLayer.container);
 
     // Station marker
     if (station) {
@@ -261,6 +274,10 @@ export class WorldRenderer {
   getAsteroidWorldPos(id: string): { x: number; y: number } | null {
     const hit = this.asteroidLayer.getAsteroidPosition(id);
     return hit ? { x: hit.x, y: hit.y } : null;
+  }
+
+  getVisibleChunkRange(margin = 1) {
+    return this.camera.getVisibleChunkRange(margin);
   }
 
   /** Called by WorldRenderer internals when hover changes. */
@@ -362,6 +379,7 @@ export class WorldRenderer {
     this.abortController.abort();
     this.streamer.destroy();
     this.asteroidLayer.clear();
+    this.stationLayer.clear();
     if (this.app) {
       this.app.destroy({ removeView: true }, { children: true });
     }
@@ -549,6 +567,7 @@ export class WorldRenderer {
             ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
               this.stationRadius + 5
             : false;
+          const foreignStation = this.stationLayer.hitTest(world.x, world.y, tolerance);
           if (newHoveredStation !== this._hoveredStation) {
             this._hoveredStation = newHoveredStation;
             if (this.stationOverlay) {
@@ -557,7 +576,7 @@ export class WorldRenderer {
           }
 
           // Unified cursor callback
-          const isHovering = newId !== null || newHoveredStation;
+          const isHovering = newId !== null || newHoveredStation || foreignStation !== null;
           if (isHovering !== this._isHoveringEntity) {
             this._isHoveringEntity = isHovering;
             this.onHoverEntityChange?.(isHovering);
@@ -584,6 +603,7 @@ export class WorldRenderer {
           ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
             this.stationRadius + 5
           : false;
+        const foreignStationHit = this.stationLayer.hitTest(world.x, world.y, tolerance);
         if (hit) {
           this._selectedStation = false;
           if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;
@@ -592,6 +612,10 @@ export class WorldRenderer {
           this._selectedStation = true;
           if (this.stationOverlay) this.stationOverlay.visible = true;
           this.onStationClick?.();
+        } else if (foreignStationHit) {
+          this._selectedStation = false;
+          if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;
+          this.onForeignStationClick?.(foreignStationHit);
         } else {
           this._selectedStation = false;
           if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;

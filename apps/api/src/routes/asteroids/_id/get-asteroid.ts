@@ -11,7 +11,7 @@ export default (async (app) => {
     }
 
     const scannerStrength = await getUserScannerStrength(request.user.userId);
-    const asteroid = await getAsteroidById(id, scannerStrength);
+    const asteroid = await getAsteroidById(id, scannerStrength, request.user.userId);
 
     if (!asteroid) {
       return reply

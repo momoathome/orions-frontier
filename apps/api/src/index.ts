@@ -9,13 +9,14 @@ import jwtPlugin from './plugins/jwt.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
 import { attachRealtimeServer } from './lib/realtime.js';
-import { runSimulationTick, startSimulationScheduler } from './services/simulation.service.js';
+import { runWorldTick, startSimulationScheduler } from './services/simulation.service.js';
 import {
   seedSpacecraftDefinitions,
   seedBuildingDefinitions,
   seedAsteroidWorld,
   seedSpawnSlots,
   seedDevUser,
+  seedWorldBots,
 } from './lib/seed.js';
 import { runMigrations } from './lib/db/migrate.js';
 
@@ -80,8 +81,11 @@ const start = async () => {
       fastify.log.info('Dev user seeded');
     }
 
+    await seedWorldBots();
+    fastify.log.info('World bots seeded');
+
     // Complete overdue work before accepting traffic, then poll PostgreSQL.
-    await runSimulationTick();
+    await runWorldTick();
     const simulationScheduler = startSimulationScheduler();
     fastify.addHook('onClose', async () => clearInterval(simulationScheduler));
 

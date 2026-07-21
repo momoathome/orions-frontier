@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import { randomUUID } from 'node:crypto';
 import { eq, or } from 'drizzle-orm';
 import { getDb } from './db/index.js';
 import {
@@ -11,6 +12,7 @@ import { spawnSlots } from './db/schema/spawn-slots.js';
 import { sectors } from './db/schema/sectors.js';
 import { users } from './db/schema/users.js';
 import { stations } from './db/schema/stations.js';
+import { botControllers } from './db/schema/bot-controllers.js';
 import { stationBuildings } from './db/schema/station-buildings.js';
 import { stationSpacecrafts } from './db/schema/station-spacecrafts.js';
 import { stationResources } from './db/schema/station-resources.js';
@@ -21,6 +23,7 @@ import { resourceKeys } from '@orions-frontier/shared';
 import { sql } from 'drizzle-orm';
 import { WORLD_CONFIG } from './world-config.js';
 import { logger } from './logger.js';
+import { createStation } from '../services/station.service.js';
 
 // ============================================================================
 // Seed all static game data from game-config into the database (idempotent).
@@ -401,6 +404,57 @@ export const seedDevUser = async (): Promise<void> => {
     );
   }
 
-  // 5. Assign initial spacecrafts (1 Mole, 10 Nomads)
+  // 5. Assign the normal initial fleet
   await seedStationSpacecrafts(devStationId);
+};
+
+// ============================================================================
+// seedWorldBots
+// Creates persistent economic actors through the same station setup as players.
+// Existing bot users, stations and progress are never reset.
+// ============================================================================
+
+export const seedWorldBots = async (count = 3): Promise<void> => {
+  const db = getDb();
+
+  for (let index = 1; index <= count; index += 1) {
+    const suffix = String(index).padStart(2, '0');
+    const username = `orion-bot-${suffix}`;
+    const email = `${username}@system.invalid`;
+    const [existingUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    let userId = existingUser?.id;
+    if (!userId) {
+      const passwordHash = await bcrypt.hash(randomUUID(), 10);
+      const [createdUser] = await db
+        .insert(users)
+        .values({ username, email, passwordHash })
+        .returning({ id: users.id });
+      userId = createdUser!.id;
+    }
+
+    const [existingStation] = await db
+      .select({ id: stations.id })
+      .from(stations)
+      .where(eq(stations.userId, userId))
+      .limit(1);
+
+    if (!existingStation) {
+      try {
+        await createStation(userId, { name: `Prospector ${suffix}` });
+      } catch (error) {
+        logger.warn({ botUserId: userId, error }, 'Bot station could not claim a spawn slot');
+        continue;
+      }
+    }
+
+    await db
+      .insert(botControllers)
+      .values({ userId })
+      .onConflictDoNothing({ target: botControllers.userId });
+  }
 };

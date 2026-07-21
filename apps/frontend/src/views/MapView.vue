@@ -2,12 +2,14 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import TopHud from '../components/TopHud.vue';
 import StationPanel from '../components/StationPanel.vue';
+import TargetStationPanel from '../components/TargetStationPanel.vue';
 import AsteroidPanel from '../components/AsteroidPanel.vue';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { WorldRenderer } from '../lib/world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from '../lib/world/WorldRenderer.js';
 import type { ActiveTrip } from '../lib/world/TripLayer.js';
+import type { VisibleWorldTrip } from '@orions-frontier/shared';
 import { useSelectionStore } from '../stores/selection';
 
 const selectionStore = useSelectionStore();
@@ -23,7 +25,6 @@ const needsStation = ref(false);
 const stationNameInput = ref('Frontier Station');
 const stationCreationError = ref<string | null>(null);
 const creatingStation = ref(false);
-const asteroidCoordinates = new Map<string, { x: number; y: number }>();
 
 async function loadUserStation(): Promise<StationInfo | null> {
   try {
@@ -32,7 +33,7 @@ async function loadUserStation(): Promise<StationInfo | null> {
     if (first) {
       stationId.value = first.id;
       stationName.value = first.name;
-      return { x: first.x ?? 0, y: first.y ?? 0, name: first.name };
+      return { id: first.id, x: first.x ?? 0, y: first.y ?? 0, name: first.name };
     }
   } catch {
     // no station yet
@@ -58,53 +59,34 @@ async function createFirstStation() {
 async function loadTrips(): Promise<void> {
   if (!renderer) return;
   try {
-    const response = await apiClient.get('/me/trips');
-    const raw = (response.data ?? []) as Array<{
-      id: string;
-      fromType: string;
-      fromId: string;
-      toType: string;
-      toId: string;
-      departedAt: string;
-      arrivesAt: string;
-      purpose: string;
-      groupSize: number;
-    }>;
-
-    // We need world coordinates for from/to — look them up from loaded map data
-    // For now, map fromId/toId → coordinates using stationInfo and asteroid positions
-    const trips: ActiveTrip[] = [];
-    for (const t of raw) {
-      const fromPos = resolveEndpointCoords(t.fromType, t.fromId);
-      const toPos = resolveEndpointCoords(t.toType, t.toId);
-      if (!fromPos || !toPos) continue;
-      trips.push({
-        id: t.id,
-        fromX: fromPos.x,
-        fromY: fromPos.y,
-        toX: toPos.x,
-        toY: toPos.y,
-        departedAt: new Date(t.departedAt).getTime(),
-        arrivesAt: new Date(t.arrivesAt).getTime(),
-        purpose: t.purpose as ActiveTrip['purpose'],
-        groupSize: t.groupSize,
-      });
-    }
-    renderer.setActiveTrips(trips);
+    const range = renderer.getVisibleChunkRange();
+    const response = await apiClient.get<{ success: true; data: VisibleWorldTrip[] }>(
+      '/world/trips',
+      {
+        params: {
+          minChunkX: range.minChunkX,
+          maxChunkX: range.maxChunkX,
+          minChunkY: range.minChunkY,
+          maxChunkY: range.maxChunkY,
+        },
+      }
+    );
+    renderer.setActiveTrips(
+      response.data.map((trip): ActiveTrip => ({
+        id: trip.id,
+        fromX: trip.fromX,
+        fromY: trip.fromY,
+        toX: trip.toX,
+        toY: trip.toY,
+        departedAt: new Date(trip.departedAt).getTime(),
+        arrivesAt: new Date(trip.arrivesAt).getTime(),
+        purpose: trip.purpose,
+        groupSize: trip.groupSize,
+      }))
+    );
   } catch {
     // non-fatal
   }
-}
-
-/** Resolve world coordinates for a trip endpoint. */
-function resolveEndpointCoords(type: string, id: string): { x: number; y: number } | null {
-  if (type === 'station' && stationInfo && stationId.value === id) {
-    return { x: stationInfo.x, y: stationInfo.y };
-  }
-  if (type === 'asteroid' && renderer) {
-    return renderer.getAsteroidWorldPos(id) ?? asteroidCoordinates.get(id) ?? null;
-  }
-  return null;
 }
 
 // ── Assignment markers ───────────────────────────────────────────────────
@@ -122,9 +104,7 @@ async function loadAssignments(): Promise<void> {
     // Deduplicate by asteroid (multiple assignment rows → same asteroid)
     const seen = new Set<string>();
     const asteroids: AssignedAsteroid[] = [];
-    asteroidCoordinates.clear();
     for (const a of raw) {
-      asteroidCoordinates.set(a.asteroidId, { x: a.asteroidX, y: a.asteroidY });
       if (!seen.has(a.asteroidId)) {
         seen.add(a.asteroidId);
         asteroids.push({
@@ -155,6 +135,7 @@ let stationInfo: StationInfo | null = null;
 let unsubTransportTick: (() => void) | null = null;
 let unsubMiningTick: (() => void) | null = null;
 let unsubBuildingUpgrade: (() => void) | null = null;
+let tripRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 onMounted(async () => {
   stationInfo = await loadUserStation();
@@ -188,6 +169,11 @@ onMounted(async () => {
     stationPanelOpen.value = true;
   };
 
+  renderer.onForeignStationClick = (station) => {
+    stationPanelOpen.value = false;
+    selectionStore.select({ type: 'station', station });
+  };
+
   // Empty space clicked → deselect all
   renderer.onEmptyClick = () => {
     selectionStore.deselect();
@@ -201,6 +187,7 @@ onMounted(async () => {
 
   // Load active trips (in-flight spacecraft)
   await loadTrips();
+  tripRefreshInterval = setInterval(() => void loadTrips(), 5_000);
 
   // A settled trip can change both the visible phase and the assignment.
   unsubTransportTick = wsClient.on('transport_tick_completed', () => {
@@ -232,6 +219,7 @@ onUnmounted(() => {
   unsubTransportTick?.();
   unsubMiningTick?.();
   unsubBuildingUpgrade?.();
+  if (tripRefreshInterval) clearInterval(tripRefreshInterval);
   renderer?.destroy();
   renderer = null;
   selectionStore.deselect();
@@ -312,6 +300,23 @@ function cursorClass() {
         :station-id="stationId"
         :station-name="stationName"
         @close="stationPanelOpen = false"
+      />
+    </transition>
+
+    <!-- Foreign station target panel -->
+    <transition
+      enter-active-class="transition-transform duration-300 ease-out"
+      enter-from-class="translate-y-full"
+      enter-to-class="translate-y-0"
+      leave-active-class="transition-transform duration-200 ease-in"
+      leave-from-class="translate-y-0"
+      leave-to-class="translate-y-full"
+    >
+      <TargetStationPanel
+        v-if="selectionStore.selected?.type === 'station'"
+        :station="selectionStore.selected.station"
+        :origin="stationInfo"
+        @close="selectionStore.deselect()"
       />
     </transition>
 

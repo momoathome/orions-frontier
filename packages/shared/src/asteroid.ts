@@ -81,6 +81,7 @@ export interface AsteroidDetailAssignment {
   assignedAmount: number;
   assignedAt: string;
   recallRequestedAt: string | null;
+  recallRequestedAmount: number;
 }
 
 // ============================================================================
@@ -90,6 +91,8 @@ export interface AsteroidDetailAssignment {
 
 export interface AsteroidDetail extends Asteroid {
   veins: AsteroidVein[];
+  /** Exact operations are visible only while the requesting player has ships here. */
+  operationsVisible: boolean;
   assignments: AsteroidDetailAssignment[];
   /** Resources claimed by mining groups and currently returning from this asteroid */
   inTransit: Record<string, number>;

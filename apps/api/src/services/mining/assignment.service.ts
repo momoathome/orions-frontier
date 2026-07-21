@@ -15,7 +15,7 @@ import { getUserScannerStrength } from '../asteroid.service.js';
 //
 // Manages the full lifecycle of asteroid mining assignments:
 //   createAsteroidAssignment   — assign spacecraft to an asteroid (lock ships)
-//   requestAsteroidAssignmentRecall — stop a complete group at its next station arrival
+//   requestAsteroidAssignmentRecall — stop selected ships at their next station arrival
 //   getStationMiningAssignments — list all assignments for a station
 // ============================================================================
 
@@ -210,16 +210,31 @@ export const createAsteroidAssignment = async (
 
 // ── requestAsteroidAssignmentRecall ──────────────────────────────────────────
 
-export const requestAsteroidAssignmentRecall = async (
-  assignmentId: string,
-  stationId: string
-): Promise<boolean> => {
+export const requestAsteroidAssignmentRecall = async (params: {
+  assignmentId: string;
+  asteroidId: string;
+  userId: string;
+  amount?: number;
+}): Promise<boolean> => {
+  const amount = params.amount ?? 1;
+  if (!Number.isInteger(amount) || amount < 1) return false;
+
   const db = getDb();
   const result = await db
     .update(asteroidAssignments)
-    .set({ recallRequestedAt: new Date() })
+    .set({
+      recallRequestedAt: new Date(),
+      recallRequestedAmount: sql`${asteroidAssignments.recallRequestedAmount} + ${amount}`,
+    })
+    .from(stations)
     .where(
-      and(eq(asteroidAssignments.id, assignmentId), eq(asteroidAssignments.stationId, stationId))
+      and(
+        eq(asteroidAssignments.id, params.assignmentId),
+        eq(asteroidAssignments.asteroidId, params.asteroidId),
+        eq(asteroidAssignments.stationId, stations.id),
+        eq(stations.userId, params.userId),
+        sql`${asteroidAssignments.assignedAmount} - ${asteroidAssignments.recallRequestedAmount} >= ${amount}`
+      )
     )
     .returning({ id: asteroidAssignments.id });
   return result.length > 0;
@@ -241,6 +256,7 @@ export interface StationMiningAssignment {
   assignedAt: string;
   status: 'traveling_to_asteroid' | 'at_asteroid' | 'traveling_to_station';
   recallRequestedAt: string | null;
+  recallRequestedAmount: number;
 }
 
 export const getStationMiningAssignments = async (
@@ -257,6 +273,7 @@ export const getStationMiningAssignments = async (
       assignedAt: asteroidAssignments.assignedAt,
       status: asteroidAssignments.status,
       recallRequestedAt: asteroidAssignments.recallRequestedAt,
+      recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
       asteroidX: asteroids.x,
       asteroidY: asteroids.y,
       asteroidSize: asteroids.size,
@@ -293,5 +310,6 @@ export const getStationMiningAssignments = async (
     assignedAt: r.assignedAt.toISOString(),
     status: r.status,
     recallRequestedAt: r.recallRequestedAt?.toISOString() ?? null,
+    recallRequestedAmount: r.recallRequestedAmount,
   }));
 };

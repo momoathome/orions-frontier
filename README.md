@@ -1,7 +1,9 @@
 # Orion's Frontier
 
-Orion's Frontier ist ein persistentes Idle-Browsergame. Der Spieler erschließt endliche
-Asteroiden, weist Miner zu und beobachtet ihre vollständigen Rundläufe in einer lebenden Welt.
+Orion's Frontier ist ein persistentes Idle-Browsergame. Spieler und wirtschaftliche Bots
+erschließen endliche Asteroiden, weisen Miner zu und beobachten ihre vollständigen Rundläufe in
+einer lebenden Welt. Bots verwenden dieselben Ressourcen, Bau-Queues, Reisezeiten und
+Mining-Regeln wie Spieler.
 
 Das Repository ist ein npm-Monorepo mit zwei Anwendungen und zwei gemeinsam genutzten
 TypeScript-Paketen.
@@ -74,8 +76,9 @@ manuelle Wiederholung nötig und lädt dabei die lokale `.env`-Datei.
 
 `npm run test:behavior` startet PostgreSQL über Docker und prüft unter anderem konkurrierende
 Ressourcenausgaben und Mining-Zugriffe, vollständige Mining-Rundläufe, Recall und Erschöpfung,
-das Aufholen nach einem Neustart sowie die WebSocket-Authentifizierung. Mit `npm run verify`
-laufen statische Checks, Build und Verhaltenschecks gemeinsam.
+das Aufholen nach einem Neustart, Bot-Entscheidungen und -Wachstum sowie die
+WebSocket-Authentifizierung. Mit `npm run verify` laufen statische Checks, Build und
+Verhaltenschecks gemeinsam.
 
 Einzelne Workspaces lassen sich direkt ansprechen:
 

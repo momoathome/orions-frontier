@@ -141,7 +141,7 @@ export const startBuildingUpgrade = async (
     const [station] = await tx
       .select({ id: stations.id })
       .from(stations)
-      .where(eq(stations.id, stationId))
+      .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
       .for('update');
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 

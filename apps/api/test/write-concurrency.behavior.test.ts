@@ -79,6 +79,18 @@ async function setResources(amounts: Record<string, number>) {
     );
 }
 
+test('mutating services reject a station owned by another user', async () => {
+  const otherUserId = randomUUID();
+  await assert.rejects(
+    buildSpacecrafts(stationId, otherUserId, [{ spacecraftKey: 'mole', amount: 1 }]),
+    /Station not found/
+  );
+  await assert.rejects(
+    startBuildingUpgrade(stationId, 'shipyard', otherUserId),
+    /Station not found/
+  );
+});
+
 test('parallel building upgrades deduct resources and start work once', async () => {
   const costs = calculateBuildingUpgradeCost('shipyard', 2);
   await setResources(Object.fromEntries(costs.map((cost) => [cost.resourceKey, cost.amount])));

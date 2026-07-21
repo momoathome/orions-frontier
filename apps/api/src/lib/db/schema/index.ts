@@ -10,3 +10,4 @@ export * from './station-buildings.js';
 export * from './asteroids.js';
 export * from './spawn-slots.js';
 export * from './sectors.js';
+export * from './bot-controllers.js';

@@ -104,11 +104,11 @@ Für den ersten spielbaren Schnitt gibt es keinen separaten Transporterbetrieb:
 3. Er fliegt zur Station zurück und liefert seine Ladung ab.
 4. Bei bestehendem Auftrag und verbleibendem Vorrat beginnt der nächste Rundlauf.
 
-Fordert der Spieler einen Recall an, wird eine bereits beanspruchte Ladung noch geliefert. Die
-vollständige gemeinsam fliegende Minergruppe wird erst bei ihrer nächsten Ankunft an der Station
-freigegeben und beginnt keinen weiteren Rundlauf. Trifft die Recall-Anforderung noch vor der
-Beanspruchung am Asteroiden ein, kehrt die Gruppe ohne neue Ladung zurück. Ein Teil-Recall innerhalb
-einer fliegenden Gruppe ist zunächst nicht vorgesehen.
+Fordert der Spieler einen Recall an, kann er einzelne Miner aus einer gemeinsam versendeten Gruppe
+auswählen. Sie beenden den aktuellen Rundlauf und werden bei der nächsten Ankunft an der Station
+freigegeben. Die verbleibenden Miner starten danach wieder gemeinsam. Trifft die Recall-Anforderung
+noch vor der Beanspruchung am Asteroiden ein, bauen nur die weiterhin aktiven Miner eine neue Ladung
+ab; die zurückgerufenen Miner kehren mit der Gruppe zur Station zurück.
 
 Asteroidenpuffer, automatische Transport-Disposition, Förderkapazität und
 Stabilitätsverschleiß entfallen mit der Umstellung. Spezialisierte Logistik kommt nur zurück, wenn

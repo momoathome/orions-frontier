@@ -105,25 +105,32 @@ const groupedAssignments = computed<AssignmentGroup[]>(() => {
     ids: [assignment.id],
     totalAmount: assignment.assignedAmount,
     isOwn: assignment.stationId === props.stationId,
-    recallRequested: assignment.recallRequestedAt !== null,
+    recallRequestedAmount: assignment.recallRequestedAmount,
   }));
 });
 
 const ownGroups = computed(() =>
-  groupedAssignments.value.filter((group) => group.isOwn && !group.recallRequested)
+  groupedAssignments.value.filter(
+    (group) => group.isOwn && group.recallRequestedAmount < group.totalAmount
+  )
 );
 
 const totalMiningPowerRaw = computed(
   () =>
     asteroid.value?.assignments.reduce(
-      (sum, a) => sum + a.assignedAmount * a.spacecraftMiningRate,
+      (sum, a) => sum + (a.assignedAmount - a.recallRequestedAmount) * a.spacecraftMiningRate,
       0
     ) ?? 0
 );
 
 const totalMinerCargo = computed(
   () =>
-    asteroid.value?.assignments.reduce((s, a) => s + a.assignedAmount * a.spacecraftCargo, 0) ?? 0
+    asteroid.value?.assignments.reduce(
+      (sum, assignment) =>
+        sum +
+        (assignment.assignedAmount - assignment.recallRequestedAmount) * assignment.spacecraftCargo,
+      0
+    ) ?? 0
 );
 
 const totalRemaining = computed(
@@ -283,17 +290,29 @@ function formatCoord(n: number) {
 
           <div class="flex flex-col gap-1 mt-3">
             <span class="text-[9px] text-white/20 uppercase tracking-[0.3em]">Mining</span>
-            <div class="flex justify-between text-[10px] mt-0.5">
+            <div
+              v-if="!asteroid.operationsVisible"
+              class="mt-0.5 text-[9px] uppercase tracking-wider text-white/25"
+            >
+              Operations unknown
+            </div>
+            <div v-else class="flex justify-between text-[10px] mt-0.5">
               <span class="text-white/30">Miners</span>
               <span class="text-white/60 tabular-nums">{{
                 groupedAssignments.reduce((s, g) => s + g.totalAmount, 0)
               }}</span>
             </div>
-            <div v-if="totalMiningPowerRaw > 0" class="flex justify-between text-[10px]">
+            <div
+              v-if="asteroid.operationsVisible && totalMiningPowerRaw > 0"
+              class="flex justify-between text-[10px]"
+            >
               <span class="text-white/30">Rate</span>
               <span class="text-white/60 tabular-nums">{{ totalMiningPowerRaw.toFixed(0) }}/h</span>
             </div>
-            <div v-if="totalMinerCargo > 0" class="flex justify-between text-[10px]">
+            <div
+              v-if="asteroid.operationsVisible && totalMinerCargo > 0"
+              class="flex justify-between text-[10px]"
+            >
               <span class="text-white/30">Cargo</span>
               <span class="text-white/60 tabular-nums">{{ totalMinerCargo.toFixed(0) }}</span>
             </div>
@@ -306,7 +325,9 @@ function formatCoord(n: number) {
               <template v-for="(g, i) in groupedAssignments" :key="g.ids[0]">
                 <span>
                   {{ g.totalAmount }}×&nbsp;{{ g.spacecraftName
-                  }}<span v-if="g.recallRequested" class="text-amber-300/55"> returning</span>
+                  }}<span v-if="g.recallRequestedAmount" class="text-amber-300/55">
+                    ({{ g.recallRequestedAmount }} returning)</span
+                  >
                 </span>
                 <span v-if="i < groupedAssignments.length - 1" class="text-white/20"> · </span>
               </template>

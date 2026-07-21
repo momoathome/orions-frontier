@@ -1,8 +1,10 @@
 # Umsetzungsplan
 
-Dieser Plan führt den bestehenden Orion-Stand zum vereinfachten Idle-Mining-Spiel. Der nächste
-fachliche Meilenstein ist ein vollständig spielbarer Rundlauf aus Hinflug, Abbau, Rückflug und
-Lieferung. Technische Aufräumarbeiten sind diesem Ziel untergeordnet.
+Dieser Plan führt den bestehenden Orion-Stand zum vereinfachten Idle-Mining-Spiel. Der
+Mining-Rundlauf aus Hinflug, Abbau, Rückflug und Lieferung ist spielbar. Der nächste fachliche
+Meilenstein ist eine belebte Welt mit ersten wirtschaftlichen Bots. Jeder Bot besitzt wie ein
+Spieler eine Station und handelt unter denselben Kosten-, Zeit- und Kapazitätsregeln. Technische
+Aufräumarbeiten sind diesem Ziel untergeordnet.
 
 ## Leitentscheidung
 
@@ -13,11 +15,36 @@ Spieler ihn ändert oder der Asteroid erschöpft ist.
 - PostgreSQL bleibt die Quelle der Wahrheit.
 - WebSocket und Simulation laufen gemeinsam in der API.
 - Ein einfacher Takt verarbeitet ausschließlich in PostgreSQL gespeicherte Fälligkeitszeitpunkte.
+- Spieler und Bots besitzen dieselben Stationen, Ressourcen, Schiffe, Bauaufträge und Reisen.
+- Ein Bot entscheidet nur, welche reguläre Aktion er als Nächstes versucht. Er erzeugt keine
+  Ressourcen oder Schiffe und verkürzt keine Wartezeit.
 - Technik wird nur entfernt, wenn sie für den neuen Ablauf ersetzt wurde oder nachweislich
   ungenutzt ist.
 - Neue Kataloge, Abstraktionen und Zukunftssysteme entstehen erst aus einem spielbaren Bedarf.
 
 Das fachliche Zielbild steht in [mining-loop.md](./mining-loop.md).
+
+## Bot-Grundsatz
+
+Aus Project Atlas übernehmen wir das Prinzip, dass autonome und vom Spieler beeinflusste Akteure
+dieselben Weltregeln durchlaufen. Aus dem alten Project Browsergame können einfache
+Entscheidungsprioritäten als Orientierung dienen. Dessen getrennte Rebel-Ressourcen,
+Rebel-Raumschiffe und künstliche Ressourcengenerierung werden nicht übernommen, weil sie Bots ein
+zweites Wirtschaftssystem geben würden.
+
+Die technische Grenze lautet:
+
+1. Eine Route authentifiziert einen Spieler und ruft eine fachliche Aktion auf.
+2. Ein Bot-Entscheider wählt eine Aktion und ruft dieselbe fachliche Aktion mit der Identität seines
+   Besitzers auf. Er muss nicht über HTTP gehen.
+3. Die fachliche Aktion prüft Eigentum, Sichtbarkeit, Freischaltungen, Ressourcen und Kapazitäten
+   und legt dieselben Datenbankeinträge an.
+4. Die bestehende Simulation beendet Reisen, Mining-Rundläufe, Bauaufträge und Upgrades anhand
+   derselben persistierten Fälligkeitszeitpunkte.
+
+Damit sind die Regeln gemeinsam, obwohl Spieler und Bot ihre Entscheidung über verschiedene
+Eingänge treffen. Ein allgemeiner Command-Bus, ein KI-Framework, ein LLM oder ein eigener
+Bot-Worker sind dafür nicht erforderlich.
 
 ## Phasen
 
@@ -145,7 +172,102 @@ Status: abgeschlossen am 18. Juli 2026.
 - Weitere Abhängigkeiten nur einzeln und mit erkennbarem Nutzen ersetzen.
 - Build, Typecheck, Verhaltenschecks und HMR über den dokumentierten Entwicklungsweg prüfen.
 
-### 8. Kapazität und Werte abstimmen
+### 8. Gemeinsame Aktionsbasis für Spieler und Bots
+
+Status: abgeschlossen am 20. Juli 2026.
+
+Der konkrete technische und fachliche Ablauf steht in
+[Bot-System: konkreter Implementierungsplan](./bot-system.md).
+
+Ziel ist nicht, bestehende Services neu zu entwerfen, sondern die wenigen fachlichen Aktionen so
+abzusichern, dass HTTP-Routen und Bots sie gleichermaßen verwenden können.
+
+1. Eigentumsprüfung in den fachlichen Aktionen selbst sicherstellen. Die Mining-Zuweisung macht
+   dies bereits; Schiffsbau und Gebäude-Upgrade müssen Station und `userId` ebenfalls gemeinsam
+   prüfen. Routen dürfen zusätzlich validieren, sind aber nicht die einzige Schutzschicht.
+2. Eine Bot-Identität als normalen Benutzer mit normaler Station anlegen. Nur der Controller-Zustand
+   ist bot-spezifisch, zum Beispiel in einer kleinen Tabelle mit `userId`, `nextDecisionAt` und
+   zunächst genau einer Strategie. Ressourcen-, Gebäude-, Schiffs- oder Queue-Tabellen werden nicht
+   dupliziert.
+3. Einen kompakten Stationszustand für Entscheidungen laden: Ressourcen, laufende Bauaufträge,
+   Gebäude, verfügbare und gebundene Schiffe, sichtbare Asteroiden, Restmengen, Entfernungen und
+   belegte Mining-Slots.
+4. Fällige Bot-Entscheidungen im bestehenden API-Prozess verarbeiten. `nextDecisionAt` bleibt in
+   PostgreSQL, damit ein Neustart keinen Bot zurücksetzt. Pro Entscheidung darf zunächst höchstens
+   eine erfolgreiche Aktion ausgelöst werden.
+5. Die Entscheidung bleibt deterministisch und erklärbar. Für die erste Version genügen
+   Aktionsname, Ziel und ein kurzer Grund; ein vollständiges Event-Sourcing ist nicht nötig.
+
+Abgeschlossen, wenn ein Spieler und ein Bot mit identischem Ausgangszustand dieselbe fachliche
+Aktion durch denselben Service ausführen und dabei identische Kosten, Queue-Einträge und
+Fälligkeitszeiten erhalten.
+
+### 9. Ersten wirtschaftlichen Bot spielbar machen
+
+Status: abgeschlossen am 20. Juli 2026.
+
+Die erste Version erhält eine kleine, feste Prioritätsliste statt Persönlichkeitssystem,
+Zufallsentscheidungen oder langfristigem Planer:
+
+1. Hat die Station einen freien Miner, wählt der Bot einen sichtbaren, nicht erschöpften Asteroiden
+   mit freiem Slot und weist den Miner über `createAsteroidAssignment` zu.
+2. Kandidaten werden mit der bereits vorhandenen Rundlauf- und Lieferleistungsberechnung bewertet.
+   Benötigte Ressourcen für die nächste Investition erhalten mehr Gewicht; bei Gleichstand sorgt
+   eine stabile ID-Sortierung für reproduzierbares Verhalten.
+3. Sind alle Miner beschäftigt, kann der Bot über `buildSpacecrafts` einen Mole bauen. Bis eine
+   gemeinsame Hangarkapazität existiert, begrenzt ein kleiner strategischer Zielwert das Wachstum
+   des ersten Bots; das ist eine Entscheidung des Bots und kein Sondergesetz.
+4. Als anschließender vertikaler Schnitt kann er das Shipyard über
+   `startBuildingUpgrade` ausbauen und später einen regulär freigeschalteten Titan bauen. Kosten und
+   Bauzeiten bleiben unverändert.
+5. Mining selbst wird nicht im Bot nachgebaut. Nach der Zuweisung verarbeitet der bestehende
+   Rundlauf Hinflug, Claim bei Ankunft, Abbau, Rückflug, Lieferung, Wiederholung und Erschöpfung.
+
+Die Umsetzung erfolgt in drei einzeln prüfbaren Scheiben:
+
+- Bot-Benutzer, Station und Mole anlegen; einen Asteroiden auswählen und regulär abbauen.
+- Mit regulär gelieferten Ressourcen einen Mole über die vorhandene Bau-Queue bauen.
+- Das Shipyard über die vorhandene Gebäude-Queue ausbauen und einen Titan freischalten.
+
+Damit die Welt tatsächlich belebt wirkt, müssen sichtbare Bot-Stationen und ihre laufenden Reisen
+in der Weltansicht erscheinen. Die Chunk-Abfrage liefert derzeit nur Asteroiden und `/me/trips` nur
+eigene Reisen. Dafür wird eine sichtbarkeitsgefilterte Weltprojektion für fremde Stationen und
+Reisen ergänzt; private Bestände und Aufträge bleiben verborgen.
+
+Abgeschlossen, wenn ein Bot nach einem Neustart weiterhandelt, seine Ressourcen ausschließlich
+durch reguläre Lieferungen erhält und ein Spieler Station, Minerflug und Konkurrenz am Asteroiden
+beobachten kann.
+
+### 10. Neue Bot-Aktionen nur mit gemeinsamen Spielmechaniken ergänzen
+
+Status: vorgemerkt.
+
+Jede neue Fähigkeit wird zuerst als reguläre Spielermechanik mit serverseitiger Fachaktion gebaut.
+Erst danach darf der Bot diese Aktion auswählen. Die voraussichtliche Reihenfolge ist:
+
+1. Hangarplätze als gemeinsame harte Flottengrenze für Spieler und Bots.
+2. Scanner und Entdeckung als gemeinsame Sichtbarkeitsregel.
+3. Kampfauftrag, Flug, Auflösung, Verluste, Beute und Stationsverteidigung.
+4. Wracks beziehungsweise Trümmerfelder und ein regulärer Salvage-Auftrag.
+5. Einfluss, Stationsübernahme und später mehrere Stationen pro Akteur.
+6. Weitere tatsächlich wirksame Module wie Warehouse, Guardian, Core und Laboratory.
+
+Persönlichkeiten wie wirtschaftlich, defensiv oder aggressiv bestehen später nur aus anderen
+Prioritäten und Zielwerten über diesen gemeinsamen Aktionen. Sie erhalten keine abweichenden
+Kosten, Erträge oder Einheiten. Kampf-, Salvage- und Defense-Entscheidungen werden nicht vor ihren
+Spielermechaniken simuliert.
+
+Für die Bot-Phasen werden mindestens folgende Verhaltenschecks ergänzt:
+
+- Bots können Eigentum, Sichtbarkeit, Freischaltungen, Ressourcen und Mining-Slots nicht umgehen.
+- Ein fälliger Entscheidungszeitpunkt löst höchstens eine erfolgreiche Aktion aus und wird
+  restart-sicher fortgeschrieben.
+- Derselbe Mining-Auftrag erzeugt für Spieler und Bot dieselben Trips und Lieferungen.
+- Konkurrierende Spieler und Bots beanspruchen Restmengen erst bei Ankunft und können sie nicht
+  doppelt abbauen.
+- Ohne gültige Aktion bleibt ein Bot untätig und erhält keinen Ausgleich aus einem Sonderpfad.
+
+### 11. Kapazität und Werte abstimmen
 
 Status: offen; letzter geplanter Schritt.
 
@@ -154,7 +276,7 @@ Spielerfahrung angepasst werden.
 
 - Vorratsgrößen so festlegen, dass der frühe Spielfluss auch über Nacht sinnvoll bleibt.
 - Startflotte und erste Minerwerte auf nachvollziehbare Entscheidungen prüfen.
-- Hangarplätze als gemeinsame Flottengrenze erst einführen, wenn der Rundlauf ohne sie funktioniert.
+- Die zuvor eingeführten Hangarplätze anhand echten Wachstumsverhaltens abstimmen.
 - Hydrogenium-Verbrauch von Mining-Aufträgen nur ergänzen, wenn er eine verständliche Entscheidung
   erzeugt und nicht bloß eine weitere laufende Zahl ist.
 
@@ -163,5 +285,5 @@ Abgeschlossen, wenn der frühe Mining-Ausbau weder sofort erschöpft noch dauerh
 ## Arbeitsweise
 
 Es wird nur die jeweils nächste Phase detailliert. Jede Phase hinterlässt einen lauffähigen Stand.
-Der neue Mining-Ablauf wird als vertikaler Schnitt gebaut; allgemeines technisches Aufräumen folgt
-dem nachgewiesenen Bedarf und läuft ihm nicht voraus.
+Der erste Bot wird als vertikaler Schnitt gebaut; allgemeines technisches Aufräumen und weitere
+Bot-Fähigkeiten folgen dem nachgewiesenen Bedarf und laufen ihm nicht voraus.

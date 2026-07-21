@@ -23,6 +23,16 @@ const errorHandlerPlugin: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
+      return reply.status(error.statusCode).send({
+        success: false,
+        error: {
+          code: ErrorCode.INVALID_INPUT,
+          message: error.message,
+        },
+      });
+    }
+
     // Default error
     fastify.log.error(error);
     return reply.status(500).send({
