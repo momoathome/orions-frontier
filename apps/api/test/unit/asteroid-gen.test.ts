@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spacecrafts } from '@orions-frontier/game-config';
-import { calculateMiningCycle } from '../src/lib/mining-cycle.js';
-import { calcDistance } from '../src/lib/travel.js';
-import { WORLD_CONFIG } from '../src/lib/world-config.js';
-import { buildAsteroid } from '../src/lib/world-gen/asteroid-gen.js';
-import { SeededRng } from '../src/lib/world-gen/rng.js';
+import { calculateMiningCycle } from '../../src/lib/mining-cycle.js';
+import { calcDistance } from '../../src/lib/travel.js';
+import { WORLD_CONFIG } from '../../src/lib/world-config.js';
+import { buildAsteroid } from '../../src/lib/world-gen/asteroid-gen.js';
+import { SeededRng } from '../../src/lib/world-gen/rng.js';
 import {
   generateSector,
   generateStarterPocket,
   rareResourceForSector,
-} from '../src/lib/world-gen/sector-gen.js';
+} from '../../src/lib/world-gen/sector-gen.js';
 
 test('generates one finite resource budget distributed across all veins', () => {
   const asteroid = buildAsteroid(

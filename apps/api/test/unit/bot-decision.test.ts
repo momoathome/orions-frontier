@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { EconomicBotState } from '../src/services/bot/economic-v1.js';
-import { decideEconomicAction } from '../src/services/bot/economic-v1.js';
+import type { EconomicBotState } from '../../src/services/bot/economic-v1.js';
+import { decideEconomicAction } from '../../src/services/bot/economic-v1.js';
 
 const baseState = (): EconomicBotState => ({
   userId: 'bot',

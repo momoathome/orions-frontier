@@ -2,21 +2,25 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
-import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
-import { runMigrations } from '../src/lib/db/migrate.js';
-import { asteroids, asteroidAssignments, asteroidVeins } from '../src/lib/db/schema/asteroids.js';
-import { spacecraftTrips } from '../src/lib/db/schema/spacecraft-trips.js';
-import { sectors } from '../src/lib/db/schema/sectors.js';
-import { stationResources } from '../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../src/lib/db/schema/stations.js';
-import { users } from '../src/lib/db/schema/users.js';
+import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
+import { runMigrations } from '../../src/lib/db/migrate.js';
+import {
+  asteroids,
+  asteroidAssignments,
+  asteroidVeins,
+} from '../../src/lib/db/schema/asteroids.js';
+import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
+import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { stationResources } from '../../src/lib/db/schema/station-resources.js';
+import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
+import { stations } from '../../src/lib/db/schema/stations.js';
+import { users } from '../../src/lib/db/schema/users.js';
 import {
   createAsteroidAssignment,
   requestAsteroidAssignmentRecall,
-} from '../src/services/mining/assignment.service.js';
-import { getAsteroidById } from '../src/services/asteroid.service.js';
-import { settleTripArrival } from '../src/services/transport/trip-arrivals.service.js';
+} from '../../src/services/mining/assignment.service.js';
+import { getAsteroidById } from '../../src/services/asteroid.service.js';
+import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();

@@ -3,26 +3,26 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
 import { COLONIZATION_COST, getSpacecraft } from '@orions-frontier/game-config';
-import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
-import { runMigrations } from '../src/lib/db/migrate.js';
-import { asteroids } from '../src/lib/db/schema/asteroids.js';
-import { sectors } from '../src/lib/db/schema/sectors.js';
-import { spawnSlots } from '../src/lib/db/schema/spawn-slots.js';
-import { stationBuildings } from '../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../src/lib/db/schema/stations.js';
-import { users } from '../src/lib/db/schema/users.js';
-import { worldMissions } from '../src/lib/db/schema/world-missions.js';
-import { WORLD_CONFIG } from '../src/lib/world-config.js';
-import { calcDistance, calcTravelHours } from '../src/lib/travel.js';
-import { ensureSector } from '../src/services/sector.service.js';
-import { createStation } from '../src/services/station.service.js';
+import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
+import { runMigrations } from '../../src/lib/db/migrate.js';
+import { asteroids } from '../../src/lib/db/schema/asteroids.js';
+import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
+import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
+import { stationResources } from '../../src/lib/db/schema/station-resources.js';
+import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
+import { stations } from '../../src/lib/db/schema/stations.js';
+import { users } from '../../src/lib/db/schema/users.js';
+import { worldMissions } from '../../src/lib/db/schema/world-missions.js';
+import { WORLD_CONFIG } from '../../src/lib/world-config.js';
+import { calcDistance, calcTravelHours } from '../../src/lib/travel.js';
+import { ensureSector } from '../../src/services/sector.service.js';
+import { createStation } from '../../src/services/station.service.js';
 import {
   completeDueWorldMissions,
   startColonization,
   startExpedition,
-} from '../src/services/world-mission.service.js';
+} from '../../src/services/world-mission.service.js';
 
 const userId = randomUUID();
 const secondUserId = randomUUID();

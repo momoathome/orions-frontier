@@ -2,27 +2,31 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
-import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
-import { runMigrations } from '../src/lib/db/migrate.js';
-import { asteroids, asteroidAssignments, asteroidVeins } from '../src/lib/db/schema/asteroids.js';
-import { botControllers } from '../src/lib/db/schema/bot-controllers.js';
-import { spacecraftBuildOrders } from '../src/lib/db/schema/spacecraft-build-orders.js';
-import { spacecraftTrips } from '../src/lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../src/lib/db/schema/stations.js';
-import { users } from '../src/lib/db/schema/users.js';
-import { sectors } from '../src/lib/db/schema/sectors.js';
-import { spawnSlots } from '../src/lib/db/schema/spawn-slots.js';
-import { runBotDecisionTick } from '../src/services/bot/bot.service.js';
-import { loadEconomicBotState } from '../src/services/bot/bot-state.service.js';
-import { seedStationBuildings } from '../src/services/building.service.js';
-import { runSimulationTick } from '../src/services/simulation.service.js';
-import { seedStationResources } from '../src/services/station-resource.service.js';
-import { seedStationSpacecrafts } from '../src/services/spacecraft.service.js';
-import { settleTripArrival } from '../src/services/transport/trip-arrivals.service.js';
-import { getVisibleChunkStations, getVisibleWorldTrips } from '../src/services/world.service.js';
+import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
+import { runMigrations } from '../../src/lib/db/migrate.js';
+import {
+  asteroids,
+  asteroidAssignments,
+  asteroidVeins,
+} from '../../src/lib/db/schema/asteroids.js';
+import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
+import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
+import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
+import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
+import { stationResources } from '../../src/lib/db/schema/station-resources.js';
+import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
+import { stations } from '../../src/lib/db/schema/stations.js';
+import { users } from '../../src/lib/db/schema/users.js';
+import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
+import { runBotDecisionTick } from '../../src/services/bot/bot.service.js';
+import { loadEconomicBotState } from '../../src/services/bot/bot-state.service.js';
+import { seedStationBuildings } from '../../src/services/building.service.js';
+import { runSimulationTick } from '../../src/services/simulation.service.js';
+import { seedStationResources } from '../../src/services/station-resource.service.js';
+import { seedStationSpacecrafts } from '../../src/services/spacecraft.service.js';
+import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
+import { getVisibleChunkStations, getVisibleWorldTrips } from '../../src/services/world.service.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();

@@ -3,37 +3,37 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
 import { calculateBuildingUpgradeCost, spacecrafts } from '@orions-frontier/game-config';
-import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
-import { runMigrations } from '../src/lib/db/migrate.js';
-import { asteroids } from '../src/lib/db/schema/asteroids.js';
-import { sectors } from '../src/lib/db/schema/sectors.js';
-import { spacecraftBuildOrders } from '../src/lib/db/schema/spacecraft-build-orders.js';
-import { spawnSlots } from '../src/lib/db/schema/spawn-slots.js';
-import { stationBuildings } from '../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../src/lib/db/schema/station-resources.js';
-import { stationResearch } from '../src/lib/db/schema/station-research.js';
-import { stationSpacecrafts } from '../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../src/lib/db/schema/stations.js';
-import { spacecraftTrips } from '../src/lib/db/schema/spacecraft-trips.js';
-import { users } from '../src/lib/db/schema/users.js';
-import { seedStationBuildings, startBuildingUpgrade } from '../src/services/building.service.js';
+import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
+import { runMigrations } from '../../src/lib/db/migrate.js';
+import { asteroids } from '../../src/lib/db/schema/asteroids.js';
+import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
+import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
+import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
+import { stationResources } from '../../src/lib/db/schema/station-resources.js';
+import { stationResearch } from '../../src/lib/db/schema/station-research.js';
+import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
+import { stations } from '../../src/lib/db/schema/stations.js';
+import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
+import { users } from '../../src/lib/db/schema/users.js';
+import { seedStationBuildings, startBuildingUpgrade } from '../../src/services/building.service.js';
 import {
   buildSpacecrafts,
   getStationSpacecrafts,
   seedStationSpacecrafts,
-} from '../src/services/spacecraft.service.js';
-import { createStation } from '../src/services/station.service.js';
+} from '../../src/services/spacecraft.service.js';
+import { createStation } from '../../src/services/station.service.js';
 import {
   getDeliveredResourceRates,
   getStationResources,
   seedStationResources,
-} from '../src/services/station-resource.service.js';
-import { getUserScannerStrength } from '../src/services/asteroid.service.js';
+} from '../../src/services/station-resource.service.js';
+import { getUserScannerStrength } from '../../src/services/asteroid.service.js';
 import {
   completeDueResearch,
   getResearchState,
   startResearch,
-} from '../src/services/research.service.js';
+} from '../../src/services/research.service.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();

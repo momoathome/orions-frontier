@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { calculateMiningCycle } from '../src/lib/mining-cycle.js';
-import { calcArrivesAt } from '../src/lib/travel.js';
+import { calculateMiningCycle } from '../../src/lib/mining-cycle.js';
+import { calcArrivesAt } from '../../src/lib/travel.js';
 
 test('uses the same accelerated travel duration for previews and stored arrivals', () => {
   const departedAt = new Date('2026-01-01T00:00:00.000Z');

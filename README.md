@@ -59,7 +59,8 @@ Voraussetzungen: Node.js 24.11 oder neuer und npm 10 oder neuer.
 npm install
 npm run check
 npm run build
-npm run test:behavior
+npm run test:unit
+npm run test:integration
 ```
 
 Häufige Kommandos:
@@ -82,11 +83,13 @@ Wechsel muss ein vorhandenes lokales Volume einmalig mit `docker compose down -v
 beim nächsten Start legt die API die aktuelle Entwicklungswelt neu an. Ein Daten-Backfill ist für
 diesen Entwicklungsstand nicht vorgesehen.
 
-`npm run test:behavior` startet PostgreSQL über Docker und prüft unter anderem konkurrierende
-Ressourcenausgaben und Mining-Zugriffe, vollständige Mining-Rundläufe, Recall und Erschöpfung,
-das Aufholen nach einem Neustart, Bot-Entscheidungen und -Wachstum, Exploration, Kolonisation,
-Kampf, Bergung, Einfluss, Forschung sowie die WebSocket-Authentifizierung. Mit `npm run verify`
-laufen statische Checks, Build und Verhaltenschecks gemeinsam.
+`npm run test:unit` prüft die reine Spiellogik ohne externe Infrastruktur. Die Tests liegen unter
+`apps/api/test/unit`. `npm run test:integration` startet PostgreSQL über Docker und prüft unter
+`apps/api/test/integration` unter anderem API-Routen, konkurrierende Ressourcenausgaben und
+Mining-Zugriffe, vollständige Mining-Rundläufe, Bots, Exploration, Kolonisation, Kampf, Bergung,
+Einfluss, Forschung sowie WebSocket-Authentifizierung. `npm run test:behavior` bleibt als Alias für
+die Integrationstests erhalten. Mit `npm run verify` laufen statische Checks, Build und beide
+Testgruppen gemeinsam.
 
 Einzelne Workspaces lassen sich direkt ansprechen:
 

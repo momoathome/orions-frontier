@@ -4,7 +4,7 @@ import { after, before, test } from 'node:test';
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import { WebSocket } from 'ws';
-import { attachRealtimeServer, publishUserEvent } from '../src/lib/realtime.js';
+import { attachRealtimeServer, publishUserEvent } from '../../src/lib/realtime.js';
 
 const secret = 'realtime-behavior-test-secret';
 const userId = crypto.randomUUID();

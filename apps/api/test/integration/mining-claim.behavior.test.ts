@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { eq } from 'drizzle-orm';
-import { closeDb, getDb, initDb } from '../src/lib/db/index.js';
-import { runMigrations } from '../src/lib/db/migrate.js';
-import { asteroids, asteroidVeins } from '../src/lib/db/schema/asteroids.js';
-import { sectors } from '../src/lib/db/schema/sectors.js';
-import { claimMiningCargo } from '../src/services/mining/mining-claim.service.js';
+import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
+import { runMigrations } from '../../src/lib/db/migrate.js';
+import { asteroids, asteroidVeins } from '../../src/lib/db/schema/asteroids.js';
+import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { claimMiningCargo } from '../../src/services/mining/mining-claim.service.js';
 
 const asteroidId = randomUUID();
 const sectorId = randomUUID();
