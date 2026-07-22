@@ -1,3 +1,5 @@
+import type { StationVisualProfile } from './world.js';
+
 export interface Station {
   id: string;
   userId: string;
@@ -6,5 +8,6 @@ export interface Station {
   x: number;
   y: number;
   scannerRange: number;
+  visualProfile: StationVisualProfile;
   createdAt: string;
 }

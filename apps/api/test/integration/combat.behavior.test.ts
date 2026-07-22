@@ -109,6 +109,53 @@ test('combat resolves attacker and defender losses', async () => {
   assert.deepEqual(defenderFleet, { amount: 0, lockedAmount: 0 });
 });
 
+test('station defense score can repel an attack without defending spacecraft', async () => {
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 0 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, defenderStationId),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
+  await getDb()
+    .update(stationBuildings)
+    .set({ level: 4 })
+    .where(
+      and(
+        eq(stationBuildings.stationId, defenderStationId),
+        eq(stationBuildings.buildingKey, 'guardian_cannon')
+      )
+    );
+
+  const started = await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: defenderStationId,
+    spacecraftKey: 'merlin',
+    amount: 3,
+  });
+  const [mission] = await getDb()
+    .select()
+    .from(combatMissions)
+    .where(eq(combatMissions.id, started.id));
+  const [outbound] = await getDb()
+    .select()
+    .from(spacecraftTrips)
+    .where(eq(spacecraftTrips.id, mission!.outboundTripId));
+  assert.equal(await settleTripArrival(outbound!), true);
+
+  const report = (await getUserCombatReports(attackerUserId)).find(
+    (combatReport) => combatReport.id === started.id
+  );
+  assert.equal(report?.status, 'resolved');
+  assert.equal(report?.winner, 'defender');
+  assert.equal(report?.attackerLosses, 3);
+  assert.equal(report?.defenderLosses, 0);
+  assert.deepEqual(await getFleet(attackerStationId, 'merlin'), { amount: 0, lockedAmount: 0 });
+});
+
 test('a resolved attack transfers bounded loot and creates debris', async () => {
   const attackerCarbonBefore = await getCarbon(attackerStationId);
   const defenderCarbonBefore = await getCarbon(defenderStationId);

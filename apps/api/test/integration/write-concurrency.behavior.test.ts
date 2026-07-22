@@ -261,7 +261,7 @@ test('Laboratory research spends normal resources and accelerates ship construct
 });
 
 test('scanner visibility uses the authenticated users station building effect', async () => {
-  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 2_000);
+  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 1_000);
 });
 
 test('hangar capacity includes completed ships and queued construction', async () => {

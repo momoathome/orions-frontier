@@ -21,6 +21,7 @@ import {
   type ScannerCoverage,
   type VisibilityProjectionStats,
 } from './scanner-visibility.service.js';
+import { getStationVisualProfiles } from './station-visual.service.js';
 
 export interface WorldChunkRange {
   minChunkX: number;
@@ -99,7 +100,7 @@ export async function getVisibleChunkStations(
     );
   if (stats) stats.stationCandidates = rows.length;
 
-  return rows.flatMap((station) => {
+  const visibleRows = rows.flatMap((station) => {
     const isOwn = station.userId === userId;
     return scannerBypass || isOwn || isPointVisible(coverages, station)
       ? [
@@ -116,6 +117,12 @@ export async function getVisibleChunkStations(
         ]
       : [];
   });
+  const visualProfiles = await getStationVisualProfiles(visibleRows.map((station) => station.id));
+
+  return visibleRows.map((station) => ({
+    ...station,
+    visualProfile: visualProfiles.get(station.id)!,
+  }));
 }
 
 interface TimedPath {

@@ -1,4 +1,4 @@
-import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Text, Texture } from 'pixi.js';
 import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
 import { AsteroidLayer } from './AsteroidLayer.js';
@@ -6,7 +6,8 @@ import { RouteLayer } from './RouteLayer.js';
 import { TripLayer, type ActiveMovement } from './TripLayer.js';
 import { StationLayer } from './StationLayer.js';
 import { DebrisLayer } from './DebrisLayer.js';
-import type { DebrisField, VisibleStation } from '@orions-frontier/shared';
+import type { DebrisField, StationVisualProfile, VisibleStation } from '@orions-frontier/shared';
+import { createStationVisual, type StationVisual } from './StationVisual.js';
 import {
   ZOOM_INITIAL,
   ZOOM_STEP,
@@ -39,6 +40,7 @@ export interface StationInfo {
   y: number;
   name: string;
   scannerRange: number;
+  visualProfile: StationVisualProfile;
 }
 
 export class WorldRenderer {
@@ -81,8 +83,9 @@ export class WorldRenderer {
   private stationInfo: StationInfo | null = null;
   private scannerStations: StationInfo[] = [];
   private scannerBypass = false;
-  /** Half the station sprite size in world units — used for hover hit-test */
-  private readonly stationRadius = 50;
+  /** Half the active station visual size in world units — used for hover hit-test */
+  private activeStationRadius = 50;
+  private activeStationVisual: StationVisual | null = null;
   private _hoveredStation = false;
   private _selectedStation = false;
   private _isHoveringEntity = false;
@@ -156,8 +159,6 @@ export class WorldRenderer {
       [1, 2, 3, 4, 5, 6].map((i) => Assets.load(`/assets/map/asteroid${i}.webp`))
     );
     this.asteroidLayer.setTextures(asteroidTextures);
-    const stationTexture: Texture = await Assets.load('/assets/map/station.webp');
-    this.stationLayer.setTexture(stationTexture);
 
     // Screen-space layer (no camera transform)
     this.screenContainer = new Container();
@@ -186,7 +187,7 @@ export class WorldRenderer {
 
     // Station marker
     if (station) {
-      this._buildStationMarker(station, stationTexture);
+      this._buildStationMarker(station);
     }
 
     // Assignment rings — above asteroids, below hover/selection rings
@@ -390,6 +391,10 @@ export class WorldRenderer {
     // Animate in-flight spacecraft dots
     this.tripLayer.redraw();
 
+    const now = Date.now();
+    this.stationLayer.animate(now, this.camera.zoom);
+    this.activeStationVisual?.animate(now, this.camera.zoom);
+
     // Redraw assignment rings with pulse
     this._redrawAssignmentRings();
 
@@ -427,18 +432,18 @@ export class WorldRenderer {
     g.stroke();
   }
 
-  private _buildStationMarker(station: StationInfo, stationTexture: Texture) {
+  private _buildStationMarker(station: StationInfo) {
     const { x, y, name } = station;
     this.stationInfo = station;
 
-    // Sprite — square to preserve 128×128 source aspect ratio
-    const size = this.stationRadius * 2; // 100 world units
-    const sprite = new Sprite(stationTexture);
-    sprite.anchor.set(0.5, 0.5);
-    sprite.position.set(x, y);
-    sprite.width = size;
-    sprite.height = size;
-    this.worldContainer.addChild(sprite);
+    const visual = createStationVisual({
+      ...station,
+      ownerType: 'player',
+      isOwn: true,
+    });
+    this.activeStationVisual = visual;
+    this.activeStationRadius = visual.radius;
+    this.worldContainer.addChild(visual.container);
 
     const overlay = new Container();
     overlay.visible = false;
@@ -446,7 +451,7 @@ export class WorldRenderer {
 
     // Corner brackets
     const bracketG = new Graphics();
-    const half = this.stationRadius;
+    const half = this.activeStationRadius;
     const bs = 12;
     this._drawBracket(bracketG, x - half, y - half, bs, 1, 1);
     this._drawBracket(bracketG, x + half, y - half, bs, -1, 1);
@@ -538,7 +543,7 @@ export class WorldRenderer {
           // Station hover
           const newHoveredStation = this.stationInfo
             ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
-              this.stationRadius + 5
+              this.activeStationRadius + 5
             : false;
           const foreignStation = this.stationLayer.hitTest(world.x, world.y, tolerance);
           const debris = this.debrisLayer.hitTest(world.x, world.y, tolerance);
@@ -576,7 +581,7 @@ export class WorldRenderer {
         const hit = this.asteroidLayer.hitTest(world.x, world.y, tolerance);
         const stationHit = this.stationInfo
           ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
-            this.stationRadius + 5
+            this.activeStationRadius + 5
           : false;
         const foreignStationHit = this.stationLayer.hitTest(world.x, world.y, tolerance);
         const debrisHit = this.debrisLayer.hitTest(world.x, world.y, tolerance);

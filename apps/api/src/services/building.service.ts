@@ -13,7 +13,7 @@ import {
   SHIPYARD_UNLOCKS,
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
-import { AppError, ErrorCode } from '@orions-frontier/shared';
+import { AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
 
 // Seed station buildings (initialize all buildings at level 1 for new station)
 
@@ -50,6 +50,7 @@ export const getStationBuildings = async (
   const now = new Date();
 
   return rows
+    .filter((building) => (buildingKeys as readonly string[]).includes(building.buildingKey))
     .map((building) => {
       const key = building.buildingKey as BuildingKey;
       const definition = getBuilding(key);

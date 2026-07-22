@@ -30,7 +30,7 @@ Die fachlichen Verträge stehen in [Mining-Rundlauf](./mining-loop.md),
 - gemeinsame Eigentums-, Kosten-, Freischaltungs- und Kapazitätsprüfung in Domain-Services;
 - deterministische wirtschaftliche Bots ohne eigene Ressourcen- oder Simulationsregeln;
 - konfigurierbare Startwelt, sektorgebundene Bots und dynamisch wachsende Frontier;
-- Hangarkapazität, Scannerreichweite, Verteidigung und Stationsübernahme;
+- Hangarkapazität, Scannerreichweite, eigene Defense-Upgrades und Stationsübernahme;
 - stationseigene Scannerkreise, geschützte Weltobjekt-Aktionen und informationsarme Radarkontakte;
 - indexgestützte räumliche Kandidatenabfragen und ein reproduzierbarer Scanner-Lastbericht;
 - statische Checks, Build und datenbankgestützte Verhaltenstests über `npm run verify`.
@@ -41,6 +41,7 @@ Weitere Änderungen richten sich nach beobachteten Spielverläufen. Relevant sin
 
 - Scannerreichweite, Radarfrequenz und Kontaktdarstellung anhand echter Sessions abstimmen;
 - Vorräte, Flugzeiten, Bauzeiten und Flottenwachstum anhand echter Sessions abstimmen;
+- Defense-Upgrades, Panzerung, Guardian-Kanone, Drohnen und Minenfeld im Kampfbalance testen;
 - prüfen, ob erschöpfte Altsektoren durch Exploration und Kolonisation ausreichend tragfähig
   bleiben;
 - neue Bot-Aktionen erst ergänzen, nachdem die entsprechende Spielermechanik stabil ist;

@@ -7,7 +7,7 @@ import { getDb } from '../../lib/db/index.js';
  * GET /health
  */
 export default (async (app) => {
-  app.get('/', async (_request, reply) => {
+  app.get('/', { logLevel: 'silent' }, async (_request, reply) => {
     const health = {
       status: 'ok',
       timestamp: new Date().toISOString(),

@@ -56,7 +56,7 @@ Die Werte sind ein Balancing-Knopf. Die Architektur darf nicht von den konkreten
 | Objekt                  | Fremd/neutral                         | Eigen           | Öffentliche Daten innerhalb des Radars                  |
 | ----------------------- | ------------------------------------- | --------------- | ------------------------------------------------------- |
 | Asteroid                | nur im Scannerkreis                   | nicht anwendbar | Position, Größe, Adern und Restmengen                   |
-| Station                 | nur im Scannerkreis                   | immer           | Name, Position, Besitzerart                             |
+| Station                 | nur im Scannerkreis                   | immer           | Name, Position, Besitzerart, grobe visuelle Signatur    |
 | Trümmerfeld             | nur im Scannerkreis                   | nicht anwendbar | Position und verwertbare Ressourcen                     |
 | Raumflug                | aktuelle Position nur im Scannerkreis | immer           | Signatur, Bewegungsrichtung; keine entfernten Endpunkte |
 | Mining-Gruppe           | aktuelle Position nur im Scannerkreis | eigene immer    | wie Raumflug                                            |
@@ -195,6 +195,14 @@ Die Serverantwort ist maßgeblich. Das Frontend berechnet die Reichweite nicht s
 
 `GET /world/chunks` behält seine Form bei. Es liefert nur noch Objekte in der Scannerabdeckung. Eine
 beliebig verschobene Kamera kann dadurch keine entfernten Inhalte abrufen.
+
+Sichtbare Stationen enthalten zusätzlich `visualProfile`. Dieses Profil ist eine öffentliche,
+scannerbasierte Kartenprojektion aus groben Tiers `0` bis `3`: Stationsmasse, sichtbare
+Modul-Ausprägungen, grobe Defense-Signaturen und ziviler beziehungsweise militärischer Verkehr. Es
+enthält keine exakten Gebäudelevel, keine exakten Flottenzahlen und keine Fracht- oder
+Auftragsdaten. Die Karte darf daraus eine unterschiedlich große prozedurale Station, grobe
+Aktivität, Panzerung, Geschütze, Drohnen und Minen rendern; Detailwerte bleiben Stations-
+beziehungsweise Intel-Endpunkten vorbehalten.
 
 Asteroiden- und Trümmerdetails werden weiterhin über IDs geladen, jedoch mit derselben
 Sichtbarkeitsprüfung. Bestehende UI-Auswahl wird geschlossen, wenn ein Refresh das Objekt nicht mehr

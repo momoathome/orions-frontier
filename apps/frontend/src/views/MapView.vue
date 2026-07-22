@@ -48,6 +48,7 @@ async function loadUserStation(): Promise<StationInfo | null> {
       y: station.y,
       name: station.name,
       scannerRange: station.scannerRange,
+      visualProfile: station.visualProfile,
     }));
     const preferredId = localStorage.getItem('active_station_id');
     const first =
@@ -61,6 +62,7 @@ async function loadUserStation(): Promise<StationInfo | null> {
         y: first.y ?? 0,
         name: first.name,
         scannerRange: first.scannerRange,
+        visualProfile: first.visualProfile,
       };
     }
   } catch {

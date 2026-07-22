@@ -12,7 +12,7 @@ export interface BuildingSeedDefinition {
   key: BuildingKey;
   name: string;
   description: string;
-  image: string;
+  image: string | null;
   baseBuildTime: number; // seconds for level 1
   maxLevel: number;
   effectType: BuildingEffectType;

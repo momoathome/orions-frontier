@@ -12,7 +12,8 @@ import { runBotDecisionTick } from './bot/bot.service.js';
 import { completeDueWorldMissions } from './world-mission.service.js';
 import { completeDueResearch } from './research.service.js';
 import { getBuilding } from '@orions-frontier/game-config';
-import type { BuildingKey } from '@orions-frontier/shared';
+import { buildingKeys, defenseUpgradeKeys, type BuildingKey } from '@orions-frontier/shared';
+import { defenseUpgradeMaxLevel } from './defense.service.js';
 
 const logger = rootLogger.child({ name: 'simulation' });
 
@@ -60,7 +61,10 @@ export async function runSimulationTick(now = new Date()): Promise<void> {
 
   for (const building of dueBuildings) {
     try {
-      const maxLevel = getBuilding(building.buildingKey as BuildingKey).maxLevel;
+      const maxLevel = (buildingKeys as readonly string[]).includes(building.buildingKey)
+        ? getBuilding(building.buildingKey as BuildingKey).maxLevel
+        : defenseUpgradeMaxLevel(building.buildingKey);
+      if (maxLevel === null) continue;
       const [completed] = await db
         .update(stationBuildings)
         .set({
@@ -71,11 +75,19 @@ export async function runSimulationTick(now = new Date()): Promise<void> {
         .where(and(eq(stationBuildings.id, building.id), lte(stationBuildings.upgradeEndsAt, now)))
         .returning({ level: stationBuildings.level });
       if (completed) {
-        publishUserEvent(building.userId, 'building_upgrade_completed', {
-          stationId: building.stationId,
-          buildingKey: building.buildingKey,
-          newLevel: completed.level,
-        });
+        if ((defenseUpgradeKeys as readonly string[]).includes(building.buildingKey)) {
+          publishUserEvent(building.userId, 'defense_upgrade_completed', {
+            stationId: building.stationId,
+            upgradeKey: building.buildingKey,
+            newLevel: completed.level,
+          });
+        } else {
+          publishUserEvent(building.userId, 'building_upgrade_completed', {
+            stationId: building.stationId,
+            buildingKey: building.buildingKey,
+            newLevel: completed.level,
+          });
+        }
       }
     } catch (error) {
       logger.error({ buildingId: building.id, error }, 'Failed to complete building upgrade');

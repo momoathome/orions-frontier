@@ -1,5 +1,11 @@
 import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
-import { AppError, ErrorCode, type CombatReport } from '@orions-frontier/shared';
+import {
+  AppError,
+  defenseUpgradeKeys,
+  ErrorCode,
+  type CombatReport,
+  type DefenseUpgradeKey,
+} from '@orions-frontier/shared';
 import { calculateBuildingEffect, getSpacecraft } from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
 import { combatMissions } from '../lib/db/schema/combat-missions.js';
@@ -12,6 +18,7 @@ import { calcArrivesAt, calcDistance } from '../lib/travel.js';
 import { createDebrisFromLosses } from './salvage.service.js';
 import { addStationInfluence } from './influence.service.js';
 import { getUserScannerCoverages, isPointVisible } from './scanner-visibility.service.js';
+import { calculateStationDefenseScore } from './defense.service.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -152,6 +159,24 @@ async function buildingLevel(tx: Tx, stationId: string, buildingKey: string): Pr
   return building?.level ?? 0;
 }
 
+async function stationDefenseScore(tx: Tx, stationId: string): Promise<number> {
+  const rows = await tx
+    .select({
+      buildingKey: stationBuildings.buildingKey,
+      level: stationBuildings.level,
+    })
+    .from(stationBuildings)
+    .where(eq(stationBuildings.stationId, stationId));
+
+  const levels: Partial<Record<DefenseUpgradeKey, number>> = {};
+  for (const row of rows) {
+    if ((defenseUpgradeKeys as readonly string[]).includes(row.buildingKey)) {
+      levels[row.buildingKey as DefenseUpgradeKey] = row.level;
+    }
+  }
+  return calculateStationDefenseScore(levels);
+}
+
 async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
   const [mission] = await tx
     .select()
@@ -182,10 +207,12 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
   const defenderFleets = defenderRows
     .map((fleet) => ({ ...fleet, defense: getSpacecraft(fleet.spacecraftKey)!.defense }))
     .sort((a, b) => a.defense - b.defense || a.id.localeCompare(b.id));
-  const defenderPower = defenderFleets.reduce(
+  const defenderFleetPower = defenderFleets.reduce(
     (sum, fleet) => sum + Math.max(0, fleet.amount - fleet.lockedAmount) * fleet.defense,
     0
   );
+  const defenderPower =
+    defenderFleetPower + (await stationDefenseScore(tx, mission.defenderStationId));
   const attackerPower = mission.attackerAmount * attacker.attack;
   const attackerLosses = Math.min(
     mission.attackerAmount,

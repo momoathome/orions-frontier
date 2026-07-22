@@ -23,6 +23,7 @@ services:
       - sh
       - -c
       - |
+        npm run build:packages
         npm run dev --workspace @orions-frontier/shared &
         npm run dev --workspace @orions-frontier/game-config &
         exec npm run dev --workspace @orions-frontier/api
@@ -45,7 +46,7 @@ services:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:3000/api/health']
-      interval: 5s
+      interval: 30s
       timeout: 5s
       retries: 20
 
@@ -57,6 +58,7 @@ services:
       - sh
       - -c
       - |
+        npm run build:packages
         npm run dev --workspace @orions-frontier/shared &
         npm run dev --workspace @orions-frontier/game-config &
         exec npm run dev --workspace @orions-frontier/frontend

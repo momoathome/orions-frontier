@@ -7,6 +7,7 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { seedStationBuildings } from '../../src/services/building.service.js';
+import { seedStationDefenseUpgrades } from '../../src/services/defense.service.js';
 import { seedStationResources } from '../../src/services/station-resource.service.js';
 import { seedStationSpacecrafts } from '../../src/services/spacecraft.service.js';
 
@@ -73,6 +74,7 @@ export async function createTestStation({
 
   await Promise.all([
     seedStationBuildings(station!.id),
+    seedStationDefenseUpgrades(station!.id),
     seedStationResources(station!.id),
     seedStationSpacecrafts(station!.id),
   ]);

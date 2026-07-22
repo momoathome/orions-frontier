@@ -10,7 +10,11 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { getUserScannerCoverages } from '../../src/services/scanner-visibility.service.js';
-import { startBuildingUpgrade } from '../../src/services/building.service.js';
+import { getStationBuildings, startBuildingUpgrade } from '../../src/services/building.service.js';
+import {
+  getStationDefenseUpgrades,
+  startDefenseUpgrade,
+} from '../../src/services/defense.service.js';
 import { runSimulationTick } from '../../src/services/simulation.service.js';
 import { getStationHangar } from '../../src/services/spacecraft.service.js';
 import {
@@ -66,21 +70,52 @@ test('a completed hangar upgrade increases the effective hangar capacity', async
 });
 
 test('a completed scanner upgrade increases the station scanner range', async () => {
-  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 2_000);
+  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 1_000);
 
   await completeUpgrade('scanner');
 
-  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 2_500);
+  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 1_500);
+});
+
+test('defense upgrades are managed outside station buildings', async () => {
+  assert.equal(
+    (await getStationBuildings(stationId)).some(
+      (building) => (building.definition.key as string) === 'guardian_cannon'
+    ),
+    false
+  );
+
+  const before = (await getStationDefenseUpgrades(stationId)).find(
+    (upgrade) => upgrade.definition.key === 'guardian_cannon'
+  );
+  assert.equal(before?.level, 0);
+  assert.deepEqual(before?.effects, [{ type: 'defense_score', value: 0 }]);
+  assert.equal(before?.upgradeDurationSeconds, 120);
+
+  await completeDefenseUpgrade('guardian_cannon');
+
+  const after = (await getStationDefenseUpgrades(stationId)).find(
+    (upgrade) => upgrade.definition.key === 'guardian_cannon'
+  );
+  assert.equal(after?.level, 1);
+  assert.deepEqual(after?.effects, [{ type: 'defense_score', value: 12 }]);
 });
 
 async function completeUpgrade(buildingKey: 'hangar' | 'scanner'): Promise<void> {
   await startBuildingUpgrade(stationId, buildingKey, userId);
+  await completeProgressRow(buildingKey);
+}
+
+async function completeDefenseUpgrade(upgradeKey: 'guardian_cannon'): Promise<void> {
+  await startDefenseUpgrade(stationId, upgradeKey, userId);
+  await completeProgressRow(upgradeKey);
+}
+
+async function completeProgressRow(key: string): Promise<void> {
   const completedAt = new Date();
   await getDb()
     .update(stationBuildings)
     .set({ upgradeEndsAt: completedAt })
-    .where(
-      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, buildingKey))
-    );
+    .where(and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, key)));
   await runSimulationTick(completedAt);
 }

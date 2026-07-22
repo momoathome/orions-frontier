@@ -19,6 +19,7 @@ import { SeededRng } from '../lib/world-gen/rng.js';
 import { calcArrivesAt, calcDistance, calcTravelHours } from '../lib/travel.js';
 import { publishUserEvent } from '../lib/realtime.js';
 import { seedStationBuildings } from './building.service.js';
+import { seedStationDefenseUpgrades } from './defense.service.js';
 import { ensureSector } from './sector.service.js';
 import { seedStationResources } from './station-resource.service.js';
 
@@ -576,6 +577,7 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
           .returning({ id: stations.id });
         await seedStationResources(station!.id, tx, {});
         await seedStationBuildings(station!.id, tx);
+        await seedStationDefenseUpgrades(station!.id, tx);
         const [moved] = await tx
           .update(stationSpacecrafts)
           .set({

@@ -42,6 +42,7 @@ export * from './station-spacecraft';
 export * from './station-resource';
 export * from './resource';
 export * from './building';
+export * from './defense';
 export * from './asteroid';
 export * from './mining-trip';
 export * from './world';

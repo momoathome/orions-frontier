@@ -1,4 +1,18 @@
+import type { BuildingKey } from './building.js';
+import type { DefenseUpgradeKey } from './defense.js';
 import type { SpacecraftRole } from './station-spacecraft.js';
+
+export type StationVisualTier = 0 | 1 | 2 | 3;
+
+export interface StationVisualProfile {
+  scaleTier: StationVisualTier;
+  modules: Record<BuildingKey, StationVisualTier>;
+  defense: Record<DefenseUpgradeKey, StationVisualTier>;
+  traffic: {
+    civilian: StationVisualTier;
+    military: StationVisualTier;
+  };
+}
 
 export interface VisibleStation {
   id: string;
@@ -9,6 +23,7 @@ export interface VisibleStation {
   chunkY: number;
   ownerType: 'player' | 'bot';
   isOwn: boolean;
+  visualProfile: StationVisualProfile;
 }
 
 export type WorldTripPurpose =

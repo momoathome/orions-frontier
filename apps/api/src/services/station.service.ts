@@ -5,6 +5,7 @@ import { spawnSlots } from '../lib/db/schema/spawn-slots.js';
 import { sectors } from '../lib/db/schema/sectors.js';
 import { seedStationResources } from './station-resource.service.js';
 import { seedStationBuildings } from './building.service.js';
+import { seedStationDefenseUpgrades } from './defense.service.js';
 import { seedStationSpacecrafts } from './spacecraft.service.js';
 import type { Station } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
@@ -13,8 +14,13 @@ import { insertGeneratedAsteroids, openNextSettlementSector } from './sector.ser
 import { WORLD_CONFIG } from '../lib/world-config.js';
 import { calculateScannerRange } from '@orions-frontier/game-config';
 import { getUserScannerCoverages } from './scanner-visibility.service.js';
+import { getStationVisualProfiles, starterStationVisualProfile } from './station-visual.service.js';
 
-const toStation = (row: typeof stations.$inferSelect, scannerRange: number): Station => ({
+const toStation = (
+  row: typeof stations.$inferSelect,
+  scannerRange: number,
+  visualProfile = starterStationVisualProfile()
+): Station => ({
   id: row.id,
   userId: row.userId,
   sectorId: row.sectorId,
@@ -22,6 +28,7 @@ const toStation = (row: typeof stations.$inferSelect, scannerRange: number): Sta
   x: row.x,
   y: row.y,
   scannerRange,
+  visualProfile,
   createdAt: row.createdAt.toISOString(),
 });
 
@@ -32,7 +39,8 @@ export const getUserStations = async (userId: string): Promise<Station[]> => {
     getUserScannerCoverages(userId),
   ]);
   const ranges = new Map(coverages.map((coverage) => [coverage.stationId, coverage.range]));
-  return rows.map((row) => toStation(row, ranges.get(row.id) ?? 0));
+  const visualProfiles = await getStationVisualProfiles(rows.map((row) => row.id));
+  return rows.map((row) => toStation(row, ranges.get(row.id) ?? 0, visualProfiles.get(row.id)));
 };
 
 export const createStation = async (
@@ -109,6 +117,7 @@ export const createStation = async (
       .where(eq(spawnSlots.id, slot.slot.id));
     await seedStationResources(station.id, tx);
     await seedStationBuildings(station.id, tx);
+    await seedStationDefenseUpgrades(station.id, tx);
     await seedStationSpacecrafts(station.id, tx);
     await insertGeneratedAsteroids(
       tx,
