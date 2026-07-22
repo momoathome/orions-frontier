@@ -1,17 +1,17 @@
 export const WORLD_CONFIG = {
   CHUNK_SIZE: 1000,
-  WORLD_SEED: 'orions-frontier-v6',
+  WORLD_SEED: 'orions-frontier-v7',
   INITIAL_SECTOR_RADIUS: 1,
 
   SECTOR: {
-    WIDTH: 8_000,
-    HEIGHT: 8_000,
+    WIDTH: 6_000,
+    HEIGHT: 6_000,
     STATION_CAPACITY: 8,
     BOTS_PER_SETTLEMENT: 2,
-    SAFE_SPAWN_RADIUS: 900,
+    SAFE_SPAWN_RADIUS: 650,
   },
 
-  ASTEROID_MIN_DISTANCE: 180,
+  ASTEROID_MIN_DISTANCE: 140,
   VEIN_COUNT: {
     small: { min: 1, max: 2 },
     medium: { min: 2, max: 2 },
@@ -19,10 +19,10 @@ export const WORLD_CONFIG = {
     massive: { min: 3, max: 3 },
   },
   ASTEROID_RESOURCE_AMOUNT: {
-    small: { min: 300, max: 600 },
-    medium: { min: 1_500, max: 3_000 },
-    large: { min: 8_000, max: 15_000 },
-    massive: { min: 40_000, max: 80_000 },
+    small: { min: 900, max: 1_600 },
+    medium: { min: 4_000, max: 7_000 },
+    large: { min: 15_000, max: 28_000 },
+    massive: { min: 80_000, max: 140_000 },
   },
   VEIN_WEIGHTS: { primary: 0.7, secondary: 0.25, trace: 0.05 },
 
@@ -38,16 +38,17 @@ export const WORLD_CONFIG = {
   ] as const,
   BACKGROUND_SIZE_WEIGHTS: { small: 80, medium: 20, large: 0, massive: 0 },
   FIELD_SIZE_WEIGHTS: { small: 40, medium: 35, large: 20, massive: 5 },
+  RARE_FIELD_SIZE_WEIGHTS: { small: 70, medium: 30, large: 0, massive: 0 },
   DISTRIBUTION: {
-    settlement: { backgroundCount: 36, fieldCount: 2, asteroidsPerField: 12 },
-    frontier: { backgroundCount: 30, fieldCount: 3, asteroidsPerField: 12 },
+    settlement: { backgroundCount: 48, fieldCount: 3, asteroidsPerField: 12 },
+    frontier: { backgroundCount: 40, fieldCount: 4, asteroidsPerField: 12 },
   },
 
   TRAVEL_SPEED_FACTOR: 80,
 
   STARTER_POCKET: {
-    MIN_DIST: 300,
-    MAX_DIST: 700,
+    MIN_DIST: 180,
+    MAX_DIST: 420,
     GUARANTEED: [
       { primaryResource: 'carbon', size: 'medium' },
       { primaryResource: 'titanium', size: 'medium' },

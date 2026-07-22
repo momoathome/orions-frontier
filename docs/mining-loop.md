@@ -67,12 +67,12 @@ Verteilungsregel und kein Förderlimit.
 
 Aktuelle Vorratsbereiche der spielbaren Baseline:
 
-| Größe  |    Gesamtvorrat |
-| ------ | --------------: |
-| klein  |    8.000–12.000 |
-| mittel |   20.000–30.000 |
-| groß   |   50.000–80.000 |
-| massiv | 120.000–200.000 |
+| Größe  |   Gesamtvorrat |
+| ------ | -------------: |
+| klein  |      900–1.600 |
+| mittel |    4.000–7.000 |
+| groß   |  15.000–28.000 |
+| massiv | 80.000–140.000 |
 
 Die Werte bilden den messbaren Startvertrag für den spielbaren Durchstich. Weiteres Balancing
 erfolgt anhand echter Spielsessions. Ressourcen
@@ -87,10 +87,10 @@ Die Vorratsbereiche werden später aus einer gewünschten Laufzeit abgeleitet:
 Zielvorrat = Referenz-Lieferleistung × gewünschte Laufzeit
 ```
 
-Ein Vorrat von `10.000` Einheiten hält bei einer Lieferleistung von `66,7/h` ungefähr 150 Stunden
-beziehungsweise gut sechs Tage. Zwei gleiche Miner verkürzen diese Dauer näherungsweise auf drei
-Tage. So bleiben die Vorratswerte nachvollziehbar, obwohl sie anschließend anhand des
-Spielgefühls angepasst werden.
+Ein Vorrat von `1.200` Einheiten hält bei einer frühen Lieferleistung von ungefähr `300/h` etwa
+vier Stunden. Drei gleiche Miner verkürzen diese Dauer näherungsweise auf gut eine Stunde. So
+bleiben die Vorratswerte nachvollziehbar, obwohl sie anschließend anhand des Spielgefühls angepasst
+werden.
 
 Bei konkurrierenden Minern wird die tatsächlich entnommene Menge innerhalb einer
 Datenbanktransaktion auf den aktuellen Restvorrat begrenzt. Dadurch kann die letzte Ladung kleiner
@@ -159,12 +159,12 @@ Rundlaufzeit    = Abbauzeit + 2 × Flugzeit
 Lieferleistung  = Ladungsmenge / Rundlaufzeit
 ```
 
-Für einen Miner mit `120/h` Abbaurate und `100` Einheiten Frachtraum beträgt die reine Abbauzeit
-50 Minuten:
+Für eine Mole mit `600/h` Abbaurate und `50` Einheiten Frachtraum beträgt die reine Abbauzeit
+5 Minuten:
 
-- 5 Minuten Flug pro Strecke: 60 Minuten Rundlauf, `100/h` Lieferleistung;
-- 20 Minuten Flug pro Strecke: 90 Minuten Rundlauf, ungefähr `66,7/h` Lieferleistung;
-- 40 Minuten Flug pro Strecke: 130 Minuten Rundlauf, ungefähr `46,2/h` Lieferleistung.
+- 2 Minuten Flug pro Strecke: 9 Minuten Rundlauf, ungefähr `333/h` Lieferleistung;
+- 4 Minuten Flug pro Strecke: 13 Minuten Rundlauf, ungefähr `231/h` Lieferleistung;
+- 10 Minuten Flug pro Strecke: 25 Minuten Rundlauf, `120/h` Lieferleistung.
 
 Bei der letzten Teilmenge wird mit der tatsächlichen Ladungsmenge gerechnet. Für mehrere gleiche
 Miner kann die Vorschau näherungsweise linear rechnen, solange genügend Vorrat verbleibt:
@@ -221,10 +221,10 @@ bereits geplantes Ausbaulevel vorgebaut.
 
 ## Aktuelle Balancing-Baseline
 
-- Ein kleiner Starterasteroid hält mit einer Mole ungefähr 80-117 Stunden, mit drei Mole noch
-  ungefähr 27-40 Stunden.
-- Eine neue Station beginnt mit einer Mole (`120/h`, 100 Frachtraum, Geschwindigkeit 80).
-- Starterziele ergeben damit ungefähr eine Stunde bis zur ersten vollen Lieferung.
+- Ein kleiner Starterasteroid hält mit einer Mole ungefähr 3-6 Stunden, mit drei Mole noch
+  ungefähr 1-2 Stunden.
+- Eine neue Station beginnt mit einer Mole (`600/h`, 50 Frachtraum, Geschwindigkeit 80).
+- Starterziele ergeben damit ungefähr 9-13 Minuten bis zur ersten vollen Lieferung.
 - Core-Level 1 bietet zehn Hangarplätze. Der Spieler kann seine erste Miningflotte ausbauen, muss
   vor größeren zivilen und militärischen Flotten aber in den Core investieren.
 

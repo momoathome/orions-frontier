@@ -32,10 +32,13 @@ export interface ChunkQueryParams {
 export const getVisibleChunkAsteroids = async (
   params: ChunkQueryParams,
   coverages: readonly ScannerCoverage[],
-  stats?: VisibilityProjectionStats
+  stats?: VisibilityProjectionStats,
+  scannerBypass = false
 ): Promise<VisibleAsteroid[]> => {
   const db = getDb();
-  const bounds = visibleChunkBounds(coverages, params, WORLD_CONFIG.CHUNK_SIZE);
+  const bounds = scannerBypass
+    ? [params]
+    : visibleChunkBounds(coverages, params, WORLD_CONFIG.CHUNK_SIZE);
   if (bounds.length === 0) return [];
 
   const rows = await db
@@ -66,7 +69,7 @@ export const getVisibleChunkAsteroids = async (
   if (stats) stats.asteroidCandidates = rows.length;
 
   return rows.flatMap((row) =>
-    isPointVisible(coverages, row)
+    scannerBypass || isPointVisible(coverages, row)
       ? [
           {
             id: row.id,
@@ -84,16 +87,17 @@ export const getVisibleChunkAsteroids = async (
 
 export const getAsteroidById = async (
   id: string,
-  userId: string
+  userId: string,
+  scannerBypass = false
 ): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
   const [[row], coverages] = await Promise.all([
     db.select().from(asteroids).where(eq(asteroids.id, id)).limit(1),
-    getUserScannerCoverages(userId),
+    scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
   ]);
 
-  if (!row || !isPointVisible(coverages, row)) return null;
+  if (!row || (!scannerBypass && !isPointVisible(coverages, row))) return null;
 
   const [veins, assignmentRows, travelingTrips] = await Promise.all([
     db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, id)),
@@ -140,9 +144,8 @@ export const getAsteroidById = async (
     }
   }
 
-  const mayObserveOperations = assignmentRows.some(
-    (assignment) => assignment.ownerUserId === userId
-  );
+  const mayObserveOperations =
+    scannerBypass || assignmentRows.some((assignment) => assignment.ownerUserId === userId);
   const visibleAssignments = mayObserveOperations ? assignmentRows : [];
 
   return {

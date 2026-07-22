@@ -18,8 +18,8 @@ const coverage = (overrides: Partial<ScannerCoverage> = {}): ScannerCoverage => 
 
 test('scanner range uses the configured linear station progression', () => {
   assert.equal(calculateScannerRange(0), 0);
-  assert.equal(calculateScannerRange(1), 2_000);
-  assert.equal(calculateScannerRange(15), 9_000);
+  assert.equal(calculateScannerRange(1), 1_000);
+  assert.equal(calculateScannerRange(15), 8_000);
 });
 
 test('scanner visibility is circular, includes its boundary, and unions stations', () => {

@@ -15,8 +15,8 @@ ausgeliefert.
 ## Startwelt
 
 Eine frische Welt verwendet standardmäßig `INITIAL_SECTOR_RADIUS: 1` und erzeugt damit einen
-zusammenhängenden Bereich von `3 x 3` Sektoren. `(0,0)` ist der erste Ansiedlungssektor, die acht
-Nachbarn sind Frontier.
+zusammenhängenden Bereich von `3 x 3` Sektoren. Ein Sektor ist `6.000 x 6.000` Welteinheiten groß.
+`(0,0)` ist der erste Ansiedlungssektor, die acht Nachbarn sind Frontier.
 
 Stationskapazität und Botanzahl sind getrennt konfiguriert. Beim aktuellen Standard besitzt ein
 Ansiedlungssektor acht Plätze, davon zwei Bot-Slots. Bereits persistierte Stationen werden durch
@@ -92,6 +92,13 @@ Die jeweils andere seltene Ressource entsteht dort weder als Primär-, Sekundär
 Orthogonale Nachbarn besitzen dadurch automatisch unterschiedliche Schwerpunkte. Carbon, Titanium
 und Hydrogenium bleiben die Grundversorgung von Ansiedlungssektoren.
 
+Die Resource-Definition markiert Astatine und Kyber als `rare`. Massive Asteroiden dürfen `rare`
+Ressourcen nicht als Primär- oder Sekundärader enthalten; als Trace-Ader bleiben sie erlaubt.
+
+Garantierte Felder mit seltenem Primärrohstoff verwenden eine eigene Größenverteilung ohne massive
+Asteroiden. Sie bleiben dadurch als Explorationsziel sichtbar, enthalten aber keine frühen
+sechsstelligen Rare-Jackpots.
+
 ## Erschöpfung und Balance
 
 Ein erschöpfter Sektor bleibt bestehen. Stationen und Reisen werden nicht gelöscht. Automatischer
@@ -99,10 +106,10 @@ Asteroiden-Nachschub, private Vorkommen und unendliche Reserven sind nicht vorge
 
 Die aktuelle Baseline schützt folgende Größenordnungen:
 
-- Starterziele liegen ungefähr drei bis sieben Flugminuten entfernt.
-- Ein erster voller Mole-Rundlauf dauert ungefähr eine Stunde.
-- Drei Mole benötigen für einen Starterasteroiden mindestens einen Tag.
-- Ein voll belegter Ansiedlungssektor besitzt bei drei Mole je Station ungefähr 30 bis 60 Tage
+- Starterziele liegen ungefähr zwei bis vier Flugminuten entfernt.
+- Ein erster voller Mole-Rundlauf dauert ungefähr 9 bis 13 Minuten.
+- Drei Mole benötigen für einen kleinen Starterasteroiden ungefähr 1 bis 2 Stunden.
+- Ein voll belegter Ansiedlungssektor besitzt bei drei Mole je Station ungefähr 3 bis 6 Tage
   Referenzvorrat.
 
 Nachschub wird erst geplant, wenn reale Spielstände zeigen, dass Exploration und Kolonisation alte

@@ -37,6 +37,7 @@ export class ChunkStreamer {
   /** Chunks whose fetch is in-flight */
   private pendingChunks = new Set<ChunkKey>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private scannerBypass = false;
 
   onChunkLoaded: ((key: ChunkKey, chunk: WorldChunk) => void) | null = null;
   onChunkUnloaded: ((key: ChunkKey) => void) | null = null;
@@ -59,6 +60,12 @@ export class ChunkStreamer {
     for (const key of this.loadedChunks.keys()) this.onChunkUnloaded?.(key);
     this.loadedChunks.clear();
     this.immediateUpdate(camera);
+  }
+
+  setScannerBypass(enabled: boolean, camera: Camera) {
+    if (this.scannerBypass === enabled) return;
+    this.scannerBypass = enabled;
+    this.refresh(camera);
   }
 
   destroy() {
@@ -133,6 +140,7 @@ export class ChunkStreamer {
           maxChunkX: sub.maxCX,
           minChunkY: sub.minCY,
           maxChunkY: sub.maxCY,
+          scannerBypass: this.scannerBypass,
         },
       });
 

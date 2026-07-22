@@ -176,7 +176,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     defense: 3,
     cargo: 50,
     speed: 80,
-    miningRate: 300,
+    miningRate: 600,
     buildTime: 60,
     costs: [
       { resourceKey: 'carbon', amount: 80 },

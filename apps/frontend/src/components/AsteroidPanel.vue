@@ -15,6 +15,7 @@ import { resourceColor, resourceName } from '../lib/mining-utils';
 const props = defineProps<{
   asteroidId: string;
   stationId: string | null;
+  scannerBypass?: boolean;
 }>();
 
 const emit = defineEmits<{ close: []; refresh: [] }>();
@@ -28,7 +29,9 @@ async function loadAsteroid(id: string, showLoading = true) {
   error.value = null;
   if (showLoading) asteroid.value = null;
   try {
-    const response = await apiClient.get(`/asteroids/${id}`);
+    const response = await apiClient.get(`/asteroids/${id}`, {
+      params: { scannerBypass: props.scannerBypass },
+    });
     asteroid.value = response;
   } catch (cause) {
     if (cause instanceof ApiError && cause.status === 404) {

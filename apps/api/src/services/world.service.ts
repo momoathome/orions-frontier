@@ -64,10 +64,13 @@ export async function getVisibleChunkStations(
   range: WorldChunkRange,
   userId: string,
   coverages: readonly ScannerCoverage[],
-  stats?: VisibilityProjectionStats
+  stats?: VisibilityProjectionStats,
+  scannerBypass = false
 ): Promise<VisibleStation[]> {
   const db = getDb();
-  const coverageBounds = visibleChunkBounds(coverages, range, WORLD_CONFIG.CHUNK_SIZE);
+  const coverageBounds = scannerBypass
+    ? [range]
+    : visibleChunkBounds(coverages, range, WORLD_CONFIG.CHUNK_SIZE);
   const rows = await db
     .select({
       id: stations.id,
@@ -98,7 +101,7 @@ export async function getVisibleChunkStations(
 
   return rows.flatMap((station) => {
     const isOwn = station.userId === userId;
-    return isOwn || isPointVisible(coverages, station)
+    return scannerBypass || isOwn || isPointVisible(coverages, station)
       ? [
           {
             id: station.id,
@@ -153,7 +156,8 @@ const isInsideWorldBounds = (
 export async function getVisibleWorldMovements(
   range: WorldChunkRange,
   userId: string,
-  now = new Date()
+  now = new Date(),
+  scannerBypass = false
 ): Promise<VisibleWorldMovement[]> {
   const db = getDb();
   const [trips, missions, coverages] = await Promise.all([
@@ -198,7 +202,7 @@ export async function getVisibleWorldMovements(
       .innerJoin(stations, eq(worldMissions.originStationId, stations.id))
       .leftJoin(botControllers, eq(botControllers.userId, worldMissions.userId))
       .where(inArray(worldMissions.status, ['traveling', 'returning'])),
-    getUserScannerCoverages(userId),
+    scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
   ]);
   const bounds = worldBounds(range);
 
@@ -207,7 +211,7 @@ export async function getVisibleWorldMovements(
     if (!isInsideWorldBounds(position, bounds)) return [];
     const spacecraft = getSpacecraft(trip.spacecraftKey)!;
     if (trip.userId !== userId) {
-      return isPointVisible(coverages, position)
+      return scannerBypass || isPointVisible(coverages, position)
         ? [
             {
               kind: 'radar_contact',
@@ -257,7 +261,7 @@ export async function getVisibleWorldMovements(
     const position = interpolateWorldPosition(path, now);
     if (!isInsideWorldBounds(position, bounds)) return [];
     if (mission.userId !== userId) {
-      return isPointVisible(coverages, position)
+      return scannerBypass || isPointVisible(coverages, position)
         ? [
             {
               kind: 'radar_contact',

@@ -208,12 +208,16 @@ export function generateSector(
       field === distribution.fieldCount - 1
         ? rareResource
         : pickWeighted(WORLD_CONFIG.FIELD_BASE_RESOURCES, rng);
+    const sizeWeights =
+      primaryResource === rareResource
+        ? WORLD_CONFIG.RARE_FIELD_SIZE_WEIGHTS
+        : WORLD_CONFIG.FIELD_SIZE_WEIGHTS;
     for (const point of points) {
       addAsteroid(
         point,
         primaryResource,
         fieldPool,
-        WORLD_CONFIG.FIELD_SIZE_WEIGHTS,
+        sizeWeights,
         rng,
         bounds,
         spawnSlots,

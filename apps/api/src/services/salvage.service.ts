@@ -80,9 +80,12 @@ export async function getVisibleDebris(
     maxChunkY: number;
   },
   coverages: readonly ScannerCoverage[],
-  stats?: VisibilityProjectionStats
+  stats?: VisibilityProjectionStats,
+  scannerBypass = false
 ): Promise<DebrisField[]> {
-  const bounds = visibleChunkBounds(coverages, params, WORLD_CONFIG.CHUNK_SIZE);
+  const bounds = scannerBypass
+    ? [params]
+    : visibleChunkBounds(coverages, params, WORLD_CONFIG.CHUNK_SIZE);
   if (bounds.length === 0) return [];
   const rows = await getDb()
     .select()
@@ -99,7 +102,7 @@ export async function getVisibleDebris(
     );
   if (stats) stats.debrisCandidates = rows.length;
   return rows.flatMap((row) =>
-    isPointVisible(coverages, row)
+    scannerBypass || isPointVisible(coverages, row)
       ? [
           {
             id: row.id,

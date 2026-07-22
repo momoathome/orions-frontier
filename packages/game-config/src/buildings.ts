@@ -220,7 +220,7 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
 }
 
 export const calculateScannerRange = (level: number): number =>
-  level <= 0 ? 0 : 2_000 + (level - 1) * 500;
+  level <= 0 ? 0 : 1_000 + (level - 1) * 500;
 
 // Unlock Milestones
 

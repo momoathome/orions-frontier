@@ -26,6 +26,7 @@ import {
   getVisibleChunkStations,
   getVisibleWorldMovements,
 } from '../../src/services/world.service.js';
+import { buildTestApp } from '../helpers/test-app.js';
 
 const viewerId = randomUUID();
 const targetId = randomUUID();
@@ -343,6 +344,50 @@ test('foreign movement is a route-free contact while the owner keeps its full tr
   assert.equal(ownTrip?.kind, 'own_trip');
   assert.equal(ownTrip?.kind === 'own_trip' ? ownTrip.fromX : null, 2_500);
   assert.equal(ownTrip?.kind === 'own_trip' ? ownTrip.toX : null, -2_500);
+});
+
+test('dev scanner bypass projects the requested chunks without scanner coverage', async () => {
+  const [visibleAsteroids, visibleStations, visibleDebris, hiddenMovement, hiddenAsteroid] =
+    await Promise.all([
+      getVisibleChunkAsteroids(range, [], undefined, true),
+      getVisibleChunkStations(range, viewerId, [], undefined, true),
+      getVisibleDebris(range, [], undefined, true),
+      getVisibleWorldMovements(range, viewerId, new Date(now.getTime() - 5_000), true),
+      getAsteroidById(hiddenAsteroidId, viewerId, true),
+    ]);
+
+  assert.equal(
+    visibleAsteroids.some(({ id }) => id === hiddenAsteroidId),
+    true
+  );
+  assert.equal(
+    visibleStations.some(({ id }) => id === hiddenTargetStationId),
+    true
+  );
+  assert.equal(
+    visibleDebris.some(({ id }) => id === hiddenDebrisId),
+    true
+  );
+  assert.equal(
+    hiddenMovement.some(({ id }) => id === tripId),
+    true
+  );
+  assert.equal(hiddenAsteroid?.id, hiddenAsteroidId);
+
+  const app = await buildTestApp();
+  try {
+    await app.ready();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/asteroids/${hiddenAsteroidId}?scannerBypass=true`,
+      headers: { authorization: `Bearer ${app.jwt.sign({ userId: viewerId, role: 'admin' })}` },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().id, hiddenAsteroidId);
+  } finally {
+    await app.close();
+  }
 });
 
 test('world visibility tables expose the required candidate indexes', async () => {

@@ -1,5 +1,6 @@
 import { WORLD_CONFIG } from '../world-config.js';
-import type { AsteroidSize, VeinType } from '@orions-frontier/shared';
+import { resources } from '@orions-frontier/game-config';
+import type { AsteroidSize, ResourceKey, VeinType } from '@orions-frontier/shared';
 import type { GeneratedAsteroid, GeneratedVein } from './types.js';
 import type { SeededRng } from './rng.js';
 
@@ -62,6 +63,19 @@ function buildAsteroidBase(x: number, y: number, size: AsteroidSize, rng: Seeded
 
 const VEIN_TYPES: readonly VeinType[] = ['primary', 'secondary', 'trace'];
 
+const isRareResource = (resourceKey: string): boolean =>
+  resources[resourceKey as ResourceKey]?.rarity === 'rare';
+
+function majorPoolForSize(
+  size: AsteroidSize,
+  veinType: VeinType,
+  pool: readonly { resource: string; weight: number }[]
+) {
+  if (size !== 'massive' || veinType === 'trace') return pool;
+  const nonRarePool = pool.filter((resource) => !isRareResource(resource.resource));
+  return nonRarePool.length > 0 ? nonRarePool : pool;
+}
+
 export function buildAsteroid(
   x: number,
   y: number,
@@ -82,20 +96,21 @@ export function buildAsteroid(
   const totalAmountWeight = amountWeights.reduce((sum, weight) => sum + weight, 0);
   let allocatedAmount = 0;
 
-  const usedResources = new Set<string>([primaryResource]);
+  const usedResources = new Set<string>();
 
   const veins: GeneratedVein[] = [];
   for (let i = 0; i < veinCount; i++) {
     const veinType = VEIN_TYPES[Math.min(i, VEIN_TYPES.length - 1)]!;
 
     let resourceKey: string;
-    if (i === 0) {
+    if (i === 0 && !(size === 'massive' && isRareResource(primaryResource))) {
       resourceKey = primaryResource;
     } else {
-      const available = secondaryPool.filter((p) => !usedResources.has(p.resource));
-      resourceKey = pickWeighted(available.length > 0 ? available : secondaryPool, rng);
-      usedResources.add(resourceKey);
+      const pool = majorPoolForSize(size, veinType, secondaryPool);
+      const available = pool.filter((p) => !usedResources.has(p.resource));
+      resourceKey = pickWeighted(available.length > 0 ? available : pool, rng);
     }
+    usedResources.add(resourceKey);
 
     const remainingAmount =
       i === veinCount - 1

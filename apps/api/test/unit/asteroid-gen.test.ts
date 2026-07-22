@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { spacecrafts } from '@orions-frontier/game-config';
+import { resources as gameResources, spacecrafts } from '@orions-frontier/game-config';
+import type { ResourceKey } from '@orions-frontier/shared';
 import { calculateMiningCycle } from '../../src/lib/mining-cycle.js';
 import { calcDistance } from '../../src/lib/travel.js';
 import { WORLD_CONFIG } from '../../src/lib/world-config.js';
@@ -11,6 +12,9 @@ import {
   generateStarterPocket,
   rareResourceForSector,
 } from '../../src/lib/world-gen/sector-gen.js';
+
+const isRareResource = (resourceKey: string): boolean =>
+  gameResources[resourceKey as ResourceKey]?.rarity === 'rare';
 
 test('generates one finite resource budget distributed across all veins', () => {
   const asteroid = buildAsteroid(
@@ -108,6 +112,45 @@ test('orthogonal sectors contain opposite rare resources without cross-contamina
   assert.equal(resources(odd).has('kyber_crystal'), false);
 });
 
+test('initial rare fields do not contain massive primary deposits', () => {
+  for (let sectorX = -1; sectorX <= 1; sectorX += 1) {
+    for (let sectorY = -1; sectorY <= 1; sectorY += 1) {
+      const role = sectorX === 0 && sectorY === 0 ? 'settlement' : 'frontier';
+      const sector = generateSector(sectorX, sectorY, WORLD_CONFIG.WORLD_SEED, role);
+      const rareResource = rareResourceForSector(sectorX, sectorY);
+      const massiveRareDeposits = sector.asteroids.filter(
+        (asteroid) => asteroid.size === 'massive' && asteroid.veins[0]!.resourceKey === rareResource
+      );
+
+      assert.equal(massiveRareDeposits.length, 0);
+    }
+  }
+});
+
+test('massive asteroids keep rare resources out of primary and secondary veins', () => {
+  const massiveOnly = { small: 0, medium: 0, large: 0, massive: 1 };
+  const pool = [
+    { resource: 'carbon', weight: 1 },
+    { resource: 'titanium', weight: 1 },
+    { resource: 'hydrogenium', weight: 1 },
+    { resource: 'kyber_crystal', weight: 100 },
+    { resource: 'astatine', weight: 100 },
+  ];
+  const asteroids = [
+    buildAsteroid(0, 0, 'astatine', pool, new SeededRng('massive-rare-primary'), massiveOnly),
+    buildAsteroid(0, 0, 'carbon', pool, new SeededRng('massive-rare-secondary'), massiveOnly),
+  ];
+
+  for (const asteroid of asteroids) {
+    assert.equal(asteroid.size, 'massive');
+    assert.ok(
+      asteroid.veins
+        .filter((vein) => vein.veinType !== 'trace')
+        .every((vein) => !isRareResource(vein.resourceKey))
+    );
+  }
+});
+
 test('starter miners make frequent trips and deplete small asteroids quickly', () => {
   const mole = spacecrafts.find((spacecraft) => spacecraft.key === 'mole')!;
   const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
@@ -135,12 +178,12 @@ test('starter miners make frequent trips and deplete small asteroids quickly', (
     .filter(({ size }) => size === 'small')
     .map(({ estimate }) => estimate.estimatedDepletionHours);
 
-  assert.ok(Math.min(...travelMinutes) >= 2.5);
-  assert.ok(Math.max(...travelMinutes) <= 7);
-  assert.ok(Math.min(...roundTripMinutes) >= 15);
-  assert.ok(Math.max(...roundTripMinutes) <= 24);
-  assert.ok(Math.min(...smallDepletionHours) >= 0.5);
-  assert.ok(Math.max(...smallDepletionHours) <= 1.5);
+  assert.ok(Math.min(...travelMinutes) >= 1.5);
+  assert.ok(Math.max(...travelMinutes) <= 4.2);
+  assert.ok(Math.min(...roundTripMinutes) >= 8);
+  assert.ok(Math.max(...roundTripMinutes) <= 13.5);
+  assert.ok(Math.min(...smallDepletionHours) >= 0.75);
+  assert.ok(Math.max(...smallDepletionHours) <= 2.25);
 
   const totalReserve = [...sector.asteroids, ...pockets.map(({ asteroid }) => asteroid)].reduce(
     (sum, asteroid) =>
@@ -158,6 +201,6 @@ test('starter miners make frequent trips and deplete small asteroids quickly', (
   const fullSectorRunwayDays =
     totalReserve / (WORLD_CONFIG.SECTOR.STATION_CAPACITY * 3 * referenceDeliveryPerHour * 24);
 
-  assert.ok(fullSectorRunwayDays >= 1.5);
-  assert.ok(fullSectorRunwayDays <= 3);
+  assert.ok(fullSectorRunwayDays >= 3);
+  assert.ok(fullSectorRunwayDays <= 6);
 });

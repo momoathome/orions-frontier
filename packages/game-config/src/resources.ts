@@ -17,13 +17,13 @@ export const resources: Record<ResourceKey, ResourceDefinition> = {
     key: 'hydrogenium',
     name: 'Hydrogenium',
     image: '/assets/resources/hydrogenium.png',
-    rarity: 'rare',
+    rarity: 'common',
   },
   kyber_crystal: {
     key: 'kyber_crystal',
     name: 'Kyber Crystal',
     image: '/assets/resources/kyber_crystal.png',
-    rarity: 'epic',
+    rarity: 'rare',
   },
   astatine: {
     key: 'astatine',

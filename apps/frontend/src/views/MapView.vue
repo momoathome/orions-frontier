@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import TopHud from '../components/TopHud.vue';
 import StationPanel from '../components/StationPanel.vue';
 import TargetStationPanel from '../components/TargetStationPanel.vue';
@@ -7,6 +7,7 @@ import AsteroidPanel from '../components/AsteroidPanel.vue';
 import DebrisPanel from '../components/DebrisPanel.vue';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
+import { useAuthStore } from '../stores/auth.js';
 import { WorldRenderer } from '../lib/world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from '../lib/world/WorldRenderer.js';
 import type { ActiveMovement } from '../lib/world/TripLayer.js';
@@ -23,6 +24,9 @@ type SelectedEntity =
   | { type: 'debris'; field: DebrisField };
 const selectedEntity = ref<SelectedEntity | null>(null);
 const deselect = () => (selectedEntity.value = null);
+const auth = useAuthStore();
+const canBypassScanner = computed(() => auth.user?.role === 'admin');
+const scannerBypass = ref(localStorage.getItem('dev_scanner_bypass') === 'true');
 
 const stationId = ref<string | null>(null);
 const stationName = ref<string | undefined>(undefined);
@@ -88,6 +92,7 @@ async function loadTrips(): Promise<void> {
         maxChunkX: range.maxChunkX,
         minChunkY: range.minChunkY,
         maxChunkY: range.maxChunkY,
+        scannerBypass: scannerBypass.value,
       },
     });
     renderer.setActiveTrips(
@@ -215,6 +220,9 @@ onMounted(async () => {
   };
 
   await renderer.mount(worldRef.value!, stationInfo, ownStations);
+  if (scannerBypass.value && canBypassScanner.value) {
+    renderer.setScannerBypass(true);
+  }
 
   // Load mining assignment markers after renderer is ready
   await loadAssignments();
@@ -267,6 +275,17 @@ function cursorClass() {
   if (hoveringEntity.value) return 'cursor-pointer';
   return 'cursor-grab';
 }
+
+function toggleScannerBypass() {
+  scannerBypass.value = !scannerBypass.value;
+  localStorage.setItem('dev_scanner_bypass', String(scannerBypass.value));
+  renderer?.setScannerBypass(scannerBypass.value);
+  void loadTrips();
+}
+
+watch(canBypassScanner, (allowed) => {
+  if (!allowed && scannerBypass.value) toggleScannerBypass();
+});
 </script>
 
 <template>
@@ -306,6 +325,20 @@ function cursorClass() {
 
     <!-- Top HUD -->
     <TopHud v-if="stationId" :station-id="stationId" />
+
+    <button
+      v-if="stationId && canBypassScanner"
+      type="button"
+      class="absolute top-12 left-4 z-10 rounded border px-3 py-1.5 text-[10px] uppercase tracking-wider backdrop-blur-sm"
+      :class="
+        scannerBypass
+          ? 'border-amber-300/50 bg-amber-300/15 text-amber-100'
+          : 'border-cyan-300/30 bg-[#080d18]/75 text-cyan-100/80'
+      "
+      @click.stop="toggleScannerBypass"
+    >
+      Scanner {{ scannerBypass ? 'aus' : 'an' }}
+    </button>
 
     <div
       v-if="stationId"
@@ -369,6 +402,7 @@ function cursorClass() {
         v-if="selectedEntity?.type === 'asteroid'"
         :asteroid-id="selectedEntity.id"
         :station-id="stationId"
+        :scanner-bypass="scannerBypass"
         @close="
           () => {
             deselect();

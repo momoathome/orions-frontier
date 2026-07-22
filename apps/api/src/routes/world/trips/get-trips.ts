@@ -9,12 +9,17 @@ const MAX_CHUNK_RANGE = 100;
 
 export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request) => {
+    const query = request.query as Record<string, string | undefined>;
+    const scannerBypass = request.user.role === 'admin' && query['scannerBypass'] === 'true';
     const movements = await getVisibleWorldMovements(
       parseChunkRange(request.query, MAX_CHUNK_RANGE),
-      request.user.userId
+      request.user.userId,
+      new Date(),
+      scannerBypass
     );
     request.log.debug(
       {
+        scannerBypass,
         ownTrips: movements.filter(({ kind }) => kind === 'own_trip').length,
         radarContacts: movements.filter(({ kind }) => kind === 'radar_contact').length,
       },

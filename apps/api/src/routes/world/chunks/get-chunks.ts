@@ -23,16 +23,24 @@ export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request) => {
     const range = parseChunkRange(request.query, MAX_CHUNK_RANGE);
     const { minChunkX, maxChunkX, minChunkY, maxChunkY } = range;
+    const query = request.query as Record<string, string | undefined>;
+    const scannerBypass = request.user.role === 'admin' && query['scannerBypass'] === 'true';
 
-    const coverages = await getUserScannerCoverages(request.user.userId);
+    const coverages = scannerBypass ? [] : await getUserScannerCoverages(request.user.userId);
     const stats: VisibilityProjectionStats = {};
     const [asteroids, stations, debris] = await Promise.all([
-      getVisibleChunkAsteroids({ minChunkX, maxChunkX, minChunkY, maxChunkY }, coverages, stats),
-      getVisibleChunkStations(range, request.user.userId, coverages, stats),
-      getVisibleDebris(range, coverages, stats),
+      getVisibleChunkAsteroids(
+        { minChunkX, maxChunkX, minChunkY, maxChunkY },
+        coverages,
+        stats,
+        scannerBypass
+      ),
+      getVisibleChunkStations(range, request.user.userId, coverages, stats, scannerBypass),
+      getVisibleDebris(range, coverages, stats, scannerBypass),
     ]);
     request.log.debug(
       {
+        scannerBypass,
         scannerCoverages: coverages.length,
         ...stats,
         visibleAsteroids: asteroids.length,

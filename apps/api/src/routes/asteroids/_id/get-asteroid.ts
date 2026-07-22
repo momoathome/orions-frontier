@@ -10,7 +10,9 @@ export default (async (app) => {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Asteroid id is required');
     }
 
-    const asteroid = await getAsteroidById(id, request.user.userId);
+    const query = request.query as Record<string, string | undefined>;
+    const scannerBypass = request.user.role === 'admin' && query['scannerBypass'] === 'true';
+    const asteroid = await getAsteroidById(id, request.user.userId, scannerBypass);
 
     if (!asteroid) {
       return reply.status(404).send({ message: 'Asteroid not found' });

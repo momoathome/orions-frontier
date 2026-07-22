@@ -80,6 +80,7 @@ export class WorldRenderer {
 
   private stationInfo: StationInfo | null = null;
   private scannerStations: StationInfo[] = [];
+  private scannerBypass = false;
   /** Half the station sprite size in world units — used for hover hit-test */
   private readonly stationRadius = 50;
   private _hoveredStation = false;
@@ -271,8 +272,16 @@ export class WorldRenderer {
   setScannerStations(stations: StationInfo[]): void {
     this.scannerStations = stations;
     this.tripLayer.setScannerCircles(
-      stations.map((entry) => ({ ...entry, range: entry.scannerRange }))
+      this.scannerBypass ? [] : stations.map((entry) => ({ ...entry, range: entry.scannerRange }))
     );
+  }
+
+  setScannerBypass(enabled: boolean): void {
+    this.scannerBypass = enabled;
+    this.tripLayer.setScannerCircles(
+      enabled ? [] : this.scannerStations.map((entry) => ({ ...entry, range: entry.scannerRange }))
+    );
+    this.streamer.setScannerBypass(enabled, this.camera);
   }
 
   getVisibleChunkRange(margin = 1) {
@@ -332,7 +341,7 @@ export class WorldRenderer {
   private _drawStationRings() {
     const g = this.stationRingsG;
     g.clear();
-    if (!this.stationInfo || this.scannerStations.length === 0) {
+    if (this.scannerBypass || !this.stationInfo || this.scannerStations.length === 0) {
       this.stationRingLabel.visible = false;
       return;
     }
