@@ -213,10 +213,7 @@ export const buildSpacecrafts = async (
         .select({ level: stationBuildings.level })
         .from(stationBuildings)
         .where(
-          and(
-            eq(stationBuildings.stationId, stationId),
-            eq(stationBuildings.buildingKey, 'hangar')
-          )
+          and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'hangar'))
         )
         .limit(1),
       tx

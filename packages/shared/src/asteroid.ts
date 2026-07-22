@@ -20,7 +20,6 @@ export interface Asteroid {
   chunkY: number;
   /** Size category determines the generated reserve range. */
   size: AsteroidSize;
-  hiddenLevel: number;
   createdAt: string;
   updatedAt: string;
 }

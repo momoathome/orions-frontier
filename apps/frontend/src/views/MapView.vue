@@ -9,8 +9,13 @@ import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { WorldRenderer } from '../lib/world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from '../lib/world/WorldRenderer.js';
-import type { ActiveTrip } from '../lib/world/TripLayer.js';
-import type { DebrisField, VisibleStation, VisibleWorldTrip } from '@orions-frontier/shared';
+import type { ActiveMovement } from '../lib/world/TripLayer.js';
+import type {
+  DebrisField,
+  Station,
+  VisibleStation,
+  VisibleWorldMovement,
+} from '@orions-frontier/shared';
 
 type SelectedEntity =
   | { type: 'asteroid'; id: string }
@@ -28,17 +33,31 @@ const needsStation = ref(false);
 const stationNameInput = ref('Frontier Station');
 const stationCreationError = ref<string | null>(null);
 const creatingStation = ref(false);
+let ownStations: StationInfo[] = [];
 
 async function loadUserStation(): Promise<StationInfo | null> {
   try {
-    const response = await apiClient.get('/stations');
+    const response = await apiClient.get<Station[]>('/stations');
+    ownStations = response.map((station) => ({
+      id: station.id,
+      x: station.x,
+      y: station.y,
+      name: station.name,
+      scannerRange: station.scannerRange,
+    }));
     const preferredId = localStorage.getItem('active_station_id');
     const first =
       response.find((station: { id: string }) => station.id === preferredId) ?? response[0];
     if (first) {
       stationId.value = first.id;
       stationName.value = first.name;
-      return { id: first.id, x: first.x ?? 0, y: first.y ?? 0, name: first.name };
+      return {
+        id: first.id,
+        x: first.x ?? 0,
+        y: first.y ?? 0,
+        name: first.name,
+        scannerRange: first.scannerRange,
+      };
     }
   } catch {
     // no station yet
@@ -63,7 +82,7 @@ async function loadTrips(): Promise<void> {
   if (!renderer) return;
   try {
     const range = renderer.getVisibleChunkRange();
-    const response = await apiClient.get<VisibleWorldTrip[]>('/world/trips', {
+    const response = await apiClient.get<VisibleWorldMovement[]>('/world/trips', {
       params: {
         minChunkX: range.minChunkX,
         maxChunkX: range.maxChunkX,
@@ -72,17 +91,25 @@ async function loadTrips(): Promise<void> {
       },
     });
     renderer.setActiveTrips(
-      response.map((trip): ActiveTrip => ({
-        id: trip.id,
-        fromX: trip.fromX,
-        fromY: trip.fromY,
-        toX: trip.toX,
-        toY: trip.toY,
-        departedAt: new Date(trip.departedAt).getTime(),
-        arrivesAt: new Date(trip.arrivesAt).getTime(),
-        purpose: trip.purpose,
-        groupSize: trip.groupSize ?? 1,
-      }))
+      response.map((movement): ActiveMovement =>
+        movement.kind === 'own_trip'
+          ? {
+              kind: 'own_trip',
+              id: movement.id,
+              fromX: movement.fromX,
+              fromY: movement.fromY,
+              toX: movement.toX,
+              toY: movement.toY,
+              departedAt: new Date(movement.departedAt).getTime(),
+              arrivesAt: new Date(movement.arrivesAt).getTime(),
+              purpose: movement.purpose,
+              groupSize: movement.groupSize,
+            }
+          : {
+              ...movement,
+              observedAt: new Date(movement.observedAt).getTime(),
+            }
+      )
     );
   } catch {
     // non-fatal
@@ -131,6 +158,7 @@ let stationInfo: StationInfo | null = null;
 let unsubTransportTick: (() => void) | null = null;
 let unsubMiningTick: (() => void) | null = null;
 let unsubBuildingUpgrade: (() => void) | null = null;
+let unsubStationOwnership: (() => void) | null = null;
 let tripRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 onMounted(async () => {
@@ -186,7 +214,7 @@ onMounted(async () => {
     stationPanelOpen.value = false;
   };
 
-  await renderer.mount(worldRef.value!, stationInfo);
+  await renderer.mount(worldRef.value!, stationInfo, ownStations);
 
   // Load mining assignment markers after renderer is ready
   await loadAssignments();
@@ -204,8 +232,13 @@ onMounted(async () => {
     void refreshMiningState();
   });
   unsubBuildingUpgrade = wsClient.on('building_upgrade_completed', () => {
-    renderer?.refreshVisibleChunks();
+    void loadUserStation().then(() => {
+      renderer?.setScannerStations(ownStations);
+      renderer?.refreshVisibleChunks();
+      void loadTrips();
+    });
   });
+  unsubStationOwnership = wsClient.on('station_ownership_changed', () => window.location.reload());
 });
 
 // Sync selected asteroid → renderer selection ring
@@ -222,6 +255,7 @@ onUnmounted(() => {
   unsubTransportTick?.();
   unsubMiningTick?.();
   unsubBuildingUpgrade?.();
+  unsubStationOwnership?.();
   if (tripRefreshInterval) clearInterval(tripRefreshInterval);
   renderer?.destroy();
   renderer = null;

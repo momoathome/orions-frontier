@@ -51,8 +51,9 @@ neuen Versuch.
 
 ## Sichtbarkeit
 
-Öffentlich sichtbar sind Station, Position, Besitzerart und die zur Darstellung nötigen Reisedaten.
-Private Bestände, Ladungen, Bauaufträge und interne Entscheidungsgründe bleiben verborgen. Die
+Innerhalb eines eigenen Scannerkreises sichtbar sind fremde Stationen sowie informationsarme
+Radarkontakte mit aktueller Position, Bewegungsrichtung und grober Signatur. Route, Gruppengröße,
+Ladung, Bestände, Bauaufträge und interne Entscheidungsgründe bleiben verborgen. Die
 Weltprojektion filtert serverseitig; das Frontend ist keine Sicherheitsgrenze.
 
 ## Erweiterungsregel

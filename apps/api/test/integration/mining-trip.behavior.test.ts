@@ -12,6 +12,7 @@ import {
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
+import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -88,6 +89,10 @@ before(async () => {
       lockedAmount: 0,
     },
   ]);
+  await db.insert(stationBuildings).values([
+    { stationId, buildingKey: 'scanner', level: 1 },
+    { stationId: secondStationId, buildingKey: 'scanner', level: 1 },
+  ]);
   await db.insert(asteroids).values({
     id: asteroidId,
     x: 1600,
@@ -115,6 +120,9 @@ after(async () => {
   await db
     .delete(stationResources)
     .where(inArray(stationResources.stationId, [stationId, secondStationId]));
+  await db
+    .delete(stationBuildings)
+    .where(inArray(stationBuildings.stationId, [stationId, secondStationId]));
   if (assignmentId) {
     await db.delete(asteroidAssignments).where(eq(asteroidAssignments.id, assignmentId));
   }
@@ -207,8 +215,8 @@ test('hides mining groups from players without their own presence at the asteroi
   });
   assert.ok(!('code' in created));
 
-  const ownerView = await getAsteroidById(asteroidId, 0, userId);
-  const foreignView = await getAsteroidById(asteroidId, 0, secondUserId);
+  const ownerView = await getAsteroidById(asteroidId, userId);
+  const foreignView = await getAsteroidById(asteroidId, secondUserId);
   assert.equal(ownerView?.operationsVisible, true);
   assert.equal(ownerView?.assignments.length, 1);
   assert.equal(ownerView?.assignments[0]?.activeTrip?.purpose, 'mine');
@@ -259,7 +267,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
   assert.ok(firstReturn);
   assert.deepEqual(firstReturn.cargoManifest, { carbon: 50 });
   assert.equal(firstReturn.departedAt.getTime() - firstArrival.getTime(), 10 * 60_000);
-  const miningView = await getAsteroidById(asteroidId, 0, userId);
+  const miningView = await getAsteroidById(asteroidId, userId);
   assert.equal(miningView?.assignments[0]?.activeTrip?.purpose, 'mining_return');
   assert.deepEqual(miningView?.assignments[0]?.activeTrip?.cargoManifest, { carbon: 50 });
   assert.equal(await settleTripArrival(firstReturn), true);

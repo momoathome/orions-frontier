@@ -1,5 +1,9 @@
 import { Container, Graphics } from 'pixi.js';
-import { getMiningTripPhase } from '@orions-frontier/shared';
+import {
+  getMiningTripPhase,
+  type SpacecraftRole,
+  type WorldTripPurpose,
+} from '@orions-frontier/shared';
 
 // TripLayer
 // Renders in-flight spacecraft as animated dots moving along their trip path.
@@ -10,6 +14,7 @@ import { getMiningTripPhase } from '@orions-frontier/shared';
 // Call redraw() each frame and setTrips() when trip data changes.
 
 export interface ActiveTrip {
+  kind: 'own_trip';
   id: string;
   fromX: number;
   fromY: number;
@@ -17,16 +22,27 @@ export interface ActiveTrip {
   toY: number;
   departedAt: number; // ms timestamp
   arrivesAt: number; // ms timestamp
-  purpose:
-    | 'mine'
-    | 'mining_return'
-    | 'combat'
-    | 'combat_return'
-    | 'expedition'
-    | 'colonization'
-    | 'salvage'
-    | 'salvage_return';
+  purpose: WorldTripPurpose;
   groupSize: number;
+}
+
+export interface ActiveRadarContact {
+  kind: 'radar_contact';
+  id: string;
+  x: number;
+  y: number;
+  observedAt: number;
+  velocityX: number;
+  velocityY: number;
+  signature: SpacecraftRole;
+}
+
+export type ActiveMovement = ActiveTrip | ActiveRadarContact;
+
+interface ScannerCircle {
+  x: number;
+  y: number;
+  range: number;
 }
 
 const PHASE_COLOR = {
@@ -54,14 +70,19 @@ export class TripLayer {
   readonly container = new Container();
 
   private graphics = new Graphics();
-  private trips: ActiveTrip[] = [];
+  private trips: ActiveMovement[] = [];
+  private scannerCircles: ScannerCircle[] = [];
 
   constructor() {
     this.container.addChild(this.graphics);
   }
 
-  setTrips(trips: ActiveTrip[]) {
+  setTrips(trips: ActiveMovement[]) {
     this.trips = trips;
+  }
+
+  setScannerCircles(circles: ScannerCircle[]) {
+    this.scannerCircles = circles;
   }
 
   private drawFormation(x: number, y: number, color: number, groupSize: number) {
@@ -92,6 +113,24 @@ export class TripLayer {
     const now = Date.now();
 
     for (const trip of this.trips) {
+      if (trip.kind === 'radar_contact') {
+        const elapsedSeconds = Math.max(0, Math.min(7.5, (now - trip.observedAt) / 1_000));
+        const x = trip.x + trip.velocityX * elapsedSeconds;
+        const y = trip.y + trip.velocityY * elapsedSeconds;
+        const visible = this.scannerCircles.some((circle) => {
+          const dx = x - circle.x;
+          const dy = y - circle.y;
+          return dx * dx + dy * dy <= circle.range * circle.range;
+        });
+        if (!visible) continue;
+        const color = trip.signature === 'fighter' ? 0xff5555 : 0x66ddff;
+        const pulse = 2 + Math.sin(now / 180);
+        this.graphics.circle(x, y, 7 + pulse);
+        this.graphics.stroke({ color, alpha: 0.55, width: 1 });
+        this.graphics.circle(x, y, 3);
+        this.graphics.fill({ color, alpha: 0.9 });
+        continue;
+      }
       const miningPhase = getMiningTripPhase(trip, now);
 
       if (miningPhase === 'mining') {

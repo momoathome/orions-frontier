@@ -1,10 +1,9 @@
-import { and, between, eq, lte, max } from 'drizzle-orm';
+import { and, between, eq, or } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { asteroids, asteroidVeins, asteroidAssignments } from '../lib/db/schema/asteroids.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stations } from '../lib/db/schema/stations.js';
-import { calculateBuildingEffect, getSpacecraft } from '@orions-frontier/game-config';
+import { getSpacecraft } from '@orions-frontier/game-config';
 import type {
   AsteroidDetail,
   AsteroidDetailAssignment,
@@ -14,34 +13,30 @@ import type {
   VisibleAsteroid,
 } from '@orions-frontier/shared';
 import type { ResourceKey } from '@orions-frontier/shared';
+import { WORLD_CONFIG } from '../lib/world-config.js';
+import {
+  getUserScannerCoverages,
+  isPointVisible,
+  visibleChunkBounds,
+  type ScannerCoverage,
+  type VisibilityProjectionStats,
+} from './scanner-visibility.service.js';
 
 export interface ChunkQueryParams {
   minChunkX: number;
   maxChunkX: number;
   minChunkY: number;
   maxChunkY: number;
-  scannerStrength: number;
 }
 
-export const getUserScannerStrength = async (userId: string): Promise<number> => {
-  const db = getDb();
-  const [row] = await db
-    .select({ level: max(stationBuildings.level) })
-    .from(stationBuildings)
-    .innerJoin(stations, eq(stationBuildings.stationId, stations.id))
-    .where(and(eq(stations.userId, userId), eq(stationBuildings.buildingKey, 'scanner')));
-  return (
-    calculateBuildingEffect('scanner', row?.level ?? 0).find(
-      (effect) => effect.type === 'scanner_strength'
-    )?.value ?? 0
-  );
-};
-
 export const getVisibleChunkAsteroids = async (
-  params: ChunkQueryParams
+  params: ChunkQueryParams,
+  coverages: readonly ScannerCoverage[],
+  stats?: VisibilityProjectionStats
 ): Promise<VisibleAsteroid[]> => {
   const db = getDb();
-  const { minChunkX, maxChunkX, minChunkY, maxChunkY, scannerStrength } = params;
+  const bounds = visibleChunkBounds(coverages, params, WORLD_CONFIG.CHUNK_SIZE);
+  if (bounds.length === 0) return [];
 
   const rows = await db
     .select({
@@ -59,38 +54,46 @@ export const getVisibleChunkAsteroids = async (
       and(eq(asteroidVeins.asteroidId, asteroids.id), eq(asteroidVeins.veinType, 'primary'))
     )
     .where(
-      and(
-        between(asteroids.chunkX, minChunkX, maxChunkX),
-        between(asteroids.chunkY, minChunkY, maxChunkY),
-        lte(asteroids.hiddenLevel, scannerStrength)
+      or(
+        ...bounds.map((bound) =>
+          and(
+            between(asteroids.chunkX, bound.minChunkX, bound.maxChunkX),
+            between(asteroids.chunkY, bound.minChunkY, bound.maxChunkY)
+          )
+        )
       )
     );
+  if (stats) stats.asteroidCandidates = rows.length;
 
-  return rows.map((row) => ({
-    id: row.id,
-    x: row.x,
-    y: row.y,
-    chunkX: row.chunkX,
-    chunkY: row.chunkY,
-    size: row.size as AsteroidSize,
-    primaryResourceKey: (row.primaryResourceKey ?? 'carbon') as ResourceKey,
-  }));
+  return rows.flatMap((row) =>
+    isPointVisible(coverages, row)
+      ? [
+          {
+            id: row.id,
+            x: row.x,
+            y: row.y,
+            chunkX: row.chunkX,
+            chunkY: row.chunkY,
+            size: row.size as AsteroidSize,
+            primaryResourceKey: (row.primaryResourceKey ?? 'carbon') as ResourceKey,
+          },
+        ]
+      : []
+  );
 };
 
 export const getAsteroidById = async (
   id: string,
-  scannerStrength: number,
   userId: string
 ): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
-  const [row] = await db
-    .select()
-    .from(asteroids)
-    .where(and(eq(asteroids.id, id), lte(asteroids.hiddenLevel, scannerStrength)))
-    .limit(1);
+  const [[row], coverages] = await Promise.all([
+    db.select().from(asteroids).where(eq(asteroids.id, id)).limit(1),
+    getUserScannerCoverages(userId),
+  ]);
 
-  if (!row) return null;
+  if (!row || !isPointVisible(coverages, row)) return null;
 
   const [veins, assignmentRows, travelingTrips] = await Promise.all([
     db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, id)),
@@ -149,7 +152,6 @@ export const getAsteroidById = async (
     chunkX: row.chunkX,
     chunkY: row.chunkY,
     size: row.size as AsteroidSize,
-    hiddenLevel: row.hiddenLevel,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     veins: veins.map((v): AsteroidVein => ({

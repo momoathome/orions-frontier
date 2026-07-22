@@ -28,7 +28,7 @@ import {
   getStationResources,
   seedStationResources,
 } from '../../src/services/station-resource.service.js';
-import { getUserScannerStrength } from '../../src/services/asteroid.service.js';
+import { getUserScannerCoverages } from '../../src/services/scanner-visibility.service.js';
 import {
   completeDueResearch,
   getResearchState,
@@ -260,8 +260,8 @@ test('Laboratory research spends normal resources and accelerates ship construct
   assert.ok(order.endsAt.getTime() - startedAt <= 53_500);
 });
 
-test('scanner visibility uses the authenticated users building effect', async () => {
-  assert.equal(await getUserScannerStrength(userId), 10);
+test('scanner visibility uses the authenticated users station building effect', async () => {
+  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 2_000);
 });
 
 test('hangar capacity includes completed ships and queued construction', async () => {

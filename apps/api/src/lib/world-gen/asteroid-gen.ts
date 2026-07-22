@@ -112,7 +112,6 @@ export function buildAsteroid(
     chunkX: base.chunkX,
     chunkY: base.chunkY,
     size,
-    hiddenLevel: 0,
     veins,
   };
 }
@@ -131,7 +130,6 @@ export function buildStarterAsteroid(
     chunkX: base.chunkX,
     chunkY: base.chunkY,
     size: guaranteed.size,
-    hiddenLevel: 0,
     veins: [
       {
         veinType: 'primary',

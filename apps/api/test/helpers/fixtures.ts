@@ -54,6 +54,8 @@ export async function createTestStation({
   userId: string;
   sectorId: string;
 } & Partial<typeof stations.$inferInsert>): Promise<typeof stations.$inferSelect> {
+  const x = overrides.x ?? 0;
+  const y = overrides.y ?? 0;
   const [station] = await getDb()
     .insert(stations)
     .values({
@@ -61,8 +63,10 @@ export async function createTestStation({
       userId,
       sectorId,
       name: 'Test Station',
-      x: 0,
-      y: 0,
+      x,
+      y,
+      chunkX: overrides.chunkX ?? Math.floor(x / 1_000),
+      chunkY: overrides.chunkY ?? Math.floor(y / 1_000),
       ...overrides,
     })
     .returning();

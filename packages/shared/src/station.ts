@@ -5,5 +5,6 @@ export interface Station {
   name: string;
   x: number;
   y: number;
+  scannerRange: number;
   createdAt: string;
 }

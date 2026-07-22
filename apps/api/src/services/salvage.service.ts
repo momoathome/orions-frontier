@@ -1,4 +1,4 @@
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, between, eq, ne, or, sql } from 'drizzle-orm';
 import {
   AppError,
   ErrorCode,
@@ -16,6 +16,13 @@ import { stations } from '../lib/db/schema/stations.js';
 import { calcArrivesAt, calcDistance } from '../lib/travel.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
+import {
+  getUserScannerCoverages,
+  isPointVisible,
+  visibleChunkBounds,
+  type ScannerCoverage,
+  type VisibilityProjectionStats,
+} from './scanner-visibility.service.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -65,34 +72,54 @@ export async function createDebrisFromLosses(
   });
 }
 
-export async function getVisibleDebris(params: {
-  minChunkX: number;
-  maxChunkX: number;
-  minChunkY: number;
-  maxChunkY: number;
-}): Promise<DebrisField[]> {
+export async function getVisibleDebris(
+  params: {
+    minChunkX: number;
+    maxChunkX: number;
+    minChunkY: number;
+    maxChunkY: number;
+  },
+  coverages: readonly ScannerCoverage[],
+  stats?: VisibilityProjectionStats
+): Promise<DebrisField[]> {
+  const bounds = visibleChunkBounds(coverages, params, WORLD_CONFIG.CHUNK_SIZE);
+  if (bounds.length === 0) return [];
   const rows = await getDb()
     .select()
     .from(debrisFields)
     .where(
-      and(
-        sql`${debrisFields.chunkX} between ${params.minChunkX} and ${params.maxChunkX}`,
-        sql`${debrisFields.chunkY} between ${params.minChunkY} and ${params.maxChunkY}`
+      or(
+        ...bounds.map((bound) =>
+          and(
+            between(debrisFields.chunkX, bound.minChunkX, bound.maxChunkX),
+            between(debrisFields.chunkY, bound.minChunkY, bound.maxChunkY)
+          )
+        )
       )
     );
-  return rows.map((row) => ({
-    id: row.id,
-    x: row.x,
-    y: row.y,
-    chunkX: row.chunkX,
-    chunkY: row.chunkY,
-    resources: row.resources as ResourceMap,
-  }));
+  if (stats) stats.debrisCandidates = rows.length;
+  return rows.flatMap((row) =>
+    isPointVisible(coverages, row)
+      ? [
+          {
+            id: row.id,
+            x: row.x,
+            y: row.y,
+            chunkX: row.chunkX,
+            chunkY: row.chunkY,
+            resources: row.resources as ResourceMap,
+          },
+        ]
+      : []
+  );
 }
 
-export async function getDebrisById(id: string): Promise<DebrisField | null> {
-  const [row] = await getDb().select().from(debrisFields).where(eq(debrisFields.id, id)).limit(1);
-  return row
+export async function getDebrisById(id: string, userId: string): Promise<DebrisField | null> {
+  const [[row], coverages] = await Promise.all([
+    getDb().select().from(debrisFields).where(eq(debrisFields.id, id)).limit(1),
+    getUserScannerCoverages(userId),
+  ]);
+  return row && isPointVisible(coverages, row)
     ? {
         id: row.id,
         x: row.x,
@@ -136,6 +163,10 @@ export async function startSalvage(params: {
       .where(eq(debrisFields.id, params.debrisFieldId))
       .limit(1);
     if (!debris) throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
+    const coverages = await getUserScannerCoverages(params.userId, tx);
+    if (!isPointVisible(coverages, debris)) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
+    }
 
     const [fleet] = await tx
       .select({
@@ -176,8 +207,12 @@ export async function startSalvage(params: {
         groupSize: params.amount,
         fromType: 'station',
         fromId: station.id,
+        fromX: station.x,
+        fromY: station.y,
         toType: 'debris',
         toId: debris.id,
+        toX: debris.x,
+        toY: debris.y,
         departedAt,
         arrivesAt: calcArrivesAt(departedAt, calcDistance(station, debris), spacecraft.speed),
         purpose: 'salvage',
@@ -251,8 +286,12 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
       groupSize: mission.amount,
       fromType: 'debris',
       fromId: mission.debrisFieldId ?? trip.toId,
+      fromX: debris.x,
+      fromY: debris.y,
       toType: 'station',
       toId: mission.stationId,
+      toX: station.x,
+      toY: station.y,
       departedAt,
       arrivesAt: calcArrivesAt(departedAt, calcDistance(debris, station), spacecraft.speed),
       purpose: 'salvage_return',

@@ -1,7 +1,7 @@
 ---
-agent: "agent"
-description: "local pre-PR review against a base ref: checks standards, correctness, spec fit, validation, and complexity with minimal context."
-argument-hint: "base ref, e.g. origin/main; optional spec path or ticket"
+agent: 'agent'
+description: 'local pre-PR review against a base ref: checks standards, correctness, spec fit, validation, and complexity with minimal context.'
+argument-hint: 'base ref, e.g. origin/main; optional spec path or ticket'
 ---
 
 Do a local pre-PR review for this repository.
@@ -83,31 +83,45 @@ Use this concise structure:
 
 ```md
 ## Summary
+
 <2-4 sentences: readiness, biggest risk, what was skipped if anything>
 
 ## Findings
+
 ### Blocker
+
 - None, or findings
+
 ### Major
+
 - None, or findings
+
 ### Minor
+
 - None, or findings
+
 ### Nit
+
 - None, or findings
 
 ## Standards
+
 <pass/fail summary>
 
 ## Correctness And Risk
+
 <short risk summary>
 
 ## Spec Fit
+
 <found spec, no spec available, or skipped reason>
 
 ## Tests And Validation
+
 <covered, missing, recommended commands>
 
 ## PR Readiness
+
 <Ready | Ready after minor fixes | Needs changes before PR | Not enough information>
 Top actions: <1-3 bullets>
 ```

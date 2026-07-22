@@ -16,7 +16,6 @@ export interface GeneratedAsteroid {
   chunkX: number;
   chunkY: number;
   size: AsteroidSize;
-  hiddenLevel: number;
   veins: GeneratedVein[];
 }
 

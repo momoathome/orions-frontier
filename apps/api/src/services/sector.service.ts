@@ -26,7 +26,6 @@ export async function insertGeneratedAsteroids(
           chunkX: asteroid.chunkX,
           chunkY: asteroid.chunkY,
           size: asteroid.size,
-          hiddenLevel: asteroid.hiddenLevel,
           sectorId,
         }))
       )

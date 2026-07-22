@@ -3,7 +3,7 @@ import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
 import { AsteroidLayer } from './AsteroidLayer.js';
 import { RouteLayer } from './RouteLayer.js';
-import { TripLayer, type ActiveTrip } from './TripLayer.js';
+import { TripLayer, type ActiveMovement } from './TripLayer.js';
 import { StationLayer } from './StationLayer.js';
 import { DebrisLayer } from './DebrisLayer.js';
 import type { DebrisField, VisibleStation } from '@orions-frontier/shared';
@@ -38,6 +38,7 @@ export interface StationInfo {
   x: number;
   y: number;
   name: string;
+  scannerRange: number;
 }
 
 export class WorldRenderer {
@@ -78,6 +79,7 @@ export class WorldRenderer {
   private _hoveredAsteroidId: string | null = null;
 
   private stationInfo: StationInfo | null = null;
+  private scannerStations: StationInfo[] = [];
   /** Half the station sprite size in world units — used for hover hit-test */
   private readonly stationRadius = 50;
   private _hoveredStation = false;
@@ -121,7 +123,11 @@ export class WorldRenderer {
     };
   }
 
-  async mount(el: HTMLElement, station: StationInfo | null = null): Promise<void> {
+  async mount(
+    el: HTMLElement,
+    station: StationInfo | null = null,
+    scannerStations: StationInfo[] = []
+  ): Promise<void> {
     const w = el.clientWidth || window.innerWidth;
     const h = el.clientHeight || window.innerHeight;
 
@@ -131,6 +137,7 @@ export class WorldRenderer {
       this.camera.y = station.y;
       this.stationLayer.setActiveStationId(station.id);
     }
+    this.scannerStations = scannerStations;
 
     this.app = new Application();
     await this.app.init({
@@ -199,6 +206,9 @@ export class WorldRenderer {
 
     // Trip layer — animated ship markers, above assignment rings
     this.tripLayer = new TripLayer();
+    this.tripLayer.setScannerCircles(
+      scannerStations.map((entry) => ({ ...entry, range: entry.scannerRange }))
+    );
     this.worldContainer.addChild(this.tripLayer.container);
 
     // Hover and selection rings — drawn on top of asteroids in world space
@@ -254,8 +264,15 @@ export class WorldRenderer {
    * Updates the active trip data used for animated ship markers on the map.
    * Call this after fetching /me/trips and after each transport_tick_completed event.
    */
-  setActiveTrips(trips: ActiveTrip[]): void {
+  setActiveTrips(trips: ActiveMovement[]): void {
     this.tripLayer.setTrips(trips);
+  }
+
+  setScannerStations(stations: StationInfo[]): void {
+    this.scannerStations = stations;
+    this.tripLayer.setScannerCircles(
+      stations.map((entry) => ({ ...entry, range: entry.scannerRange }))
+    );
   }
 
   getVisibleChunkRange(margin = 1) {
@@ -315,44 +332,21 @@ export class WorldRenderer {
   private _drawStationRings() {
     const g = this.stationRingsG;
     g.clear();
-    if (!this.stationInfo) {
+    if (!this.stationInfo || this.scannerStations.length === 0) {
       this.stationRingLabel.visible = false;
       return;
     }
-    const spacing = 500; // world units per ring
-    const { x: sx, y: sy } = this.stationInfo;
-
-    // Compute max distance from station to viewport corners
-    const b = this.camera.getVisibleBounds(0);
-    const corners = [
-      { x: b.left, y: b.top },
-      { x: b.left, y: b.bottom },
-      { x: b.right, y: b.top },
-      { x: b.right, y: b.bottom },
-    ];
-    let maxDist = 0;
-    for (const c of corners) {
-      const d = Math.hypot(c.x - sx, c.y - sy);
-      if (d > maxDist) maxDist = d;
-    }
-    const ringCount = Math.min(24, Math.ceil(maxDist / spacing));
-
-    g.setStrokeStyle({ color: 0xffd766, alpha: 0.12, width: 1 });
-    for (let i = 1; i <= ringCount; i++) {
-      const r = i * spacing;
-      g.circle(sx, sy, r);
-      g.stroke();
+    for (const station of this.scannerStations) {
+      const active = station.id === this.stationInfo.id;
+      g.circle(station.x, station.y, station.scannerRange);
+      g.stroke({ color: 0x35d8ff, alpha: active ? 0.42 : 0.18, width: active ? 1.6 : 1 });
     }
 
-    // Emphasize first ring
-    if (ringCount >= 1) {
-      g.lineStyle(1.6, 0xffd766, 0.5);
-      g.drawCircle(sx, sy, spacing);
-      g.lineStyle(0);
-    }
-
-    // Position screen-space label near the first ring
-    const screenPos = this.camera.worldToScreen(sx + spacing, sy);
+    const screenPos = this.camera.worldToScreen(
+      this.stationInfo.x + this.stationInfo.scannerRange,
+      this.stationInfo.y
+    );
+    this.stationRingLabel.text = `${this.stationInfo.scannerRange.toLocaleString()} u`;
     this.stationRingLabel.position.set(screenPos.x + 6, screenPos.y - 8);
     this.stationRingLabel.visible = true;
   }

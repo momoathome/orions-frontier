@@ -9,7 +9,7 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { getUserScannerStrength } from '../../src/services/asteroid.service.js';
+import { getUserScannerCoverages } from '../../src/services/scanner-visibility.service.js';
 import { startBuildingUpgrade } from '../../src/services/building.service.js';
 import { runSimulationTick } from '../../src/services/simulation.service.js';
 import { getStationHangar } from '../../src/services/spacecraft.service.js';
@@ -65,12 +65,12 @@ test('a completed hangar upgrade increases the effective hangar capacity', async
   assert.deepEqual(await getStationHangar(stationId), { capacity: 15, used: 1 });
 });
 
-test('a completed scanner upgrade increases the effective scanner strength', async () => {
-  assert.equal(await getUserScannerStrength(userId), 10);
+test('a completed scanner upgrade increases the station scanner range', async () => {
+  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 2_000);
 
   await completeUpgrade('scanner');
 
-  assert.equal(await getUserScannerStrength(userId), 20);
+  assert.equal((await getUserScannerCoverages(userId))[0]?.range, 2_500);
 });
 
 async function completeUpgrade(buildingKey: 'hangar' | 'scanner'): Promise<void> {

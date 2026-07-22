@@ -11,7 +11,18 @@ export interface VisibleStation {
   isOwn: boolean;
 }
 
-export interface VisibleWorldTrip {
+export type WorldTripPurpose =
+  | 'mine'
+  | 'mining_return'
+  | 'combat'
+  | 'combat_return'
+  | 'expedition'
+  | 'colonization'
+  | 'salvage'
+  | 'salvage_return';
+
+export interface OwnWorldTrip {
+  kind: 'own_trip';
   id: string;
   fromX: number;
   fromY: number;
@@ -19,17 +30,8 @@ export interface VisibleWorldTrip {
   toY: number;
   departedAt: string;
   arrivesAt: string;
-  purpose:
-    | 'mine'
-    | 'mining_return'
-    | 'combat'
-    | 'combat_return'
-    | 'expedition'
-    | 'colonization'
-    | 'salvage'
-    | 'salvage_return';
-  /** Exact fleet size is private to its owner. */
-  groupSize: number | null;
+  purpose: WorldTripPurpose;
+  groupSize: number;
   ownerType: 'player' | 'bot';
   spacecraft: {
     name: string;
@@ -37,3 +39,18 @@ export interface VisibleWorldTrip {
     role: SpacecraftRole;
   };
 }
+
+export interface RadarContact {
+  kind: 'radar_contact';
+  id: string;
+  x: number;
+  y: number;
+  observedAt: string;
+  /** World units per second. */
+  velocityX: number;
+  /** World units per second. */
+  velocityY: number;
+  signature: SpacecraftRole;
+}
+
+export type VisibleWorldMovement = OwnWorldTrip | RadarContact;

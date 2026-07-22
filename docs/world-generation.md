@@ -7,6 +7,11 @@ Die Welt ist deterministisch, persistent und gemeinsam. Asteroiden besitzen endl
 werden nicht automatisch ersetzt. Neue Ressourcen entstehen zunächst durch Exploration und weitere
 Stationen, nicht durch Respawn oder persönliche Parallelwelten.
 
+Sektoren sind technische Container für Generierung, Objektzuordnung und die globale Frontier. Ihre
+Existenz und Rolle sind öffentliche Weltmetadaten. Inhalte wie Asteroiden, fremde Stationen,
+Trümmerfelder und Flotten werden unabhängig davon nur innerhalb stationseigener Scannerkreise
+ausgeliefert.
+
 ## Startwelt
 
 Eine frische Welt verwendet standardmäßig `INITIAL_SECTOR_RADIUS: 1` und erzeugt damit einen
@@ -67,9 +72,9 @@ mehrfach anlegen.
 
 ## Kolonisation
 
-Eine entdeckte Frontier kann mit einer weiteren Station besiedelt werden. Die Aktion prüft
-Eigentum, Scannerreichweite, Mindestabstand, Kosten und einen verfügbaren Miner. Der Miner wird bei
-erfolgreicher Gründung aus der Ursprungsflotte in die Kolonie übertragen.
+Eine erzeugte Frontier kann mit einer weiteren Station besiedelt werden. Die Aktion prüft Eigentum,
+Mindestabstand, Kosten und einen verfügbaren Miner; Scannerreichweite ist keine Sektorgrenze. Der
+Miner wird bei erfolgreicher Gründung aus der Ursprungsflotte in die Kolonie übertragen.
 
 Eine Kolonie erhält keine Startertasche, kostenlosen Ressourcen oder zusätzlichen Schiffe. Sie
 macht den Frontier-Sektor auch nicht zu einem Aufnahme-Sektor für neue Accounts.
@@ -112,6 +117,7 @@ neue kleine Basisasteroiden mit erneut endlichem Vorrat.
 - Nur Ansiedlungssektoren besitzen Startplätze und Startertaschen.
 - Spieler- und Botkapazität sind unabhängig konfigurierbar.
 - Expeditionen erzeugen nur angrenzende unbekannte Sektoren und binden ihr Schiff bis zur Rückkehr.
+- Sektorexistenz macht enthaltene Weltobjekte nicht ohne Scannerabdeckung sichtbar.
 - Eine Kolonie erhält genau den eingesetzten Miner und keine kostenlose Ausstattung.
 - Spieler und Bots verwenden bei gemeinsamen Aktionen dieselben Kosten und Zeiten.
 - Erschöpfte Asteroiden und Sektoren regenerieren nicht automatisch.

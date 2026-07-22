@@ -62,7 +62,7 @@ const effectThemes: Record<BuildingEffectType, EffectTheme> = {
     badgeText: 'text-amber-200',
     level: 'text-amber-200',
   },
-  scanner_strength: {
+  scanner_range: {
     topBar: 'bg-sky-500',
     badge: 'bg-sky-500/15 border-sky-500/30',
     badgeText: 'text-sky-300',
@@ -87,7 +87,7 @@ const effectTypeLabels: Record<BuildingEffectType, string> = {
   spacecraft_production_bonus: 'Production',
   storage_capacity: 'Storage',
   protected_storage: 'Protection',
-  scanner_strength: 'Scanner',
+  scanner_range: 'Scanner',
   research_capacity: 'Research',
 };
 
@@ -105,8 +105,8 @@ function formatEffect(type: string, value: number): { label: string; display: st
       return { label: 'Capacity', display: value.toLocaleString() };
     case 'protected_storage':
       return { label: 'Protected', display: value.toLocaleString() };
-    case 'scanner_strength':
-      return { label: 'Scan Range', display: `${value}` };
+    case 'scanner_range':
+      return { label: 'Scan Range', display: `${value.toLocaleString()} units` };
     case 'research_capacity':
       return { label: 'Research capacity', display: `${value}` };
     default:

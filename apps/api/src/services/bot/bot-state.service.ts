@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte } from 'drizzle-orm';
+import { and, between, eq, inArray, or } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
@@ -6,10 +6,15 @@ import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
 import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
-import { getUserScannerStrength } from '../asteroid.service.js';
+import {
+  getUserScannerCoverages,
+  isPointVisible,
+  scannerChunkBounds,
+} from '../scanner-visibility.service.js';
 import type { BotAsteroidCandidate, BotMiningShip, EconomicBotState } from './economic-v1.js';
 import type { ResourceKey, ResourceMap } from '@orions-frontier/shared';
 import { spacecrafts } from '@orions-frontier/game-config';
+import { WORLD_CONFIG } from '../../lib/world-config.js';
 
 const MINER_KEYS = ['mole', 'titan'] as const;
 
@@ -22,7 +27,8 @@ export async function loadEconomicBotState(userId: string): Promise<EconomicBotS
     .limit(1);
   if (!station) return null;
 
-  const scannerStrength = await getUserScannerStrength(userId);
+  const coverages = await getUserScannerCoverages(userId);
+  const coverageBounds = scannerChunkBounds(coverages, WORLD_CONFIG.CHUNK_SIZE);
   const definitions = spacecrafts.filter((spacecraft) =>
     MINER_KEYS.includes(spacecraft.key as (typeof MINER_KEYS)[number])
   );
@@ -38,19 +44,28 @@ export async function loadEconomicBotState(userId: string): Promise<EconomicBotS
         )
       )
       .limit(1),
-    db
-      .select({
-        id: asteroids.id,
-        x: asteroids.x,
-        y: asteroids.y,
-        resourceKey: asteroidVeins.resourceKey,
-        remainingAmount: asteroidVeins.remainingAmount,
-      })
-      .from(asteroids)
-      .innerJoin(asteroidVeins, eq(asteroidVeins.asteroidId, asteroids.id))
-      .where(
-        and(eq(asteroids.sectorId, station.sectorId), lte(asteroids.hiddenLevel, scannerStrength))
-      ),
+    coverageBounds.length
+      ? db
+          .select({
+            id: asteroids.id,
+            x: asteroids.x,
+            y: asteroids.y,
+            resourceKey: asteroidVeins.resourceKey,
+            remainingAmount: asteroidVeins.remainingAmount,
+          })
+          .from(asteroids)
+          .innerJoin(asteroidVeins, eq(asteroidVeins.asteroidId, asteroids.id))
+          .where(
+            or(
+              ...coverageBounds.map((bound) =>
+                and(
+                  between(asteroids.chunkX, bound.minChunkX, bound.maxChunkX),
+                  between(asteroids.chunkY, bound.minChunkY, bound.maxChunkY)
+                )
+              )
+            )
+          )
+      : [],
   ]);
 
   const definitionKeys = definitions.map((definition) => definition.key);
@@ -102,6 +117,7 @@ export async function loadEconomicBotState(userId: string): Promise<EconomicBotS
 
   const candidates = new Map<string, BotAsteroidCandidate>();
   for (const row of asteroidRows) {
+    if (!isPointVisible(coverages, row)) continue;
     const candidate = candidates.get(row.id) ?? {
       id: row.id,
       x: row.x,

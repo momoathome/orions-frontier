@@ -11,6 +11,7 @@ import { stations } from '../lib/db/schema/stations.js';
 import { calcArrivesAt, calcDistance } from '../lib/travel.js';
 import { createDebrisFromLosses } from './salvage.service.js';
 import { addStationInfluence } from './influence.service.js';
+import { getUserScannerCoverages, isPointVisible } from './scanner-visibility.service.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -54,6 +55,10 @@ export async function startAttack(params: {
       .limit(1);
     if (!defender || defender.userId === params.userId) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid attack target');
+    }
+    const coverages = await getUserScannerCoverages(params.userId, tx);
+    if (!isPointVisible(coverages, defender)) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
     }
 
     const [fleet] = await tx
@@ -99,8 +104,12 @@ export async function startAttack(params: {
         groupSize: params.amount,
         fromType: 'station',
         fromId: attacker.id,
+        fromX: attacker.x,
+        fromY: attacker.y,
         toType: 'station',
         toId: defender.id,
+        toX: defender.x,
+        toY: defender.y,
         departedAt,
         arrivesAt,
         purpose: 'combat',
@@ -293,8 +302,12 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
       groupSize: survivors,
       fromType: 'station',
       fromId: mission.defenderStationId,
+      fromX: defenderStation.x,
+      fromY: defenderStation.y,
       toType: 'station',
       toId: mission.attackerStationId,
+      toX: attackerStation.x,
+      toY: attackerStation.y,
       departedAt,
       arrivesAt,
       purpose: 'combat_return',

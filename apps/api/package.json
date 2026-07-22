@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "db:migrate": "tsx src/lib/db/migrate.ts",
+    "scanner:report": "node --import tsx src/lib/scanner-visibility-report.ts",
     "world:report": "node --import tsx src/lib/world-gen/report.ts"
   },
   "dependencies": {

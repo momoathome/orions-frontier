@@ -30,8 +30,6 @@ export const asteroids = pgTable(
     chunkY: integer('chunk_y').notNull(),
     /** Size category: determines its finite reserve range. */
     size: varchar('size', { length: 16 }).notNull(),
-    /** Minimum scanner strength required to detect; 0 = always visible */
-    hiddenLevel: integer('hidden_level').notNull().default(0),
     sectorId: uuid('sector_id')
       .notNull()
       .references(() => sectors.id),

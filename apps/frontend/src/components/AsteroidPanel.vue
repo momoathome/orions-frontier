@@ -409,7 +409,8 @@ function formatCoord(n: number) {
       <!-- Body -->
       <div
         v-else-if="asteroid"
-        class="flex-1 grid gap-5 px-5 py-4 overflow-hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        class="flex-1 grid gap-5 px-5 py-4 overflow-hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"
+      >
         <!-- Resources -->
         <div class="flex flex-col gap-3 min-w-0 overflow-y-auto pr-1">
           <span class="text-[10px] text-white/45 uppercase tracking-[0.18em]">Resources</span>
@@ -475,7 +476,7 @@ function formatCoord(n: number) {
               <div
                 v-for="group in operationGroups"
                 :key="group.key"
-                class="rounded border border-white/8 bg-white/[0.025] px-3 py-2"
+                class="rounded border border-white/8 bg-white/2.5 px-3 py-2"
               >
                 <div class="flex items-center justify-between gap-3 mb-2">
                   <span class="text-[12px] text-white/75 font-medium">
@@ -539,7 +540,7 @@ function formatCoord(n: number) {
             </div>
 
             <div class="grid grid-cols-3 gap-3 mt-auto">
-              <div class="rounded border border-white/8 bg-white/[0.025] px-3 py-2">
+              <div class="rounded border border-white/8 bg-white/2.5 px-3 py-2">
                 <span class="block text-[10px] text-white/40 mb-1">Next event</span>
                 <div v-if="nextEvent" class="flex items-baseline justify-between gap-3">
                   <span class="text-[11px] text-white/65">
@@ -563,7 +564,7 @@ function formatCoord(n: number) {
                 </div>
                 <span v-else class="text-[11px] text-white/40">Cargo not loaded yet</span>
               </div>
-              <div class="rounded border border-white/8 bg-white/[0.025] px-3 py-2">
+              <div class="rounded border border-white/8 bg-white/2.5 px-3 py-2">
                 <span class="block text-[10px] text-white/40 mb-1">Estimated depletion</span>
                 <span class="text-[12px] text-amber-200/75 tabular-nums font-semibold">
                   {{ formatDuration(estimatedDepletionHours) }}

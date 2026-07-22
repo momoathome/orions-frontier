@@ -22,7 +22,7 @@ export type BuildingEffectType =
   | 'spacecraft_production_bonus'
   | 'storage_capacity'
   | 'protected_storage'
-  | 'scanner_strength'
+  | 'scanner_range'
   | 'research_capacity';
 
 // Building Definition (static game config)

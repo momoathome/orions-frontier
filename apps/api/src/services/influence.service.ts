@@ -4,6 +4,8 @@ import { getDb } from '../lib/db/index.js';
 import { stationInfluence } from '../lib/db/schema/station-influence.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
+import { getUserScannerCoverages, isPointVisible } from './scanner-visibility.service.js';
+import { publishUserEvent } from '../lib/realtime.js';
 
 const REQUIRED_POINTS = 1;
 
@@ -28,9 +30,9 @@ export async function getStationInfluence(
   userId: string,
   stationId: string
 ): Promise<StationInfluence> {
-  const [station, influence, fleet] = await Promise.all([
+  const [station, influence, fleet, coverages] = await Promise.all([
     getDb()
-      .select({ userId: stations.userId })
+      .select({ userId: stations.userId, x: stations.x, y: stations.y })
       .from(stations)
       .where(eq(stations.id, stationId))
       .then((rows) => rows[0]),
@@ -46,8 +48,11 @@ export async function getStationInfluence(
       .from(stationSpacecrafts)
       .where(eq(stationSpacecrafts.stationId, stationId))
       .then((rows) => rows[0]),
+    getUserScannerCoverages(userId),
   ]);
-  if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+  if (!station || (station.userId !== userId && !isPointVisible(coverages, station))) {
+    throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+  }
   const points = influence?.points ?? 0;
   const defendingShips = fleet?.amount ?? 0;
   return {
@@ -60,15 +65,19 @@ export async function getStationInfluence(
 }
 
 export async function takeOverStation(userId: string, stationId: string): Promise<void> {
-  await getDb().transaction(async (tx) => {
+  const previousOwnerId = await getDb().transaction(async (tx) => {
     const [station] = await tx
-      .select({ userId: stations.userId })
+      .select({ userId: stations.userId, x: stations.x, y: stations.y })
       .from(stations)
       .where(eq(stations.id, stationId))
       .for('update');
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
     if (station.userId === userId) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Station is already yours');
+    }
+    const coverages = await getUserScannerCoverages(userId, tx);
+    if (!isPointVisible(coverages, station)) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
     }
 
     const [influence, fleet] = await Promise.all([
@@ -95,5 +104,9 @@ export async function takeOverStation(userId: string, stationId: string): Promis
 
     await tx.update(stations).set({ userId }).where(eq(stations.id, stationId));
     await tx.delete(stationInfluence).where(eq(stationInfluence.stationId, stationId));
+    return station.userId;
   });
+  const payload = { stationId, previousOwnerId, newOwnerId: userId };
+  publishUserEvent(previousOwnerId, 'station_ownership_changed', payload);
+  publishUserEvent(userId, 'station_ownership_changed', payload);
 }

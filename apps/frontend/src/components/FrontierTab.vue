@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { COLONIZATION_COST, resources } from '@orions-frontier/game-config';
 import type {
-  DiscoveredSector,
+  KnownSector,
   FrontierTarget,
   ResourceKey,
   WorldMission,
@@ -12,7 +12,7 @@ import { wsClient } from '../lib/ws-client';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const frontier = ref<FrontierTarget[]>([]);
-const sectors = ref<DiscoveredSector[]>([]);
+const sectors = ref<KnownSector[]>([]);
 const missions = ref<WorldMission[]>([]);
 const colonyName = ref('Frontier Outpost');
 const busy = ref(false);
@@ -40,7 +40,7 @@ async function load() {
     apiClient.get<FrontierTarget[]>('/world/frontier', {
       params: { stationId },
     }),
-    apiClient.get<DiscoveredSector[]>('/world/sectors', {
+    apiClient.get<KnownSector[]>('/world/sectors', {
       params: { stationId },
     }),
     apiClient.get<WorldMission[]>('/me/world-missions'),
@@ -71,7 +71,7 @@ const explore = (target: FrontierTarget) =>
     })
   );
 
-const colonize = (target: DiscoveredSector) =>
+const colonize = (target: KnownSector) =>
   run(() =>
     apiClient.post(`/stations/${stationId}/colonies`, {
       sectorX: target.sectorX,

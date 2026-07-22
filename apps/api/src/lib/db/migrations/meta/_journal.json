@@ -15,6 +15,13 @@
       "when": 1784743200000,
       "tag": "0001_replace_guardian_with_hangar",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784746800000,
+      "tag": "0002_station_scanner_visibility",
+      "breakpoints": true
     }
   ]
 }

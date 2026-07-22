@@ -51,11 +51,11 @@ export const buildings: BuildingSeedDefinition[] = [
     key: 'scanner',
     name: 'Scanner',
     description:
-      'Extends detection range for asteroids and hostile vessels in surrounding sectors.',
+      'Extends the circular detection range around this station for asteroids, wreckage and hostile vessels.',
     image: '/assets/buildings/scanner.webp',
     baseBuildTime: 60,
     maxLevel: 15,
-    effectType: 'scanner_strength',
+    effectType: 'scanner_range',
   },
   {
     key: 'hangar',
@@ -209,7 +209,7 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
       ];
 
     case 'scanner':
-      return [{ type: 'scanner_strength', value: level * 10 }];
+      return [{ type: 'scanner_range', value: calculateScannerRange(level) }];
 
     case 'hangar':
       return [{ type: 'hangar_capacity', value: calculateHangarCapacity(level) }];
@@ -218,6 +218,9 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
       return [{ type: 'research_capacity', value: level * 5 }];
   }
 }
+
+export const calculateScannerRange = (level: number): number =>
+  level <= 0 ? 0 : 2_000 + (level - 1) * 500;
 
 // Unlock Milestones
 

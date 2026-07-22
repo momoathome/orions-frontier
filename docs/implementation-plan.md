@@ -1,6 +1,6 @@
 # Aktueller Entwicklungsstand
 
-Stand: 21. Juli 2026.
+Stand: 22. Juli 2026.
 
 Orion's Frontier besitzt einen spielbaren vertikalen Schnitt: Spieler und wirtschaftliche Bots
 erschließen endliche Asteroiden, bauen Stationen und Schiffe aus und erweitern die persistente Welt
@@ -18,7 +18,8 @@ Reise-, Kosten- und Zeitregeln.
   neu erzeugt werden.
 
 Die fachlichen Verträge stehen in [Mining-Rundlauf](./mining-loop.md),
-[Bot-System](./bot-system.md) und [Weltgenerierung](./world-generation.md).
+[Bot-System](./bot-system.md), [Weltgenerierung](./world-generation.md) sowie
+[Scanner und räumliche Sichtbarkeit](./scanner-visibility-plan.md).
 
 ## Umgesetzt
 
@@ -30,12 +31,15 @@ Die fachlichen Verträge stehen in [Mining-Rundlauf](./mining-loop.md),
 - deterministische wirtschaftliche Bots ohne eigene Ressourcen- oder Simulationsregeln;
 - konfigurierbare Startwelt, sektorgebundene Bots und dynamisch wachsende Frontier;
 - Hangarkapazität, Scannerreichweite, Verteidigung und Stationsübernahme;
+- stationseigene Scannerkreise, geschützte Weltobjekt-Aktionen und informationsarme Radarkontakte;
+- indexgestützte räumliche Kandidatenabfragen und ein reproduzierbarer Scanner-Lastbericht;
 - statische Checks, Build und datenbankgestützte Verhaltenstests über `npm run verify`.
 
 ## Aktuelle Arbeit
 
 Weitere Änderungen richten sich nach beobachteten Spielverläufen. Relevant sind insbesondere:
 
+- Scannerreichweite, Radarfrequenz und Kontaktdarstellung anhand echter Sessions abstimmen;
 - Vorräte, Flugzeiten, Bauzeiten und Flottenwachstum anhand echter Sessions abstimmen;
 - prüfen, ob erschöpfte Altsektoren durch Exploration und Kolonisation ausreichend tragfähig
   bleiben;

@@ -143,8 +143,9 @@ Automatisch sind nur Flug, Abbau, Rückkehr und Lieferung eines bereits erteilte
 
 ### Weltraumperspektive
 
-Miner und andere Einheiten bleiben sichtbare Schiffe beziehungsweise Punkte. Eine Umstellung auf
-Bewohnergruppen ist nicht vorgesehen.
+Eigene Miner und andere Einheiten bleiben unabhängig von Scannerabdeckung als Schiffe sichtbar.
+Fremde Einheiten erscheinen nur innerhalb eines eigenen Scannerkreises als informationsarme
+Radarkontakte. Eine Umstellung auf Bewohnergruppen ist nicht vorgesehen.
 
 ## Zeit- und Leistungsmodell
 

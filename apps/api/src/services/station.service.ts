@@ -10,21 +10,29 @@ import type { Station } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { generateStarterPocket } from '../lib/world-gen/sector-gen.js';
 import { insertGeneratedAsteroids, openNextSettlementSector } from './sector.service.js';
+import { WORLD_CONFIG } from '../lib/world-config.js';
+import { calculateScannerRange } from '@orions-frontier/game-config';
+import { getUserScannerCoverages } from './scanner-visibility.service.js';
 
-const toStation = (row: typeof stations.$inferSelect): Station => ({
+const toStation = (row: typeof stations.$inferSelect, scannerRange: number): Station => ({
   id: row.id,
   userId: row.userId,
   sectorId: row.sectorId,
   name: row.name,
   x: row.x,
   y: row.y,
+  scannerRange,
   createdAt: row.createdAt.toISOString(),
 });
 
 export const getUserStations = async (userId: string): Promise<Station[]> => {
   const db = getDb();
-  const rows = await db.select().from(stations).where(eq(stations.userId, userId));
-  return rows.map(toStation);
+  const [rows, coverages] = await Promise.all([
+    db.select().from(stations).where(eq(stations.userId, userId)),
+    getUserScannerCoverages(userId),
+  ]);
+  const ranges = new Map(coverages.map((coverage) => [coverage.stationId, coverage.range]));
+  return rows.map((row) => toStation(row, ranges.get(row.id) ?? 0));
 };
 
 export const createStation = async (
@@ -51,7 +59,7 @@ export const createStation = async (
         .from(stations)
         .where(and(eq(stations.userId, userId), eq(stations.sectorId, data.sectorId)))
         .limit(1);
-      if (existing) return toStation(existing);
+      if (existing) return toStation(existing, calculateScannerRange(1));
     }
 
     const findSlot = () => {
@@ -89,6 +97,8 @@ export const createStation = async (
         sectorId: slot.slot.sectorId,
         x: slot.slot.x,
         y: slot.slot.y,
+        chunkX: Math.floor(slot.slot.x / WORLD_CONFIG.CHUNK_SIZE),
+        chunkY: Math.floor(slot.slot.y / WORLD_CONFIG.CHUNK_SIZE),
       })
       .returning();
     if (!station) throw new Error('Failed to create station');
@@ -106,6 +116,6 @@ export const createStation = async (
       generateStarterPocket(slot.slot, slot.sectorSeed)
     );
 
-    return toStation(station);
+    return toStation(station, calculateScannerRange(1));
   });
 };

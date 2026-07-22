@@ -26,7 +26,11 @@ import { runSimulationTick } from '../../src/services/simulation.service.js';
 import { seedStationResources } from '../../src/services/station-resource.service.js';
 import { seedStationSpacecrafts } from '../../src/services/spacecraft.service.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
-import { getVisibleChunkStations, getVisibleWorldTrips } from '../../src/services/world.service.js';
+import {
+  getVisibleChunkStations,
+  getVisibleWorldMovements,
+} from '../../src/services/world.service.js';
+import { getUserScannerCoverages } from '../../src/services/scanner-visibility.service.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
@@ -117,17 +121,16 @@ async function setBotDue(now: Date): Promise<void> {
     .where(eq(botControllers.userId, userId));
 }
 
-test('bot state excludes asteroids outside scanner visibility', async () => {
+test('bot state excludes asteroids outside its station scanner circle', async () => {
   const db = getDb();
   await db.insert(asteroids).values({
     id: asteroidIds[2],
-    x: 50,
+    x: 3_000,
     y: 0,
-    chunkX: 0,
+    chunkX: 3,
     chunkY: 0,
     size: 'small',
     sectorId,
-    hiddenLevel: 99,
   });
   await db.insert(asteroidVeins).values({
     asteroidId: asteroidIds[2],
@@ -356,7 +359,8 @@ test('bot wait decision leaves the playable state unchanged', async () => {
 
 test('world projection exposes bot activity without private cargo or resources', async () => {
   const range = { minChunkX: -10, maxChunkX: 10, minChunkY: -10, maxChunkY: 10 };
-  const visibleStations = await getVisibleChunkStations(range, userId);
+  const coverages = await getUserScannerCoverages(userId);
+  const visibleStations = await getVisibleChunkStations(range, userId, coverages);
   const station = visibleStations.find((entry) => entry.id === stationId);
   assert.deepEqual(
     { ownerType: station?.ownerType, isOwn: station?.isOwn },
@@ -371,14 +375,18 @@ test('world projection exposes bot activity without private cargo or resources',
       and(eq(stationSpacecrafts.stationId, stationId), eq(spacecraftTrips.status, 'traveling'))
     );
   assert.ok(activeTrip);
-  const trips = await getVisibleWorldTrips(range, userId);
+  const trips = await getVisibleWorldMovements(range, userId);
   const visibleTrip = trips.find((entry) => entry.id === activeTrip.id);
-  assert.equal(visibleTrip?.ownerType, 'bot');
-  assert.equal(visibleTrip?.groupSize, 1);
+  assert.equal(visibleTrip?.kind, 'own_trip');
+  assert.equal(visibleTrip?.kind === 'own_trip' ? visibleTrip.ownerType : null, 'bot');
+  assert.equal(visibleTrip?.kind === 'own_trip' ? visibleTrip.groupSize : null, 1);
   assert.equal(visibleTrip ? 'cargoManifest' in visibleTrip : true, false);
 
-  const foreignTrips = await getVisibleWorldTrips(range, randomUUID());
-  assert.equal(foreignTrips.find((entry) => entry.id === activeTrip.id)?.groupSize, null);
+  const foreignTrips = await getVisibleWorldMovements(range, randomUUID());
+  assert.equal(
+    foreignTrips.some((entry) => entry.id === activeTrip.id),
+    false
+  );
 });
 
 test('an overdue bot decision survives a database reconnect', async () => {

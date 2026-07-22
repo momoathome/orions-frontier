@@ -27,6 +27,7 @@
     "verify": "npm run check && npm run build && npm run test:unit && npm run test:integration",
     "clean": "npm run clean --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace @orions-frontier/api",
+    "scanner:report": "npm run scanner:report --workspace @orions-frontier/api",
     "world:report": "npm run world:report --workspace @orions-frontier/api",
     "docker:rebuild": "docker compose up -d --build"
   },

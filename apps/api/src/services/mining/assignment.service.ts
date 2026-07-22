@@ -6,7 +6,7 @@ import { stations } from '../../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import type { AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
-import { getUserScannerStrength } from '../asteroid.service.js';
+import { getUserScannerCoverages, isPointVisible } from '../scanner-visibility.service.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
 
 // Assignment Service
@@ -43,22 +43,23 @@ export const createAsteroidAssignment = async (
     return { code: 'INVALID_AMOUNT', message: 'assignedAmount must be a positive integer' };
   }
 
-  const scannerStrength = await getUserScannerStrength(userId);
-  // Validate asteroid exists and is visible to this player.
-  const [asteroid] = await db
-    .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
-    .from(asteroids)
-    .where(and(eq(asteroids.id, asteroidId), sql`${asteroids.hiddenLevel} <= ${scannerStrength}`))
-    .limit(1);
-  if (!asteroid) return { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' };
-
-  // Validate that the authenticated player owns the station.
-  const [station] = await db
-    .select({ id: stations.id, x: stations.x, y: stations.y })
-    .from(stations)
-    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
-    .limit(1);
+  const [[station], [asteroid], coverages] = await Promise.all([
+    db
+      .select({ id: stations.id, x: stations.x, y: stations.y })
+      .from(stations)
+      .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
+      .limit(1),
+    db
+      .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
+      .from(asteroids)
+      .where(eq(asteroids.id, asteroidId))
+      .limit(1),
+    getUserScannerCoverages(userId),
+  ]);
   if (!station) return { code: 'STATION_NOT_FOUND', message: 'Station not found' };
+  if (!asteroid || !isPointVisible(coverages, asteroid)) {
+    return { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' };
+  }
 
   const scraft = getSpacecraft(spacecraftKey);
   if (!scraft) return { code: 'SPACECRAFT_NOT_FOUND', message: 'Spacecraft definition not found' };
@@ -97,11 +98,15 @@ export const createAsteroidAssignment = async (
   const arrivesAt = calcArrivesAt(departedAt, distance, scraft.speed);
   const created = await db.transaction(async (tx) => {
     const [lockedAsteroid] = await tx
-      .select({ id: asteroids.id })
+      .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
       .from(asteroids)
       .where(eq(asteroids.id, asteroidId))
       .for('update');
     if (!lockedAsteroid) return { kind: 'asteroid_missing' } as const;
+    const currentCoverages = await getUserScannerCoverages(userId, tx);
+    if (!isPointVisible(currentCoverages, lockedAsteroid)) {
+      return { kind: 'asteroid_missing' } as const;
+    }
 
     const [locked] = await tx
       .update(stationSpacecrafts)
@@ -135,8 +140,12 @@ export const createAsteroidAssignment = async (
         groupSize: assignedAmount,
         fromType: 'station',
         fromId: stationId,
+        fromX: station.x,
+        fromY: station.y,
         toType: 'asteroid',
         toId: asteroidId,
+        toX: asteroid.x,
+        toY: asteroid.y,
         departedAt,
         arrivesAt,
         purpose: 'mine',

@@ -25,7 +25,7 @@ export interface FrontierTarget {
   travelHours: number | null;
 }
 
-export interface DiscoveredSector extends FrontierTarget {
+export interface KnownSector extends FrontierTarget {
   id: string;
   role: 'settlement' | 'frontier';
   hasOwnStation: boolean;

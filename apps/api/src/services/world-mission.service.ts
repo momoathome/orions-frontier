@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import {
   AppError,
-  type DiscoveredSector,
+  type KnownSector,
   ErrorCode,
   type FrontierTarget,
   type WorldMission,
@@ -21,39 +21,61 @@ import { publishUserEvent } from '../lib/realtime.js';
 import { seedStationBuildings } from './building.service.js';
 import { ensureSector } from './sector.service.js';
 import { seedStationResources } from './station-resource.service.js';
-import { getUserScannerStrength } from './asteroid.service.js';
 
 const sectorCenter = (sectorX: number, sectorY: number) => ({
   x: sectorX * WORLD_CONFIG.SECTOR.WIDTH,
   y: sectorY * WORLD_CONFIG.SECTOR.HEIGHT,
 });
 
-const key = (sectorX: number, sectorY: number) => `${sectorX},${sectorY}`;
+type FrontierDb = Pick<ReturnType<typeof getDb>, 'execute'>;
 
-const isWithinScannerRange = (
-  origin: { sectorX: number; sectorY: number },
-  target: { sectorX: number; sectorY: number },
-  scannerStrength: number
-) =>
-  Math.max(Math.abs(target.sectorX - origin.sectorX), Math.abs(target.sectorY - origin.sectorY)) <=
-  1 + Math.floor(scannerStrength / 10);
+async function nearestFrontierCoordinates(
+  db: FrontierDb,
+  origin: { x: number; y: number },
+  limit = 32
+): Promise<{ sectorX: number; sectorY: number }[]> {
+  return db.execute(sql<{ sectorX: number; sectorY: number }>`
+    with candidates as (
+      select distinct
+        s.sector_x + direction.dx as "sectorX",
+        s.sector_y + direction.dy as "sectorY"
+      from ${sectors} s
+      cross join (values (1, 0), (-1, 0), (0, 1), (0, -1)) as direction(dx, dy)
+      where not exists (
+        select 1
+        from ${sectors} existing
+        where existing.sector_x = s.sector_x + direction.dx
+          and existing.sector_y = s.sector_y + direction.dy
+      )
+    )
+    select "sectorX", "sectorY"
+    from candidates
+    order by
+      power("sectorX" * ${WORLD_CONFIG.SECTOR.WIDTH} - ${origin.x}, 2) +
+      power("sectorY" * ${WORLD_CONFIG.SECTOR.HEIGHT} - ${origin.y}, 2),
+      "sectorY",
+      "sectorX"
+    limit ${limit}
+  `);
+}
 
-const frontierCoordinates = (known: { sectorX: number; sectorY: number }[]) => {
-  const occupied = new Set(known.map((sector) => key(sector.sectorX, sector.sectorY)));
-  const candidates = new Map<string, { sectorX: number; sectorY: number }>();
-  for (const sector of known) {
-    for (const candidate of [
-      { sectorX: sector.sectorX + 1, sectorY: sector.sectorY },
-      { sectorX: sector.sectorX - 1, sectorY: sector.sectorY },
-      { sectorX: sector.sectorX, sectorY: sector.sectorY + 1 },
-      { sectorX: sector.sectorX, sectorY: sector.sectorY - 1 },
-    ]) {
-      const candidateKey = key(candidate.sectorX, candidate.sectorY);
-      if (!occupied.has(candidateKey)) candidates.set(candidateKey, candidate);
-    }
-  }
-  return [...candidates.values()];
-};
+async function isUnknownFrontierCoordinate(
+  db: FrontierDb,
+  sectorX: number,
+  sectorY: number
+): Promise<boolean> {
+  const rows = await db.execute(sql<{ found: number }>`
+    select 1 as found
+    where not exists (
+      select 1 from ${sectors}
+      where ${sectors.sectorX} = ${sectorX} and ${sectors.sectorY} = ${sectorY}
+    ) and exists (
+      select 1 from ${sectors}
+      where abs(${sectors.sectorX} - ${sectorX}) + abs(${sectors.sectorY} - ${sectorY}) = 1
+    )
+  `);
+  return rows.length > 0;
+}
 
 const fastestAvailable = <T extends { spacecraftKey: string }>(rows: T[], role?: 'miner') =>
   rows
@@ -79,8 +101,8 @@ export async function getFrontierTargets(
     .limit(1);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-  const [known, fastestShip, scannerStrength] = await Promise.all([
-    db.select({ sectorX: sectors.sectorX, sectorY: sectors.sectorY }).from(sectors),
+  const [frontier, fastestShip] = await Promise.all([
+    nearestFrontierCoordinates(db, station),
     db
       .select({ spacecraftKey: stationSpacecrafts.spacecraftKey })
       .from(stationSpacecrafts)
@@ -90,12 +112,10 @@ export async function getFrontierTargets(
           sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`
         )
       ),
-    getUserScannerStrength(userId),
   ]);
   const fastest = fastestAvailable(fastestShip);
 
-  return frontierCoordinates(known)
-    .filter((target) => isWithinScannerRange(station, target, scannerStrength))
+  return frontier
     .map(({ sectorX, sectorY }) => {
       const center = sectorCenter(sectorX, sectorY);
       const distance = calcDistance(station, center);
@@ -115,10 +135,7 @@ export async function getFrontierTargets(
     );
 }
 
-export async function getDiscoveredSectors(
-  userId: string,
-  stationId: string
-): Promise<DiscoveredSector[]> {
+export async function getKnownSectors(userId: string, stationId: string): Promise<KnownSector[]> {
   const db = getDb();
   const [station] = await db
     .select({
@@ -132,8 +149,16 @@ export async function getDiscoveredSectors(
     .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
     .limit(1);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-  const [sectorRows, ownStations, fastestShip, scannerStrength] = await Promise.all([
-    db.select().from(sectors),
+  const [sectorRows, ownStations, fastestShip] = await Promise.all([
+    db
+      .select()
+      .from(sectors)
+      .orderBy(
+        sql`power(${sectors.sectorX} * ${WORLD_CONFIG.SECTOR.WIDTH} - ${station.x}, 2) + power(${sectors.sectorY} * ${WORLD_CONFIG.SECTOR.HEIGHT} - ${station.y}, 2)`,
+        asc(sectors.sectorY),
+        asc(sectors.sectorX)
+      )
+      .limit(32),
     db.select({ sectorId: stations.sectorId }).from(stations).where(eq(stations.userId, userId)),
     db
       .select({ spacecraftKey: stationSpacecrafts.spacecraftKey })
@@ -144,20 +169,18 @@ export async function getDiscoveredSectors(
           sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`
         )
       ),
-    getUserScannerStrength(userId),
   ]);
   const ownSectorIds = new Set(ownStations.map((entry) => entry.sectorId));
   const fastestMiner = fastestAvailable(fastestShip, 'miner');
   return sectorRows
-    .filter((sector) => isWithinScannerRange(station, sector, scannerStrength))
-    .map((sector): DiscoveredSector => {
+    .map((sector): KnownSector => {
       const center = sectorCenter(sector.sectorX, sector.sectorY);
       const distance = calcDistance(station, center);
       return {
         id: sector.id,
         sectorX: sector.sectorX,
         sectorY: sector.sectorY,
-        role: sector.role as DiscoveredSector['role'],
+        role: sector.role as KnownSector['role'],
         hasOwnStation: ownSectorIds.has(sector.id),
         ...center,
         distance,
@@ -239,19 +262,7 @@ export async function startExpedition(params: {
       .for('update');
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-    const scannerStrength = await getUserScannerStrength(params.userId);
-    if (!isWithinScannerRange(station, params, scannerStrength)) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target is outside scanner range');
-    }
-
-    const known = await tx
-      .select({ sectorX: sectors.sectorX, sectorY: sectors.sectorY })
-      .from(sectors);
-    if (
-      !frontierCoordinates(known).some(
-        (target) => target.sectorX === params.sectorX && target.sectorY === params.sectorY
-      )
-    ) {
+    if (!(await isUnknownFrontierCoordinate(tx, params.sectorX, params.sectorY))) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target is not an unknown frontier sector');
     }
     const [active] = await tx
@@ -369,10 +380,6 @@ export async function startColonization(params: {
       .where(and(eq(stations.id, params.stationId), eq(stations.userId, params.userId)))
       .for('update');
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-    const scannerStrength = await getUserScannerStrength(params.userId);
-    if (!isWithinScannerRange(station, params, scannerStrength)) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target is outside scanner range');
-    }
     const [targetSector] = await tx
       .select()
       .from(sectors)
@@ -563,6 +570,8 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
             sectorId: targetSector.id,
             x: Math.round(mission.targetX),
             y: Math.round(mission.targetY),
+            chunkX: Math.floor(mission.targetX / WORLD_CONFIG.CHUNK_SIZE),
+            chunkY: Math.floor(mission.targetY / WORLD_CONFIG.CHUNK_SIZE),
           })
           .returning({ id: stations.id });
         await seedStationResources(station!.id, tx, {});

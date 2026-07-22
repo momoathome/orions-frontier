@@ -110,13 +110,21 @@ after(async () => {
   await closeDb();
 });
 
-test('expeditions cannot bypass the station scanner range', async () => {
+test('expeditions use the global frontier and are independent of scanner range', async () => {
   const farSector = await getDb().transaction((tx) => ensureSector(tx, 103, 100, 'frontier'));
   sectorIds.push(farSector.id);
-  await assert.rejects(
-    startExpedition({ userId, stationId: originStationId, sectorX: 104, sectorY: 100 }),
-    /outside scanner range/
-  );
+  const mission = await startExpedition({
+    userId,
+    stationId: originStationId,
+    sectorX: 104,
+    sectorY: 100,
+  });
+  assert.equal(mission.targetSectorX, 104);
+  await getDb().delete(worldMissions).where(eq(worldMissions.id, mission.id));
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ lockedAmount: 0 })
+    .where(eq(stationSpacecrafts.stationId, originStationId));
 });
 
 test('simultaneous expeditions discover their shared target sector once', async () => {
