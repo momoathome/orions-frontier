@@ -1,13 +1,14 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidAssignments, asteroidVeins } from '../../lib/db/schema/asteroids.js';
-import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
+import type { ResourceMap } from '@orions-frontier/shared';
 import { claimMiningCargo } from '../mining/mining-claim.service.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
+import { creditStationResources } from '../station-resource.service.js';
 
 // Trip Handlers
 //
@@ -93,16 +94,11 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
 // assignment ends and its ships become available at the station.
 export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<void> {
   if (trip.cargoManifest) {
-    for (const [resourceKey, amount] of Object.entries(trip.cargoManifest)) {
-      if (amount <= 0) continue;
-      await tx
-        .insert(stationResources)
-        .values({ stationId: trip.toId, resourceKey, amount })
-        .onConflictDoUpdate({
-          target: [stationResources.stationId, stationResources.resourceKey],
-          set: { amount: sql`${stationResources.amount} + ${amount}` },
-        });
-    }
+    const credited = await creditStationResources(tx, trip.toId, trip.cargoManifest as ResourceMap);
+    await tx
+      .update(spacecraftTrips)
+      .set({ cargoManifest: credited })
+      .where(eq(spacecraftTrips.id, trip.id));
   }
 
   if (!trip.assignmentId) return;

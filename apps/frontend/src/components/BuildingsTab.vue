@@ -96,7 +96,7 @@ function formatEffect(type: string, value: number): { label: string; display: st
     case 'station_progression':
       return { label: 'Station Score', display: `+${value}` };
     case 'hangar_capacity':
-      return { label: 'Hangar slots', display: `${value}` };
+      return { label: 'Crew places', display: `${value}` };
     case 'spacecraft_unlock':
       return { label: 'Ship Tier', display: `Tier ${value}` };
     case 'spacecraft_production_bonus':

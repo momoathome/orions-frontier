@@ -12,6 +12,7 @@ export interface SpacecraftSeedDefinition {
   speed: number;
   miningRate: number;
   buildTime: number;
+  crew: number;
   costs: SpacecraftDefinitionCost[];
 }
 
@@ -28,6 +29,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 120,
     miningRate: 0,
     buildTime: 30,
+    crew: 1,
     costs: [
       { resourceKey: 'carbon', amount: 120 },
       { resourceKey: 'titanium', amount: 80 },
@@ -45,6 +47,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 100,
     miningRate: 0,
     buildTime: 45,
+    crew: 2,
     costs: [
       { resourceKey: 'carbon', amount: 160 },
       { resourceKey: 'titanium', amount: 120 },
@@ -63,6 +66,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 100,
     miningRate: 0,
     buildTime: 75,
+    crew: 4,
     costs: [
       { resourceKey: 'carbon', amount: 220 },
       { resourceKey: 'titanium', amount: 200 },
@@ -81,6 +85,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 90,
     miningRate: 0,
     buildTime: 90,
+    crew: 5,
     costs: [
       { resourceKey: 'carbon', amount: 200 },
       { resourceKey: 'titanium', amount: 180 },
@@ -99,6 +104,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 90,
     miningRate: 0,
     buildTime: 360,
+    crew: 15,
     costs: [
       { resourceKey: 'carbon', amount: 450 },
       { resourceKey: 'titanium', amount: 400 },
@@ -118,6 +124,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 80,
     miningRate: 0,
     buildTime: 400,
+    crew: 20,
     costs: [
       { resourceKey: 'carbon', amount: 500 },
       { resourceKey: 'titanium', amount: 500 },
@@ -137,6 +144,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 60,
     miningRate: 0,
     buildTime: 1200,
+    crew: 60,
     costs: [
       { resourceKey: 'carbon', amount: 900 },
       { resourceKey: 'titanium', amount: 950 },
@@ -157,6 +165,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 60,
     miningRate: 0,
     buildTime: 2400,
+    crew: 120,
     costs: [
       { resourceKey: 'carbon', amount: 1500 },
       { resourceKey: 'titanium', amount: 1500 },
@@ -178,6 +187,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 80,
     miningRate: 600,
     buildTime: 60,
+    crew: 2,
     costs: [
       { resourceKey: 'carbon', amount: 80 },
       { resourceKey: 'titanium', amount: 60 },
@@ -196,6 +206,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 70,
     miningRate: 900,
     buildTime: 360,
+    crew: 10,
     costs: [
       { resourceKey: 'carbon', amount: 250 },
       { resourceKey: 'titanium', amount: 240 },
@@ -216,6 +227,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 80,
     miningRate: 250,
     buildTime: 60,
+    crew: 2,
     costs: [
       { resourceKey: 'carbon', amount: 150 },
       { resourceKey: 'titanium', amount: 150 },
@@ -234,6 +246,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 100,
     miningRate: 1000,
     buildTime: 480,
+    crew: 8,
     costs: [
       { resourceKey: 'carbon', amount: 300 },
       { resourceKey: 'titanium', amount: 350 },

@@ -19,7 +19,8 @@ Reise-, Kosten- und Zeitregeln.
 
 Die fachlichen Verträge stehen in [Mining-Rundlauf](./mining-loop.md),
 [Bot-System](./bot-system.md), [Weltgenerierung](./world-generation.md) sowie
-[Scanner und räumliche Sichtbarkeit](./scanner-visibility-plan.md).
+[Scanner und räumliche Sichtbarkeit](./scanner-visibility-plan.md) und
+[Stationskapazitäten](./station-capacities.md).
 
 ## Umgesetzt
 

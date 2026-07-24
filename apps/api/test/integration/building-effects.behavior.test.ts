@@ -17,6 +17,7 @@ import {
 } from '../../src/services/defense.service.js';
 import { runSimulationTick } from '../../src/services/simulation.service.js';
 import { getStationHangar } from '../../src/services/spacecraft.service.js';
+import { getStationStorageCapacity } from '../../src/services/station-resource.service.js';
 import {
   createTestSector,
   createTestStation,
@@ -62,11 +63,19 @@ afterEach(async () => {
 after(closeDb);
 
 test('a completed hangar upgrade increases the effective hangar capacity', async () => {
-  assert.deepEqual(await getStationHangar(stationId), { capacity: 10, used: 1 });
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 2 });
 
   await completeUpgrade('hangar');
 
-  assert.deepEqual(await getStationHangar(stationId), { capacity: 15, used: 1 });
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 30, used: 2 });
+});
+
+test('a completed warehouse upgrade increases per-resource storage capacity', async () => {
+  assert.equal(await getStationStorageCapacity(stationId), 1_500);
+
+  await completeUpgrade('warehouse');
+
+  assert.equal(await getStationStorageCapacity(stationId), 2_000);
 });
 
 test('a completed scanner upgrade increases the station scanner range', async () => {
@@ -101,7 +110,7 @@ test('defense upgrades are managed outside station buildings', async () => {
   assert.deepEqual(after?.effects, [{ type: 'defense_score', value: 12 }]);
 });
 
-async function completeUpgrade(buildingKey: 'hangar' | 'scanner'): Promise<void> {
+async function completeUpgrade(buildingKey: 'hangar' | 'scanner' | 'warehouse'): Promise<void> {
   await startBuildingUpgrade(stationId, buildingKey, userId);
   await completeProgressRow(buildingKey);
 }

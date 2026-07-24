@@ -5,6 +5,7 @@ import { authenticate } from '../../middleware/auth.js';
 import {
   getStationResources,
   getDeliveredResourceRates,
+  getStationStorageCapacity,
 } from '../../services/station-resource.service.js';
 
 const QuerySchema = z.object({ stationId: z.string().uuid() });
@@ -15,11 +16,12 @@ export default (async (app) => {
     if (!parsed.success) throw new AppError(ErrorCode.VALIDATION_ERROR, 'stationId is required');
     const { userId } = request.user;
     const { stationId } = parsed.data;
-    const [resources, rates] = await Promise.all([
+    const [resources, rates, storageCapacity] = await Promise.all([
       getStationResources(userId, stationId),
       getDeliveredResourceRates(userId, stationId),
+      getStationStorageCapacity(stationId),
     ]);
 
-    return { resources, rates };
+    return { resources, rates, storageCapacity };
   });
 }) satisfies FastifyPluginAsync;

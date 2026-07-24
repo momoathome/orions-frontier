@@ -10,7 +10,6 @@ import {
 import { getDb } from '../lib/db/index.js';
 import { debrisFields, salvageMissions } from '../lib/db/schema/debris-fields.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
-import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { calcArrivesAt, calcDistance } from '../lib/travel.js';
@@ -23,6 +22,7 @@ import {
   type ScannerCoverage,
   type VisibilityProjectionStats,
 } from './scanner-visibility.service.js';
+import { creditStationResources } from './station-resource.service.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -315,16 +315,11 @@ async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<void> {
     .for('update');
   if (!mission) return;
 
-  for (const [resourceKey, amount] of Object.entries(mission.cargo ?? {})) {
-    if (amount <= 0) continue;
-    await tx
-      .insert(stationResources)
-      .values({ stationId: mission.stationId, resourceKey, amount })
-      .onConflictDoUpdate({
-        target: [stationResources.stationId, stationResources.resourceKey],
-        set: { amount: sql`${stationResources.amount} + ${amount}` },
-      });
-  }
+  const credited = await creditStationResources(tx, mission.stationId, mission.cargo ?? {});
+  await tx
+    .update(spacecraftTrips)
+    .set({ cargoManifest: credited })
+    .where(eq(spacecraftTrips.id, trip.id));
   await tx
     .update(stationSpacecrafts)
     .set({ lockedAmount: sql`${stationSpacecrafts.lockedAmount} - ${mission.amount}` })

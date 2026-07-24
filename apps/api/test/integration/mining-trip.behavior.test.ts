@@ -90,8 +90,8 @@ before(async () => {
     },
   ]);
   await db.insert(stationBuildings).values([
-    { stationId, buildingKey: 'scanner', level: 1 },
-    { stationId: secondStationId, buildingKey: 'scanner', level: 1 },
+    { stationId, buildingKey: 'scanner', level: 3 },
+    { stationId: secondStationId, buildingKey: 'scanner', level: 3 },
   ]);
   await db.insert(asteroids).values({
     id: asteroidId,
@@ -266,7 +266,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
     );
   assert.ok(firstReturn);
   assert.deepEqual(firstReturn.cargoManifest, { carbon: 50 });
-  assert.equal(firstReturn.departedAt.getTime() - firstArrival.getTime(), 10 * 60_000);
+  assert.equal(firstReturn.departedAt.getTime() - firstArrival.getTime(), 5 * 60_000);
   const miningView = await getAsteroidById(asteroidId, userId);
   assert.equal(miningView?.assignments[0]?.activeTrip?.purpose, 'mining_return');
   assert.deepEqual(miningView?.assignments[0]?.activeTrip?.cargoManifest, { carbon: 50 });
@@ -298,7 +298,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
   const secondReturn = pendingReturns[0];
   assert.ok(secondReturn);
   assert.deepEqual(secondReturn.cargoManifest, { carbon: 25 });
-  assert.equal(secondReturn.departedAt.getTime() - secondOutbound.arrivesAt.getTime(), 5 * 60_000);
+  assert.equal(secondReturn.departedAt.getTime() - secondOutbound.arrivesAt.getTime(), 150_000);
 
   assert.equal(await settleTripArrival(secondReturn), true);
 

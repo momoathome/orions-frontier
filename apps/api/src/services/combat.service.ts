@@ -19,6 +19,7 @@ import { createDebrisFromLosses } from './salvage.service.js';
 import { addStationInfluence } from './influence.service.js';
 import { getUserScannerCoverages, isPointVisible } from './scanner-visibility.service.js';
 import { calculateStationDefenseScore } from './defense.service.js';
+import { creditStationResources } from './station-resource.service.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -361,16 +362,15 @@ async function resolveCombatReturn(tx: Tx, trip: Trip): Promise<void> {
     .where(and(eq(combatMissions.returnTripId, trip.id), eq(combatMissions.status, 'returning')))
     .for('update');
   if (!mission) return;
-  for (const [resourceKey, amount] of Object.entries(trip.cargoManifest ?? {})) {
-    if (amount <= 0) continue;
-    await tx
-      .insert(stationResources)
-      .values({ stationId: mission.attackerStationId, resourceKey, amount })
-      .onConflictDoUpdate({
-        target: [stationResources.stationId, stationResources.resourceKey],
-        set: { amount: sql`${stationResources.amount} + ${amount}` },
-      });
-  }
+  const credited = await creditStationResources(
+    tx,
+    mission.attackerStationId,
+    (trip.cargoManifest ?? {}) as Record<string, number>
+  );
+  await tx
+    .update(spacecraftTrips)
+    .set({ cargoManifest: credited })
+    .where(eq(spacecraftTrips.id, trip.id));
   await tx
     .update(stationSpacecrafts)
     .set({ lockedAmount: sql`${stationSpacecrafts.lockedAmount} - ${trip.groupSize}` })

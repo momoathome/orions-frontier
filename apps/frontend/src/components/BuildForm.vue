@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
-import { resourceKeys, type StationSpacecraftWithDefinition } from '@orions-frontier/shared';
+import { computed, ref, watch, onMounted } from 'vue';
+import {
+  resourceKeys,
+  type StationSpacecraftWithDefinition,
+  type UserResourceSummary,
+} from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { formatBuildTime } from '../lib/spacecraft-utils';
 
 const props = defineProps<{
   stationId: string;
   ship: StationSpacecraftWithDefinition;
+  hangar: { used: number; capacity: number };
 }>();
 
 const emit = defineEmits<{ built: [] }>();
@@ -19,7 +24,7 @@ const playerResources = ref<Record<string, number>>({});
 
 async function fetchPlayerResources() {
   try {
-    const response = await apiClient.get<{ resources: Record<string, number> }>('/me/resources', {
+    const response = await apiClient.get<UserResourceSummary>('/me/resources', {
       params: { stationId: props.stationId },
     });
     playerResources.value = response.resources;
@@ -40,16 +45,30 @@ watch(
   }
 );
 
-function setMaxAmount() {
-  const costs = props.ship.definition.costs;
-  if (costs.length === 0) return;
-  const max = Math.min(
-    ...costs.map((c) => {
-      const have = playerResources.value[c.resourceKey] ?? 0;
-      return c.amount > 0 ? Math.floor(have / c.amount) : Infinity;
-    })
+const maxBuildable = computed(() => {
+  const resourceMaximum = Math.min(
+    ...props.ship.definition.costs.map((cost) =>
+      cost.amount > 0
+        ? Math.floor((playerResources.value[cost.resourceKey] ?? 0) / cost.amount)
+        : Infinity
+    )
   );
-  buildAmount.value = Math.max(1, isFinite(max) ? max : 1);
+  const crewMaximum = Math.floor(
+    Math.max(0, props.hangar.capacity - props.hangar.used) / props.ship.definition.crew
+  );
+  return Math.max(0, Math.min(resourceMaximum, crewMaximum));
+});
+
+const canSubmit = computed(
+  () =>
+    !buildSubmitting.value &&
+    Number.isInteger(buildAmount.value) &&
+    buildAmount.value >= 1 &&
+    buildAmount.value <= maxBuildable.value
+);
+
+function setMaxAmount() {
+  buildAmount.value = Math.max(1, maxBuildable.value);
 }
 
 function costFor(resourceKey: string): number {
@@ -57,7 +76,7 @@ function costFor(resourceKey: string): number {
 }
 
 async function submitBuild() {
-  if (buildSubmitting.value || (buildAmount.value || 0) < 1) return;
+  if (!canSubmit.value) return;
   buildSubmitting.value = true;
   buildError.value = null;
   buildSuccess.value = false;
@@ -146,20 +165,26 @@ async function submitBuild() {
 
     <!-- Build button -->
     <div class="flex flex-col gap-1 items-end">
+      <span class="text-[9px] text-white/30 tabular-nums">
+        Crew {{ ship.definition.crew * (buildAmount || 1) }} · Hangar {{ hangar.used }}/{{
+          hangar.capacity
+        }}
+      </span>
       <button
         @click="submitBuild"
-        :disabled="buildSubmitting || (buildAmount || 0) < 1"
+        :disabled="!canSubmit"
         class="px-6 h-8 rounded border text-[10px] uppercase tracking-[0.2em] font-semibold transition"
         :class="
           buildSuccess
             ? 'border-green-500/40 bg-green-500/10 text-green-300'
-            : buildSubmitting || (buildAmount || 0) < 1
+            : !canSubmit
               ? 'border-white/10 bg-white/3 text-white/25 cursor-not-allowed'
               : 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200'
         "
       >
         <span v-if="buildSuccess">Queued ✓</span>
         <span v-else-if="buildSubmitting">Submitting…</span>
+        <span v-else-if="maxBuildable === 0">No capacity</span>
         <span v-else>Build</span>
       </button>
       <p v-if="buildError" class="text-[9px] text-rose-400/70">{{ buildError }}</p>

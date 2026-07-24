@@ -119,11 +119,16 @@ const unsubscribeBuild = wsClient.on('spacecraft_build_completed', (payload) => 
 });
 const unsubscribeMining = wsClient.on('mining_tick_completed', () => loadFleet(true));
 const unsubscribeTransport = wsClient.on('transport_tick_completed', () => loadFleet(true));
+const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) => {
+  const event = payload as { stationId?: string; buildingKey?: string };
+  if (event.stationId === props.stationId && event.buildingKey === 'hangar') loadFleet(true);
+});
 
 onUnmounted(() => {
   unsubscribeBuild();
   unsubscribeMining();
   unsubscribeTransport();
+  unsubscribeBuilding();
 });
 </script>
 
@@ -155,7 +160,7 @@ onUnmounted(() => {
       class="flex items-center gap-0.5 px-3 h-8 border-b border-white/5 bg-[#040911]/40 shrink-0"
     >
       <span class="mr-3 text-[9px] text-white/35">
-        Hangar {{ hangar.used }}/{{ hangar.capacity }}
+        Hangar crew {{ hangar.used }}/{{ hangar.capacity }}
       </span>
       <button
         @click="roleFilter = 'all'"
@@ -318,6 +323,11 @@ onUnmounted(() => {
               <span class="font-semibold tabular-nums text-white/40">{{
                 activeShip.lockedAmount
               }}</span>
+              <span class="text-white/20 mx-1.5">·</span>
+              <span class="text-white/30">Crew </span>
+              <span class="font-semibold tabular-nums text-cyan-300">{{
+                activeShip.definition.crew
+              }}</span>
             </p>
             <!-- Availability bar -->
             <div
@@ -413,7 +423,12 @@ onUnmounted(() => {
 
           <!-- Build form -->
           <div class="p-4 overflow-y-auto">
-            <BuildForm :station-id="stationId" :ship="activeShip" @built="loadFleet(true)" />
+            <BuildForm
+              :station-id="stationId"
+              :ship="activeShip"
+              :hangar="hangar"
+              @built="loadFleet(true)"
+            />
           </div>
         </div>
       </div>

@@ -1,9 +1,11 @@
 import { eq, inArray, and, gte } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
+import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
+import { calculateBuildingEffect } from '@orions-frontier/game-config';
 import {
   AppError,
   ErrorCode,
@@ -23,6 +25,12 @@ const INITIAL_RESOURCES: Record<ResourceKey, number> = {
 };
 
 type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
+
+const storageCapacity = (warehouseLevel: number): number =>
+  calculateBuildingEffect('warehouse', warehouseLevel).find(
+    (effect) => effect.type === 'storage_capacity'
+  )?.value ?? 0;
 
 // Seed resources for a newly created station
 
@@ -57,6 +65,85 @@ export const getStationResources = async (
     acc[key] = row.resource.amount;
     return acc;
   }, {});
+};
+
+export const getStationStorageCapacity = async (stationId: string): Promise<number> => {
+  const [warehouse] = await getDb()
+    .select({ level: stationBuildings.level })
+    .from(stationBuildings)
+    .where(
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'warehouse'))
+    )
+    .limit(1);
+
+  return storageCapacity(warehouse?.level ?? 0);
+};
+
+/**
+ * Credits as much cargo as fits into each resource's warehouse allocation.
+ * Resource rows are locked in a stable order so concurrent arrivals cannot
+ * exceed capacity.
+ */
+export const creditStationResources = async (
+  tx: Tx,
+  stationId: string,
+  cargo: ResourceMap
+): Promise<ResourceMap> => {
+  const invalidKey = Object.keys(cargo).find(
+    (key) => !(resourceKeys as readonly string[]).includes(key)
+  );
+  if (invalidKey) throw new Error(`Unknown resource '${invalidKey}'`);
+
+  await tx
+    .select({ id: stations.id })
+    .from(stations)
+    .where(eq(stations.id, stationId))
+    .for('update');
+
+  const [warehouse] = await tx
+    .select({ level: stationBuildings.level })
+    .from(stationBuildings)
+    .where(
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'warehouse'))
+    )
+    .limit(1);
+  const capacity = storageCapacity(warehouse?.level ?? 0);
+  const rows = await tx
+    .select()
+    .from(stationResources)
+    .where(eq(stationResources.stationId, stationId))
+    .orderBy(stationResources.resourceKey)
+    .for('update');
+  const amounts = new Map(rows.map((row) => [row.resourceKey, row.amount]));
+  const credited: ResourceMap = {};
+
+  for (const resourceKey of resourceKeys) {
+    const requested = cargo[resourceKey] ?? 0;
+    if (requested <= 0) continue;
+    const current = amounts.get(resourceKey) ?? 0;
+    const accepted = Math.min(requested, Math.max(0, capacity - current));
+    if (accepted <= 0) continue;
+
+    const [updated] = await tx
+      .update(stationResources)
+      .set({ amount: current + accepted })
+      .where(
+        and(
+          eq(stationResources.stationId, stationId),
+          eq(stationResources.resourceKey, resourceKey)
+        )
+      )
+      .returning({ resourceKey: stationResources.resourceKey });
+    if (!updated) {
+      await tx
+        .insert(stationResources)
+        .values({ stationId, resourceKey, amount: current + accepted });
+    }
+    amounts.set(resourceKey, current + accepted);
+    credited[resourceKey] = accepted;
+  }
+
+  return credited;
 };
 
 // Get actual mining deliveries during the last hour.

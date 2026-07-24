@@ -113,8 +113,8 @@ before(async () => {
     },
   ]);
   await db.insert(stationBuildings).values([
-    { stationId: viewerStationId, buildingKey: 'scanner', level: 1 },
-    { stationId: remoteViewerStationId, buildingKey: 'scanner', level: 3 },
+    { stationId: viewerStationId, buildingKey: 'scanner', level: 3 },
+    { stationId: remoteViewerStationId, buildingKey: 'scanner', level: 5 },
   ]);
   await db.insert(stationSpacecrafts).values([
     {

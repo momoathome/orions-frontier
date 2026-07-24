@@ -19,6 +19,7 @@ import { users } from '../../src/lib/db/schema/users.js';
 import { seedStationBuildings, startBuildingUpgrade } from '../../src/services/building.service.js';
 import {
   buildSpacecrafts,
+  getStationHangar,
   getStationSpacecrafts,
   seedStationSpacecrafts,
 } from '../../src/services/spacecraft.service.js';
@@ -34,6 +35,7 @@ import {
   getResearchState,
   startResearch,
 } from '../../src/services/research.service.js';
+import { runSimulationTick } from '../../src/services/simulation.service.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
@@ -264,22 +266,50 @@ test('scanner visibility uses the authenticated users station building effect', 
   assert.equal((await getUserScannerCoverages(userId))[0]?.range, 1_000);
 });
 
-test('hangar capacity includes completed ships and queued construction', async () => {
+test('weighted fleet and queue crew cannot exceed hangar capacity concurrently', async () => {
   const db = getDb();
   await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
   await db
     .update(stationSpacecrafts)
-    .set({ amount: 10, lockedAmount: 0 })
+    .set({ amount: 0, lockedAmount: 0 })
     .where(eq(stationSpacecrafts.stationId, stationId));
+  await db
+    .update(stationSpacecrafts)
+    .set({ amount: 7 })
+    .where(
+      and(eq(stationSpacecrafts.stationId, stationId), eq(stationSpacecrafts.spacecraftKey, 'mole'))
+    );
+  await db
+    .insert(stationSpacecrafts)
+    .values({ stationId, spacecraftKey: 'collector', amount: 0, lockedAmount: 0 })
+    .onConflictDoNothing();
+  await db.insert(spacecraftBuildOrders).values({
+    stationId,
+    spacecraftKey: 'collector',
+    amount: 2,
+    endsAt: new Date(Date.now() + 60_000),
+  });
   await db
     .update(stationResources)
     .set({ amount: 100_000 })
     .where(eq(stationResources.stationId, stationId));
 
-  await assert.rejects(
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 18 });
+
+  const results = await Promise.allSettled([
     buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }]),
-    /Hangar capacity exceeded/
-  );
+    buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }]),
+  ]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 20 });
+
+  const completedAt = new Date();
+  await db
+    .update(spacecraftBuildOrders)
+    .set({ endsAt: completedAt })
+    .where(eq(spacecraftBuildOrders.stationId, stationId));
+  await runSimulationTick(completedAt);
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 20 });
 });
 
 test('parallel station creation claims different spawn slots atomically', async () => {

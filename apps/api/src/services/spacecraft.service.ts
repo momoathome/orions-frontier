@@ -111,6 +111,15 @@ export interface BuildOrder {
   amount: number;
 }
 
+const calculateCrewUsage = (
+  entries: readonly { spacecraftKey: string; amount: number }[]
+): number =>
+  entries.reduce((used, entry) => {
+    const definition = getSpacecraft(entry.spacecraftKey);
+    if (!definition) throw new Error(`Unknown spacecraft definition '${entry.spacecraftKey}'`);
+    return used + entry.amount * definition.crew;
+  }, 0);
+
 export async function getStationHangar(stationId: string): Promise<{
   capacity: number;
   used: number;
@@ -125,17 +134,23 @@ export async function getStationHangar(stationId: string): Promise<{
       )
       .limit(1),
     db
-      .select({ used: sql<number>`coalesce(sum(${stationSpacecrafts.amount}), 0)::int` })
+      .select({
+        spacecraftKey: stationSpacecrafts.spacecraftKey,
+        amount: stationSpacecrafts.amount,
+      })
       .from(stationSpacecrafts)
       .where(eq(stationSpacecrafts.stationId, stationId)),
     db
-      .select({ used: sql<number>`coalesce(sum(${spacecraftBuildOrders.amount}), 0)::int` })
+      .select({
+        spacecraftKey: spacecraftBuildOrders.spacecraftKey,
+        amount: spacecraftBuildOrders.amount,
+      })
       .from(spacecraftBuildOrders)
       .where(eq(spacecraftBuildOrders.stationId, stationId)),
   ]);
   return {
     capacity: calculateHangarCapacity(hangar[0]?.level ?? 0),
-    used: (fleet[0]?.used ?? 0) + (queued[0]?.used ?? 0),
+    used: calculateCrewUsage(fleet) + calculateCrewUsage(queued),
   };
 }
 
@@ -208,7 +223,7 @@ export const buildSpacecrafts = async (
       }
     }
 
-    const [hangarBuilding, fleetUsage, queuedUsage] = await Promise.all([
+    const [hangarBuilding, fleet, queued] = await Promise.all([
       tx
         .select({ level: stationBuildings.level })
         .from(stationBuildings)
@@ -217,21 +232,30 @@ export const buildSpacecrafts = async (
         )
         .limit(1),
       tx
-        .select({ used: sql<number>`coalesce(sum(${stationSpacecrafts.amount}), 0)::int` })
+        .select({
+          spacecraftKey: stationSpacecrafts.spacecraftKey,
+          amount: stationSpacecrafts.amount,
+        })
         .from(stationSpacecrafts)
         .where(eq(stationSpacecrafts.stationId, stationId)),
       tx
-        .select({ used: sql<number>`coalesce(sum(${spacecraftBuildOrders.amount}), 0)::int` })
+        .select({
+          spacecraftKey: spacecraftBuildOrders.spacecraftKey,
+          amount: spacecraftBuildOrders.amount,
+        })
         .from(spacecraftBuildOrders)
         .where(eq(spacecraftBuildOrders.stationId, stationId)),
     ]);
     const hangarCapacity = calculateHangarCapacity(hangarBuilding[0]?.level ?? 0);
-    const hangarUsed = (fleetUsage[0]?.used ?? 0) + (queuedUsage[0]?.used ?? 0);
-    const requestedAmount = orders.reduce((sum, order) => sum + order.amount, 0);
-    if (hangarUsed + requestedAmount > hangarCapacity) {
+    const hangarUsed = calculateCrewUsage(fleet) + calculateCrewUsage(queued);
+    const requestedCrew = orders.reduce(
+      (sum, order) => sum + order.amount * defByKey.get(order.spacecraftKey)!.crew,
+      0
+    );
+    if (hangarUsed + requestedCrew > hangarCapacity) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
-        `Hangar capacity exceeded: ${hangarUsed}/${hangarCapacity} occupied`
+        `Hangar crew capacity exceeded: ${hangarUsed}/${hangarCapacity} occupied`
       );
     }
 

@@ -14,6 +14,7 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { getUserCombatReports, startAttack } from '../../src/services/combat.service.js';
+import { getStationHangar } from '../../src/services/spacecraft.service.js';
 import { getStationInfluence, takeOverStation } from '../../src/services/influence.service.js';
 import { startSalvage } from '../../src/services/salvage.service.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
@@ -94,6 +95,9 @@ afterEach(async () => {
 after(closeDb);
 
 test('combat resolves attacker and defender losses', async () => {
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 5 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 20, used: 6 });
+
   const report = await resolveAttack();
 
   assert.equal(report.status, 'resolved');
@@ -107,6 +111,28 @@ test('combat resolves attacker and defender losses', async () => {
   ]);
   assert.deepEqual(attackerFleet, { amount: 2, lockedAmount: 0 });
   assert.deepEqual(defenderFleet, { amount: 0, lockedAmount: 0 });
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 4 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 20, used: 0 });
+});
+
+test('combat and salvage returns discard cargo above warehouse capacity', async () => {
+  await setCarbon(attackerStationId, 1_490);
+  await resolveAttack();
+  assert.equal(await getCarbon(attackerStationId), 1_500);
+
+  const [field] = await getDb()
+    .select()
+    .from(debrisFields)
+    .where(eq(debrisFields.sectorId, sectorId));
+  assert.ok(field);
+  await getDb().insert(stationSpacecrafts).values({
+    stationId: attackerStationId,
+    spacecraftKey: 'collector',
+    amount: 1,
+  });
+  await setCarbon(attackerStationId, 1_490);
+  await resolveSalvage(field.id);
+  assert.equal(await getCarbon(attackerStationId), 1_500);
 });
 
 test('station defense score can repel an attack without defending spacecraft', async () => {
@@ -293,6 +319,15 @@ async function getCarbon(stationId: string): Promise<number> {
       and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
     );
   return resource!.amount;
+}
+
+async function setCarbon(stationId: string, amount: number): Promise<void> {
+  await getDb()
+    .update(stationResources)
+    .set({ amount })
+    .where(
+      and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
+    );
 }
 
 async function getFleet(stationId: string, spacecraftKey: string) {

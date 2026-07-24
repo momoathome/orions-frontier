@@ -52,6 +52,7 @@ before(async () => {
     .insert(stationSpacecrafts)
     .values({ stationId, spacecraftKey, amount: 2, lockedAmount: 2 })
     .returning({ id: stationSpacecrafts.id });
+  await db.insert(stationBuildings).values({ stationId, buildingKey: 'warehouse', level: 1 });
 });
 
 after(async () => {
@@ -84,7 +85,7 @@ test('a trip arrival is applied exactly once when two processors race', async ()
       departedAt: new Date(now.getTime() - 2_000),
       arrivesAt: new Date(now.getTime() - 1_000),
       purpose: 'mining_return',
-      cargoManifest: { phase_one: 10 },
+      cargoManifest: { carbon: 10 },
     })
     .returning();
   assert.ok(trip);
@@ -98,6 +99,57 @@ test('a trip arrival is applied exactly once when two processors race', async ()
     .from(stationResources)
     .where(eq(stationResources.stationId, stationId));
   assert.equal(resource?.amount, 10);
+});
+
+test('parallel mining returns store only free warehouse capacity', async () => {
+  const db = getDb();
+  await db
+    .update(stationResources)
+    .set({ amount: 1_490 })
+    .where(eq(stationResources.stationId, stationId));
+  const now = new Date();
+  const trips = await db
+    .insert(spacecraftTrips)
+    .values(
+      [1, 2].map((offset) => ({
+        stationSpacecraftId,
+        groupSize: 1,
+        fromType: 'asteroid' as const,
+        fromId: randomUUID(),
+        toType: 'station' as const,
+        toId: stationId,
+        departedAt: new Date(now.getTime() - 2_000 - offset),
+        arrivesAt: new Date(now.getTime() - 1_000 - offset),
+        purpose: 'mining_return' as const,
+        cargoManifest: { carbon: 10 },
+      }))
+    )
+    .returning();
+  tripIds.push(...trips.map((trip) => trip.id));
+
+  await Promise.all(trips.map(settleTripArrival));
+
+  const [resource] = await db
+    .select({ amount: stationResources.amount })
+    .from(stationResources)
+    .where(eq(stationResources.stationId, stationId));
+  const settled = await db
+    .select({ cargoManifest: spacecraftTrips.cargoManifest })
+    .from(spacecraftTrips)
+    .where(
+      inArray(
+        spacecraftTrips.id,
+        trips.map((trip) => trip.id)
+      )
+    );
+  assert.equal(resource?.amount, 1_500);
+  assert.equal(
+    settled.reduce(
+      (sum, trip) => sum + ((trip.cargoManifest as { carbon?: number } | null)?.carbon ?? 0),
+      0
+    ),
+    10
+  );
 });
 
 test('simulation tick catches up a trip that became due while the API was offline', async () => {

@@ -6,4 +6,6 @@ export interface UserResourceSummary {
   resources: ResourceMap;
   /** Resources delivered during the last hour */
   rates: ResourceMap;
+  /** Maximum amount stored per individual resource. */
+  storageCapacity: number;
 }

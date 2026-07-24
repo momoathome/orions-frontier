@@ -14,6 +14,8 @@ export interface SpacecraftDefinition {
   speed: number;
   miningRate: number;
   buildTime: number;
+  /** Hangar crew places occupied by one spacecraft. */
+  crew: number;
 }
 
 export interface SpacecraftDefinitionCost {

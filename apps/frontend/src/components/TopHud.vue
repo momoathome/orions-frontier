@@ -12,6 +12,7 @@ type ResourceEntry = {
   name: string;
   image: string;
   amount: number;
+  capacity: number;
   ratePerHour: number;
 };
 
@@ -40,6 +41,7 @@ function applyResourceSummary(summary: UserResourceSummary) {
         name: def.name,
         image: def.image,
         amount: summary.resources[key] as number,
+        capacity: summary.storageCapacity,
         ratePerHour: summary.rates[key] ?? 0,
       };
     });
@@ -78,6 +80,10 @@ const unsubscribeTick = wsClient.on('mining_tick_completed', () => {
 const unsubscribeTransport = wsClient.on('transport_tick_completed', () => {
   scheduleFetch();
 });
+const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) => {
+  const event = payload as { stationId?: string; buildingKey?: string };
+  if (event.stationId === stationId && event.buildingKey === 'warehouse') scheduleFetch();
+});
 
 fetchResources();
 
@@ -86,6 +92,7 @@ onUnmounted(() => {
   unsubscribeResources();
   unsubscribeTick();
   unsubscribeTransport();
+  unsubscribeBuilding();
 });
 
 function fmt(n: number): string {
@@ -116,7 +123,9 @@ function fmtRate(n: number): string {
             loading="lazy"
           />
           <span class="text-white/25 uppercase tracking-widest text-[9px]">{{ entry.name }}</span>
-          <span class="text-white/80 tabular-nums">{{ fmt(entry.amount) }}</span>
+          <span class="text-white/80 tabular-nums"
+            >{{ fmt(entry.amount) }}/{{ fmt(entry.capacity) }}</span
+          >
           <span v-if="entry.ratePerHour > 0" class="text-cyan-400/50 tabular-nums text-[9px]"
             >{{ fmtRate(entry.ratePerHour) }}/h</span
           >

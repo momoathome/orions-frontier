@@ -60,7 +60,7 @@ export const buildings: BuildingSeedDefinition[] = [
   {
     key: 'hangar',
     name: 'Hangar',
-    description: 'Expands fleet capacity, providing space for additional spacecraft.',
+    description: 'Expands crew capacity, allowing the station to operate additional spacecraft.',
     image: '/assets/buildings/hangar.webp',
     baseBuildTime: 120,
     maxLevel: 20,
@@ -241,4 +241,5 @@ export const SHIPYARD_UNLOCKS: Record<number, string[]> = {
   12: ['reaper'],
 };
 
-export const calculateHangarCapacity = (hangarLevel: number): number => 5 + hangarLevel * 5;
+/** Crew places provided by a station hangar. */
+export const calculateHangarCapacity = (hangarLevel: number): number => 10 + hangarLevel * 10;
