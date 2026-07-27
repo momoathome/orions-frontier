@@ -144,7 +144,7 @@ Die Prüfung wird mindestens auf folgende Pfade angewendet:
 
 - Asteroidendetail, Mining-Preview und Mining-Zuweisung;
 - Trümmerdetail und Start einer Bergungsmission;
-- fremde Stationsinformationen, Angriff, Einfluss und Übernahme;
+- fremde Stationsinformationen und Angriff;
 - alle späteren Aktionen, deren Ziel über eine Weltobjekt-ID adressiert wird.
 
 Die Prüfung findet unmittelbar vor dem Anlegen eines Auftrags erneut statt. Sichtbarkeit aus einer
@@ -272,10 +272,10 @@ UUID oder Mining-Endpunkt erreichbar. Ein Asteroid auf der Kreisgrenze ist errei
 1. Stationen um persistente Chunkkoordinaten und den zusammengesetzten Chunkindex ergänzen.
 2. Fremde Stationen in `/world/chunks` über dieselbe Abdeckung filtern; eigene Stationen bleiben
    sichtbar.
-3. Stationsdetail-, Einfluss-, Angriffs- und Übernahmeaktionen gegen Sichtbarkeit absichern.
+3. Stationsdetail- und Angriffsaktionen gegen Sichtbarkeit absichern.
 4. Trümmerlisten und -details räumlich filtern.
 5. Bergungsaufträge nur zu aktuell sichtbaren Trümmern zulassen.
-6. Bei Stationsübernahme Coverage und sichtbare Chunks für beide betroffenen Spieler invalidieren.
+6. Entfernt: Stationsübernahme existiert nicht mehr.
 
 **Abnahme:** Direkte IDs umgehen weder Stations- noch Trümmersichtbarkeit. Ein Trümmerfeld wird beim
 Verlassen aller Scannerkreise entfernt und bei erneuter Abdeckung wieder geladen.
@@ -358,7 +358,7 @@ Materialisierungsschwellen bewusst erlaubt.
 - ein stärkerer Scanner einer anderen eigenen Station verändert nicht den Radius der ersten Station;
 - Asteroidenliste, Detail, Preview und Assignment besitzen dieselbe Grenze;
 - Bot und Spieler verwenden dieselben Regeln;
-- Stationen, Trümmerdetails, Bergung, Angriff, Einfluss und Übernahme sind gegen UUID-Zugriff
+- Stationen, Trümmerdetails, Bergung und Angriff sind gegen UUID-Zugriff
   geschützt;
 - fremde Reise tritt in einen Scannerkreis ein und verlässt ihn wieder;
 - fremder Kontakt enthält keine Endpunkte, Fracht oder genaue Gruppengröße;

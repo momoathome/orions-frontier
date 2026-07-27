@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type {
-  StationInfluence,
-  StationSpacecraftWithDefinition,
-  VisibleStation,
-} from '@orions-frontier/shared';
+import type { StationSpacecraftWithDefinition, VisibleStation } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 
 const props = defineProps<{
@@ -25,7 +21,6 @@ const selectedSpacecraftKey = ref('');
 const amount = ref(1);
 const feedback = ref<string | null>(null);
 const sending = ref(false);
-const influence = ref<StationInfluence | null>(null);
 
 watch(
   () => [props.origin?.id, props.station.id] as const,
@@ -33,16 +28,12 @@ watch(
     fighters.value = [];
     if (!stationId) return;
     try {
-      const [fleetResponse, influenceResponse] = await Promise.all([
-        apiClient.get(`/stations/${stationId}/spacecrafts`),
-        apiClient.get(`/stations/${props.station.id}/influence`),
-      ]);
+      const fleetResponse = await apiClient.get(`/stations/${stationId}/spacecrafts`);
       fighters.value = fleetResponse.spacecrafts.filter(
         (entry: StationSpacecraftWithDefinition) =>
           entry.definition.role === 'fighter' && entry.amount > entry.lockedAmount
       );
       selectedSpacecraftKey.value = fighters.value[0]?.definition.key ?? '';
-      influence.value = influenceResponse;
     } catch (error) {
       feedback.value = apiErrorMessage(error, 'Target data could not be loaded');
     }
@@ -64,19 +55,6 @@ async function attack() {
   } catch (error) {
     feedback.value = apiErrorMessage(error, 'Attack could not be launched');
   } finally {
-    sending.value = false;
-  }
-}
-
-async function takeOver() {
-  sending.value = true;
-  feedback.value = null;
-  try {
-    await apiClient.post(`/stations/${props.station.id}/takeover`);
-    localStorage.setItem('active_station_id', props.station.id);
-    window.location.reload();
-  } catch (error) {
-    feedback.value = apiErrorMessage(error, 'Station could not be taken over');
     sending.value = false;
   }
 }
@@ -113,13 +91,6 @@ async function takeOver() {
           <span class="text-white/30">Distance</span>
           <span class="tabular-nums text-white/65">{{ distance.toFixed(0) }}</span>
         </div>
-        <div class="flex justify-between border-b border-white/5 pb-1">
-          <span class="text-white/30">Control</span>
-          <span class="tabular-nums text-white/65">
-            {{ influence?.points ?? 0 }}/{{ influence?.requiredPoints ?? 1 }} ·
-            {{ influence?.defended ? 'defended' : 'unprotected' }}
-          </span>
-        </div>
       </div>
 
       <div class="flex flex-col gap-2 border-l border-white/5 pl-5">
@@ -152,14 +123,6 @@ async function takeOver() {
           </button>
         </template>
         <p v-else class="text-[9px] text-white/25">No fighter is available.</p>
-        <button
-          v-if="influence?.canTakeOver"
-          :disabled="sending"
-          class="h-7 rounded border border-amber-400/30 text-[9px] uppercase tracking-widest text-amber-200 disabled:opacity-30"
-          @click="takeOver"
-        >
-          Take over station
-        </button>
         <p v-if="feedback" class="text-[9px] text-white/50">{{ feedback }}</p>
       </div>
     </div>

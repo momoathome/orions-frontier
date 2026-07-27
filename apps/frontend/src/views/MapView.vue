@@ -165,7 +165,6 @@ let stationInfo: StationInfo | null = null;
 let unsubTransportTick: (() => void) | null = null;
 let unsubMiningTick: (() => void) | null = null;
 let unsubBuildingUpgrade: (() => void) | null = null;
-let unsubStationOwnership: (() => void) | null = null;
 let tripRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 onMounted(async () => {
@@ -248,7 +247,6 @@ onMounted(async () => {
       void loadTrips();
     });
   });
-  unsubStationOwnership = wsClient.on('station_ownership_changed', () => window.location.reload());
 });
 
 // Sync selected asteroid → renderer selection ring
@@ -265,7 +263,6 @@ onUnmounted(() => {
   unsubTransportTick?.();
   unsubMiningTick?.();
   unsubBuildingUpgrade?.();
-  unsubStationOwnership?.();
   if (tripRefreshInterval) clearInterval(tripRefreshInterval);
   renderer?.destroy();
   renderer = null;

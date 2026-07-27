@@ -87,7 +87,7 @@ diesen Entwicklungsstand nicht vorgesehen.
 `apps/api/test/unit`. `npm run test:integration` startet PostgreSQL über Docker und prüft unter
 `apps/api/test/integration` unter anderem API-Routen, konkurrierende Ressourcenausgaben und
 Mining-Zugriffe, vollständige Mining-Rundläufe, Bots, Exploration, Kolonisation, Kampf, Bergung,
-Einfluss, Forschung sowie WebSocket-Authentifizierung. `npm run test:behavior` bleibt als Alias für
+Forschung sowie WebSocket-Authentifizierung. `npm run test:behavior` bleibt als Alias für
 die Integrationstests erhalten. Mit `npm run verify` laufen statische Checks, Build und beide
 Testgruppen gemeinsam.
 

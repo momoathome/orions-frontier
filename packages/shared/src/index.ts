@@ -49,5 +49,4 @@ export * from './world';
 export * from './world-mission';
 export * from './combat';
 export * from './debris';
-export * from './influence';
 export * from './research';

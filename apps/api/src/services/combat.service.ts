@@ -16,7 +16,6 @@ import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { calcArrivesAt, calcDistance } from '../lib/travel.js';
 import { createDebrisFromLosses } from './salvage.service.js';
-import { addStationInfluence } from './influence.service.js';
 import { getUserScannerCoverages, isPointVisible } from './scanner-visibility.service.js';
 import { calculateStationDefenseScore } from './defense.service.js';
 import { creditStationResources } from './station-resource.service.js';
@@ -285,9 +284,6 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
     .where(eq(stationSpacecrafts.id, mission.attackerStationSpacecraftId));
 
   await createDebrisFromLosses(tx, mission.defenderStationId, destroyed);
-  if (winner === 'attacker') {
-    await addStationInfluence(tx, mission.userId, mission.defenderStationId);
-  }
 
   if (survivors === 0) {
     await tx

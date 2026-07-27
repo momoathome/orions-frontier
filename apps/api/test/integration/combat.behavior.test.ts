@@ -5,7 +5,6 @@ import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields, salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
-import { stationInfluence } from '../../src/lib/db/schema/station-influence.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
@@ -15,7 +14,6 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { getUserCombatReports, startAttack } from '../../src/services/combat.service.js';
 import { getStationHangar } from '../../src/services/spacecraft.service.js';
-import { getStationInfluence, takeOverStation } from '../../src/services/influence.service.js';
 import { startSalvage } from '../../src/services/salvage.service.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
@@ -83,7 +81,6 @@ afterEach(async () => {
     );
   }
   await db.delete(debrisFields).where(eq(debrisFields.sectorId, sectorId));
-  await db.delete(stationInfluence).where(inArray(stationInfluence.stationId, stationIds));
   await db.delete(stationResources).where(inArray(stationResources.stationId, stationIds));
   await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
   await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds));
@@ -198,7 +195,7 @@ test('a resolved attack transfers bounded loot and creates debris', async () => 
   assert.deepEqual(field?.resources, { carbon: 108, titanium: 78, hydrogenium: 45 });
 });
 
-test('debris can be salvaged and earned influence can take over a station', async () => {
+test('debris can be salvaged and combat does not change station ownership', async () => {
   const attackerCarbonBefore = await getCarbon(attackerStationId);
   await resolveAttack();
   const [field] = await getDb()
@@ -224,31 +221,12 @@ test('debris can be salvaged and earned influence can take over a station', asyn
     lockedAmount: 0,
   });
 
-  await getDb()
-    .update(stationSpacecrafts)
-    .set({ amount: 1, lockedAmount: 1 })
-    .where(eq(stationSpacecrafts.stationId, defenderStationId));
-  const influence = await getStationInfluence(attackerUserId, defenderStationId);
-  assert.deepEqual(
-    { points: influence.points, defended: influence.defended, canTakeOver: influence.canTakeOver },
-    { points: 1, defended: false, canTakeOver: true }
-  );
-
-  await takeOverStation(attackerUserId, defenderStationId);
-  const [captured] = await getDb()
+  // Combat does not change station ownership
+  const [defenderStation] = await getDb()
     .select({ userId: stations.userId })
     .from(stations)
     .where(eq(stations.id, defenderStationId));
-  assert.equal(captured?.userId, attackerUserId);
-  assert.equal(
-    (
-      await getDb()
-        .select()
-        .from(stationInfluence)
-        .where(eq(stationInfluence.stationId, defenderStationId))
-    ).length,
-    0
-  );
+  assert.equal(defenderStation?.userId, defenderUserId);
 });
 
 async function resolveAttack() {

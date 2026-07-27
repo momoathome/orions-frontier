@@ -14,7 +14,6 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/asteroid.service.js';
 import { startAttack } from '../../src/services/combat.service.js';
-import { getStationInfluence, takeOverStation } from '../../src/services/influence.service.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.service.js';
 import {
   getDebrisById,
@@ -302,8 +301,6 @@ test('direct action ids cannot bypass scanner visibility', async () => {
     }),
     /Target station not found/
   );
-  await assert.rejects(getStationInfluence(viewerId, hiddenTargetStationId), /Station not found/);
-  await assert.rejects(takeOverStation(viewerId, hiddenTargetStationId), /Station not found/);
 });
 
 test('foreign movement is a route-free contact while the owner keeps its full trip', async () => {

@@ -5,7 +5,6 @@ import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields, salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
-import { stationInfluence } from '../../src/lib/db/schema/station-influence.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
@@ -72,7 +71,6 @@ after(async () => {
     await db.delete(spacecraftTrips).where(eq(spacecraftTrips.stationSpacecraftId, fleet.id));
   }
   await db.delete(debrisFields).where(eq(debrisFields.sectorId, sectorId));
-  await db.delete(stationInfluence).where(inArray(stationInfluence.stationId, stationIds));
   await db.delete(stationResources).where(inArray(stationResources.stationId, stationIds));
   await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
   await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds));
