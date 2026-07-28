@@ -21,6 +21,7 @@ import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
 import { runBotDecisionTick } from '../../src/services/bot/bot.service.js';
 import { loadEconomicBotState } from '../../src/services/bot/bot-state.service.js';
+import { loadGoalBotState } from '../../src/services/bot/goal-loader.service.js';
 import { seedStationBuildings } from '../../src/services/building.service.js';
 import { runSimulationTick } from '../../src/services/simulation.service.js';
 import { seedStationResources } from '../../src/services/station-resource.service.js';
@@ -406,4 +407,132 @@ test('an overdue bot decision survives a database reconnect', async () => {
     .where(eq(botControllers.userId, userId));
   assert.ok(controller?.nextDecisionAt.getTime() > dueAt.getTime());
   assert.ok(controller?.lastAction);
+});
+
+test('goal state loader shows two bot stations with local resources and scanner-limited visibility', async () => {
+  const db = getDb();
+  const botUserId = randomUUID();
+  const suffix2 = randomUUID();
+  await db.insert(users).values({
+    id: botUserId,
+    username: `goal-loader-${suffix2}`,
+    email: `goal-loader-${suffix2}@example.test`,
+    passwordHash: 'not-used',
+  });
+
+  // Two stations at different positions
+  const stationAId = randomUUID();
+  const stationBId = randomUUID();
+  // Station A: origin with scanner
+  await db.insert(stations).values({
+    id: stationAId,
+    userId: botUserId,
+    sectorId,
+    name: 'Station A',
+    x: 0,
+    y: 0,
+    chunkX: 0,
+    chunkY: 0,
+  });
+  await seedStationBuildings(stationAId);
+  await seedStationSpacecrafts(stationAId);
+  await seedStationResources(stationAId);
+  // Give Station A a scanner (it has level 1 from seeding)
+  // Station B: colony 3_000 units away (outside Station A's scanner range of 2_000)
+  await db.insert(stations).values({
+    id: stationBId,
+    userId: botUserId,
+    sectorId,
+    name: 'Station B',
+    x: 0,
+    y: 3000,
+    chunkX: 0,
+    chunkY: Math.floor(3000 / 1000),
+  });
+  await seedStationBuildings(stationBId);
+  await seedStationSpacecrafts(stationBId);
+  await seedStationResources(stationBId);
+
+  // Set different resource amounts per station to verify local scoping
+  await db
+    .update(stationResources)
+    .set({ amount: 500 })
+    .where(
+      and(eq(stationResources.stationId, stationAId), eq(stationResources.resourceKey, 'carbon'))
+    );
+  await db
+    .update(stationResources)
+    .set({ amount: 999 })
+    .where(
+      and(eq(stationResources.stationId, stationBId), eq(stationResources.resourceKey, 'carbon'))
+    );
+
+  // Asteroid visible only from Station A (inside its scanner range)
+  const nearAsteroidId = randomUUID();
+  await db.insert(asteroids).values({
+    id: nearAsteroidId,
+    x: 500,
+    y: 0,
+    chunkX: 0,
+    chunkY: 0,
+    size: 'small',
+    sectorId,
+  });
+  await db.insert(asteroidVeins).values({
+    asteroidId: nearAsteroidId,
+    resourceKey: 'carbon',
+    veinType: 'primary',
+    remainingAmount: 1000,
+  });
+
+  // Asteroid outside both scanner ranges
+  const hiddenAsteroidId = randomUUID();
+  await db.insert(asteroids).values({
+    id: hiddenAsteroidId,
+    x: 5000,
+    y: 0,
+    chunkX: Math.floor(5000 / 1000),
+    chunkY: 0,
+    size: 'medium',
+    sectorId,
+  });
+  await db.insert(asteroidVeins).values({
+    asteroidId: hiddenAsteroidId,
+    resourceKey: 'titanium',
+    veinType: 'primary',
+    remainingAmount: 2000,
+  });
+
+  const state = await loadGoalBotState(botUserId);
+  assert.ok(state);
+  assert.equal(state.ownStations.length, 2, 'Both stations must be present');
+
+  const stationA = state.ownStations.find((s) => s.id === stationAId);
+  const stationB = state.ownStations.find((s) => s.id === stationBId);
+  assert.ok(stationA);
+  assert.ok(stationB);
+  assert.equal(stationA.resources['carbon'], 500, 'Station A carbon must be 500');
+  assert.equal(stationB.resources['carbon'], 999, 'Station B carbon must be 999');
+
+  // Visible asteroids should include the one near Station A but not the hidden one
+  const visibleIds = state.visibleAsteroids.map((a) => a.id);
+  assert.ok(visibleIds.includes(nearAsteroidId), 'Asteroid near Station A must be visible');
+  assert.equal(
+    visibleIds.includes(hiddenAsteroidId),
+    false,
+    'Asteroid outside both scanner circles must be hidden'
+  );
+
+  // Cleanup
+  await db.delete(asteroidVeins).where(eq(asteroidVeins.asteroidId, nearAsteroidId));
+  await db.delete(asteroids).where(eq(asteroids.id, nearAsteroidId));
+  await db.delete(asteroidVeins).where(eq(asteroidVeins.asteroidId, hiddenAsteroidId));
+  await db.delete(asteroids).where(eq(asteroids.id, hiddenAsteroidId));
+  for (const sid of [stationAId, stationBId]) {
+    await db.delete(stationResources).where(eq(stationResources.stationId, sid));
+    await db.delete(stationBuildings).where(eq(stationBuildings.stationId, sid));
+    await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, sid));
+    await db.delete(stations).where(eq(stations.id, sid));
+  }
+  await db.delete(users).where(eq(users.id, botUserId));
 });

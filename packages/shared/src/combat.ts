@@ -2,6 +2,8 @@ export interface CombatReport {
   id: string;
   attackerStationId: string;
   defenderStationId: string;
+  attackerUserId: string;
+  defenderUserId: string;
   attackerAmount: number;
   attackerLosses: number;
   defenderLosses: number;

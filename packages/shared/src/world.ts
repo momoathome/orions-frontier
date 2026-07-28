@@ -22,6 +22,7 @@ export interface VisibleStation {
   chunkX: number;
   chunkY: number;
   ownerType: 'player' | 'bot';
+  ownerId: string;
   isOwn: boolean;
   visualProfile: StationVisualProfile;
 }

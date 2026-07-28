@@ -112,6 +112,7 @@ export async function getVisibleChunkStations(
             chunkX: Math.floor(station.x / WORLD_CONFIG.CHUNK_SIZE),
             chunkY: Math.floor(station.y / WORLD_CONFIG.CHUNK_SIZE),
             ownerType: station.botUserId ? ('bot' as const) : ('player' as const),
+            ownerId: station.userId,
             isOwn,
           },
         ]

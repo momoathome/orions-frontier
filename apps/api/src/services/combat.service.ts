@@ -29,10 +29,15 @@ import { effectiveAttackPower, applyVectorNavigation } from './research-effects.
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
 
-const toReport = (row: typeof combatMissions.$inferSelect): CombatReport => ({
+const toReport = (
+  row: typeof combatMissions.$inferSelect,
+  defenderUserId: string
+): CombatReport => ({
   id: row.id,
   attackerStationId: row.attackerStationId,
   defenderStationId: row.defenderStationId,
+  attackerUserId: row.userId,
+  defenderUserId,
   attackerAmount: row.attackerAmount,
   attackerLosses: row.attackerLosses,
   defenderLosses: row.defenderLosses,
@@ -182,19 +187,19 @@ export async function startAttack(params: {
         attackerAmount: params.amount,
       })
       .returning();
-    return created!;
+    return { mission: created!, defenderUserId: defender.userId };
   });
-  return toReport(mission);
+  return toReport(mission.mission, mission.defenderUserId);
 }
 
 export async function getUserCombatReports(userId: string): Promise<CombatReport[]> {
   const rows = await getDb()
-    .select({ mission: combatMissions })
+    .select({ mission: combatMissions, defenderUserId: stations.userId })
     .from(combatMissions)
     .innerJoin(stations, eq(combatMissions.defenderStationId, stations.id))
     .where(or(eq(combatMissions.userId, userId), eq(stations.userId, userId)))
     .orderBy(desc(combatMissions.createdAt));
-  return rows.map(({ mission }) => toReport(mission));
+  return rows.map(({ mission, defenderUserId }) => toReport(mission, defenderUserId));
 }
 
 async function buildingLevel(tx: Tx, stationId: string, buildingKey: string): Promise<number> {
