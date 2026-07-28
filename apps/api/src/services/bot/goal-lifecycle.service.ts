@@ -9,6 +9,15 @@ import {
   stepStabilizeStation,
   stepIncreaseIncome,
   stepIncreaseCapacity,
+  stepResearchTechnology,
+  generateExploreSectorCandidate,
+  generateEstablishColonyCandidate,
+  stepExploreSector,
+  stepEstablishColony,
+  generateFortifyCandidate,
+  generateBuildStrikeForceCandidate,
+  stepFortifyStation,
+  stepBuildStrikeForce,
 } from './goal-economy.js';
 
 // Local helpers (mirrored from goal-economy to avoid circular deps)
@@ -91,7 +100,7 @@ const MAX_BLOCKED_INTERVALS = 5;
 function isGoalComplete(
   _state: GoalBotState,
   goalType: string,
-  _targetRef: string,
+  targetRef: string,
   station: StationSnapshot | undefined
 ): boolean {
   if (!station) return false;
@@ -110,6 +119,31 @@ function isGoalComplete(
       // After one successful upgrade, re-evaluate — so mark complete immediately
       return true;
     }
+    case 'explore_sector': {
+      // Completed when no active traveling expedition from this station
+      return !station.missions.some(
+        (m) => m.missionType === 'expedition' && m.status === 'traveling'
+      );
+    }
+    case 'establish_colony': {
+      // Completed when colonization mission is no longer traveling (arrived)
+      const parts = targetRef.split(':');
+      const targetSectorX = Number(parts[1]);
+      const targetSectorY = Number(parts[2]);
+      if (isNaN(targetSectorX) || isNaN(targetSectorY)) return false;
+      const colonyMission = station.missions.find(
+        (m) =>
+          m.missionType === 'colonization' &&
+          m.targetSectorX === targetSectorX &&
+          m.targetSectorY === targetSectorY
+      );
+      if (!colonyMission) return false;
+      return colonyMission.status !== 'traveling';
+    }
+    case 'fortify_station':
+    case 'build_strike_force':
+      // Completed when target score/attack is reached; step functions handle it
+      return false;
     default:
       return false;
   }
@@ -119,6 +153,15 @@ function findStationForGoal(state: GoalBotState, targetRef: string): StationSnap
   if (targetRef.startsWith('station:')) {
     const stationId = targetRef.split(':')[1];
     return state.ownStations.find((s) => s.id === stationId);
+  }
+  if (targetRef.startsWith('tech:')) {
+    const stationId = targetRef.split(':')[1];
+    return state.ownStations.find((s) => s.id === stationId);
+  }
+  if (targetRef.startsWith('sector:')) {
+    // For sector goals, use the first station (or the one with most available ships)
+    // In practice the bot picks the best station during generation
+    return state.ownStations[0];
   }
   return undefined;
 }
@@ -167,8 +210,27 @@ export async function evaluateActiveGoal(
 // Candidate generation
 // ---------------------------------------------------------------------------
 
-export function generateGoalCandidates(state: GoalBotState): GoalCandidate[] {
-  return generateEconomicCandidates(state);
+export async function generateGoalCandidates(state: GoalBotState): Promise<GoalCandidate[]> {
+  const economic = generateEconomicCandidates(state);
+  const expansion: GoalCandidate[] = [];
+  const conflict: GoalCandidate[] = [];
+
+  // Generate explore/colony candidates for each station
+  for (const station of state.ownStations) {
+    const explore = await generateExploreSectorCandidate(state, station);
+    if (explore) expansion.push(explore);
+
+    const colony = await generateEstablishColonyCandidate(state, station);
+    if (colony) expansion.push(colony);
+
+    const fortify = generateFortifyCandidate(state, station);
+    if (fortify) conflict.push(fortify);
+
+    const strike = generateBuildStrikeForceCandidate(state, station);
+    if (strike) conflict.push(strike);
+  }
+
+  return [...economic, ...expansion, ...conflict];
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +270,46 @@ export async function determineNextStep(
           reason: `Station for ${targetRef} not found`,
         };
       return stepIncreaseCapacity(state, station, targetRef, profile);
+    case 'research_technology':
+      if (!station)
+        return {
+          type: 'blocked',
+          detail: 'station_missing',
+          reason: `Station for ${targetRef} not found`,
+        };
+      return stepResearchTechnology(station, targetRef, profile);
+    case 'explore_sector':
+      if (!station)
+        return {
+          type: 'blocked',
+          detail: 'station_missing',
+          reason: `Station for ${targetRef} not found`,
+        };
+      return stepExploreSector(state, station, targetRef, profile);
+    case 'establish_colony':
+      if (!station)
+        return {
+          type: 'blocked',
+          detail: 'station_missing',
+          reason: `Station for ${targetRef} not found`,
+        };
+      return stepEstablishColony(state, station, targetRef, profile);
+    case 'fortify_station':
+      if (!station)
+        return {
+          type: 'blocked',
+          detail: 'station_missing',
+          reason: `Station for ${targetRef} not found`,
+        };
+      return stepFortifyStation(state, station, targetRef, profile);
+    case 'build_strike_force':
+      if (!station)
+        return {
+          type: 'blocked',
+          detail: 'station_missing',
+          reason: `Station for ${targetRef} not found`,
+        };
+      return stepBuildStrikeForce(state, station, targetRef, profile);
     default:
       return {
         type: 'blocked',
@@ -221,15 +323,15 @@ export async function determineNextStep(
 // Goal selection wrapper
 // ---------------------------------------------------------------------------
 
-export function selectGoalForState(
+export async function selectGoalForState(
   state: GoalBotState,
   profile: BotProfile,
   activeGoal: { goalType: string; targetRef: string } | null
-): {
+): Promise<{
   selected: GoalCandidate | null;
   reason: string;
-} {
-  const candidates = generateGoalCandidates(state);
+}> {
+  const candidates = await generateGoalCandidates(state);
   const goalTypeList = goalTypes as readonly string[];
   const typedActive =
     activeGoal && goalTypeList.includes(activeGoal.goalType)

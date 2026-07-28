@@ -235,3 +235,113 @@ test('scored candidate includes breakdown', () => {
   assert.ok(typeof scored.scoreBreakdown.riskWeighted === 'number');
   assert.ok(typeof scored.scoreBreakdown.blockers === 'number');
 });
+
+// ---------------------------------------------------------------------------
+// Research generation: different states produce distinct candidates
+// ---------------------------------------------------------------------------
+
+import type { StationSnapshot } from '../../src/services/bot/goal-state.js';
+import { generateResearchCandidates } from '../../src/services/bot/goal-economy.js';
+
+const baseStation = (overrides: Partial<StationSnapshot> = {}): StationSnapshot => ({
+  id: 'station-1',
+  name: 'Test Station',
+  x: 0,
+  y: 0,
+  resources: { carbon: 1000, titanium: 1000, hydrogenium: 1000 },
+  buildings: [
+    { buildingKey: 'shipyard', level: 1, upgradeEndsAt: null },
+    { buildingKey: 'warehouse', level: 1, upgradeEndsAt: null },
+    { buildingKey: 'hangar', level: 1, upgradeEndsAt: null },
+    { buildingKey: 'laboratory', level: 1, upgradeEndsAt: null },
+    { buildingKey: 'scanner', level: 1, upgradeEndsAt: null },
+    { buildingKey: 'core', level: 1, upgradeEndsAt: null },
+  ],
+  defense: [],
+  fleets: [],
+  builds: [],
+  research: [],
+  missions: [],
+  ...overrides,
+});
+
+test('research with active miners gives extraction_algorithms a high score', () => {
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 1 }],
+    missions: [{ missionType: 'mining', status: 'traveling', arrivesAt: new Date() }],
+  });
+  const candidates = generateResearchCandidates(station);
+  const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
+  assert.ok(extraction, 'extraction_algorithms should be a candidate');
+  assert.ok(
+    extraction.baseNeed > 30,
+    'extraction_algorithms should have high baseNeed with active miners'
+  );
+});
+
+test('research with many ships gives modular_cargo_frames a high score', () => {
+  const station = baseStation({
+    fleets: [
+      { spacecraftKey: 'mole', amount: 5, lockedAmount: 0 },
+      { spacecraftKey: 'collector', amount: 2, lockedAmount: 0 },
+    ],
+  });
+  const candidates = generateResearchCandidates(station);
+  const cargo = candidates.find((c) => c.targetRef.includes('modular_cargo_frames'));
+  assert.ok(cargo, 'modular_cargo_frames should be a candidate');
+  assert.ok(
+    cargo.baseNeed > 30,
+    'modular_cargo_frames should have high baseNeed with many cargo ships'
+  );
+});
+
+test('research with active trips gives vector_navigation a high score', () => {
+  const station = baseStation({
+    missions: [
+      { missionType: 'mining', status: 'traveling', arrivesAt: new Date() },
+      { missionType: 'mining', status: 'traveling', arrivesAt: new Date() },
+    ],
+  });
+  const candidates = generateResearchCandidates(station);
+  const vector = candidates.find((c) => c.targetRef.includes('vector_navigation'));
+  assert.ok(vector, 'vector_navigation should be a candidate');
+  assert.ok(vector.baseNeed > 30, 'vector_navigation should have high baseNeed with active trips');
+});
+
+test('research with fighters gives combat_analytics a non-zero score', () => {
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 2, lockedAmount: 0 }],
+  });
+  const candidates = generateResearchCandidates(station);
+  const combat = candidates.find((c) => c.targetRef.includes('combat_analytics'));
+  assert.ok(combat, 'combat_analytics should be a candidate');
+  assert.ok(combat.baseNeed > 10, 'combat_analytics should have non-zero baseNeed with fighters');
+});
+
+test('research with upgrades in progress gives station_grid_optimization a boost', () => {
+  const station = baseStation({
+    buildings: [
+      { buildingKey: 'shipyard', level: 1, upgradeEndsAt: new Date(Date.now() + 3600000) },
+      { buildingKey: 'warehouse', level: 1, upgradeEndsAt: null },
+      { buildingKey: 'hangar', level: 1, upgradeEndsAt: null },
+      { buildingKey: 'laboratory', level: 1, upgradeEndsAt: null },
+      { buildingKey: 'scanner', level: 1, upgradeEndsAt: null },
+      { buildingKey: 'core', level: 1, upgradeEndsAt: null },
+    ],
+  });
+  const candidates = generateResearchCandidates(station);
+  const grid = candidates.find((c) => c.targetRef.includes('station_grid_optimization'));
+  assert.ok(grid, 'station_grid_optimization should be a candidate');
+  assert.ok(grid.baseNeed > 15, 'station_grid_optimization should benefit from active upgrades');
+});
+
+test('started research is excluded from candidates', () => {
+  const station = baseStation({
+    research: [
+      { technologyKey: 'extraction_algorithms', status: 'researching', completesAt: new Date() },
+    ],
+  });
+  const candidates = generateResearchCandidates(station);
+  const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
+  assert.equal(extraction, undefined, 'started research should be excluded');
+});

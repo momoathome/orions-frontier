@@ -22,7 +22,19 @@ import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
 import { runBotDecisionTick } from '../../src/services/bot/bot.service.js';
 import { loadEconomicBotState } from '../../src/services/bot/bot-state.service.js';
 import { loadGoalBotState } from '../../src/services/bot/goal-loader.service.js';
+import {
+  generateExploreSectorCandidate,
+  generateEstablishColonyCandidate,
+  stepExploreSector,
+  stepEstablishColony,
+  generateFortifyCandidate,
+  generateBuildStrikeForceCandidate,
+  stepFortifyStation,
+  stepBuildStrikeForce,
+} from '../../src/services/bot/goal-economy.js';
+import { type BotProfile } from '../../src/lib/db/schema/bot-controllers.js';
 import { seedStationBuildings } from '../../src/services/building.service.js';
+import { seedStationDefenseUpgrades } from '../../src/services/defense.service.js';
 import { runSimulationTick } from '../../src/services/simulation.service.js';
 import { seedStationResources } from '../../src/services/station-resource.service.js';
 import { seedStationSpacecrafts } from '../../src/services/spacecraft.service.js';
@@ -630,5 +642,288 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
   await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
   await db.delete(stations).where(eq(stations.id, stationId));
+  await db.delete(users).where(eq(users.id, botUserId));
+});
+
+test('bot exploration and colonization goal generation', async () => {
+  const db = getDb();
+  const botUserId = randomUUID();
+  const suffix3 = randomUUID();
+  await db.insert(users).values({
+    id: botUserId,
+    username: `explore-bot-${suffix3}`,
+    email: `explore-bot-${suffix3}@example.test`,
+    passwordHash: 'not-used',
+  });
+
+  // Use small, unique coordinates (avoid overflow in sectorX * 6000)
+  const coordSeed = suffix3.split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0);
+  const baseX = -(100 + (coordSeed % 50));
+  const baseY = baseX;
+
+  // Create an "explored" sector
+  const knownSectorId = randomUUID();
+  await db.insert(sectors).values({
+    id: knownSectorId,
+    sectorX: baseX,
+    sectorY: baseY,
+    role: 'populated',
+    seed: suffix3,
+  });
+
+  // Create a frontier sector adjacent to it
+  const frontierSectorId = randomUUID();
+  await db.insert(sectors).values({
+    id: frontierSectorId,
+    sectorX: baseX + 1,
+    sectorY: baseY,
+    role: 'frontier',
+    seed: suffix3,
+  });
+
+  // Station in the known sector with a miner ship
+  const stationId2 = randomUUID();
+  const colonyStationId = randomUUID();
+  await db.insert(stations).values({
+    id: stationId2,
+    userId: botUserId,
+    sectorId: knownSectorId,
+    name: 'Explore Home',
+    x: 100,
+    y: 100,
+    chunkX: 0,
+    chunkY: 0,
+  });
+  await seedStationBuildings(stationId2);
+  await seedStationSpacecrafts(stationId2);
+  await seedStationResources(stationId2);
+
+  // Top up resources so colony can be afforded
+  await Promise.all(
+    ['carbon', 'titanium', 'hydrogenium'].map((key) =>
+      db
+        .update(stationResources)
+        .set({ amount: 2000 })
+        .where(
+          and(eq(stationResources.stationId, stationId2), eq(stationResources.resourceKey, key))
+        )
+    )
+  );
+
+  // Also create a second station in a frontier sector (already colonized, no mining)
+  await db.insert(stations).values({
+    id: colonyStationId,
+    userId: botUserId,
+    sectorId: frontierSectorId,
+    name: 'Outpost',
+    x: 200,
+    y: 100,
+    chunkX: 0,
+    chunkY: 0,
+  });
+  await seedStationBuildings(colonyStationId);
+  await seedStationSpacecrafts(colonyStationId);
+  await seedStationResources(colonyStationId);
+
+  // Set up bot controller with goal_v1
+  const now = new Date();
+  await db.insert(botControllers).values({
+    userId: botUserId,
+    strategy: 'goal_v1',
+    strategyVersion: '1',
+    profile: 'pioneer',
+    activeGoalType: null,
+    activeGoalTarget: null,
+    goalStartedAt: null,
+    lastProgressAt: null,
+    blockedCount: 0,
+    nextDecisionAt: now,
+  });
+
+  // Load bot state
+  const state = await loadGoalBotState(botUserId);
+  assert.ok(state, 'Should load bot state');
+  assert.equal(state.ownStations.length, 2, 'Should have 2 stations');
+
+  const homeStation = state.ownStations.find((s) => s.id === stationId2);
+  assert.ok(homeStation, 'Should find home station');
+
+  // Test explore sector candidate generation
+  const exploreCandidate = await generateExploreSectorCandidate(state, homeStation!);
+  // Since we have a frontier at 1:0, a ship, and no active expedition, should generate a candidate
+  assert.ok(exploreCandidate, 'Should generate explore_sector candidate');
+  assert.equal(exploreCandidate!.goalType, 'explore_sector');
+  assert.ok(exploreCandidate!.targetRef.startsWith('sector:'), 'Target should be a sector');
+
+  // Test establish colony candidate generation
+  const colonyCandidate = await generateEstablishColonyCandidate(state, homeStation!);
+  // Since we have frontier sectors without own stations and can afford colonization
+  assert.ok(colonyCandidate, 'Should generate establish_colony candidate');
+  assert.equal(colonyCandidate!.goalType, 'establish_colony');
+
+  // Test the step functions
+  const stepResult = await stepExploreSector(state, homeStation!, exploreCandidate!.targetRef, {
+    colonizationFactor: 1.5,
+  } as BotProfile);
+  assert.ok(stepResult, 'Should return a step result');
+  // The result should be 'success' since we have resources and ships
+  assert.equal(stepResult.type, 'success', 'Explore step should succeed');
+  assert.ok(
+    stepResult.actionLabel?.startsWith('start_expedition:'),
+    'Should produce expedition action'
+  );
+
+  // Test colony step
+  const colonyStep = await stepEstablishColony(state, homeStation!, colonyCandidate!.targetRef, {
+    colonizationFactor: 1.5,
+  } as BotProfile);
+  assert.ok(colonyStep, 'Should return colony step result');
+  assert.equal(colonyStep.type, 'success', 'Colony step should succeed');
+  assert.ok(
+    colonyStep.actionLabel?.startsWith('start_colonization:'),
+    'Should produce colonization action'
+  );
+
+  // Verify goal lifecycle integration — generateGoalCandidates should include expansion
+  const { generateGoalCandidates } =
+    await import('../../src/services/bot/goal-lifecycle.service.js');
+  const allCandidates = await generateGoalCandidates(state);
+  const exploreCandidates = allCandidates.filter((c) => c.goalType === 'explore_sector');
+  const colonyCandidates = allCandidates.filter((c) => c.goalType === 'establish_colony');
+  assert.ok(exploreCandidates.length > 0, 'generateGoalCandidates should include explore_sector');
+  assert.ok(colonyCandidates.length > 0, 'generateGoalCandidates should include establish_colony');
+
+  // Cleanup
+  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
+  await db.delete(stationResources).where(eq(stationResources.stationId, stationId2));
+  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId2));
+  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId2));
+  await db.delete(stations).where(eq(stations.id, stationId2));
+  await db.delete(stationResources).where(eq(stationResources.stationId, colonyStationId));
+  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, colonyStationId));
+  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, colonyStationId));
+  await db.delete(stations).where(eq(stations.id, colonyStationId));
+  await db.delete(sectors).where(eq(sectors.id, knownSectorId));
+  await db.delete(sectors).where(eq(sectors.id, frontierSectorId));
+  await db.delete(users).where(eq(users.id, botUserId));
+});
+
+test('bot fortify and strike force goal generation', async () => {
+  const db = getDb();
+  const botUserId = randomUUID();
+  const suffix4 = randomUUID();
+  await db.insert(users).values({
+    id: botUserId,
+    username: `fortify-bot-${suffix4}`,
+    email: `fortify-bot-${suffix4}@example.test`,
+    passwordHash: 'not-used',
+  });
+
+  const fortifyCoord = 700 + (suffix4.charCodeAt(0) % 100);
+
+  const sectorId4 = randomUUID();
+  await db.insert(sectors).values({
+    id: sectorId4,
+    sectorX: fortifyCoord,
+    sectorY: fortifyCoord,
+    role: 'populated',
+    seed: suffix4,
+  });
+
+  const stationId4 = randomUUID();
+  await db.insert(stations).values({
+    id: stationId4,
+    userId: botUserId,
+    sectorId: sectorId4,
+    name: 'Fortify Test',
+    x: fortifyCoord * 1000,
+    y: fortifyCoord * 1000,
+    chunkX: fortifyCoord,
+    chunkY: fortifyCoord,
+  });
+  await seedStationBuildings(stationId4);
+  await seedStationDefenseUpgrades(stationId4);
+  await seedStationSpacecrafts(stationId4);
+  await seedStationResources(stationId4);
+  // Top up resources
+  await Promise.all(
+    ['carbon', 'titanium', 'hydrogenium'].map((key) =>
+      db
+        .update(stationResources)
+        .set({ amount: 2000 })
+        .where(
+          and(eq(stationResources.stationId, stationId4), eq(stationResources.resourceKey, key))
+        )
+    )
+  );
+
+  await db.insert(botControllers).values({
+    userId: botUserId,
+    strategy: 'goal_v1',
+    strategyVersion: '1',
+    profile: 'industrialist',
+    activeGoalType: null,
+    activeGoalTarget: null,
+    goalStartedAt: null,
+    lastProgressAt: null,
+    blockedCount: 0,
+    nextDecisionAt: new Date(),
+  });
+
+  const state = await loadGoalBotState(botUserId);
+  assert.ok(state, 'Should load bot state');
+  assert.equal(state.ownStations.length, 1, 'Should have 1 station');
+
+  const station = state.ownStations[0]!;
+
+  // Test fortify candidate
+  const fortifyCandidate = generateFortifyCandidate(state, station);
+  assert.ok(fortifyCandidate, 'Should generate fortify candidate');
+  assert.equal(fortifyCandidate!.goalType, 'fortify_station');
+  assert.ok(fortifyCandidate!.targetRef.startsWith('station:'), 'Target should point to station');
+
+  // Test fortify step - should suggest a defense upgrade
+  const fortifyStep = await stepFortifyStation(state, station, fortifyCandidate!.targetRef, {
+    colonizationFactor: 0.8,
+  } as BotProfile);
+  assert.ok(fortifyStep, 'Should return fortify step result');
+  assert.equal(fortifyStep.type, 'success', 'Fortify step should be success');
+  assert.ok(
+    fortifyStep.actionLabel?.startsWith('start_defense_upgrade:'),
+    'Should produce defense upgrade action'
+  );
+
+  // Test strike force candidate
+  const strikeCandidate = generateBuildStrikeForceCandidate(state, station);
+  // Station starts with shipyard level 1 by default - fighters need level 2
+  if (strikeCandidate) {
+    assert.equal(strikeCandidate!.goalType, 'build_strike_force');
+  }
+
+  // Test strike force step - without shipyard level 2, should suggest shipyard upgrade
+  const strikeStep = await stepBuildStrikeForce(state, station, `station:${stationId4}`, {
+    colonizationFactor: 0.8,
+  } as BotProfile);
+  assert.ok(strikeStep, 'Should return strike force step');
+  // Without shipyard level 2, should suggest shipyard upgrade or be blocked/waiting
+  assert.ok(
+    ['success', 'blocked', 'waiting'].includes(strikeStep.type),
+    `Strike step should be actionable, got ${strikeStep.type}`
+  );
+
+  // Verify generateGoalCandidates includes conflict goals
+  const { generateGoalCandidates } =
+    await import('../../src/services/bot/goal-lifecycle.service.js');
+  const allCandidates = await generateGoalCandidates(state);
+  const fortifyCandidates = allCandidates.filter((c) => c.goalType === 'fortify_station');
+  assert.ok(fortifyCandidates.length > 0, 'generateGoalCandidates should include fortify_station');
+
+  // Cleanup
+  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
+  await db.delete(stationResources).where(eq(stationResources.stationId, stationId4));
+  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId4));
+  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId4));
+  await db.delete(stations).where(eq(stations.id, stationId4));
+  await db.delete(sectors).where(eq(sectors.id, sectorId4));
   await db.delete(users).where(eq(users.id, botUserId));
 });

@@ -54,6 +54,7 @@ export async function loadGoalBotState(userId: string): Promise<GoalBotState | n
       name: station.name,
       x: station.x,
       y: station.y,
+      sectorId: station.sectorId,
       resources: Object.fromEntries(
         stResources.map((r) => [r.resourceKey, r.amount])
       ) as ResourceMap,
@@ -87,6 +88,8 @@ export async function loadGoalBotState(userId: string): Promise<GoalBotState | n
         missionType: m.missionType,
         status: m.status,
         arrivesAt: m.arrivesAt,
+        targetSectorX: m.targetSectorX,
+        targetSectorY: m.targetSectorY,
       })),
     };
   });

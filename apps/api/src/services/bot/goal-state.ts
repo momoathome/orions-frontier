@@ -7,13 +7,20 @@ export interface StationSnapshot {
   name: string;
   x: number;
   y: number;
+  sectorId: string;
   resources: ResourceMap;
   buildings: { buildingKey: string; level: number; upgradeEndsAt: Date | null }[];
   defense: { upgradeKey: string; level: number; upgradeEndsAt: Date | null }[];
   fleets: { spacecraftKey: string; amount: number; lockedAmount: number }[];
   builds: { spacecraftKey: string; amount: number }[];
   research: { technologyKey: string; status: string; completesAt: Date | null }[];
-  missions: { missionType: string; status: string; arrivesAt: Date }[];
+  missions: {
+    missionType: string;
+    status: string;
+    arrivesAt: Date;
+    targetSectorX: number;
+    targetSectorY: number;
+  }[];
 }
 
 /** Account-wide snapshot built from publicly visible data only. */

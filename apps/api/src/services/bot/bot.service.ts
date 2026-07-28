@@ -148,7 +148,7 @@ async function handleGoalV1(
   const activeGoal = controller.activeGoalType
     ? { goalType: controller.activeGoalType, targetRef: controller.activeGoalTarget! }
     : null;
-  const selection = selectGoalForState(state, profile, activeGoal);
+  const selection = await selectGoalForState(state, profile, activeGoal);
 
   if (!selection.selected) {
     return { action: 'wait', reason: selection.reason, hasProgress: false };
