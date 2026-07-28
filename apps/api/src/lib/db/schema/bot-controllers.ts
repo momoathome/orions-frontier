@@ -1,4 +1,4 @@
-import { index, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { index, integer, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
 export const botProfiles = ['industrialist', 'pioneer', 'technocrat', 'warlord'] as const;
@@ -32,6 +32,7 @@ export const botControllers = pgTable(
     activeGoalTarget: varchar('active_goal_target', { length: 128 }),
     goalStartedAt: timestamp('goal_started_at'),
     lastProgressAt: timestamp('last_progress_at'),
+    blockedCount: integer('blocked_count').notNull().default(0),
     nextDecisionAt: timestamp('next_decision_at').notNull().defaultNow(),
     lastAction: varchar('last_action', { length: 64 }),
     lastReason: varchar('last_reason', { length: 255 }),

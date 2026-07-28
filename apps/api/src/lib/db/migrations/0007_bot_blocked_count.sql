@@ -1,0 +1,1 @@
+ALTER TABLE bot_controllers ADD COLUMN blocked_count INTEGER NOT NULL DEFAULT 0;

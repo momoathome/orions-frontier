@@ -536,3 +536,110 @@ test('goal state loader shows two bot stations with local resources and scanner-
   }
   await db.delete(users).where(eq(users.id, botUserId));
 });
+
+test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals', async () => {
+  const db = getDb();
+  const botUserId = randomUUID();
+  const suffix = randomUUID();
+  await db.insert(users).values({
+    id: botUserId,
+    username: `glifecycle-${suffix}`,
+    email: `glifecycle-${suffix}@example.test`,
+    passwordHash: 'not-used',
+  });
+
+  // Give the bot a station so loadGoalBotState succeeds
+  const stationId = randomUUID();
+  await db.insert(stations).values({
+    id: stationId,
+    userId: botUserId,
+    sectorId: (
+      await db
+        .select({ id: sectors.id })
+        .from(sectors)
+        .limit(1)
+        .then((r) => r[0]!)
+    ).id,
+    name: 'Lifecycle Test',
+    x: 0,
+    y: 0,
+    chunkX: 0,
+    chunkY: 0,
+  });
+  await seedStationBuildings(stationId);
+  await seedStationSpacecrafts(stationId);
+  await seedStationResources(stationId);
+
+  // Set up bot controller with goal_v1 strategy and an active goal
+  const now = new Date();
+  await db.insert(botControllers).values({
+    userId: botUserId,
+    strategy: 'goal_v1',
+    strategyVersion: '1',
+    profile: 'industrialist',
+    activeGoalType: 'stabilize_station',
+    activeGoalTarget: `station:${stationId}`,
+    goalStartedAt: now,
+    lastProgressAt: now,
+    blockedCount: 0,
+    nextDecisionAt: now,
+  });
+
+  // Tick 1 → blocked (no goal implementation), blockedCount becomes 1
+  await runBotDecisionTick(now);
+  let ctrl = await db
+    .select({
+      blockedCount: botControllers.blockedCount,
+      activeGoalType: botControllers.activeGoalType,
+      lastAction: botControllers.lastAction,
+    })
+    .from(botControllers)
+    .where(eq(botControllers.userId, botUserId))
+    .then((r) => r[0]!);
+  assert.equal(ctrl.blockedCount, 1, 'blockedCount should be 1 after first blocked tick');
+  assert.equal(ctrl.activeGoalType, 'stabilize_station', 'goal should still be active');
+
+  // Ticks 2-4 → blocked, counter increments
+  for (let i = 2; i <= 4; i++) {
+    await runBotDecisionTick(new Date(now.getTime() + i * 120_000));
+  }
+  ctrl = await db
+    .select({
+      blockedCount: botControllers.blockedCount,
+      activeGoalType: botControllers.activeGoalType,
+    })
+    .from(botControllers)
+    .where(eq(botControllers.userId, botUserId))
+    .then((r) => r[0]!);
+  assert.equal(ctrl.blockedCount, 4, 'blockedCount should be 4 after four blocked ticks');
+  assert.equal(ctrl.activeGoalType, 'stabilize_station', 'goal should still be active');
+
+  // Tick 5 → blocked reaches 5 → goal is released (type: 'complete')
+  await runBotDecisionTick(new Date(now.getTime() + 5 * 120_000));
+  ctrl = await db
+    .select({
+      blockedCount: botControllers.blockedCount,
+      activeGoalType: botControllers.activeGoalType,
+      activeGoalTarget: botControllers.activeGoalTarget,
+      lastAction: botControllers.lastAction,
+      lastReason: botControllers.lastReason,
+    })
+    .from(botControllers)
+    .where(eq(botControllers.userId, botUserId))
+    .then((r) => r[0]!);
+  assert.equal(ctrl.blockedCount, 0, 'blockedCount should reset to 0 after release');
+  assert.equal(ctrl.activeGoalType, null, 'goal should be cleared after 5 blocked ticks');
+  assert.equal(ctrl.activeGoalTarget, null, 'goal target should be cleared');
+  assert.ok(
+    ctrl.lastReason?.includes('released'),
+    `reason should mention release: ${ctrl.lastReason}`
+  );
+
+  // Cleanup
+  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
+  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
+  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
+  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
+  await db.delete(stations).where(eq(stations.id, stationId));
+  await db.delete(users).where(eq(users.id, botUserId));
+});

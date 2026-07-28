@@ -50,6 +50,13 @@
       "when": 1784761200000,
       "tag": "0006_bot_profiles_and_goals",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784764800000,
+      "tag": "0007_bot_blocked_count",
+      "breakpoints": true
     }
   ]
 }
