@@ -1,6 +1,24 @@
 import { index, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
+export const botProfiles = ['industrialist', 'pioneer', 'technocrat', 'warlord'] as const;
+export type BotProfile = (typeof botProfiles)[number];
+
+export const goalTypes = [
+  'stabilize_station',
+  'increase_income',
+  'increase_capacity',
+  'research_technology',
+  'explore_sector',
+  'establish_colony',
+  'fortify_station',
+  'build_strike_force',
+  'raid',
+  'retaliate',
+  'salvage',
+] as const;
+export type GoalType = (typeof goalTypes)[number];
+
 export const botControllers = pgTable(
   'bot_controllers',
   {
@@ -8,6 +26,12 @@ export const botControllers = pgTable(
       .primaryKey()
       .references(() => users.id, { onDelete: 'cascade' }),
     strategy: varchar('strategy', { length: 32 }).notNull().default('economic_v1'),
+    strategyVersion: varchar('strategy_version', { length: 32 }).notNull().default('1'),
+    profile: varchar('profile', { length: 16 }).notNull().default('industrialist'),
+    activeGoalType: varchar('active_goal_type', { length: 32 }),
+    activeGoalTarget: varchar('active_goal_target', { length: 128 }),
+    goalStartedAt: timestamp('goal_started_at'),
+    lastProgressAt: timestamp('last_progress_at'),
     nextDecisionAt: timestamp('next_decision_at').notNull().defaultNow(),
     lastAction: varchar('last_action', { length: 64 }),
     lastReason: varchar('last_reason', { length: 255 }),

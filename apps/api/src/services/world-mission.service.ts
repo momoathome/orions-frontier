@@ -22,6 +22,7 @@ import { seedStationBuildings } from './building.service.js';
 import { seedStationDefenseUpgrades } from './defense.service.js';
 import { ensureSector } from './sector.service.js';
 import { seedStationResources } from './station-resource.service.js';
+import { applyVectorNavigation } from './research-effects.js';
 
 const sectorCenter = (sectorX: number, sectorY: number) => ({
   x: sectorX * WORLD_CONFIG.SECTOR.WIDTH,
@@ -284,7 +285,12 @@ export async function startExpedition(params: {
     const ship = await lockAvailableShip(tx, station.id);
     const departedAt = new Date();
     const target = sectorCenter(params.sectorX, params.sectorY);
-    const arrivesAt = calcArrivesAt(departedAt, calcDistance(station, target), ship.speed);
+    const arrivesAt = await applyVectorNavigation(
+      tx,
+      station.id,
+      calcArrivesAt(departedAt, calcDistance(station, target), ship.speed),
+      departedAt
+    );
     const [created] = await tx
       .insert(worldMissions)
       .values({
@@ -439,7 +445,12 @@ export async function startColonization(params: {
     const ship = await lockAvailableShip(tx, station.id, 'miner');
     const target = await colonyPosition(tx, targetSector, params.userId);
     const departedAt = new Date();
-    const arrivesAt = calcArrivesAt(departedAt, calcDistance(station, target), ship.speed);
+    const arrivesAt = await applyVectorNavigation(
+      tx,
+      station.id,
+      calcArrivesAt(departedAt, calcDistance(station, target), ship.speed),
+      departedAt
+    );
     const [created] = await tx
       .insert(worldMissions)
       .values({
@@ -541,12 +552,18 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
         if (!origin || !spacecraft) throw new Error('Expedition origin or spacecraft is missing');
         const departedAt = mission.arrivesAt;
         const target = sectorCenter(mission.targetSectorX, mission.targetSectorY);
+        const returnArrivesAt = await applyVectorNavigation(
+          tx,
+          mission.originStationId,
+          calcArrivesAt(departedAt, calcDistance(target, origin), spacecraft.speed),
+          departedAt
+        );
         await tx
           .update(worldMissions)
           .set({
             status: 'returning',
             departedAt,
-            arrivesAt: calcArrivesAt(departedAt, calcDistance(target, origin), spacecraft.speed),
+            arrivesAt: returnArrivesAt,
           })
           .where(eq(worldMissions.id, mission.id));
       } else if (mission.missionType === 'colonization') {

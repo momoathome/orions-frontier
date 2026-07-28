@@ -14,6 +14,8 @@ import {
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
 import { AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
+import { applyGridOptimization } from './research-effects.js';
+import { hasCompletedResearch } from './research.service.js';
 
 // Seed station buildings (initialize all buildings at level 1 for new station)
 
@@ -133,7 +135,9 @@ export const startBuildingUpgrade = async (
     }
 
     const buildTimeSeconds = calculateBuildingBuildTime(buildingKey, targetLevel);
-    const upgradeEndsAt = new Date(Date.now() + buildTimeSeconds * 1000);
+    const baseUpgradeEndsAt = new Date(Date.now() + buildTimeSeconds * 1000);
+    const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
+    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt);
     for (const cost of costs) {
       await tx
         .update(stationResources)

@@ -18,6 +18,8 @@ import { publishUserEvent } from '../lib/realtime.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
+import { applyGridOptimization } from './research-effects.js';
+import { hasCompletedResearch } from './research.service.js';
 
 type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 
@@ -165,9 +167,11 @@ export const startDefenseUpgrade = async (
       }
     }
 
-    const upgradeEndsAt = new Date(
+    const baseUpgradeEndsAt = new Date(
       Date.now() + calculateDefenseUpgradeBuildTime(upgradeKey, targetLevel) * 1000
     );
+    const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
+    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt);
     for (const cost of costs) {
       await tx
         .update(stationResources)

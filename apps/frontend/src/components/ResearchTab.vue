@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import type { ResearchState, StationResearch } from '@orions-frontier/shared';
+import type { ResearchState, StationResearch, UserResourceSummary } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 
 const props = defineProps<{ stationId: string }>();
@@ -8,11 +8,18 @@ const state = ref<ResearchState | null>(null);
 const error = ref<string | null>(null);
 const starting = ref<string | null>(null);
 const now = ref(Date.now());
+const playerResources = ref<Record<string, number> | null>(null);
 
 async function load(): Promise<void> {
   try {
-    const response = await apiClient.get(`/stations/${props.stationId}/research`);
-    state.value = response;
+    const [researchResponse, resourceResponse] = await Promise.all([
+      apiClient.get<ResearchState>(`/stations/${props.stationId}/research`),
+      apiClient.get<UserResourceSummary>('/me/resources', {
+        params: { stationId: props.stationId },
+      }),
+    ]);
+    state.value = researchResponse;
+    playerResources.value = resourceResponse.resources;
     error.value = null;
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Research could not be loaded');
@@ -20,6 +27,13 @@ async function load(): Promise<void> {
 }
 
 async function start(technology: StationResearch): Promise<void> {
+  if (
+    availablePoints.value < technology.points ||
+    !hasSufficientResources(technology) ||
+    starting.value !== null
+  ) {
+    return;
+  }
   starting.value = technology.key;
   try {
     await apiClient.post(`/stations/${props.stationId}/research/${technology.key}`);
@@ -32,6 +46,9 @@ async function start(technology: StationResearch): Promise<void> {
 }
 
 const availablePoints = computed(() => (state.value?.capacity ?? 0) - (state.value?.used ?? 0));
+const hasSufficientResources = (technology: StationResearch): boolean =>
+  playerResources.value !== null &&
+  technology.costs.every((cost) => (playerResources.value?.[cost.resourceKey] ?? 0) >= cost.amount);
 const remaining = (technology: StationResearch): string => {
   if (!technology.completesAt) return '';
   const seconds = Math.max(
@@ -79,11 +96,23 @@ onUnmounted(() => clearInterval(interval));
       </div>
       <button
         v-if="technology.status === 'available'"
-        :disabled="starting !== null || availablePoints < technology.points"
+        :disabled="
+          starting !== null ||
+          availablePoints < technology.points ||
+          !hasSufficientResources(technology)
+        "
         class="self-end rounded border border-green-400/30 px-4 py-2 uppercase tracking-widest text-green-200 disabled:opacity-30"
         @click="start(technology)"
       >
-        {{ starting === technology.key ? 'Starting…' : 'Research' }}
+        {{
+          starting === technology.key
+            ? 'Starting…'
+            : availablePoints < technology.points
+              ? 'No capacity'
+              : !hasSufficientResources(technology)
+                ? 'Insufficient resources'
+                : 'Research'
+        }}
       </button>
       <span v-else-if="technology.status === 'researching'" class="self-end text-amber-300">
         {{ remaining(technology) }}

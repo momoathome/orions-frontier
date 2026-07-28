@@ -12,6 +12,11 @@ import {
   isPointVisible,
 } from '../../../../services/scanner-visibility.service.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
+import {
+  effectiveMiningRate,
+  effectiveCargoCapacity,
+} from '../../../../services/research-effects.js';
+import { hasCompletedResearch } from '../../../../services/research.service.js';
 
 export default (async (app) => {
   app.get('/', { preHandler: [authenticate] }, async (request, reply) => {
@@ -72,18 +77,22 @@ export default (async (app) => {
       { x: row.stationX, y: row.stationY },
       { x: row.asteroidX, y: row.asteroidY }
     );
+    const effectiveRate = await effectiveMiningRate(db, stationId, spacecraft.miningRate);
+    const effectiveCargo = await effectiveCargoCapacity(db, stationId, spacecraft.cargo, 'miner');
+    const hasVectorNav = await hasCompletedResearch(db, stationId, 'vector_navigation');
+    const effectiveSpeed = hasVectorNav ? spacecraft.speed / 0.9 : spacecraft.speed;
 
     return {
       distance,
       speed: spacecraft.speed,
-      miningRate: spacecraft.miningRate,
-      cargoCapacity: spacecraft.cargo,
+      miningRate: effectiveRate,
+      cargoCapacity: effectiveCargo,
       remainingAmount,
       ...calculateMiningCycle({
         distance,
-        speed: spacecraft.speed,
-        miningRate: spacecraft.miningRate,
-        cargoCapacity: spacecraft.cargo,
+        speed: effectiveSpeed,
+        miningRate: effectiveRate,
+        cargoCapacity: effectiveCargo,
         minerCount,
         remainingAmount,
       }),

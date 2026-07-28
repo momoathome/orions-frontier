@@ -23,6 +23,7 @@ import {
   type VisibilityProjectionStats,
 } from './scanner-visibility.service.js';
 import { creditStationResources } from './station-resource.service.js';
+import { effectiveCargoCapacity, applyVectorNavigation } from './research-effects.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -217,7 +218,12 @@ export async function startSalvage(params: {
         toX: debris.x,
         toY: debris.y,
         departedAt,
-        arrivesAt: calcArrivesAt(departedAt, calcDistance(station, debris), spacecraft.speed),
+        arrivesAt: await applyVectorNavigation(
+          tx,
+          station.id,
+          calcArrivesAt(departedAt, calcDistance(station, debris), spacecraft.speed),
+          departedAt
+        ),
         purpose: 'salvage',
       })
       .returning({ id: spacecraftTrips.id });
@@ -268,8 +274,14 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
       )[0]
     : undefined;
   if (!debris) throw new Error('Salvage debris no longer exists');
+  const effectiveCargo = await effectiveCargoCapacity(
+    tx,
+    mission.stationId,
+    spacecraft.cargo,
+    'salvager'
+  );
   const cargo: ResourceMap = {};
-  let capacity = spacecraft.cargo * mission.amount;
+  let capacity = effectiveCargo * mission.amount;
   const remaining = { ...(debris.resources as ResourceMap) };
   for (const key of resourceKeys) {
     const amount = Math.min(capacity, remaining[key] ?? 0);
@@ -296,7 +308,12 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
       toX: station.x,
       toY: station.y,
       departedAt,
-      arrivesAt: calcArrivesAt(departedAt, calcDistance(debris, station), spacecraft.speed),
+      arrivesAt: await applyVectorNavigation(
+        tx,
+        mission.stationId,
+        calcArrivesAt(departedAt, calcDistance(debris, station), spacecraft.speed),
+        departedAt
+      ),
       purpose: 'salvage_return',
       cargoManifest: cargo,
     })

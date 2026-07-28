@@ -24,6 +24,7 @@ import { createDebrisFromLosses } from './salvage.service.js';
 import { getUserScannerCoverages, isPointVisible } from './scanner-visibility.service.js';
 import { calculateStationDefenseScore } from './defense.service.js';
 import { creditStationResources } from './station-resource.service.js';
+import { effectiveAttackPower, applyVectorNavigation } from './research-effects.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -146,7 +147,12 @@ export async function startAttack(params: {
     }
 
     const departedAt = new Date();
-    const arrivesAt = calcArrivesAt(departedAt, calcDistance(attacker, defender), spacecraft.speed);
+    const baseArrivesAt = calcArrivesAt(
+      departedAt,
+      calcDistance(attacker, defender),
+      spacecraft.speed
+    );
+    const arrivesAt = await applyVectorNavigation(tx, attacker.id, baseArrivesAt, departedAt);
     const [trip] = await tx
       .insert(spacecraftTrips)
       .values({
@@ -256,7 +262,12 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
   );
   const defenderPower =
     defenderFleetPower + (await stationDefenseScore(tx, mission.defenderStationId));
-  const attackerPower = mission.attackerAmount * attacker.attack;
+  const effectiveAttack = await effectiveAttackPower(
+    tx,
+    mission.attackerStationId,
+    attacker.attack
+  );
+  const attackerPower = mission.attackerAmount * effectiveAttack;
   const attackerLosses = Math.min(
     mission.attackerAmount,
     Math.floor(defenderPower / Math.max(1, attacker.defense))
@@ -357,10 +368,16 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
   ]);
   if (!attackerStation || !defenderStation) throw new Error('Combat station no longer exists');
   const departedAt = trip.arrivesAt;
-  const arrivesAt = calcArrivesAt(
+  const baseArrivesAt = calcArrivesAt(
     departedAt,
     calcDistance(defenderStation, attackerStation),
     attacker.speed
+  );
+  const arrivesAt = await applyVectorNavigation(
+    tx,
+    mission.attackerStationId,
+    baseArrivesAt,
+    departedAt
   );
   const [returnTrip] = await tx
     .insert(spacecraftTrips)

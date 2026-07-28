@@ -8,6 +8,7 @@ import type { AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getUserScannerCoverages, isPointVisible } from '../scanner-visibility.service.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
+import { applyVectorNavigation } from '../research-effects.js';
 
 // Assignment Service
 //
@@ -95,7 +96,6 @@ export const createAsteroidAssignment = async (
 
   const departedAt = new Date();
   const distance = calcDistance({ x: station.x, y: station.y }, { x: asteroid.x, y: asteroid.y });
-  const arrivesAt = calcArrivesAt(departedAt, distance, scraft.speed);
   const created = await db.transaction(async (tx) => {
     const [lockedAsteroid] = await tx
       .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
@@ -120,6 +120,9 @@ export const createAsteroidAssignment = async (
       .returning({ id: stationSpacecrafts.id });
 
     if (!locked) return { kind: 'insufficient_spacecraft' } as const;
+
+    const baseArrivesAt = calcArrivesAt(departedAt, distance, scraft.speed);
+    const arrivesAt = await applyVectorNavigation(tx, stationId, baseArrivesAt, departedAt);
 
     const [assignment] = await tx
       .insert(asteroidAssignments)

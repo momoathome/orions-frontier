@@ -20,7 +20,7 @@ const buildAmount = ref(1);
 const buildSubmitting = ref(false);
 const buildError = ref<string | null>(null);
 const buildSuccess = ref(false);
-const playerResources = ref<Record<string, number>>({});
+const playerResources = ref<Record<string, number> | null>(null);
 
 async function fetchPlayerResources() {
   try {
@@ -49,7 +49,7 @@ const maxBuildable = computed(() => {
   const resourceMaximum = Math.min(
     ...props.ship.definition.costs.map((cost) =>
       cost.amount > 0
-        ? Math.floor((playerResources.value[cost.resourceKey] ?? 0) / cost.amount)
+        ? Math.floor((playerResources.value?.[cost.resourceKey] ?? 0) / cost.amount)
         : Infinity
     )
   );
@@ -59,12 +59,29 @@ const maxBuildable = computed(() => {
   return Math.max(0, Math.min(resourceMaximum, crewMaximum));
 });
 
+const hasValidAmount = computed(
+  () => Number.isInteger(buildAmount.value) && buildAmount.value >= 1
+);
+const exceedsCapacity = computed(
+  () =>
+    hasValidAmount.value &&
+    props.hangar.used + props.ship.definition.crew * buildAmount.value > props.hangar.capacity
+);
+const lacksResources = computed(
+  () =>
+    playerResources.value !== null &&
+    hasValidAmount.value &&
+    props.ship.definition.costs.some(
+      (cost) => (playerResources.value?.[cost.resourceKey] ?? 0) < cost.amount * buildAmount.value
+    )
+);
 const canSubmit = computed(
   () =>
     !buildSubmitting.value &&
-    Number.isInteger(buildAmount.value) &&
-    buildAmount.value >= 1 &&
-    buildAmount.value <= maxBuildable.value
+    playerResources.value !== null &&
+    hasValidAmount.value &&
+    !exceedsCapacity.value &&
+    !lacksResources.value
 );
 
 function setMaxAmount() {
@@ -184,7 +201,9 @@ async function submitBuild() {
       >
         <span v-if="buildSuccess">Queued ✓</span>
         <span v-else-if="buildSubmitting">Submitting…</span>
-        <span v-else-if="maxBuildable === 0">No capacity</span>
+        <span v-else-if="playerResources === null">Loading…</span>
+        <span v-else-if="exceedsCapacity">No capacity</span>
+        <span v-else-if="lacksResources">Insufficient resources</span>
         <span v-else>Build</span>
       </button>
       <p v-if="buildError" class="text-[9px] text-rose-400/70">{{ buildError }}</p>

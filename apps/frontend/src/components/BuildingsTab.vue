@@ -2,7 +2,11 @@
 import { ref, computed, onUnmounted } from 'vue';
 import { wsClient } from '../lib/ws-client';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
-import type { StationBuildingWithDefinition, BuildingEffectType } from '@orions-frontier/shared';
+import type {
+  StationBuildingWithDefinition,
+  BuildingEffectType,
+  UserResourceSummary,
+} from '@orions-frontier/shared';
 
 const props = defineProps<{ stationId: string }>();
 const emit = defineEmits<{ queueCount: [count: number] }>();
@@ -12,6 +16,7 @@ const activeBuilding = ref<StationBuildingWithDefinition | null>(null);
 const buildingsLoading = ref(false);
 const buildingsError = ref<string | null>(null);
 const upgrading = ref<string | null>(null);
+const playerResources = ref<Record<string, number> | null>(null);
 
 // Track first-detected timestamp per building key to drive the progress bar
 const upgradeDetectedAt = new Map<string, number>();
@@ -148,8 +153,14 @@ async function loadBuildings(force = false) {
   buildingsLoading.value = true;
   buildingsError.value = null;
   try {
-    const response = await apiClient.get(`/stations/${props.stationId}/buildings`);
+    const [response, resourceResponse] = await Promise.all([
+      apiClient.get(`/stations/${props.stationId}/buildings`),
+      apiClient.get<UserResourceSummary>('/me/resources', {
+        params: { stationId: props.stationId },
+      }),
+    ]);
     buildings.value = response.buildings;
+    playerResources.value = resourceResponse.resources;
     // Record detection time for any upgrading building we haven't seen yet
     for (const b of buildings.value) {
       if (b.isUpgrading && !upgradeDetectedAt.has(b.definition.key)) {
@@ -172,8 +183,17 @@ async function loadBuildings(force = false) {
   emit('queueCount', buildings.value.filter((b) => b.isUpgrading).length);
 }
 
+function hasSufficientResources(building: StationBuildingWithDefinition): boolean {
+  return (
+    playerResources.value !== null &&
+    building.upgradeCosts.every(
+      (cost) => (playerResources.value?.[cost.resourceKey] ?? 0) >= cost.amount
+    )
+  );
+}
+
 async function startUpgrade(building: StationBuildingWithDefinition) {
-  if (upgrading.value || building.isUpgrading) return;
+  if (upgrading.value || building.isUpgrading || !hasSufficientResources(building)) return;
   upgrading.value = building.definition.key;
   try {
     await apiClient.post(
@@ -419,12 +439,14 @@ onUnmounted(() => unsubscribe());
           :disabled="
             activeBuilding.isUpgrading ||
             activeBuilding.level >= activeBuilding.definition.maxLevel ||
+            !hasSufficientResources(activeBuilding) ||
             !!upgrading
           "
           class="w-full py-2.5 rounded border text-[10px] uppercase tracking-[0.2em] font-semibold transition"
           :class="
             activeBuilding.isUpgrading ||
             activeBuilding.level >= activeBuilding.definition.maxLevel ||
+            !hasSufficientResources(activeBuilding) ||
             !!upgrading
               ? 'border-amber-500/25 bg-amber-500/8 text-amber-400/50 cursor-not-allowed'
               : 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200'
@@ -433,6 +455,7 @@ onUnmounted(() => unsubscribe());
           <span v-if="activeBuilding.level >= activeBuilding.definition.maxLevel">Max Level</span>
           <span v-else-if="activeBuilding.isUpgrading">Upgrading…</span>
           <span v-else-if="upgrading === activeBuilding.definition.key">Starting…</span>
+          <span v-else-if="!hasSufficientResources(activeBuilding)"> Insufficient resources </span>
           <span v-else>Upgrade</span>
         </button>
       </div>

@@ -12,7 +12,7 @@ import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
-type QueryDb = Tx | ReturnType<typeof getDb>;
+export type QueryDb = Tx | ReturnType<typeof getDb>;
 
 const researchCapacity = (level: number) =>
   calculateBuildingEffect('laboratory', level).find((effect) => effect.type === 'research_capacity')

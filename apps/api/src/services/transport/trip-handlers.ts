@@ -9,6 +9,11 @@ import { claimMiningCargo } from '../mining/mining-claim.service.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
 import { creditStationResources } from '../station-resource.service.js';
+import {
+  effectiveMiningRate,
+  effectiveCargoCapacity,
+  applyVectorNavigation,
+} from '../research-effects.js';
 
 // Trip Handlers
 //
@@ -53,18 +58,31 @@ export async function handleMineArrival(tx: Tx, trip: Trip): Promise<void> {
 
   const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
   const activeGroupSize = Math.max(0, groupSize - assignment.recallRequestedAmount);
+  const effectiveCargo = await effectiveCargoCapacity(
+    tx,
+    assignment.stationId,
+    spacecraft.cargo,
+    'miner'
+  );
   const claim =
     activeGroupSize === 0
       ? { claimedAmount: 0, cargoManifest: {} }
-      : await claimMiningCargo(tx, trip.toId, activeGroupSize * spacecraft.cargo);
+      : await claimMiningCargo(tx, trip.toId, activeGroupSize * effectiveCargo);
+  const effectiveRate = await effectiveMiningRate(tx, assignment.stationId, spacecraft.miningRate);
   const miningHours =
-    claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (activeGroupSize * spacecraft.miningRate);
+    claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (activeGroupSize * effectiveRate);
   const departedAt = new Date(trip.arrivesAt.getTime() + miningHours * 3_600_000);
   const distance = calcDistance(
     { x: assignment.asteroidX, y: assignment.asteroidY },
     { x: assignment.stationX, y: assignment.stationY }
   );
-  const arrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
+  const baseArrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
+  const arrivesAt = await applyVectorNavigation(
+    tx,
+    assignment.stationId,
+    baseArrivesAt,
+    departedAt
+  );
 
   await tx.insert(spacecraftTrips).values({
     stationSpacecraftId: trip.stationSpacecraftId,
@@ -106,6 +124,7 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<voi
   const [assignment] = await tx
     .select({
       id: asteroidAssignments.id,
+      stationId: asteroidAssignments.stationId,
       asteroidId: asteroidAssignments.asteroidId,
       spacecraftKey: asteroidAssignments.spacecraftKey,
       stationX: stations.x,
@@ -187,7 +206,13 @@ export async function handleMiningReturnArrival(tx: Tx, trip: Trip): Promise<voi
     { x: assignment.stationX, y: assignment.stationY },
     { x: assignment.asteroidX, y: assignment.asteroidY }
   );
-  const arrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
+  const baseArrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
+  const arrivesAt = await applyVectorNavigation(
+    tx,
+    assignment.stationId,
+    baseArrivesAt,
+    departedAt
+  );
   await tx.insert(spacecraftTrips).values({
     stationSpacecraftId: trip.stationSpacecraftId,
     assignmentId: assignment.id,
