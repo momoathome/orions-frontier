@@ -1,7 +1,8 @@
-import { and, between, eq, or } from 'drizzle-orm';
+import { and, between, eq, inArray, or } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { asteroids, asteroidVeins, asteroidAssignments } from '../lib/db/schema/asteroids.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
+import { stationResearch } from '../lib/db/schema/station-research.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
 import type {
@@ -147,6 +148,70 @@ export const getAsteroidById = async (
   const mayObserveOperations =
     scannerBypass || assignmentRows.some((assignment) => assignment.ownerUserId === userId);
   const visibleAssignments = mayObserveOperations ? assignmentRows : [];
+  const ownStationIds = [
+    ...new Set(
+      visibleAssignments
+        .filter((assignment) => assignment.ownerUserId === userId)
+        .map((assignment) => assignment.stationId)
+    ),
+  ];
+  const completedResearch =
+    ownStationIds.length > 0
+      ? await getDb()
+          .select({
+            stationId: stationResearch.stationId,
+            technologyKey: stationResearch.technologyKey,
+          })
+          .from(stationResearch)
+          .where(
+            and(
+              inArray(stationResearch.stationId, ownStationIds),
+              eq(stationResearch.status, 'completed')
+            )
+          )
+      : [];
+  const completedByStation = new Map<string, Set<string>>();
+  for (const research of completedResearch) {
+    const technologies = completedByStation.get(research.stationId) ?? new Set<string>();
+    technologies.add(research.technologyKey);
+    completedByStation.set(research.stationId, technologies);
+  }
+  const assignmentViews = visibleAssignments.map((assignment): AsteroidDetailAssignment => {
+    const spacecraft = getSpacecraft(assignment.spacecraftKey)!;
+    const isOwnAssignment = assignment.ownerUserId === userId;
+    const technologies = completedByStation.get(assignment.stationId);
+    const miningRate =
+      isOwnAssignment && technologies?.has('extraction_algorithms')
+        ? spacecraft.miningRate * 1.1
+        : spacecraft.miningRate;
+    const cargo =
+      isOwnAssignment && technologies?.has('modular_cargo_frames')
+        ? spacecraft.cargo * 1.1
+        : spacecraft.cargo;
+    const activeTrip = activeTrips.get(assignment.id);
+    return {
+      id: assignment.id,
+      stationId: assignment.stationId,
+      spacecraftKey: assignment.spacecraftKey,
+      spacecraftName: spacecraft.name,
+      spacecraftMiningRate: miningRate,
+      spacecraftCargo: cargo,
+      assignedAmount: assignment.assignedAmount,
+      assignedAt: assignment.assignedAt.toISOString(),
+      recallRequestedAt: assignment.recallRequestedAt?.toISOString() ?? null,
+      recallRequestedAmount: assignment.recallRequestedAmount,
+      activeTrip: activeTrip
+        ? {
+            id: activeTrip.id,
+            purpose: activeTrip.purpose as 'mine' | 'mining_return',
+            groupSize: activeTrip.groupSize,
+            departedAt: activeTrip.departedAt.toISOString(),
+            arrivesAt: activeTrip.arrivesAt.toISOString(),
+            cargoManifest: activeTrip.cargoManifest,
+          }
+        : null,
+    };
+  });
 
   return {
     id: row.id,
@@ -164,32 +229,7 @@ export const getAsteroidById = async (
       remainingAmount: v.remainingAmount,
     })),
     operationsVisible: mayObserveOperations,
-    assignments: visibleAssignments.map((a): AsteroidDetailAssignment => {
-      const spacecraft = getSpacecraft(a.spacecraftKey)!;
-      const activeTrip = activeTrips.get(a.id);
-      return {
-        id: a.id,
-        stationId: a.stationId,
-        spacecraftKey: a.spacecraftKey,
-        spacecraftName: spacecraft.name,
-        spacecraftMiningRate: spacecraft.miningRate,
-        spacecraftCargo: spacecraft.cargo,
-        assignedAmount: a.assignedAmount,
-        assignedAt: a.assignedAt.toISOString(),
-        recallRequestedAt: a.recallRequestedAt?.toISOString() ?? null,
-        recallRequestedAmount: a.recallRequestedAmount,
-        activeTrip: activeTrip
-          ? {
-              id: activeTrip.id,
-              purpose: activeTrip.purpose as 'mine' | 'mining_return',
-              groupSize: activeTrip.groupSize,
-              departedAt: activeTrip.departedAt.toISOString(),
-              arrivesAt: activeTrip.arrivesAt.toISOString(),
-              cargoManifest: activeTrip.cargoManifest,
-            }
-          : null,
-      };
-    }),
+    assignments: assignmentViews,
     inTransit: mayObserveOperations ? inTransit : {},
   };
 };

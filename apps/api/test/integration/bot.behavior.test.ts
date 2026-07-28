@@ -14,6 +14,7 @@ import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
+import { stationResearch } from '../../src/lib/db/schema/station-research.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -40,12 +41,17 @@ import { seedStationBuildings } from '../../src/services/building.service.js';
 import { seedStationDefenseUpgrades } from '../../src/services/defense.service.js';
 import { seedStationResources } from '../../src/services/station-resource.service.js';
 import { seedStationSpacecrafts } from '../../src/services/spacecraft.service.js';
+import { executeBotIntent } from '../../src/services/bot/bot-intent.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
 const asteroidIds = [randomUUID(), randomUUID(), randomUUID()];
 const testNow = new Date(Date.now() + 24 * 60 * 60 * 1_000);
 let sectorId = '';
+
+function uniqueSectorCoordinate(suffix: string, band: number): number {
+  return band + (Number.parseInt(suffix.slice(0, 8), 16) % 100_000);
+}
 
 before(async () => {
   await runMigrations();
@@ -60,10 +66,11 @@ before(async () => {
     passwordHash: 'not-used',
   });
   sectorId = randomUUID();
+  const sectorCoordinate = uniqueSectorCoordinate(suffix, 100_000);
   await db.insert(sectors).values({
     id: sectorId,
-    sectorX: 300,
-    sectorY: 300,
+    sectorX: sectorCoordinate,
+    sectorY: sectorCoordinate,
     role: 'frontier',
     seed: suffix,
   });
@@ -169,7 +176,20 @@ test('an overdue bot decision survives a database reconnect', async () => {
     .from(botControllers)
     .where(eq(botControllers.userId, userId));
   assert.ok(controller?.nextDecisionAt.getTime() > dueAt.getTime());
-  assert.ok(controller?.lastAction);
+  assert.equal(controller?.lastAction, 'assign_miner');
+  const assignments = await getDb()
+    .select()
+    .from(asteroidAssignments)
+    .where(eq(asteroidAssignments.stationId, stationId));
+  assert.equal(assignments.length, 1, 'the bot must persist one real mining assignment');
+  const trips = await getDb()
+    .select()
+    .from(spacecraftTrips)
+    .where(eq(spacecraftTrips.assignmentId, assignments[0]!.id));
+  assert.equal(trips.length, 1, 'the normal mining service must create the outbound trip');
+  const state = await loadGoalBotState(userId, dueAt);
+  assert.equal(state?.ownStations[0]?.miningAssignments.length, 1);
+  assert.equal(state?.ownStations[0]?.trips.length, 1);
 });
 
 test('goal state loader shows two bot stations with local resources and scanner-limited visibility', async () => {
@@ -300,6 +320,208 @@ test('goal state loader shows two bot stations with local resources and scanner-
   await db.delete(users).where(eq(users.id, botUserId));
 });
 
+test('typed economic intents execute through the authoritative domain services', async () => {
+  const db = getDb();
+  const botUserId = randomUUID();
+  const localStationId = randomUUID();
+  const suffix = randomUUID();
+  await db.insert(users).values({
+    id: botUserId,
+    username: `intent-bot-${suffix}`,
+    email: `intent-bot-${suffix}@example.test`,
+    passwordHash: 'not-used',
+  });
+  await db.insert(stations).values({
+    id: localStationId,
+    userId: botUserId,
+    sectorId,
+    name: 'Intent Bot',
+    x: 30_000,
+    y: 30_000,
+    chunkX: 30,
+    chunkY: 30,
+  });
+  await seedStationBuildings(localStationId);
+  await seedStationDefenseUpgrades(localStationId);
+  await seedStationSpacecrafts(localStationId);
+  await seedStationResources(localStationId);
+  await db
+    .update(stationResources)
+    .set({ amount: 10_000 })
+    .where(eq(stationResources.stationId, localStationId));
+  const now = new Date();
+
+  await executeBotIntent(
+    botUserId,
+    { type: 'build_spacecraft', stationId: localStationId, spacecraftKey: 'mole', amount: 1 },
+    now
+  );
+  await executeBotIntent(
+    botUserId,
+    { type: 'upgrade_building', stationId: localStationId, buildingKey: 'warehouse' },
+    now
+  );
+  await executeBotIntent(
+    botUserId,
+    {
+      type: 'start_research',
+      stationId: localStationId,
+      technologyKey: 'extraction_algorithms',
+    },
+    now
+  );
+  await executeBotIntent(
+    botUserId,
+    { type: 'upgrade_defense', stationId: localStationId, upgradeKey: 'armor_plating' },
+    now
+  );
+
+  assert.equal(
+    (
+      await db
+        .select()
+        .from(spacecraftBuildOrders)
+        .where(eq(spacecraftBuildOrders.stationId, localStationId))
+    ).length,
+    1
+  );
+  assert.equal(
+    (
+      await db.select().from(stationResearch).where(eq(stationResearch.stationId, localStationId))
+    )[0]?.technologyKey,
+    'extraction_algorithms'
+  );
+  const upgradingKeys = (
+    await db.select().from(stationBuildings).where(eq(stationBuildings.stationId, localStationId))
+  )
+    .filter((building) => building.upgradeEndsAt !== null)
+    .map((building) => building.buildingKey);
+  assert.deepEqual(new Set(upgradingKeys), new Set(['warehouse', 'armor_plating']));
+
+  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, localStationId));
+  await db.delete(stationResearch).where(eq(stationResearch.stationId, localStationId));
+  await db.delete(stationResources).where(eq(stationResources.stationId, localStationId));
+  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, localStationId));
+  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
+  await db.delete(stations).where(eq(stations.id, localStationId));
+  await db.delete(users).where(eq(users.id, botUserId));
+});
+
+test('a newly selected saving goal remains persisted', async () => {
+  const db = getDb();
+  const botUserId = randomUUID();
+  const localStationId = randomUUID();
+  const suffix = randomUUID();
+  await db.insert(users).values({
+    id: botUserId,
+    username: `saving-bot-${suffix}`,
+    email: `saving-bot-${suffix}@example.test`,
+    passwordHash: 'not-used',
+  });
+  await db.insert(stations).values({
+    id: localStationId,
+    userId: botUserId,
+    sectorId,
+    name: 'Saving Bot',
+    x: 20_000,
+    y: 20_000,
+    chunkX: 20,
+    chunkY: 20,
+  });
+  await seedStationBuildings(localStationId);
+  await seedStationSpacecrafts(localStationId);
+  await seedStationResources(localStationId);
+  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
+  await db
+    .update(stationResources)
+    .set({ amount: 0 })
+    .where(eq(stationResources.stationId, localStationId));
+  const now = new Date();
+  await db.insert(botControllers).values({
+    userId: botUserId,
+    strategy: 'goal_v1',
+    profile: 'industrialist',
+    nextDecisionAt: now,
+  });
+
+  await runBotDecisionTick(now);
+
+  const [controller] = await db
+    .select()
+    .from(botControllers)
+    .where(eq(botControllers.userId, botUserId));
+  assert.equal(controller?.lastAction, 'saving');
+  assert.ok(controller?.activeGoalType, 'saving must not discard the selected goal');
+  assert.ok(controller?.activeGoalTarget);
+  assert.equal(controller?.blockedCount, 0);
+  assert.equal(controller?.lastProgressAt, null);
+
+  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
+  await db.delete(stationResources).where(eq(stationResources.stationId, localStationId));
+  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, localStationId));
+  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
+  await db.delete(stations).where(eq(stations.id, localStationId));
+  await db.delete(users).where(eq(users.id, botUserId));
+});
+
+test('parallel bot ticks claim one decision and create one domain action', async () => {
+  const db = getDb();
+  const botUserId = randomUUID();
+  const localStationId = randomUUID();
+  const suffix = randomUUID();
+  await db.insert(users).values({
+    id: botUserId,
+    username: `parallel-bot-${suffix}`,
+    email: `parallel-bot-${suffix}@example.test`,
+    passwordHash: 'not-used',
+  });
+  await db.insert(stations).values({
+    id: localStationId,
+    userId: botUserId,
+    sectorId,
+    name: 'Parallel Bot',
+    x: 0,
+    y: 0,
+    chunkX: 0,
+    chunkY: 0,
+  });
+  await seedStationBuildings(localStationId);
+  await seedStationSpacecrafts(localStationId);
+  await seedStationResources(localStationId);
+  const now = new Date();
+  await db.insert(botControllers).values({
+    userId: botUserId,
+    strategy: 'goal_v1',
+    nextDecisionAt: now,
+  });
+
+  await Promise.all([runBotDecisionTick(now), runBotDecisionTick(now)]);
+
+  const assignments = await db
+    .select()
+    .from(asteroidAssignments)
+    .where(eq(asteroidAssignments.stationId, localStationId));
+  assert.equal(assignments.length, 1);
+
+  const fleet = await db
+    .select({ id: stationSpacecrafts.id })
+    .from(stationSpacecrafts)
+    .where(eq(stationSpacecrafts.stationId, localStationId));
+  await db.delete(spacecraftTrips).where(
+    inArray(
+      spacecraftTrips.stationSpacecraftId,
+      fleet.map((entry) => entry.id)
+    )
+  );
+  await db.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, localStationId));
+  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
+  await db.delete(stationResources).where(eq(stationResources.stationId, localStationId));
+  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
+  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, localStationId));
+  await db.delete(stations).where(eq(stations.id, localStationId));
+  await db.delete(users).where(eq(users.id, botUserId));
+});
+
 test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals', async () => {
   const db = getDb();
   const botUserId = randomUUID();
@@ -338,6 +560,10 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
     .where(
       and(eq(stationSpacecrafts.stationId, stationId), eq(stationSpacecrafts.spacecraftKey, 'mole'))
     );
+  await db
+    .update(stationResources)
+    .set({ amount: 0 })
+    .where(eq(stationResources.stationId, stationId));
 
   // Set up bot controller with goal_v1 strategy and an active goal
   const now = new Date();
@@ -346,16 +572,18 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
     strategy: 'goal_v1',
     strategyVersion: '1',
     profile: 'industrialist',
-    activeGoalType: 'stabilize_station',
-    activeGoalTarget: `station:${stationId}`,
+    activeGoalType: 'research_technology',
+    activeGoalTarget: `tech:${stationId}:extraction_algorithms`,
     goalStartedAt: now,
     lastProgressAt: now,
     blockedCount: 0,
     nextDecisionAt: now,
   });
 
-  // Tick 1 → the economy goal step runs
-  await runBotDecisionTick(now);
+  // Four genuine blocked intervals keep the goal bound.
+  for (let interval = 0; interval < 4; interval += 1) {
+    await runBotDecisionTick(new Date(now.getTime() + interval * 120_000));
+  }
   let ctrl = await db
     .select({
       blockedCount: botControllers.blockedCount,
@@ -365,13 +593,12 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
     .from(botControllers)
     .where(eq(botControllers.userId, botUserId))
     .then((r) => r[0]!);
-  assert.ok(ctrl.lastAction, 'Tick 1 should produce an action');
+  assert.equal(ctrl.lastAction, 'blocked');
+  assert.equal(ctrl.blockedCount, 4);
+  assert.equal(ctrl.activeGoalType, 'research_technology');
 
-  // Run many ticks. Without economy setup, the goal can't make real progress.
-  // Eventually the lifecycle should release it.
-  for (let i = 2; i <= 15; i++) {
-    await runBotDecisionTick(new Date(now.getTime() + i * 120_000));
-  }
+  // The fifth consecutive blocked interval releases it.
+  await runBotDecisionTick(new Date(now.getTime() + 4 * 120_000));
   ctrl = await db
     .select({
       blockedCount: botControllers.blockedCount,
@@ -383,9 +610,11 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
     .from(botControllers)
     .where(eq(botControllers.userId, botUserId))
     .then((r) => r[0]!);
-  // At minimum, the lifecycle should have run and produced some output
-  assert.ok(ctrl.lastAction, 'Lifecycle should produce a lastAction');
-  assert.ok(ctrl.lastReason, 'Lifecycle should produce a lastReason');
+  assert.equal(ctrl.lastAction, 'blocked');
+  assert.equal(ctrl.blockedCount, 0);
+  assert.equal(ctrl.activeGoalType, null);
+  assert.equal(ctrl.activeGoalTarget, null);
+  assert.match(ctrl.lastReason ?? '', /released after 5 blocked intervals/);
 
   // Cleanup
   await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
@@ -407,9 +636,7 @@ test('bot exploration and colonization goal generation', async () => {
     passwordHash: 'not-used',
   });
 
-  // Use small, unique coordinates (avoid overflow in sectorX * 6000)
-  const coordSeed = suffix3.split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0);
-  const baseX = -(100 + (coordSeed % 50));
+  const baseX = uniqueSectorCoordinate(suffix3, -1_000_000_000);
   const baseY = baseX;
 
   // Create an "explored" sector
@@ -513,27 +740,27 @@ test('bot exploration and colonization goal generation', async () => {
   assert.equal(colonyCandidate!.goalType, 'establish_colony');
 
   // Test the step functions
-  const stepResult = await stepExploreSector(state, homeStation!, exploreCandidate!.targetRef, {
-    colonizationFactor: 1.5,
-  } as BotProfile);
+  const stepResult = await stepExploreSector(
+    state,
+    homeStation!,
+    exploreCandidate!.targetRef,
+    'pioneer'
+  );
   assert.ok(stepResult, 'Should return a step result');
   // The result should be 'success' since we have resources and ships
   assert.equal(stepResult.type, 'success', 'Explore step should succeed');
-  assert.ok(
-    stepResult.actionLabel?.startsWith('start_expedition:'),
-    'Should produce expedition action'
-  );
+  assert.equal(stepResult.type === 'success' && stepResult.intent.type, 'start_expedition');
 
   // Test colony step
-  const colonyStep = await stepEstablishColony(state, homeStation!, colonyCandidate!.targetRef, {
-    colonizationFactor: 1.5,
-  } as BotProfile);
+  const colonyStep = await stepEstablishColony(
+    state,
+    homeStation!,
+    colonyCandidate!.targetRef,
+    'pioneer'
+  );
   assert.ok(colonyStep, 'Should return colony step result');
   assert.equal(colonyStep.type, 'success', 'Colony step should succeed');
-  assert.ok(
-    colonyStep.actionLabel?.startsWith('start_colonization:'),
-    'Should produce colonization action'
-  );
+  assert.equal(colonyStep.type === 'success' && colonyStep.intent.type, 'start_colonization');
 
   // Verify goal lifecycle integration — generateGoalCandidates should include expansion
   const { generateGoalCandidates } =
@@ -570,7 +797,7 @@ test('bot fortify and strike force goal generation', async () => {
     passwordHash: 'not-used',
   });
 
-  const fortifyCoord = 700 + (suffix4.charCodeAt(0) % 100);
+  const fortifyCoord = uniqueSectorCoordinate(suffix4, 400_000);
 
   const sectorId4 = randomUUID();
   await db.insert(sectors).values({
@@ -634,15 +861,15 @@ test('bot fortify and strike force goal generation', async () => {
   assert.ok(fortifyCandidate!.targetRef.startsWith('station:'), 'Target should point to station');
 
   // Test fortify step - should suggest a defense upgrade
-  const fortifyStep = await stepFortifyStation(state, station, fortifyCandidate!.targetRef, {
-    colonizationFactor: 0.8,
-  } as BotProfile);
+  const fortifyStep = await stepFortifyStation(
+    state,
+    station,
+    fortifyCandidate!.targetRef,
+    'industrialist'
+  );
   assert.ok(fortifyStep, 'Should return fortify step result');
   assert.equal(fortifyStep.type, 'success', 'Fortify step should be success');
-  assert.ok(
-    fortifyStep.actionLabel?.startsWith('start_defense_upgrade:'),
-    'Should produce defense upgrade action'
-  );
+  assert.equal(fortifyStep.type === 'success' && fortifyStep.intent.type, 'upgrade_defense');
 
   // Test strike force candidate
   const strikeCandidate = generateBuildStrikeForceCandidate(state, station);
@@ -652,9 +879,12 @@ test('bot fortify and strike force goal generation', async () => {
   }
 
   // Test strike force step - without shipyard level 2, should suggest shipyard upgrade
-  const strikeStep = await stepBuildStrikeForce(state, station, `station:${stationId4}`, {
-    colonizationFactor: 0.8,
-  } as BotProfile);
+  const strikeStep = await stepBuildStrikeForce(
+    state,
+    station,
+    `station:${stationId4}`,
+    'industrialist'
+  );
   assert.ok(strikeStep, 'Should return strike force step');
   // Without shipyard level 2, should suggest shipyard upgrade or be blocked/waiting
   assert.ok(
@@ -698,7 +928,7 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     passwordHash: 'not-used',
   });
 
-  const sectorX5 = 600 + (suffix5.charCodeAt(0) % 50);
+  const sectorX5 = uniqueSectorCoordinate(suffix5, 600_000);
   const sectorId5 = randomUUID();
   await db.insert(sectors).values({
     id: sectorId5,
@@ -725,15 +955,12 @@ test('bot raid and retaliate goal generation with visible target', async () => {
   await seedStationSpacecrafts(botStationId);
   await seedStationResources(botStationId);
   // Give the bot some fighters (Merlins)
-  await db
-    .update(stationSpacecrafts)
-    .set({ amount: 5 })
-    .where(
-      and(
-        eq(stationSpacecrafts.stationId, botStationId),
-        eq(stationSpacecrafts.spacecraftKey, 'merlin')
-      )
-    );
+  await db.insert(stationSpacecrafts).values({
+    stationId: botStationId,
+    spacecraftKey: 'merlin',
+    amount: 5,
+    lockedAmount: 0,
+  });
   await Promise.all(
     ['carbon', 'titanium'].map((key) =>
       db
@@ -755,7 +982,7 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     x: 100,
     y: 100,
     chunkX: 0,
-    chunkY: 800,
+    chunkY: 0,
   });
   await seedStationBuildings(targetStationId);
   await seedStationDefenseUpgrades(targetStationId);
@@ -791,8 +1018,43 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     `Raid step should be actionable, got ${raidStep.type}`
   );
   if (raidStep.type === 'success') {
-    assert.ok(raidStep.actionLabel?.startsWith('start_attack:'), 'Should produce attack action');
+    assert.equal(raidStep.intent.type, 'start_attack');
   }
+
+  // A protected target keeps the raid bound but suppresses another attempt for one hour.
+  await db
+    .delete(stationSpacecrafts)
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, botStationId),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
+  const protectedAttemptAt = new Date();
+  await db
+    .update(botControllers)
+    .set({
+      activeGoalType: 'raid',
+      activeGoalTarget: `station:${targetStationId}`,
+      goalStartedAt: protectedAttemptAt,
+      nextDecisionAt: protectedAttemptAt,
+    })
+    .where(eq(botControllers.userId, botUserId));
+  await runBotDecisionTick(protectedAttemptAt);
+  const [protectedController] = await db
+    .select({
+      activeGoalType: botControllers.activeGoalType,
+      lastAction: botControllers.lastAction,
+      nextDecisionAt: botControllers.nextDecisionAt,
+    })
+    .from(botControllers)
+    .where(eq(botControllers.userId, botUserId));
+  assert.equal(protectedController?.activeGoalType, 'raid');
+  assert.equal(protectedController?.lastAction, 'waiting');
+  assert.equal(
+    protectedController?.nextDecisionAt.getTime(),
+    protectedAttemptAt.getTime() + 60 * 60_000
+  );
 
   // Test retaliate candidate generation (no combat reports → no retaliation)
   const retaliateCandidates = generateRetaliateCandidates(state, 'warlord' as BotProfile);
@@ -824,7 +1086,7 @@ test('bot salvage goal generation', async () => {
     passwordHash: 'not-used',
   });
 
-  const sectorX6 = 900 + (suffix6.charCodeAt(0) % 50);
+  const sectorX6 = uniqueSectorCoordinate(suffix6, 800_000);
   const sectorId6 = randomUUID();
   await db.insert(sectors).values({
     id: sectorId6,
@@ -881,7 +1143,7 @@ test('bot salvage goal generation', async () => {
   const candidates = generateSalvageCandidates(state, 'industrialist' as BotProfile);
   assert.equal(candidates.length, 0, 'No salvage candidates without visible debris');
 
-  // Step with non-existent debris should return blocked
+  // A disappeared field means the bounded salvage goal is finished.
   const step = await stepSalvage(
     state,
     state.ownStations[0]!,
@@ -889,7 +1151,7 @@ test('bot salvage goal generation', async () => {
     'industrialist' as BotProfile
   );
   assert.ok(step, 'Should return step result');
-  assert.equal(step.type, 'blocked', 'Should be blocked for missing debris');
+  assert.equal(step.type, 'complete');
 
   // Cleanup
   await db.delete(botControllers).where(eq(botControllers.userId, botUserId));

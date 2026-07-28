@@ -36,6 +36,13 @@ import {
   startResearch,
 } from '../../src/services/research.service.js';
 import { runSimulationTick } from '../../src/services/simulation.service.js';
+import {
+  applyGridOptimization,
+  applyVectorNavigation,
+  effectiveAttackPower,
+  effectiveCargoCapacity,
+  effectiveMiningRate,
+} from '../../src/services/research-effects.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
@@ -260,6 +267,44 @@ test('Laboratory research spends normal resources and accelerates ship construct
     .where(eq(spacecraftBuildOrders.stationId, stationId));
   assert.ok(order);
   assert.ok(order.endsAt.getTime() - startedAt <= 53_500);
+});
+
+test('all six research foundations expose their canonical server-side multipliers', async () => {
+  const db = getDb();
+  await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
+  const now = new Date();
+  await db.insert(stationResearch).values(
+    [
+      'automated_shipyard',
+      'extraction_algorithms',
+      'modular_cargo_frames',
+      'vector_navigation',
+      'combat_analytics',
+      'station_grid_optimization',
+    ].map((technologyKey) => ({
+      stationId,
+      technologyKey,
+      status: 'completed' as const,
+      completesAt: now,
+      completedAt: now,
+    }))
+  );
+
+  assert.ok(Math.abs((await effectiveMiningRate(db, stationId, 100)) - 110) < 1e-9);
+  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100, 'miner')) - 110) < 1e-9);
+  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100, 'salvager')) - 110) < 1e-9);
+  assert.ok(Math.abs((await effectiveAttackPower(db, stationId, 100)) - 110) < 1e-9);
+
+  const departedAt = new Date(0);
+  const vectorArrival = await applyVectorNavigation(db, stationId, new Date(100_000), departedAt);
+  assert.equal(vectorArrival.getTime(), 90_000);
+
+  const gridStartedAt = Date.now();
+  const gridArrival = applyGridOptimization(true, new Date(gridStartedAt + 100_000));
+  assert.ok(gridArrival.getTime() - gridStartedAt >= 89_000);
+  assert.ok(gridArrival.getTime() - gridStartedAt <= 91_000);
+
+  await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
 });
 
 test('scanner visibility uses the authenticated users station building effect', async () => {

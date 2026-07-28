@@ -23,6 +23,7 @@ import { seedStationDefenseUpgrades } from './defense.service.js';
 import { ensureSector } from './sector.service.js';
 import { seedStationResources } from './station-resource.service.js';
 import { applyVectorNavigation } from './research-effects.js';
+import { hasCompletedResearch } from './research.service.js';
 
 const sectorCenter = (sectorX: number, sectorY: number) => ({
   x: sectorX * WORLD_CONFIG.SECTOR.WIDTH,
@@ -53,8 +54,8 @@ async function nearestFrontierCoordinates(
     select "sectorX", "sectorY"
     from candidates
     order by
-      power("sectorX" * ${WORLD_CONFIG.SECTOR.WIDTH} - ${origin.x}, 2) +
-      power("sectorY" * ${WORLD_CONFIG.SECTOR.HEIGHT} - ${origin.y}, 2),
+      power("sectorX"::double precision * ${WORLD_CONFIG.SECTOR.WIDTH} - ${origin.x}, 2) +
+      power("sectorY"::double precision * ${WORLD_CONFIG.SECTOR.HEIGHT} - ${origin.y}, 2),
       "sectorY",
       "sectorX"
     limit ${limit}
@@ -103,7 +104,7 @@ export async function getFrontierTargets(
     .limit(1);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-  const [frontier, fastestShip] = await Promise.all([
+  const [frontier, fastestShip, hasVectorNavigation] = await Promise.all([
     nearestFrontierCoordinates(db, station),
     db
       .select({ spacecraftKey: stationSpacecrafts.spacecraftKey })
@@ -114,6 +115,7 @@ export async function getFrontierTargets(
           sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`
         )
       ),
+    hasCompletedResearch(db, stationId, 'vector_navigation'),
   ]);
   const fastest = fastestAvailable(fastestShip);
 
@@ -126,7 +128,9 @@ export async function getFrontierTargets(
         sectorY,
         ...center,
         distance,
-        travelHours: fastest ? calcTravelHours(distance, fastest.definition.speed) : null,
+        travelHours: fastest
+          ? calcTravelHours(distance, fastest.definition.speed) * (hasVectorNavigation ? 0.9 : 1)
+          : null,
       };
     })
     .sort(
@@ -151,12 +155,12 @@ export async function getKnownSectors(userId: string, stationId: string): Promis
     .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
     .limit(1);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-  const [sectorRows, ownStations, fastestShip] = await Promise.all([
+  const [sectorRows, ownStations, fastestShip, hasVectorNavigation] = await Promise.all([
     db
       .select()
       .from(sectors)
       .orderBy(
-        sql`power(${sectors.sectorX} * ${WORLD_CONFIG.SECTOR.WIDTH} - ${station.x}, 2) + power(${sectors.sectorY} * ${WORLD_CONFIG.SECTOR.HEIGHT} - ${station.y}, 2)`,
+        sql`power(${sectors.sectorX}::double precision * ${WORLD_CONFIG.SECTOR.WIDTH} - ${station.x}, 2) + power(${sectors.sectorY}::double precision * ${WORLD_CONFIG.SECTOR.HEIGHT} - ${station.y}, 2)`,
         asc(sectors.sectorY),
         asc(sectors.sectorX)
       )
@@ -171,6 +175,7 @@ export async function getKnownSectors(userId: string, stationId: string): Promis
           sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`
         )
       ),
+    hasCompletedResearch(db, stationId, 'vector_navigation'),
   ]);
   const ownSectorIds = new Set(ownStations.map((entry) => entry.sectorId));
   const fastestMiner = fastestAvailable(fastestShip, 'miner');
@@ -186,7 +191,10 @@ export async function getKnownSectors(userId: string, stationId: string): Promis
         hasOwnStation: ownSectorIds.has(sector.id),
         ...center,
         distance,
-        travelHours: fastestMiner ? calcTravelHours(distance, fastestMiner.definition.speed) : null,
+        travelHours: fastestMiner
+          ? calcTravelHours(distance, fastestMiner.definition.speed) *
+            (hasVectorNavigation ? 0.9 : 1)
+          : null,
       };
     })
     .sort(

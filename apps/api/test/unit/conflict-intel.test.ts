@@ -96,7 +96,7 @@ test('calculateHostility increases with incoming attacks', () => {
     }),
   ];
   const score = calculateHostility(botUserId, reports, now);
-  assert.equal(score, 30); // 2 * 15
+  assert.equal(score, 34); // attacks plus losses suffered
 });
 
 test('calculateHostility reduces score on successful retaliation', () => {
@@ -129,8 +129,27 @@ test('calculateHostility decays after quiet days', () => {
     }),
   ];
   const score = calculateHostility(botUserId, reports, now);
-  // 15 - 3*5 = 0 (clamped)
-  assert.equal(score, 0);
+  // 15 attack points + 2 loss points - 3*5 decay
+  assert.equal(score, 2);
+});
+
+test('calculateHostility isolates each opponent account', () => {
+  const now = new Date();
+  const reports = [
+    makeReport({
+      id: 'target',
+      attackerUserId: attackerId,
+      defenderUserId: botUserId,
+      defenderLosses: 0,
+    }),
+    makeReport({
+      id: 'other',
+      attackerUserId: 'unrelated-opponent',
+      defenderUserId: botUserId,
+      defenderLosses: 10,
+    }),
+  ];
+  assert.equal(calculateHostility(botUserId, reports, now, attackerId), 15);
 });
 
 test('calculateHostility clamps to 0-100', () => {

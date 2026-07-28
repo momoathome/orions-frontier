@@ -2,6 +2,7 @@ import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 import {
   getSpacecraft,
   COLONIZATION_COST,
+  calculateBuildingUpgradeCost,
   calculateDefenseUpgradeCost,
   calculateDefenseUpgradeEffect,
   getDefenseUpgrade,
@@ -9,9 +10,14 @@ import {
   SHIPYARD_UNLOCKS,
 } from '@orions-frontier/game-config';
 import { getResearchDefinition, researchDefinitions } from '@orions-frontier/game-config';
-import type { DefenseUpgradeKey } from '@orions-frontier/shared';
+import {
+  buildingKeys,
+  resourceKeys,
+  type BuildingKey,
+  type DefenseUpgradeKey,
+} from '@orions-frontier/shared';
 import { calculateMiningCycle } from '../../lib/mining-cycle.js';
-import { calcDistance } from '../../lib/travel.js';
+import { calcDistance, calcTravelHours } from '../../lib/travel.js';
 import type { GoalBotState, StationSnapshot } from './goal-state.js';
 import type { GoalCandidate } from './goal-driven-v1.js';
 import type { GoalResult } from './goal-lifecycle.service.js';
@@ -24,6 +30,7 @@ import {
   availableOffensivePower,
   scoreConflictTarget,
 } from './conflict-intel.js';
+import { PROFILE_PARAMS } from './bot-profiles.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,7 +73,7 @@ const isUpgrading = (station: StationSnapshot, key: string): boolean => {
 };
 
 const hasActiveMining = (station: StationSnapshot): boolean =>
-  station.missions.some((m) => m.missionType === 'mining' && m.status !== 'completed');
+  station.miningAssignments.some((assignment) => assignment.assignedAmount > 0);
 
 const hasVisibleAsteroids = (_state: GoalBotState): boolean =>
   _state.visibleAsteroids.some((a) => a.remainingAmount > 0);
@@ -83,6 +90,43 @@ const canAfford = (
 const moleCost = () => MINER_COST;
 const titanCost = () => TITAN_COST;
 
+function hasCompletedTechnology(station: StationSnapshot, technologyKey: string): boolean {
+  return station.research.some(
+    (research) => research.technologyKey === technologyKey && research.status === 'completed'
+  );
+}
+
+function effectiveCargo(station: StationSnapshot, baseCargo: number): number {
+  return hasCompletedTechnology(station, 'modular_cargo_frames') ? baseCargo * 1.1 : baseCargo;
+}
+
+function travelFactor(station: StationSnapshot): number {
+  return hasCompletedTechnology(station, 'vector_navigation') ? 0.9 : 1;
+}
+
+const buildingUpgradeCost = (station: StationSnapshot, buildingKey: BuildingKey) => {
+  const level =
+    station.buildings.find((building) => building.buildingKey === buildingKey)?.level ?? 0;
+  return calculateBuildingUpgradeCost(buildingKey, level + 1);
+};
+
+const hasStorageHeadroom = (state: GoalBotState, station: StationSnapshot): boolean => {
+  if (station.storageCapacity <= 0) return false;
+  const assignedResources = station.miningAssignments.flatMap((assignment) => {
+    const asteroid = state.visibleAsteroids.find(
+      (candidate) => candidate.id === assignment.asteroidId
+    );
+    return asteroid ? Object.keys(asteroid.remainingByResource) : [];
+  });
+  const relevantResources =
+    assignedResources.length > 0 ? [...new Set(assignedResources)] : Object.keys(station.resources);
+  return relevantResources.some(
+    (resourceKey) =>
+      (station.resources[resourceKey as keyof typeof station.resources] ?? 0) <
+      station.storageCapacity
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Goal generators — create GoalCandidate for each economic goal
 // ---------------------------------------------------------------------------
@@ -92,7 +136,7 @@ export function generateStabilizeCandidate(
   station: StationSnapshot
 ): GoalCandidate | null {
   // Check completion: has active mining + warehouse not permanently full
-  if (hasActiveMining(station)) {
+  if (hasActiveMining(station) && hasStorageHeadroom(state, station)) {
     // Station is already stabilized
     return null;
   }
@@ -126,7 +170,9 @@ export function generateIncreaseIncomeCandidate(
   const moleCount = station.fleets.find((f) => f.spacecraftKey === 'mole')?.amount ?? 0;
   const moleInBuild = Number(hasInBuild(station, 'mole'));
   const totalMoles = moleCount + moleInBuild;
-  const hasTitan = hasAvailableShips(station, 'titan') || hasInBuild(station, 'titan');
+  const hasTitan =
+    (station.fleets.find((fleet) => fleet.spacecraftKey === 'titan')?.amount ?? 0) > 0 ||
+    hasInBuild(station, 'titan');
 
   // If both milestones reached, no need for increase_income
   if (totalMoles >= 3 && hasTitan) return null;
@@ -160,16 +206,32 @@ export function generateIncreaseCapacityCandidate(
 
   const candidates: { key: string; currentLevel: number; need: number }[] = [];
 
-  // Warehouse: needed if station has deliveries but storage is low
-  if (hasActiveMining(station) && warehouse < 3) {
+  const storageTight =
+    hasActiveMining(station) &&
+    Object.values(station.resources).some(
+      (amount) => station.storageCapacity > 0 && amount >= station.storageCapacity * 0.9
+    );
+  const crewBlocked = freeCrewCapacity(station) <= 0;
+  const researchPointsUsed = station.research.reduce(
+    (sum, research) => sum + (getResearchDefinition(research.technologyKey)?.points ?? 0),
+    0
+  );
+  const researchCapacityBlocked =
+    researchDefinitions.some(
+      (definition) =>
+        !station.research.some((research) => research.technologyKey === definition.key)
+    ) &&
+    researchPointsUsed + Math.min(...researchDefinitions.map((definition) => definition.points)) >
+      lab * RESEARCH_LAB_CAPACITY_PER_LEVEL;
+
+  // Capacity goals only exist for an observed bottleneck.
+  if (storageTight) {
     candidates.push({ key: 'warehouse', currentLevel: warehouse, need: 60 - warehouse * 10 });
   }
-  // Hangar: needed if ships are blocked by crew capacity
-  if (hangar < 3) {
+  if (crewBlocked) {
     candidates.push({ key: 'hangar', currentLevel: hangar, need: 40 - hangar * 10 });
   }
-  // Laboratory: needed if research is being considered
-  if (lab < 2) {
+  if (researchCapacityBlocked) {
     candidates.push({ key: 'laboratory', currentLevel: lab, need: 30 - lab * 10 });
   }
 
@@ -237,16 +299,72 @@ export async function stepStabilizeStation(
   station: StationSnapshot,
   _profile: BotProfile
 ): Promise<GoalResult> {
+  if (hasActiveMining(station) && hasStorageHeadroom(_state, station)) {
+    return {
+      type: 'complete',
+      goalType: 'stabilize_station',
+      targetRef: `station:${station.id}`,
+      reason: `${station.name} has an active mining assignment`,
+    };
+  }
+
+  if (hasActiveMining(station) && !hasStorageHeadroom(_state, station)) {
+    if (isUpgrading(station, 'warehouse')) {
+      return {
+        type: 'waiting',
+        detail: 'warehouse_upgrading',
+        reason: `Waiting for Warehouse capacity at ${station.name}`,
+      };
+    }
+    if (canAfford(station, buildingUpgradeCost(station, 'warehouse'))) {
+      return {
+        type: 'success',
+        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'warehouse' },
+        reason: `Expanding Warehouse at ${station.name} for mining deliveries`,
+      };
+    }
+    return {
+      type: 'saving',
+      detail: 'warehouse',
+      reason: `Saving for Warehouse capacity at ${station.name}`,
+    };
+  }
+
   // 1. Free miner → assign
   if (hasAvailableShips(station, 'mole')) {
     const asteroid = selectBestAsteroid(_state, station, 'mole');
     if (asteroid) {
       return {
         type: 'success',
-        actionLabel: `assign_miner:${station.id}:${asteroid.id}:mole:1`,
+        intent: {
+          type: 'assign_miner',
+          stationId: station.id,
+          asteroidId: asteroid.id,
+          spacecraftKey: 'mole',
+          amount: 1,
+        },
         reason: `Assigning free Mole at ${station.name} to asteroid ${asteroid.id}`,
       };
     }
+    if (isUpgrading(station, 'scanner')) {
+      return {
+        type: 'waiting',
+        detail: 'scanner_upgrading',
+        reason: `Waiting for Scanner range at ${station.name}`,
+      };
+    }
+    if (canAfford(station, buildingUpgradeCost(station, 'scanner'))) {
+      return {
+        type: 'success',
+        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'scanner' },
+        reason: `Expanding Scanner at ${station.name} to find a mineable asteroid`,
+      };
+    }
+    return {
+      type: 'saving',
+      detail: 'scanner',
+      reason: `Saving for Scanner range at ${station.name}`,
+    };
   }
 
   // 2. No mole → build one
@@ -262,16 +380,21 @@ export async function stepStabilizeStation(
     if (canAfford(station, moleCost())) {
       return {
         type: 'success',
-        actionLabel: `build_spacecraft:${station.id}:mole:1`,
+        intent: {
+          type: 'build_spacecraft',
+          stationId: station.id,
+          spacecraftKey: 'mole',
+          amount: 1,
+        },
         reason: `Building first Mole at ${station.name} to enable mining`,
       };
     }
     // Check prerequisites
     if (getShipyardLevel(station) < 1) {
-      if (canAfford(station, [])) {
+      if (canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
         return {
           type: 'success',
-          actionLabel: `upgrade_building:${station.id}:shipyard`,
+          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
           reason: `Upgrading Shipyard at ${station.name} for Mole construction`,
         };
       }
@@ -288,12 +411,27 @@ export async function stepStabilizeStation(
     };
   }
 
+  const moleFleet = station.fleets.find((fleet) => fleet.spacecraftKey === 'mole');
+  if (
+    !hasActiveMining(station) &&
+    moleFleet &&
+    moleFleet.lockedAmount > 0 &&
+    (station.trips.some((trip) => trip.status === 'traveling') ||
+      station.missions.some((mission) => mission.status === 'traveling'))
+  ) {
+    return {
+      type: 'waiting',
+      detail: 'miner_returning',
+      reason: `Waiting for a Mole to return to ${station.name}`,
+    };
+  }
+
   // 3. Check warehouse/scanner bottleneck
-  if (getWarehouseLevel(station) < 2 && !isUpgrading(station, 'warehouse')) {
-    if (canAfford(station, [])) {
+  if (!hasStorageHeadroom(_state, station) && !isUpgrading(station, 'warehouse')) {
+    if (canAfford(station, buildingUpgradeCost(station, 'warehouse'))) {
       return {
         type: 'success',
-        actionLabel: `upgrade_building:${station.id}:warehouse`,
+        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'warehouse' },
         reason: `Expanding Warehouse at ${station.name} for delivery capacity`,
       };
     }
@@ -318,7 +456,9 @@ export async function stepIncreaseIncome(
   const moleCnt = station.fleets.find((f) => f.spacecraftKey === 'mole')?.amount ?? 0;
   const moleInBld = Number(hasInBuild(station, 'mole'));
   const totalMls = moleCnt + moleInBld;
-  const hasTtn = hasAvailableShips(station, 'titan') || hasInBuild(station, 'titan');
+  const hasTtn =
+    (station.fleets.find((fleet) => fleet.spacecraftKey === 'titan')?.amount ?? 0) > 0 ||
+    hasInBuild(station, 'titan');
 
   // Milestone 1: 3 Moles
   if (totalMls < 3) {
@@ -330,10 +470,10 @@ export async function stepIncreaseIncome(
       };
     }
     if (getShipyardLevel(station) < 1) {
-      if (canAfford(station, [])) {
+      if (canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
         return {
           type: 'success',
-          actionLabel: `upgrade_building:${station.id}:shipyard`,
+          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
           reason: `Upgrading Shipyard at ${station.name} for Mole`,
         };
       }
@@ -345,10 +485,10 @@ export async function stepIncreaseIncome(
     }
     // Check hangar capacity
     if (getHangarLevel(station) < 1 && moleCnt >= 2) {
-      if (canAfford(station, [])) {
+      if (canAfford(station, buildingUpgradeCost(station, 'hangar'))) {
         return {
           type: 'success',
-          actionLabel: `upgrade_building:${station.id}:hangar`,
+          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'hangar' },
           reason: `Expanding Hangar at ${station.name} for more miners`,
         };
       }
@@ -361,7 +501,12 @@ export async function stepIncreaseIncome(
     if (canAfford(station, moleCost())) {
       return {
         type: 'success',
-        actionLabel: `build_spacecraft:${station.id}:mole:1`,
+        intent: {
+          type: 'build_spacecraft',
+          stationId: station.id,
+          spacecraftKey: 'mole',
+          amount: 1,
+        },
         reason: `Building Mole ${totalMls + 1}/3 at ${station.name}`,
       };
     }
@@ -378,10 +523,10 @@ export async function stepIncreaseIncome(
       };
     }
     if (getShipyardLevel(station) < 5) {
-      if (canAfford(station, [])) {
+      if (canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
         return {
           type: 'success',
-          actionLabel: `upgrade_building:${station.id}:shipyard`,
+          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
           reason: `Upgrading Shipyard to level ${getShipyardLevel(station) + 1} at ${station.name} for Titan`,
         };
       }
@@ -394,7 +539,12 @@ export async function stepIncreaseIncome(
     if (canAfford(station, titanCost())) {
       return {
         type: 'success',
-        actionLabel: `build_spacecraft:${station.id}:titan:1`,
+        intent: {
+          type: 'build_spacecraft',
+          stationId: station.id,
+          spacecraftKey: 'titan',
+          amount: 1,
+        },
         reason: `Building first Titan at ${station.name}`,
       };
     }
@@ -430,6 +580,13 @@ export async function stepIncreaseCapacity(
       reason: 'No building key in target',
     };
   }
+  if (!(buildingKeys as readonly string[]).includes(buildingKey)) {
+    return {
+      type: 'blocked',
+      detail: 'invalid_building',
+      reason: `Unknown capacity building: ${buildingKey}`,
+    };
+  }
 
   if (isUpgrading(station, buildingKey)) {
     return {
@@ -439,10 +596,15 @@ export async function stepIncreaseCapacity(
     };
   }
 
-  if (canAfford(station, [])) {
+  const validBuildingKey = buildingKey as BuildingKey;
+  if (canAfford(station, buildingUpgradeCost(station, validBuildingKey))) {
     return {
       type: 'success',
-      actionLabel: `upgrade_building:${station.id}:${buildingKey}`,
+      intent: {
+        type: 'upgrade_building',
+        stationId: station.id,
+        buildingKey: validBuildingKey,
+      },
       reason: `Upgrading ${buildingKey} at ${station.name} for capacity`,
     };
   }
@@ -466,14 +628,17 @@ function researchBenefit(
 ): { score: number; reason: string } {
   switch (techKey) {
     case 'automated_shipyard': {
-      const hasBuilds = station.builds.length > 0;
+      const queuedShips = station.builds.reduce((sum, build) => sum + build.amount, 0);
       return {
-        score: hasBuilds ? 60 : 20,
-        reason: hasBuilds ? 'active ship builds benefit' : 'no current ship builds',
+        score: queuedShips > 0 ? 50 + Math.min(20, queuedShips * 5) : 20,
+        reason: queuedShips > 0 ? `${queuedShips} ships in construction` : 'no current ship builds',
       };
     }
     case 'extraction_algorithms': {
-      const minerCount = station.fleets.find((f) => f.spacecraftKey === 'mole')?.amount ?? 0;
+      const minerCount = station.miningAssignments.reduce(
+        (sum, assignment) => sum + assignment.assignedAmount,
+        0
+      );
       const hasActive = hasActiveMining(station);
       return {
         score: hasActive ? 50 + minerCount * 5 : 20,
@@ -494,21 +659,27 @@ function researchBenefit(
       };
     }
     case 'vector_navigation': {
-      const activeTrips = station.missions.filter((m) => m.status === 'traveling').length;
+      const activeTrips =
+        station.trips.filter((trip) => trip.status === 'traveling').length +
+        station.missions.filter((mission) => mission.status === 'traveling').length;
       return {
         score: activeTrips > 0 ? 40 + activeTrips * 5 : 15,
         reason: activeTrips > 0 ? `${activeTrips} active trips` : 'no active trips',
       };
     }
     case 'combat_analytics': {
-      const fighters = station.fleets.find((f) => f.spacecraftKey === 'javelin')?.amount ?? 0;
+      const fighters = station.fleets
+        .filter((fleet) => getSpacecraft(fleet.spacecraftKey)?.role === 'fighter')
+        .reduce((sum, fleet) => sum + fleet.amount, 0);
       return {
         score: fighters > 0 ? 40 + fighters * 3 : 10,
         reason: fighters > 0 ? `${fighters} fighters` : 'no fighters',
       };
     }
     case 'station_grid_optimization': {
-      const upgrading = station.buildings.filter((b) => b.upgradeEndsAt !== null).length;
+      const upgrading =
+        station.buildings.filter((building) => building.upgradeEndsAt !== null).length +
+        station.defense.filter((defense) => defense.upgradeEndsAt !== null).length;
       return {
         score: upgrading > 0 ? 30 + upgrading * 5 : 15,
         reason: upgrading > 0 ? `${upgrading} upgrades in progress` : 'no active upgrades',
@@ -600,39 +771,74 @@ export async function stepResearchTechnology(
   // Check lab
   const labLevel = getLaboratoryLevel(station);
   if (labLevel < 1) {
+    if (isUpgrading(station, 'laboratory')) {
+      return {
+        type: 'waiting',
+        detail: 'laboratory_upgrading',
+        reason: `Waiting for Laboratory at ${station.name}`,
+      };
+    }
+    if (canAfford(station, buildingUpgradeCost(station, 'laboratory'))) {
+      return {
+        type: 'success',
+        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'laboratory' },
+        reason: `Building Laboratory capacity for ${def.name}`,
+      };
+    }
     return {
-      type: 'blocked',
+      type: hasActiveMining(station) ? 'saving' : 'blocked',
       detail: 'no_laboratory',
-      reason: `Laboratory required for ${def.name}`,
+      reason: hasActiveMining(station)
+        ? `Saving for Laboratory required by ${def.name}`
+        : `Laboratory for ${def.name} is blocked without income`,
     };
   }
 
   // Check lab capacity
-  const usedPoints = station.research
-    .filter((r) => r.status === 'researching')
-    .reduce((sum, r) => sum + (getResearchDefinition(r.technologyKey)?.points ?? 0), 0);
+  const usedPoints = station.research.reduce(
+    (sum, r) => sum + (getResearchDefinition(r.technologyKey)?.points ?? 0),
+    0
+  );
   const capacity = labLevel * RESEARCH_LAB_CAPACITY_PER_LEVEL;
   if (usedPoints + def.points > capacity) {
+    if (isUpgrading(station, 'laboratory')) {
+      return {
+        type: 'waiting',
+        detail: 'laboratory_upgrading',
+        reason: `Waiting for Laboratory capacity for ${def.name}`,
+      };
+    }
+    if (canAfford(station, buildingUpgradeCost(station, 'laboratory'))) {
+      return {
+        type: 'success',
+        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'laboratory' },
+        reason: `Expanding Laboratory capacity for ${def.name}`,
+      };
+    }
     return {
-      type: 'blocked',
+      type: hasActiveMining(station) ? 'saving' : 'blocked',
       detail: 'lab_capacity',
-      reason: `Lab capacity exceeded for ${def.name}`,
+      reason: hasActiveMining(station)
+        ? `Saving for Laboratory capacity for ${def.name}`
+        : `Laboratory capacity for ${def.name} is blocked without income`,
     };
   }
 
   // Check resources
   if (!canAfford(station, def.costs)) {
     return {
-      type: 'saving',
+      type: hasActiveMining(station) ? 'saving' : 'blocked',
       detail: `research_${techKey}`,
-      reason: `Saving resources for ${def.name}`,
+      reason: hasActiveMining(station)
+        ? `Saving resources for ${def.name}`
+        : `Cannot save for ${def.name} without active income`,
     };
   }
 
   // Start research
   return {
     type: 'success',
-    actionLabel: `start_research:${station.id}:${techKey}`,
+    intent: { type: 'start_research', stationId: station.id, technologyKey: techKey },
     reason: `Starting research ${def.name} (${researchBenefit(station, def.key).reason})`,
   };
 }
@@ -653,11 +859,15 @@ function selectBestAsteroid(
     .filter((a) => a.remainingAmount > 0)
     .map((a) => {
       const distance = calcDistance(station, a);
+      const miningRate = hasCompletedTechnology(station, 'extraction_algorithms')
+        ? spacecraft.miningRate * 1.1
+        : spacecraft.miningRate;
+      const cargoCapacity = effectiveCargo(station, spacecraft.cargo);
       const delivery = calculateMiningCycle({
         distance,
-        speed: spacecraft.speed,
-        miningRate: spacecraft.miningRate,
-        cargoCapacity: spacecraft.cargo,
+        speed: spacecraft.speed / travelFactor(station),
+        miningRate,
+        cargoCapacity,
         minerCount: 1,
         remainingAmount: a.remainingAmount,
       }).totalDeliveryPerHour;
@@ -678,22 +888,18 @@ export async function generateExploreSectorCandidate(
 ): Promise<GoalCandidate | null> {
   // Check if station already has an active expedition
   const hasActiveExpedition = station.missions.some(
-    (m) => m.missionType === 'expedition' && m.status === 'traveling'
+    (mission) =>
+      mission.missionType === 'expedition' &&
+      (mission.status === 'traveling' || mission.status === 'returning')
   );
   if (hasActiveExpedition) return null;
 
   // Get frontier targets for this station
-  let frontiers: { sectorX: number; sectorY: number; distance: number }[];
-  try {
-    const targets = await getFrontierTargets(state.userId, station.id);
-    frontiers = targets.map((t) => ({
-      sectorX: t.sectorX,
-      sectorY: t.sectorY,
-      distance: t.distance,
-    }));
-  } catch {
-    return null;
-  }
+  const frontiers = (await getFrontierTargets(state.userId, station.id)).map((target) => ({
+    sectorX: target.sectorX,
+    sectorY: target.sectorY,
+    distance: target.distance,
+  }));
   if (frontiers.length === 0) return null;
 
   // Check if we have an available ship for the trip
@@ -724,7 +930,8 @@ export async function generateExploreSectorCandidate(
 
 export async function generateEstablishColonyCandidate(
   state: GoalBotState,
-  station: StationSnapshot
+  station: StationSnapshot,
+  profile: BotProfile = 'industrialist'
 ): Promise<GoalCandidate | null> {
   // Check if station already has an active colonization
   const hasActiveColony = station.missions.some(
@@ -733,27 +940,15 @@ export async function generateEstablishColonyCandidate(
   if (hasActiveColony) return null;
 
   // Get known sectors and check which are frontier without own station
-  let known: {
-    sectorX: number;
-    sectorY: number;
-    distance: number;
-    role: string;
-    hasOwnStation: boolean;
-  }[];
-  try {
-    const sectors = await getKnownSectors(state.userId, station.id);
-    known = sectors
-      .filter((s) => s.role === 'frontier' && !s.hasOwnStation)
-      .map((s) => ({
-        sectorX: s.sectorX,
-        sectorY: s.sectorY,
-        distance: s.distance,
-        role: s.role,
-        hasOwnStation: s.hasOwnStation,
-      }));
-  } catch {
-    return null;
-  }
+  const known = (await getKnownSectors(state.userId, station.id))
+    .filter((sector) => sector.role === 'frontier' && !sector.hasOwnStation)
+    .map((sector) => ({
+      sectorX: sector.sectorX,
+      sectorY: sector.sectorY,
+      distance: sector.distance,
+      role: sector.role,
+      hasOwnStation: sector.hasOwnStation,
+    }));
   if (known.length === 0) return null;
 
   // Check if we can afford colonization
@@ -768,8 +963,13 @@ export async function generateEstablishColonyCandidate(
 
   const nearest = known[0]!;
   const maxDist = 100_000;
-  const baseNeed = Math.round(
-    (canAffordColony ? 60 : 40) * Math.max(0.1, 1 - nearest.distance / maxDist)
+  const baseNeed = Math.min(
+    100,
+    Math.round(
+      (canAffordColony ? 60 : 40) *
+        Math.max(0.1, 1 - nearest.distance / maxDist) *
+        PROFILE_PARAMS[profile].colonizationFactor
+    )
   );
 
   return {
@@ -804,8 +1004,14 @@ export async function stepExploreSector(
   }
 
   // Check if already traveling there
-  const existing = station.missions.find(
-    (m) => m.missionType === 'expedition' && m.status === 'traveling'
+  const existing = _state.ownStations.some((candidate) =>
+    candidate.missions.some(
+      (mission) =>
+        mission.missionType === 'expedition' &&
+        (mission.status === 'traveling' || mission.status === 'returning') &&
+        mission.targetSectorX === sectorX &&
+        mission.targetSectorY === sectorY
+    )
   );
   if (existing) {
     return {
@@ -815,9 +1021,19 @@ export async function stepExploreSector(
     };
   }
 
+  const knownSectors = await getKnownSectors(_state.userId, station.id);
+  if (knownSectors.some((known) => known.sectorX === sectorX && known.sectorY === sectorY)) {
+    return {
+      type: 'complete',
+      goalType: 'explore_sector',
+      targetRef,
+      reason: `Sector ${sectorX}:${sectorY} explored`,
+    };
+  }
+
   return {
     type: 'success',
-    actionLabel: `start_expedition:${station.id}:${sectorX}:${sectorY}`,
+    intent: { type: 'start_expedition', stationId: station.id, sectorX, sectorY },
     reason: `Launching expedition to sector ${sectorX}:${sectorY}`,
   };
 }
@@ -839,36 +1055,37 @@ export async function stepEstablishColony(
     };
   }
 
+  const colony = _state.ownStations.find(
+    (candidate) => candidate.sectorX === sectorX && candidate.sectorY === sectorY
+  );
+  if (colony) {
+    const stabilization = await stepStabilizeStation(_state, colony, _profile);
+    if (stabilization.type === 'complete') {
+      return {
+        type: 'complete',
+        goalType: 'establish_colony',
+        targetRef,
+        reason: `Colony ${colony.name} at ${sectorX}:${sectorY} is self-sustaining`,
+      };
+    }
+    return stabilization;
+  }
+
   // Check if already colonizing to this specific sector
-  const existing = station.missions.find(
-    (m) =>
-      m.missionType === 'colonization' &&
-      m.status === 'traveling' &&
-      m.targetSectorX === sectorX &&
-      m.targetSectorY === sectorY
+  const existing = _state.ownStations.some((candidate) =>
+    candidate.missions.some(
+      (mission) =>
+        mission.missionType === 'colonization' &&
+        mission.status === 'traveling' &&
+        mission.targetSectorX === sectorX &&
+        mission.targetSectorY === sectorY
+    )
   );
   if (existing) {
     return {
       type: 'waiting',
       detail: 'colony_traveling',
       reason: `Colony ship to sector ${sectorX}:${sectorY} underway`,
-    };
-  }
-
-  // Check if colonization already completed (colony exists)
-  const completed = station.missions.find(
-    (m) =>
-      m.missionType === 'colonization' &&
-      m.status !== 'traveling' &&
-      m.targetSectorX === sectorX &&
-      m.targetSectorY === sectorY
-  );
-  if (completed) {
-    return {
-      type: 'complete',
-      goalType: 'establish_colony',
-      targetRef,
-      reason: `Colony at ${sectorX}:${sectorY} founded`,
     };
   }
 
@@ -886,7 +1103,13 @@ export async function stepEstablishColony(
 
   return {
     type: 'success',
-    actionLabel: `start_colonization:${station.id}:${sectorX}:${sectorY}`,
+    intent: {
+      type: 'start_colonization',
+      stationId: station.id,
+      sectorX,
+      sectorY,
+      name: `Colony ${sectorX}:${sectorY}`,
+    },
     reason: `Founding colony at sector ${sectorX}:${sectorY}`,
   };
 }
@@ -916,19 +1139,56 @@ function upgradeableDefenses(station: StationSnapshot): { upgradeKey: string; le
 
 /** Total attack power of all fighters owned + in build at this station. */
 function localFighterAttack(station: StationSnapshot): number {
+  const analyticsFactor = station.research.some(
+    (research) => research.technologyKey === 'combat_analytics' && research.status === 'completed'
+  )
+    ? 1.1
+    : 1;
   const fleetPower = station.fleets
     .filter((f) => {
       const sc = getSpacecraft(f.spacecraftKey);
       return sc?.role === 'fighter';
     })
-    .reduce((sum, f) => sum + f.amount * (getSpacecraft(f.spacecraftKey)?.attack ?? 0), 0);
+    .reduce(
+      (sum, f) => sum + f.amount * (getSpacecraft(f.spacecraftKey)?.attack ?? 0) * analyticsFactor,
+      0
+    );
   const buildPower = station.builds
     .filter((b) => {
       const sc = getSpacecraft(b.spacecraftKey);
       return sc?.role === 'fighter';
     })
-    .reduce((sum, b) => sum + b.amount * (getSpacecraft(b.spacecraftKey)?.attack ?? 0), 0);
-  return fleetPower + buildPower;
+    .reduce(
+      (sum, b) => sum + b.amount * (getSpacecraft(b.spacecraftKey)?.attack ?? 0) * analyticsFactor,
+      0
+    );
+  return Math.floor(fleetPower + buildPower);
+}
+
+function availableFighterAttack(station: StationSnapshot): number {
+  const analyticsFactor = station.research.some(
+    (research) => research.technologyKey === 'combat_analytics' && research.status === 'completed'
+  )
+    ? 1.1
+    : 1;
+  return Math.floor(
+    station.fleets.reduce((sum, fleet) => {
+      const spacecraft = getSpacecraft(fleet.spacecraftKey);
+      return spacecraft?.role === 'fighter'
+        ? sum + (fleet.amount - fleet.lockedAmount) * spacecraft.attack * analyticsFactor
+        : sum;
+    }, 0)
+  );
+}
+
+function wasRecentlyAttacked(state: GoalBotState, station: StationSnapshot, now: Date): boolean {
+  const cutoff = now.getTime() - 24 * 3_600_000;
+  return state.combatReports.some(
+    (report) =>
+      report.defenderUserId === state.userId &&
+      report.defenderStationId === station.id &&
+      new Date(report.createdAt).getTime() >= cutoff
+  );
 }
 
 /** Fighter types unlocked at the station's shipyard level. */
@@ -1017,6 +1277,7 @@ export function generateFortifyCandidate(
 
   let baseNeed = 30;
   if (isNewColony) baseNeed += 20;
+  if (wasRecentlyAttacked(_state, station, _state.now)) baseNeed += 25;
   if (totalBuildings > 5) baseNeed += 15;
   baseNeed += Math.round((1 - current / TARGET_DEFENSE_SCORE) * 30);
 
@@ -1082,7 +1343,11 @@ export async function stepFortifyStation(
 
   return {
     type: 'success',
-    actionLabel: `start_defense_upgrade:${station.id}:${best.upgradeKey}`,
+    intent: {
+      type: 'upgrade_defense',
+      stationId: station.id,
+      upgradeKey: best.upgradeKey as DefenseUpgradeKey,
+    },
     reason: `Upgrading ${best.upgradeKey} to level ${best.targetLevel} (+${best.gain} defense)`,
   };
 }
@@ -1143,9 +1408,16 @@ export async function stepBuildStrikeForce(
     // Check if shipyard can be upgraded
     const shipyard = station.buildings.find((b) => b.buildingKey === 'shipyard');
     if (shipyard && shipyard.upgradeEndsAt === null) {
+      if (!canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
+        return {
+          type: 'saving',
+          detail: 'shipyard_cost',
+          reason: `Saving for Shipyard level ${(shipyard?.level ?? 0) + 1}`,
+        };
+      }
       return {
         type: 'success',
-        actionLabel: `start_building_upgrade:${station.id}:shipyard`,
+        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
         reason: `Building Shipyard to level ${(shipyard?.level ?? 0) + 1} for fighter unlock`,
       };
     }
@@ -1169,9 +1441,16 @@ export async function stepBuildStrikeForce(
     // Try upgrading hangar
     const hangar = station.buildings.find((b) => b.buildingKey === 'hangar');
     if (hangar && hangar.upgradeEndsAt === null) {
+      if (!canAfford(station, buildingUpgradeCost(station, 'hangar'))) {
+        return {
+          type: 'saving',
+          detail: 'hangar_cost',
+          reason: `Saving for Hangar level ${(hangar?.level ?? 0) + 1}`,
+        };
+      }
       return {
         type: 'success',
-        actionLabel: `start_building_upgrade:${station.id}:hangar`,
+        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'hangar' },
         reason: `Building Hangar to level ${(hangar?.level ?? 0) + 1} for more crew capacity`,
       };
     }
@@ -1191,7 +1470,7 @@ export async function stepBuildStrikeForce(
 
   // Pick the best fighter: best attack per crew ratio among unlocked, affordable types
   const unlocked = unlockedFighters(station);
-  let best: { key: string; attack: number; count: number; aff: boolean } | null = null;
+  let best: { key: string; attack: number } | null = null;
 
   for (const f of unlocked) {
     const sc = getSpacecraft(f.key);
@@ -1205,7 +1484,7 @@ export async function stepBuildStrikeForce(
     if (maxCount < 1) continue;
     const efficiency = sc.attack / sc.crew;
     if (!best || efficiency > best.attack / (getSpacecraft(best.key)?.crew ?? 1)) {
-      best = { key: f.key, attack: sc.attack, count: 1, aff: true };
+      best = { key: f.key, attack: sc.attack };
     }
   }
 
@@ -1219,7 +1498,12 @@ export async function stepBuildStrikeForce(
 
   return {
     type: 'success',
-    actionLabel: `build_spacecrafts:${station.id}:${best.key}:1`,
+    intent: {
+      type: 'build_spacecraft',
+      stationId: station.id,
+      spacecraftKey: best.key,
+      amount: 1,
+    },
     reason: `Building 1 ${best.key} (attack ${best.attack}, crew ${getSpacecraft(best.key)?.crew})`,
   };
 }
@@ -1246,7 +1530,7 @@ function smallestSufficientGroup(
   station: StationSnapshot,
   requiredAttack: number
 ): { spacecraftKey: string; amount: number; totalAttack: number } | null {
-  const fighters = station.fleets
+  const groups = station.fleets
     .filter((f) => {
       const sc = getSpacecraft(f.spacecraftKey);
       return sc?.role === 'fighter' && f.amount - f.lockedAmount > 0;
@@ -1254,22 +1538,65 @@ function smallestSufficientGroup(
     .map((f) => ({
       spacecraftKey: f.spacecraftKey,
       available: f.amount - f.lockedAmount,
-      attackPerShip: getSpacecraft(f.spacecraftKey)?.attack ?? 0,
+      attackPerShip: Math.floor(
+        (getSpacecraft(f.spacecraftKey)?.attack ?? 0) *
+          (station.research.some(
+            (research) =>
+              research.technologyKey === 'combat_analytics' && research.status === 'completed'
+          )
+            ? 1.1
+            : 1)
+      ),
     }))
     .filter((f) => f.attackPerShip > 0)
-    .sort((a, b) => a.attackPerShip - b.attackPerShip);
+    .map((fighter) => {
+      const amount = Math.ceil(requiredAttack / fighter.attackPerShip);
+      return {
+        spacecraftKey: fighter.spacecraftKey,
+        amount,
+        available: fighter.available,
+        totalAttack: amount * fighter.attackPerShip,
+      };
+    })
+    .filter((group) => group.amount <= group.available)
+    .sort(
+      (left, right) =>
+        left.amount - right.amount ||
+        left.totalAttack - right.totalAttack ||
+        left.spacecraftKey.localeCompare(right.spacecraftKey)
+    );
 
-  if (fighters.length === 0) return null;
+  const group = groups[0];
+  return group
+    ? {
+        spacecraftKey: group.spacecraftKey,
+        amount: group.amount,
+        totalAttack: group.totalAttack,
+      }
+    : null;
+}
 
-  for (const f of fighters) {
-    const needed = Math.ceil(requiredAttack / f.attackPerShip);
-    const amount = Math.min(needed, f.available);
-    if (amount >= 1) {
-      return { spacecraftKey: f.spacecraftKey, amount, totalAttack: amount * f.attackPerShip };
-    }
-  }
-
-  return null;
+export function isEligibleAttackSource(
+  state: GoalBotState,
+  station: StationSnapshot,
+  targetStationId: string,
+  profile: BotProfile
+): boolean {
+  const target = state.visibleStations.find((candidate) => candidate.id === targetStationId);
+  if (!target) return false;
+  const availableAttack = availableFighterAttack(station);
+  const reserve = calculateReserve(
+    availableAttack,
+    profile,
+    wasRecentlyAttacked(state, station, state.now),
+    !hasActiveMining(station)
+  );
+  const requiredAttack = Math.max(
+    1,
+    Math.round(estimateDefenseScore(target.visualProfile) * SAFETY_MARGIN[profile])
+  );
+  const group = smallestSufficientGroup(station, requiredAttack);
+  return group !== null && group.totalAttack <= availableOffensivePower(availableAttack, reserve);
 }
 
 /** Check if this station has attacked the given owner recently (cooldown). */
@@ -1286,7 +1613,7 @@ function hasCooldown(
   );
   if (relevant.length === 0) return { onCooldown: false };
 
-  const last = relevant.sort(
+  const last = [...relevant].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   )[0]!;
 
@@ -1327,28 +1654,30 @@ function hasCooldown(
 
 /** Generate raid candidates for visible foreign stations. */
 export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile): GoalCandidate[] {
-  const candidates: GoalCandidate[] = [];
-  const now = new Date();
-  const hostility = calculateHostility(state.userId, state.combatReports, now);
+  const candidates = new Map<string, GoalCandidate>();
+  const now = state.now;
 
   for (const station of state.ownStations) {
+    const availableAttack = availableFighterAttack(station);
     const reserve = calculateReserve(
-      localFighterAttack(station),
+      availableAttack,
       _profile,
-      false,
+      wasRecentlyAttacked(state, station, now),
       !hasActiveMining(station)
     );
-    const offensive = availableOffensivePower(localFighterAttack(station), reserve);
+    const offensive = availableOffensivePower(availableAttack, reserve);
     if (offensive <= 0) continue;
 
     for (const target of state.visibleStations) {
       if (target.isOwn) continue;
       if (!target.visualProfile) continue;
+      if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;
 
       const cooldown = hasCooldown(station, state, target.ownerId, now);
       if (cooldown.onCooldown) continue;
 
       const dist = Math.hypot(target.x - station.x, target.y - station.y);
+      const hostility = calculateHostility(state.userId, state.combatReports, now, target.ownerId);
       const scored = scoreConflictTarget({
         targetStationId: target.id,
         ownerId: target.ownerId,
@@ -1361,7 +1690,7 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
       });
       if (scored.score <= 0) continue;
 
-      candidates.push({
+      const candidate: GoalCandidate = {
         goalType: 'raid',
         category: GOAL_CATEGORY['raid'],
         targetRef: `station:${target.id}`,
@@ -1372,11 +1701,19 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
         cost: Math.round(scored.breakdown.defensePenalty / 2),
         risk: Math.round(scored.breakdown.defensePenalty),
         blockers: 0,
-      });
+      };
+      const existing = candidates.get(candidate.targetRef);
+      if (
+        !existing ||
+        candidate.baseNeed + candidate.opportunity - candidate.risk >
+          existing.baseNeed + existing.opportunity - existing.risk
+      ) {
+        candidates.set(candidate.targetRef, candidate);
+      }
     }
   }
 
-  return candidates;
+  return [...candidates.values()];
 }
 
 /** Generate retaliation candidates from combat reports. */
@@ -1384,35 +1721,41 @@ export function generateRetaliateCandidates(
   state: GoalBotState,
   _profile: BotProfile
 ): GoalCandidate[] {
-  const candidates: GoalCandidate[] = [];
-  const now = new Date();
+  const candidates = new Map<string, GoalCandidate>();
+  const now = state.now;
+  const recentCutoff = now.getTime() - 24 * 3_600_000;
 
   const attackerIds = new Set<string>();
   for (const report of state.combatReports) {
-    if (report.defenderUserId === state.userId) {
+    if (
+      report.defenderUserId === state.userId &&
+      new Date(report.createdAt).getTime() >= recentCutoff
+    ) {
       attackerIds.add(report.attackerUserId);
     }
   }
 
   for (const station of state.ownStations) {
+    const availableAttack = availableFighterAttack(station);
     const reserve = calculateReserve(
-      localFighterAttack(station),
+      availableAttack,
       _profile,
-      true,
+      wasRecentlyAttacked(state, station, now),
       !hasActiveMining(station)
     );
-    const offensive = availableOffensivePower(localFighterAttack(station), reserve);
+    const offensive = availableOffensivePower(availableAttack, reserve);
     if (offensive <= 0) continue;
 
     for (const ownerId of attackerIds) {
       const target = state.visibleStations.find((s) => s.ownerId === ownerId && !s.isOwn);
       if (!target) continue;
+      if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;
 
       const cooldown = hasCooldown(station, state, ownerId, now);
       if (cooldown.onCooldown) continue;
 
       const dist = Math.hypot(target.x - station.x, target.y - station.y);
-      const hostility = calculateHostility(state.userId, state.combatReports, now);
+      const hostility = calculateHostility(state.userId, state.combatReports, now, ownerId);
       const scored = scoreConflictTarget({
         targetStationId: target.id,
         ownerId: target.ownerId,
@@ -1424,7 +1767,7 @@ export function generateRetaliateCandidates(
         botUserId: state.userId,
       });
 
-      candidates.push({
+      const candidate: GoalCandidate = {
         goalType: 'retaliate',
         category: GOAL_CATEGORY['retaliate'],
         targetRef: `user:${ownerId}`,
@@ -1435,11 +1778,19 @@ export function generateRetaliateCandidates(
         cost: Math.round(scored.breakdown.defensePenalty / 2),
         risk: Math.round(scored.breakdown.defensePenalty),
         blockers: 0,
-      });
+      };
+      const existing = candidates.get(candidate.targetRef);
+      if (
+        !existing ||
+        candidate.baseNeed + candidate.opportunity - candidate.risk >
+          existing.baseNeed + existing.opportunity - existing.risk
+      ) {
+        candidates.set(candidate.targetRef, candidate);
+      }
     }
   }
 
-  return candidates;
+  return [...candidates.values()];
 }
 
 /** Execute a raid against a visible target station. */
@@ -1452,7 +1803,20 @@ export async function stepRaid(
   const parts = targetRef.split(':');
   const targetStationId = parts[1]!;
 
-  const attackPower = localFighterAttack(station);
+  const activeMission = station.combatMissions.find(
+    (mission) =>
+      mission.defenderStationId === targetStationId &&
+      !['resolved', 'cancelled'].includes(mission.status)
+  );
+  if (activeMission) {
+    return {
+      type: 'waiting',
+      detail: 'attack_underway',
+      reason: `Attack on ${targetStationId} is ${activeMission.status}`,
+    };
+  }
+
+  const attackPower = availableFighterAttack(station);
   if (attackPower <= 0) {
     return {
       type: 'blocked',
@@ -1470,11 +1834,26 @@ export async function stepRaid(
     };
   }
 
+  const cooldown = hasCooldown(station, _state, target.ownerId, _state.now);
+  if (cooldown.onCooldown) {
+    return {
+      type: 'complete',
+      goalType: 'raid',
+      targetRef,
+      reason: cooldown.reason ?? `Attack on ${targetStationId} completed`,
+    };
+  }
+
   const estimatedDefense = estimateDefenseScore(target.visualProfile);
   const margin = SAFETY_MARGIN[profile];
-  const requiredAttack = Math.round(estimatedDefense * margin);
+  const requiredAttack = Math.max(1, Math.round(estimatedDefense * margin));
 
-  const reserve = calculateReserve(attackPower, profile, false, !hasActiveMining(station));
+  const reserve = calculateReserve(
+    attackPower,
+    profile,
+    wasRecentlyAttacked(_state, station, _state.now),
+    !hasActiveMining(station)
+  );
   const offensive = availableOffensivePower(attackPower, reserve);
   if (offensive <= 0) {
     return {
@@ -1495,7 +1874,13 @@ export async function stepRaid(
 
   return {
     type: 'success',
-    actionLabel: `start_attack:${station.id}:${targetStationId}:${group.spacecraftKey}:${group.amount}`,
+    intent: {
+      type: 'start_attack',
+      stationId: station.id,
+      targetStationId,
+      spacecraftKey: group.spacecraftKey,
+      amount: group.amount,
+    },
     reason: `Attacking ${target.name || targetStationId} with ${group.amount}x ${group.spacecraftKey} (${group.totalAttack} attack vs est. ${estimatedDefense} defense)`,
   };
 }
@@ -1510,7 +1895,18 @@ export async function stepRetaliate(
   const parts = targetRef.split(':');
   const ownerId = parts[1]!;
 
-  const target = _state.visibleStations.find((s) => s.ownerId === ownerId && !s.isOwn);
+  const target = [..._state.visibleStations]
+    .filter(
+      (candidate) =>
+        candidate.ownerId === ownerId &&
+        !candidate.isOwn &&
+        isEligibleAttackSource(_state, station, candidate.id, profile)
+    )
+    .sort((a, b) => {
+      const distanceA = Math.hypot(a.x - station.x, a.y - station.y);
+      const distanceB = Math.hypot(b.x - station.x, b.y - station.y);
+      return distanceA - distanceB || a.id.localeCompare(b.id);
+    })[0];
   if (!target) {
     return {
       type: 'blocked',
@@ -1547,6 +1943,45 @@ function debrisValue(resources: Record<string, number>): number {
   );
 }
 
+function usefulSalvageCargo(
+  station: StationSnapshot,
+  resources: Record<string, number>,
+  cargoCapacity: number
+): Record<string, number> {
+  let remainingCargo = cargoCapacity;
+  const cargo: Record<string, number> = {};
+  for (const resourceKey of resourceKeys) {
+    const storageRoom = Math.max(
+      0,
+      station.storageCapacity -
+        (station.resources[resourceKey as keyof typeof station.resources] ?? 0)
+    );
+    const amount = Math.min(resources[resourceKey] ?? 0, storageRoom, remainingCargo);
+    if (amount <= 0) continue;
+    cargo[resourceKey] = amount;
+    remainingCargo -= amount;
+    if (remainingCargo <= 0) break;
+  }
+  return cargo;
+}
+
+function usefulSalvageValue(
+  station: StationSnapshot,
+  resources: Record<string, number>,
+  cargoCapacity: number
+): number {
+  const cargo = usefulSalvageCargo(station, resources, cargoCapacity);
+  return Object.entries(cargo).reduce((sum, [resourceKey, amount]) => {
+    const fillRatio =
+      station.storageCapacity > 0
+        ? (station.resources[resourceKey as keyof typeof station.resources] ?? 0) /
+          station.storageCapacity
+        : 1;
+    const localNeedMultiplier = 1 + Math.max(0, 1 - fillRatio);
+    return sum + amount * (RESOURCE_WEIGHT[resourceKey] ?? 0.5) * localNeedMultiplier;
+  }, 0);
+}
+
 /** Find the best visible asteroid for a station's mining comparison. */
 function bestMiningRate(state: GoalBotState, station: StationSnapshot): number {
   const bestAsteroid = state.visibleAsteroids
@@ -1560,16 +1995,55 @@ function bestMiningRate(state: GoalBotState, station: StationSnapshot): number {
 
   const mole = getSpacecraft('mole');
   if (!mole) return 0;
+  const miningRate = hasCompletedTechnology(station, 'extraction_algorithms')
+    ? mole.miningRate * 1.1
+    : mole.miningRate;
+  const cargo = effectiveCargo(station, mole.cargo);
+  const miningHours = cargo / miningRate;
+  const roundTripHours =
+    2 * calcTravelHours(bestAsteroid.dist, mole.speed) * travelFactor(station) + miningHours;
+  return Math.round(cargo / roundTripHours);
+}
 
-  const cycle = calculateMiningCycle({
-    distance: bestAsteroid.dist,
-    speed: mole.speed,
-    miningRate: mole.miningRate,
-    cargoCapacity: mole.cargo,
-    minerCount: 1,
-    remainingAmount: bestAsteroid.asteroid.remainingAmount,
-  });
-  return Math.round(cycle.totalDeliveryPerHour);
+function salvageNetRate(
+  state: GoalBotState,
+  station: StationSnapshot,
+  debris: GoalBotState['visibleDebris'][number]
+): number {
+  const collector = getSpacecraft(COLLECTOR_KEY);
+  if (!collector) return Number.NEGATIVE_INFINITY;
+  const cargo = effectiveCargo(station, collector.cargo);
+  const tripValue = usefulSalvageValue(station, debris.resources, cargo);
+  if (tripValue <= 0) return Number.NEGATIVE_INFINITY;
+  const distance = Math.hypot(debris.x - station.x, debris.y - station.y);
+  const roundTripHours = Math.max(
+    1 / 3_600,
+    2 * calcTravelHours(distance, collector.speed) * travelFactor(station)
+  );
+  return tripValue / roundTripHours - bestMiningRate(state, station);
+}
+
+export function pickBestSalvageStation(
+  state: GoalBotState,
+  debrisId: string
+): StationSnapshot | null {
+  const debris = state.visibleDebris.find((candidate) => candidate.id === debrisId);
+  if (!debris) return null;
+  return (
+    [...state.ownStations]
+      .map((station) => ({
+        station,
+        netRate: salvageNetRate(state, station, debris),
+        distance: Math.hypot(debris.x - station.x, debris.y - station.y),
+      }))
+      .filter((candidate) => candidate.netRate > 0)
+      .sort(
+        (a, b) =>
+          b.netRate - a.netRate ||
+          a.distance - b.distance ||
+          a.station.id.localeCompare(b.station.id)
+      )[0]?.station ?? null
+  );
 }
 
 /** Generate salvage candidates for visible debris fields. */
@@ -1578,43 +2052,16 @@ export function generateSalvageCandidates(
   _profile: BotProfile
 ): GoalCandidate[] {
   const candidates: GoalCandidate[] = [];
-  const stationMap = new Map(state.ownStations.map((s) => [s.id, s]));
 
   for (const debris of state.visibleDebris) {
     if (debrisValue(debris.resources) <= 0) continue;
-
-    let bestStation: { id: string; netRate: number; dist: number } | null = null;
-
-    for (const station of state.ownStations) {
-      const dist = Math.hypot(debris.x - station.x, debris.y - station.y);
-
-      // Calculate effective cargo with research
-      const baseCargo = getSpacecraft(COLLECTOR_KEY)?.cargo ?? 250;
-      // Use base cargo for estimation (research effects checked at runtime)
-      const effectiveCargo = baseCargo;
-
-      // Travel time
-      const collectorSpeed = getSpacecraft(COLLECTOR_KEY)?.speed ?? 80;
-      const travelHours = (dist / (collectorSpeed * 60 * 60)) * 2; // round trip in hours
-      const tripsPerHour = travelHours > 0 ? 1 / travelHours : 0;
-      const hourlyValue = tripsPerHour * Math.min(debrisValue(debris.resources), effectiveCargo);
-
-      // Compare with mining
-      const miningRate = bestMiningRate(state, station);
-      const netRate = hourlyValue - miningRate;
-
-      if (
-        !bestStation ||
-        netRate > bestStation.netRate ||
-        (netRate === bestStation.netRate && dist < bestStation.dist)
-      ) {
-        bestStation = { id: station.id, netRate, dist };
-      }
-    }
-
-    if (!bestStation || bestStation.netRate <= 0) continue;
-
-    const station = stationMap.get(bestStation.id);
+    const hasActiveMission = state.ownStations.some((station) =>
+      station.salvageMissions.some(
+        (mission) => mission.debrisFieldId === debris.id && mission.status !== 'resolved'
+      )
+    );
+    if (hasActiveMission) continue;
+    const station = pickBestSalvageStation(state, debris.id);
     if (!station) continue;
 
     const collector = station.fleets.find((f) => f.spacecraftKey === COLLECTOR_KEY);
@@ -1628,7 +2075,13 @@ export function generateSalvageCandidates(
       category: GOAL_CATEGORY['salvage'],
       targetRef: `debris:${debris.id}`,
       baseNeed,
-      opportunity: Math.round(debrisValue(debris.resources) / 10),
+      opportunity: Math.round(
+        usefulSalvageValue(
+          station,
+          debris.resources,
+          effectiveCargo(station, getSpacecraft(COLLECTOR_KEY)?.cargo ?? 0)
+        ) / 10
+      ),
       longTermValue: 20,
       commitment: 0,
       cost: needsBuild ? 30 : 10,
@@ -1650,13 +2103,25 @@ export async function stepSalvage(
   const parts = targetRef.split(':');
   const debrisId = parts[1]!;
 
+  const activeMission = station.salvageMissions.find(
+    (mission) => mission.debrisFieldId === debrisId && mission.status !== 'resolved'
+  );
+  if (activeMission) {
+    return {
+      type: 'waiting',
+      detail: 'salvage_underway',
+      reason: `Salvage at ${debrisId} is ${activeMission.status}`,
+    };
+  }
+
   // Check if debris is still visible
   const debris = _state.visibleDebris.find((d) => d.id === debrisId);
   if (!debris) {
     return {
-      type: 'blocked',
-      detail: 'debris_gone',
-      reason: `Debris field ${debrisId} no longer visible`,
+      type: 'complete',
+      goalType: 'salvage',
+      targetRef,
+      reason: `Debris field ${debrisId} has been cleared`,
     };
   }
 
@@ -1664,18 +2129,12 @@ export async function stepSalvage(
   const availableCollectors = collector ? collector.amount - collector.lockedAmount : 0;
 
   if (availableCollectors <= 0) {
-    // Need to build a Collector first
-    const canBuild = canAfford(station, COLLECTOR_COST);
-    if (!canBuild) {
-      return {
-        type: 'saving',
-        detail: 'collector_cost',
-        reason: `Saving resources for Collector build`,
-      };
-    }
-
     // Check payback threshold: weighted value per trip ≥ 125% of build cost
-    const weightedValue = debrisValue(debris.resources);
+    const weightedValue = usefulSalvageValue(
+      station,
+      debris.resources,
+      effectiveCargo(station, getSpacecraft(COLLECTOR_KEY)?.cargo ?? 0)
+    );
     const buildCostWeighted = COLLECTOR_COST.reduce(
       (sum, c) => sum + c.amount * (RESOURCE_WEIGHT[c.resourceKey] ?? 1.0),
       0
@@ -1689,19 +2148,73 @@ export async function stepSalvage(
       };
     }
 
+    // Need to build a Collector first
+    const canBuild = canAfford(station, COLLECTOR_COST);
+    if (!canBuild) {
+      return {
+        type: hasActiveMining(station) ? 'saving' : 'blocked',
+        detail: 'collector_cost',
+        reason: hasActiveMining(station)
+          ? `Saving resources for Collector build`
+          : `Collector build is blocked without active income`,
+      };
+    }
+
     // Check shipyard level
     const syLevel = getShipyardLevel(station);
     if (syLevel < 2) {
+      if (isUpgrading(station, 'shipyard')) {
+        return {
+          type: 'waiting',
+          detail: 'shipyard_upgrading',
+          reason: `Waiting for Shipyard level 2 needed by Collector`,
+        };
+      }
+      if (canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
+        return {
+          type: 'success',
+          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
+          reason: `Upgrading Shipyard to unlock Collector`,
+        };
+      }
       return {
-        type: 'blocked',
+        type: 'saving',
         detail: 'low_shipyard',
-        reason: `Shipyard level ${syLevel} < 2 needed for Collector`,
+        reason: `Saving for Shipyard level 2 needed by Collector`,
+      };
+    }
+
+    const collectorCrew = getSpacecraft(COLLECTOR_KEY)?.crew ?? 0;
+    if (freeCrewCapacity(station) < collectorCrew) {
+      if (isUpgrading(station, 'hangar')) {
+        return {
+          type: 'waiting',
+          detail: 'hangar_upgrading',
+          reason: `Waiting for Hangar capacity for Collector`,
+        };
+      }
+      if (canAfford(station, buildingUpgradeCost(station, 'hangar'))) {
+        return {
+          type: 'success',
+          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'hangar' },
+          reason: `Expanding Hangar for Collector`,
+        };
+      }
+      return {
+        type: 'saving',
+        detail: 'hangar_capacity',
+        reason: `Saving for Hangar capacity for Collector`,
       };
     }
 
     return {
       type: 'success',
-      actionLabel: `build_spacecrafts:${station.id}:${COLLECTOR_KEY}:1`,
+      intent: {
+        type: 'build_spacecraft',
+        stationId: station.id,
+        spacecraftKey: COLLECTOR_KEY,
+        amount: 1,
+      },
       reason: `Building Collector for salvage at debris ${debrisId}`,
     };
   }
@@ -1710,36 +2223,13 @@ export async function stepSalvage(
   const minerCount = 1;
   return {
     type: 'success',
-    actionLabel: `start_salvage:${station.id}:${debrisId}:${COLLECTOR_KEY}:${minerCount}`,
+    intent: {
+      type: 'start_salvage',
+      stationId: station.id,
+      debrisFieldId: debrisId,
+      spacecraftKey: COLLECTOR_KEY,
+      amount: minerCount,
+    },
     reason: `Starting salvage at debris ${debrisId} with ${minerCount}x ${COLLECTOR_KEY}`,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Multi-station selection
-// ---------------------------------------------------------------------------
-
-/**
- * Pick the best station among several for a given economic goal type.
- * Unstable colonies first, then higher local need, then station ID.
- */
-export function pickBestStation(state: GoalBotState, goalType: string): StationSnapshot | null {
-  const candidates = state.ownStations
-    .map((s) => ({ station: s, unstable: !hasActiveMining(s) }))
-    .filter(({ station }) => {
-      // Filter stations that still need this goal
-      if (goalType === 'stabilize_station') return !hasActiveMining(station);
-      if (goalType === 'increase_income') {
-        const moles = station.fleets.find((f) => f.spacecraftKey === 'mole')?.amount ?? 0;
-        const hasTitan = hasAvailableShips(station, 'titan') || hasInBuild(station, 'titan');
-        return moles < 3 || !hasTitan;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (a.unstable !== b.unstable) return a.unstable ? -1 : 1;
-      return a.station.id.localeCompare(b.station.id);
-    });
-
-  return candidates[0]?.station ?? null;
 }

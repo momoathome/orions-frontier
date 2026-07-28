@@ -34,20 +34,37 @@ const HOSTILITY_DAILY_DECAY = 5;
  * @param reports  All combat reports visible to this user.
  * @param now      Current timestamp for decay calculation.
  */
-export function calculateHostility(userId: string, reports: CombatReport[], now: Date): number {
+export function calculateHostility(
+  userId: string,
+  reports: CombatReport[],
+  now: Date,
+  opponentId?: string
+): number {
   let score = 0;
   let lastActivity: number | null = null;
 
   for (const report of reports) {
+    const reportOpponent =
+      report.attackerUserId === userId
+        ? report.defenderUserId
+        : report.defenderUserId === userId
+          ? report.attackerUserId
+          : null;
+    if (reportOpponent === null || (opponentId !== undefined && reportOpponent !== opponentId)) {
+      continue;
+    }
     const createdAt = new Date(report.createdAt).getTime();
 
     if (report.defenderUserId === userId) {
       // Incoming attack
-      score += HOSTILITY_PER_ATTACK;
+      score += HOSTILITY_PER_ATTACK + Math.min(30, report.defenderLosses * 2);
       if (lastActivity === null || createdAt > lastActivity) lastActivity = createdAt;
     } else if (report.attackerUserId === userId && report.winner === 'attacker') {
       // Successful retaliation — reduces hostility
       score -= HOSTILITY_RETALIATION_REDUCTION;
+      if (lastActivity === null || createdAt > lastActivity) lastActivity = createdAt;
+    } else if (report.attackerUserId === userId) {
+      score += Math.min(20, report.attackerLosses * 2);
       if (lastActivity === null || createdAt > lastActivity) lastActivity = createdAt;
     }
   }

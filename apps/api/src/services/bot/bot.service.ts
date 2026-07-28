@@ -5,14 +5,16 @@ import { logger as rootLogger } from '../../lib/logger.js';
 import { loadGoalBotState } from './goal-loader.service.js';
 import {
   checkUrgentMaintenance,
-  evaluateActiveGoal,
   determineNextStep,
   selectGoalForState,
 } from './goal-lifecycle.service.js';
+import type { GoalResult } from './goal-lifecycle.service.js';
+import { BotIntentRejected, executeBotIntent } from './bot-intent.js';
 
 const logger = rootLogger.child({ name: 'bots' });
 const DECISION_INTERVAL_MS = 60_000;
 const DECISION_OFFSET_MAX_MS = 15_000;
+const MAX_BLOCKED_INTERVALS = 5;
 
 /** Stable bot-dependent offset in [0, 15000) ms based on userId hash. */
 function botOffsetMs(userId: string): number {
@@ -28,7 +30,7 @@ async function handleGoalV1(
   userId: string,
   now: Date
 ): Promise<{ action: string; reason: string; hasProgress: boolean }> {
-  const state = await loadGoalBotState(userId);
+  const state = await loadGoalBotState(userId, now);
   if (!state || state.ownStations.length === 0) {
     return { action: 'wait', reason: 'Bot has no station', hasProgress: false };
   }
@@ -51,65 +53,163 @@ async function handleGoalV1(
 
   const profile = controller.profile as import('../../lib/db/schema/bot-controllers.js').BotProfile;
 
-  // 1. Urgent maintenance (before goal step)
-  const maintenance = await checkUrgentMaintenance(state, profile, {});
-  if (maintenance) {
-    return { action: maintenance.type, reason: maintenance.reason, hasProgress: true };
-  }
+  const clearGoal = async (): Promise<void> => {
+    await db
+      .update(botControllers)
+      .set({
+        activeGoalType: null,
+        activeGoalTarget: null,
+        goalStartedAt: null,
+        blockedCount: 0,
+        updatedAt: now,
+      })
+      .where(eq(botControllers.userId, userId));
+  };
 
-  let hasProgress = false;
+  const applyStep = async (
+    goalType: string,
+    targetRef: string,
+    step: GoalResult,
+    isNewGoal: boolean,
+    currentBlockedCount: number
+  ): Promise<{ action: string; reason: string; hasProgress: boolean }> => {
+    if (step.type === 'complete') {
+      await clearGoal();
+      return { action: 'complete', reason: step.reason, hasProgress: false };
+    }
 
-  // 2. Evaluate active goal
-  if (controller.activeGoalType && controller.activeGoalTarget) {
-    const evaluation = await evaluateActiveGoal(
-      state,
-      controller.activeGoalType,
-      controller.activeGoalTarget,
-      controller.goalStartedAt,
-      controller.lastProgressAt,
-      controller.blockedCount,
-      false
-    );
+    const baseGoalUpdate = {
+      activeGoalType: goalType,
+      activeGoalTarget: targetRef,
+      goalStartedAt: isNewGoal ? now : (controller.goalStartedAt ?? now),
+      updatedAt: now,
+    };
 
-    if (evaluation) {
-      if (evaluation.type === 'complete') {
-        // Goal completed or released — clear it
+    if (step.type === 'success') {
+      try {
+        await executeBotIntent(userId, step.intent, now);
         await db
           .update(botControllers)
           .set({
-            activeGoalType: null,
-            activeGoalTarget: null,
-            goalStartedAt: null,
+            ...baseGoalUpdate,
             blockedCount: 0,
-            updatedAt: now,
+            lastProgressAt: now,
           })
           .where(eq(botControllers.userId, userId));
-        // Fall through to select a new goal
-      } else if (evaluation.type === 'blocked') {
+        return { action: step.intent.type, reason: step.reason, hasProgress: true };
+      } catch (error) {
+        if (!(error instanceof BotIntentRejected)) throw error;
+        const blockedCount = error.kind === 'blocked' ? currentBlockedCount + 1 : 0;
+        if (blockedCount >= MAX_BLOCKED_INTERVALS) {
+          await clearGoal();
+          return {
+            action: 'blocked',
+            reason: `${error.message}; goal released after ${MAX_BLOCKED_INTERVALS} blocked intervals`,
+            hasProgress: false,
+          };
+        }
         await db
           .update(botControllers)
-          .set({ blockedCount: controller.blockedCount + 1, updatedAt: now })
+          .set({
+            ...baseGoalUpdate,
+            blockedCount,
+            ...(error.retryAfterMs
+              ? { nextDecisionAt: new Date(now.getTime() + error.retryAfterMs) }
+              : {}),
+          })
           .where(eq(botControllers.userId, userId));
-        return { action: evaluation.type, reason: evaluation.reason, hasProgress: false };
-      } else {
-        // Goal still in progress — determine next step
-        const step = await determineNextStep(
-          state,
-          profile,
-          controller.activeGoalType,
-          controller.activeGoalTarget
-        );
-        hasProgress = step.type === 'success';
-        return { action: step.type, reason: step.reason, hasProgress };
+        return { action: error.kind, reason: error.message, hasProgress: false };
       }
+    }
+
+    if (step.type === 'blocked') {
+      const blockedCount = currentBlockedCount + 1;
+      if (blockedCount >= MAX_BLOCKED_INTERVALS) {
+        await clearGoal();
+        return {
+          action: 'blocked',
+          reason: `${step.reason}; goal released after ${MAX_BLOCKED_INTERVALS} blocked intervals`,
+          hasProgress: false,
+        };
+      }
+      await db
+        .update(botControllers)
+        .set({ ...baseGoalUpdate, blockedCount })
+        .where(eq(botControllers.userId, userId));
+      return { action: 'blocked', reason: step.reason, hasProgress: false };
+    }
+
+    await db
+      .update(botControllers)
+      .set({ ...baseGoalUpdate, blockedCount: 0 })
+      .where(eq(botControllers.userId, userId));
+    return { action: step.type, reason: step.reason, hasProgress: false };
+  };
+
+  // 1. Urgent maintenance uses the regular dispatcher and consumes this interval's action.
+  const maintenance = await checkUrgentMaintenance(state, profile, {});
+  if (maintenance?.type === 'success') {
+    try {
+      await executeBotIntent(userId, maintenance.intent, now);
+      return { action: maintenance.intent.type, reason: maintenance.reason, hasProgress: true };
+    } catch (error) {
+      if (!(error instanceof BotIntentRejected)) throw error;
+      return { action: error.kind, reason: error.message, hasProgress: false };
     }
   }
 
-  // 3. Select new goal if no active goal
-  const activeGoal = controller.activeGoalType
-    ? { goalType: controller.activeGoalType, targetRef: controller.activeGoalTarget! }
-    : null;
-  const selection = await selectGoalForState(state, profile, activeGoal);
+  // 2. Continue an active goal. Waiting and saving are valid persistent states.
+  if (controller.activeGoalType && controller.activeGoalTarget) {
+    const activeStep = await determineNextStep(
+      state,
+      profile,
+      controller.activeGoalType,
+      controller.activeGoalTarget
+    );
+
+    if (activeStep.type === 'complete') {
+      await clearGoal();
+    } else {
+      // Apply hysteresis only when the active goal is still a generated candidate. A running
+      // mission may temporarily disappear from generators and must stay bound.
+      if (activeStep.type !== 'waiting' && activeStep.type !== 'blocked') {
+        const selection = await selectGoalForState(state, profile, {
+          goalType: controller.activeGoalType,
+          targetRef: controller.activeGoalTarget,
+        });
+        if (
+          selection.activeCandidateFound &&
+          selection.selected &&
+          (selection.selected.goalType !== controller.activeGoalType ||
+            selection.selected.targetRef !== controller.activeGoalTarget)
+        ) {
+          const selectedStep = await determineNextStep(
+            state,
+            profile,
+            selection.selected.goalType,
+            selection.selected.targetRef
+          );
+          return applyStep(
+            selection.selected.goalType,
+            selection.selected.targetRef,
+            selectedStep,
+            true,
+            0
+          );
+        }
+      }
+      return applyStep(
+        controller.activeGoalType,
+        controller.activeGoalTarget,
+        activeStep,
+        false,
+        controller.blockedCount
+      );
+    }
+  }
+
+  // 3. Select and persist a new goal, including saving or waiting first steps.
+  const selection = await selectGoalForState(state, profile, null);
 
   if (!selection.selected) {
     return { action: 'wait', reason: selection.reason, hasProgress: false };
@@ -123,22 +223,7 @@ async function handleGoalV1(
     selection.selected.targetRef
   );
 
-  if (step.type === 'success') {
-    // Goal was just selected — set it
-    await db
-      .update(botControllers)
-      .set({
-        activeGoalType: selection.selected.goalType,
-        activeGoalTarget: selection.selected.targetRef,
-        goalStartedAt: now,
-        blockedCount: 0,
-        updatedAt: now,
-      })
-      .where(eq(botControllers.userId, userId));
-    hasProgress = true;
-  }
-
-  return { action: step.type, reason: step.reason, hasProgress };
+  return applyStep(selection.selected.goalType, selection.selected.targetRef, step, true, 0);
 }
 
 export async function runBotDecisionTick(now = new Date()): Promise<void> {
@@ -188,7 +273,7 @@ export async function runBotDecisionTick(now = new Date()): Promise<void> {
       lastReason: reason.slice(0, 255),
       updatedAt: now,
     };
-    if (hasProgress || (action !== 'wait' && action !== 'blocked' && !action.endsWith('_failed'))) {
+    if (hasProgress) {
       updates['lastProgressAt'] = now;
     }
     await db.update(botControllers).set(updates).where(eq(botControllers.userId, bot.userId));

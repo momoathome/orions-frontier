@@ -22,9 +22,10 @@ Bot -> Entscheidung -------+
 - Ohne gültige Aktion wartet der Bot ohne Ausgleich.
 - Ein atomarer Claim auf `nextDecisionAt` verhindert doppelte Entscheidungen.
 
-Der persistente Controller speichert nur Benutzer, Strategie, nächsten Entscheidungszeitpunkt und
-die letzte Entscheidung. Snapshots, Aktionsqueues, Ziel-JSON, Behavior Trees und ein eigener
-Bot-Prozess sind nicht erforderlich.
+Der persistente Controller speichert Benutzer, Strategie, Profil, den nächsten
+Entscheidungszeitpunkt, ein kompaktes aktives Ziel, den Blockadezähler und die letzte Entscheidung.
+Snapshots, Aktionsqueues, Ziel-JSON, Behavior Trees und ein eigener Bot-Prozess sind nicht
+erforderlich.
 
 ## Strategie `goal_v1`
 
@@ -64,6 +65,7 @@ jeweiligen Spielstil.
 
 Ein aktives Ziel bleibt gebunden, bis ein anderes Ziel mindestens 25 % höher bewertet wird,
 das Ziel abgeschlossen ist oder fünf aufeinanderfolgende Entscheidungsintervalle `blocked` waren.
+`saving` und `waiting` behalten das Ziel und gelten nicht als Fortschritt oder Blockade.
 
 ### Mehrere Stationen
 
@@ -94,14 +96,15 @@ Eine neue Bot-Fähigkeit kommt erst hinzu, wenn:
 4. der Bot denselben Service ohne Sonderregeln aufrufen kann.
 
 Weitere Strategien, Handel, Betriebskosten und Diplomatie bleiben bis zu einem konkreten
-spielerischen Bedarf aus. Kampf, Bergung, Forschung, Exploration und Kolonisation sind bereits
-Spielermechaniken, werden von `economic_v1` aber bewusst noch nicht ausgewählt.
+spielerischen Bedarf aus. `goal_v1` kann Wirtschaft, Forschung, Exploration, Kolonisation, Kampf
+und Bergung über die jeweiligen Spieler-Services ausführen.
 
 ## Verbindliche Prüfungen
 
 - Bots können fremdes Eigentum und Sichtbarkeitsregeln nicht umgehen.
 - Parallele Ticks erzeugen höchstens eine Entscheidung.
 - Neustarts holen überfällige Entscheidungen genau einmal nach.
-- Bot-Mining, Bau und Upgrades verwenden dieselben Daten und Kosten wie Spieleraktionen.
+- Bot-Mining, Bau, Upgrades, Forschung, Weltmissionen, Kampf und Bergung verwenden dieselben Daten
+  und Kosten wie Spieleraktionen.
 - Ressourcen entstehen nur aus Startausstattung und regulären Lieferungen.
 - Öffentliche Weltantworten enthalten keine privaten Wirtschaftsdaten.

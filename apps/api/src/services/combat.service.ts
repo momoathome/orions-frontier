@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, or, sql } from 'drizzle-orm';
 import {
   AppError,
   defenseUpgradeKeys,
@@ -192,12 +192,20 @@ export async function startAttack(params: {
   return toReport(mission.mission, mission.defenderUserId);
 }
 
-export async function getUserCombatReports(userId: string): Promise<CombatReport[]> {
+export async function getUserCombatReports(
+  userId: string,
+  options: { since?: Date } = {}
+): Promise<CombatReport[]> {
   const rows = await getDb()
     .select({ mission: combatMissions, defenderUserId: stations.userId })
     .from(combatMissions)
     .innerJoin(stations, eq(combatMissions.defenderStationId, stations.id))
-    .where(or(eq(combatMissions.userId, userId), eq(stations.userId, userId)))
+    .where(
+      and(
+        or(eq(combatMissions.userId, userId), eq(stations.userId, userId)),
+        options.since ? gte(combatMissions.createdAt, options.since) : undefined
+      )
+    )
     .orderBy(desc(combatMissions.createdAt));
   return rows.map(({ mission, defenderUserId }) => toReport(mission, defenderUserId));
 }

@@ -288,6 +288,8 @@ als Bericht und werden erst nach belastbaren Baselines zu Testgrenzen.
 
 Die konkreten, einzeln abnehmbaren Arbeitspakete für Schritt 1 stehen im
 [Ticketpaket für glaubwürdige Bewohner](./goal-driven-bots-step-1-tickets.md).
+Die Nachbesserungen der ersten Implementierung und ihre Abnahmekriterien stehen im
+[Fix- und Reviewplan für Schritt 1](./goal-driven-bots-step-1-fix-plan.md).
 
 1. Sofortübernahme und die ausschließlich dafür vorhandene Einflusslogik entfernen.
 2. Accountweiten Schutz junger Stationen im gemeinsamen Angriffs-Service ergänzen.
