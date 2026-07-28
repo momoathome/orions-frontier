@@ -30,9 +30,10 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1_000);
   const [attacker, defender, sector] = await Promise.all([
-    createTestUser(),
-    createTestUser(),
+    createTestUser({ createdAt: oldDate }),
+    createTestUser({ createdAt: oldDate }),
     createTestSector(),
   ]);
   attackerUserId = attacker.id;
@@ -227,6 +228,217 @@ test('debris can be salvaged and combat does not change station ownership', asyn
     .from(stations)
     .where(eq(stations.id, defenderStationId));
   assert.equal(defenderStation?.userId, defenderUserId);
+});
+
+test('attack on a young protected account is rejected', async () => {
+  const young = await createTestUser();
+  const youngStation = await createTestStation({
+    userId: young.id,
+    sectorId,
+    name: 'Young',
+    x: 2,
+  });
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 3 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, youngStation.id),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
+
+  const now = new Date(young.createdAt.getTime() + 1_000);
+  await assert.rejects(
+    startAttack({
+      userId: attackerUserId,
+      stationId: attackerStationId,
+      targetStationId: youngStation.id,
+      spacecraftKey: 'merlin',
+      amount: 1,
+      now,
+    }),
+    /protected from attacks/
+  );
+
+  // Cleanup: attack was rejected, no trip/mission created
+  await getDb().delete(stationResources).where(eq(stationResources.stationId, youngStation.id));
+  await getDb().delete(stationBuildings).where(eq(stationBuildings.stationId, youngStation.id));
+  await getDb().delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, youngStation.id));
+  await getDb().delete(stations).where(eq(stations.id, youngStation.id));
+  await getDb().delete(users).where(eq(users.id, young.id));
+});
+
+test('attack on an account older than 24 hours is allowed', async () => {
+  const oldUser = await createTestUser({
+    createdAt: new Date(Date.now() - 25 * 60 * 60 * 1_000),
+  });
+  const oldStation = await createTestStation({
+    userId: oldUser.id,
+    sectorId,
+    name: 'Old',
+    x: 2,
+  });
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 3 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, oldStation.id),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
+
+  const now = new Date(oldUser.createdAt.getTime() + 25 * 60 * 60 * 1_000 + 1_000);
+  const started = await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: oldStation.id,
+    spacecraftKey: 'merlin',
+    amount: 3,
+    now,
+  });
+  assert.equal(started.winner, null); // still traveling
+
+  // Resolve the combat
+  const [mission] = await getDb()
+    .select()
+    .from(combatMissions)
+    .where(eq(combatMissions.id, started.id));
+  const [outbound] = await getDb()
+    .select()
+    .from(spacecraftTrips)
+    .where(eq(spacecraftTrips.id, mission!.outboundTripId));
+  assert.equal(await settleTripArrival(outbound!), true);
+
+  const report = (await getUserCombatReports(attackerUserId)).find((r) => r.id === started.id);
+  assert.equal(report?.winner, 'attacker');
+
+  // Cleanup: missions first (FK to trips), then trips, then rest
+  await getDb().delete(combatMissions).where(eq(combatMissions.defenderStationId, oldStation.id));
+  const fleets = await getDb()
+    .select({ id: stationSpacecrafts.id })
+    .from(stationSpacecrafts)
+    .where(eq(stationSpacecrafts.stationId, oldStation.id));
+  await getDb()
+    .delete(spacecraftTrips)
+    .where(
+      inArray(
+        spacecraftTrips.stationSpacecraftId,
+        fleets.map((f) => f.id)
+      )
+    );
+  await getDb().delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, oldStation.id));
+  await getDb().delete(stationResources).where(eq(stationResources.stationId, oldStation.id));
+  await getDb().delete(stationBuildings).where(eq(stationBuildings.stationId, oldStation.id));
+  await getDb().delete(stations).where(eq(stations.id, oldStation.id));
+  await getDb().delete(users).where(eq(users.id, oldUser.id));
+});
+
+test('attack protection is broken after the first own attack', async () => {
+  // Create a young defender and an old defender
+  const youngDefender = await createTestUser();
+  const youngStation = await createTestStation({
+    userId: youngDefender.id,
+    sectorId,
+    name: 'YoungDef',
+    x: 2,
+  });
+  // Give youngDefender a mole and a fighter
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 3 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, youngStation.id),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
+  // Station only has 'mole' from seeding; add 'javelin' as fighter
+  await getDb().insert(stationSpacecrafts).values({
+    stationId: youngStation.id,
+    spacecraftKey: 'javelin',
+    amount: 2,
+  });
+
+  const oldDefender = await createTestUser({
+    createdAt: new Date(Date.now() - 25 * 60 * 60 * 1_000),
+  });
+  const oldStation = await createTestStation({
+    userId: oldDefender.id,
+    sectorId,
+    name: 'OldDef',
+    x: 3,
+  });
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 3 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, oldStation.id),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
+
+  // Before youngDefender's first attack, they should be protected
+  const now = new Date(youngDefender.createdAt.getTime() + 1_000);
+  await assert.rejects(
+    startAttack({
+      userId: attackerUserId,
+      stationId: attackerStationId,
+      targetStationId: youngStation.id,
+      spacecraftKey: 'merlin',
+      amount: 1,
+      now,
+    }),
+    /protected from attacks/
+  );
+
+  // Young defender launches their first attack (against the old station)
+  await startAttack({
+    userId: youngDefender.id,
+    stationId: youngStation.id,
+    targetStationId: oldStation.id,
+    spacecraftKey: 'javelin',
+    amount: 1,
+    now,
+  });
+
+  // After youngDefender's first attack, protection is broken → now attackable
+  await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: youngStation.id,
+    spacecraftKey: 'merlin',
+    amount: 1,
+    now,
+  });
+
+  // Cleanup: delete missions first (FK to trips), then trips, then stations
+  await getDb()
+    .delete(combatMissions)
+    .where(inArray(combatMissions.defenderStationId, [oldStation.id, youngStation.id]));
+  for (const stationId of [oldStation.id, youngStation.id]) {
+    const fleets = await getDb()
+      .select({ id: stationSpacecrafts.id })
+      .from(stationSpacecrafts)
+      .where(eq(stationSpacecrafts.stationId, stationId));
+    await getDb()
+      .delete(spacecraftTrips)
+      .where(
+        inArray(
+          spacecraftTrips.stationSpacecraftId,
+          fleets.map((f) => f.id)
+        )
+      );
+    await getDb().delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
+    await getDb().delete(stationResources).where(eq(stationResources.stationId, stationId));
+    await getDb().delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
+    await getDb().delete(stations).where(eq(stations.id, stationId));
+  }
+  await getDb()
+    .delete(users)
+    .where(inArray(users.id, [youngDefender.id, oldDefender.id]));
 });
 
 async function resolveAttack() {

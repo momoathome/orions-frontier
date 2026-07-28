@@ -11,4 +11,5 @@ export const users = pgTable('users', {
   status: varchar('status', { length: 20 }).notNull().default('active'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  attackProtectionBrokenAt: timestamp('attack_protection_broken_at'),
 });

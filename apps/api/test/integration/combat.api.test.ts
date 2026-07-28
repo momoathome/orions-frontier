@@ -27,9 +27,10 @@ let headers: ReturnType<typeof authHeaders>;
 before(async () => {
   await runMigrations();
   await initDb();
+  const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1_000);
   const [attacker, defender, sector] = await Promise.all([
-    createTestUser(),
-    createTestUser(),
+    createTestUser({ createdAt: oldDate }),
+    createTestUser({ createdAt: oldDate }),
     createTestSector(),
   ]);
   attackerUserId = attacker.id;

@@ -6,7 +6,11 @@ import {
   type CombatReport,
   type DefenseUpgradeKey,
 } from '@orions-frontier/shared';
-import { calculateBuildingEffect, getSpacecraft } from '@orions-frontier/game-config';
+import {
+  calculateBuildingEffect,
+  getSpacecraft,
+  ATTACK_PROTECTION_DURATION_MS,
+} from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
 import { combatMissions } from '../lib/db/schema/combat-missions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
@@ -14,6 +18,7 @@ import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
+import { users } from '../lib/db/schema/users.js';
 import { calcArrivesAt, calcDistance } from '../lib/travel.js';
 import { createDebrisFromLosses } from './salvage.service.js';
 import { getUserScannerCoverages, isPointVisible } from './scanner-visibility.service.js';
@@ -43,6 +48,7 @@ export async function startAttack(params: {
   targetStationId: string;
   spacecraftKey: string;
   amount: number;
+  now?: Date;
 }): Promise<CombatReport> {
   if (!Number.isInteger(params.amount) || params.amount < 1) {
     throw new AppError(ErrorCode.VALIDATION_ERROR, 'Amount must be a positive integer');
@@ -50,7 +56,7 @@ export async function startAttack(params: {
   const db = getDb();
   const mission = await db.transaction(async (tx) => {
     const [attacker] = await tx
-      .select({ id: stations.id, x: stations.x, y: stations.y })
+      .select({ id: stations.id, userId: stations.userId, x: stations.x, y: stations.y })
       .from(stations)
       .where(and(eq(stations.id, params.stationId), eq(stations.userId, params.userId)))
       .for('update');
@@ -66,6 +72,35 @@ export async function startAttack(params: {
     const coverages = await getUserScannerCoverages(params.userId, tx);
     if (!isPointVisible(coverages, defender)) {
       throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
+    }
+
+    // Lock both user rows in stable ID order to prevent deadlocks
+    const now = params.now ?? new Date();
+    const defenderUserId = defender.userId;
+    const sortedIds = [params.userId, defenderUserId].sort();
+    const [userA, userB] = await Promise.all([
+      tx
+        .select()
+        .from(users)
+        .where(eq(users.id, sortedIds[0]!))
+        .for('update')
+        .then((rows) => rows[0]),
+      tx
+        .select()
+        .from(users)
+        .where(eq(users.id, sortedIds[1]!))
+        .for('update')
+        .then((rows) => rows[0]),
+    ]);
+    const attUser = sortedIds[0] === params.userId ? userA : userB;
+    const defUser = sortedIds[0] === defenderUserId ? userA : userB;
+
+    // Check if defender is still protected
+    if (defUser) {
+      const protectionEnd = new Date(defUser.createdAt.getTime() + ATTACK_PROTECTION_DURATION_MS);
+      if (now < protectionEnd && !defUser.attackProtectionBrokenAt) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target account is protected from attacks');
+      }
     }
 
     const [fleet] = await tx
@@ -101,6 +136,14 @@ export async function startAttack(params: {
       )
       .returning({ id: stationSpacecrafts.id });
     if (!locked) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Not enough spacecraft available');
+
+    // Mark attacker's protection as broken if still active
+    if (attUser && !attUser.attackProtectionBrokenAt) {
+      await tx
+        .update(users)
+        .set({ attackProtectionBrokenAt: now })
+        .where(eq(users.id, params.userId));
+    }
 
     const departedAt = new Date();
     const arrivesAt = calcArrivesAt(departedAt, calcDistance(attacker, defender), spacecraft.speed);

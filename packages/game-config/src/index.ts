@@ -1,4 +1,4 @@
-export { COLONIZATION_COST, resources } from './resources.js';
+export { COLONIZATION_COST, ATTACK_PROTECTION_DURATION_MS, resources } from './resources.js';
 export { getSpacecraft, spacecrafts } from './spacecrafts.js';
 export type { SpacecraftSeedDefinition } from './spacecrafts.js';
 export {

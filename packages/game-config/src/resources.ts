@@ -38,3 +38,6 @@ export const COLONIZATION_COST = {
   titanium: 1_500,
   hydrogenium: 750,
 } as const satisfies Partial<Record<ResourceKey, number>>;
+
+/** Duration in milliseconds before a new account loses its attack protection. */
+export const ATTACK_PROTECTION_DURATION_MS = 24 * 60 * 60 * 1_000;
