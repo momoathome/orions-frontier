@@ -7,6 +7,8 @@ import { PROFILE_PARAMS } from './bot-profiles.js';
 
 export type GoalCategory = 'economy' | 'research' | 'expansion' | 'conflict';
 
+export type { GoalType } from '../../lib/db/schema/bot-controllers.js';
+
 /** Maps each goal type to its strategic category. */
 export const GOAL_CATEGORY: Record<GoalType, GoalCategory> = {
   stabilize_station: 'economy',

@@ -8,7 +8,12 @@ import { buildSpacecrafts } from '../spacecraft.service.js';
 import { loadEconomicBotState } from './bot-state.service.js';
 import { decideEconomicAction } from './economic-v1.js';
 import { loadGoalBotState } from './goal-loader.service.js';
-import { checkUrgentMaintenance, evaluateActiveGoal } from './goal-lifecycle.service.js';
+import {
+  checkUrgentMaintenance,
+  evaluateActiveGoal,
+  determineNextStep,
+  selectGoalForState,
+} from './goal-lifecycle.service.js';
 import type { BotIntent } from './economic-v1.js';
 
 const logger = rootLogger.child({ name: 'bots' });
@@ -60,14 +65,15 @@ async function handleEconomicV1(userId: string) {
 
 async function handleGoalV1(
   userId: string,
-  _now: Date
-): Promise<{ action: string; reason: string }> {
+  now: Date
+): Promise<{ action: string; reason: string; hasProgress: boolean }> {
   const state = await loadGoalBotState(userId);
   if (!state || state.ownStations.length === 0) {
-    return { action: 'wait', reason: 'Bot has no station' };
+    return { action: 'wait', reason: 'Bot has no station', hasProgress: false };
   }
 
-  const controller = await getDb()
+  const db = getDb();
+  const controller = await db
     .select({
       profile: botControllers.profile,
       activeGoalType: botControllers.activeGoalType,
@@ -80,51 +86,98 @@ async function handleGoalV1(
     .where(eq(botControllers.userId, userId))
     .limit(1)
     .then((rows) => rows[0]);
-  if (!controller) return { action: 'wait', reason: 'No controller' };
+  if (!controller) return { action: 'wait', reason: 'No controller', hasProgress: false };
 
   const profile = controller.profile as import('../../lib/db/schema/bot-controllers.js').BotProfile;
 
-  // 1. Urgent maintenance
-  const maintenance = checkUrgentMaintenance(state, profile, {});
+  // 1. Urgent maintenance (before goal step)
+  const maintenance = await checkUrgentMaintenance(state, profile, {});
   if (maintenance) {
-    return { action: maintenance.type, reason: maintenance.reason };
+    return { action: maintenance.type, reason: maintenance.reason, hasProgress: true };
   }
+
+  let hasProgress = false;
 
   // 2. Evaluate active goal
   if (controller.activeGoalType && controller.activeGoalTarget) {
-    const evaluation = evaluateActiveGoal(
+    const evaluation = await evaluateActiveGoal(
       state,
       controller.activeGoalType,
       controller.activeGoalTarget,
       controller.goalStartedAt,
       controller.lastProgressAt,
       controller.blockedCount,
-      false // hasProgressThisTick — GB-12+ will set this
+      false
     );
 
     if (evaluation) {
-      if (evaluation.type === 'complete' || evaluation.type === 'blocked') {
-        // Clear goal or increment blocked count
-        const updates: Record<string, unknown> = {};
-        if (evaluation.type === 'complete') {
-          updates['activeGoalType'] = null;
-          updates['activeGoalTarget'] = null;
-          updates['goalStartedAt'] = null;
-          updates['blockedCount'] = 0;
-        } else {
-          updates['blockedCount'] = controller.blockedCount + 1;
-        }
-        await getDb().update(botControllers).set(updates).where(eq(botControllers.userId, userId));
+      if (evaluation.type === 'complete') {
+        // Goal completed or released — clear it
+        await db
+          .update(botControllers)
+          .set({
+            activeGoalType: null,
+            activeGoalTarget: null,
+            goalStartedAt: null,
+            blockedCount: 0,
+            updatedAt: now,
+          })
+          .where(eq(botControllers.userId, userId));
+        // Fall through to select a new goal
+      } else if (evaluation.type === 'blocked') {
+        await db
+          .update(botControllers)
+          .set({ blockedCount: controller.blockedCount + 1, updatedAt: now })
+          .where(eq(botControllers.userId, userId));
+        return { action: evaluation.type, reason: evaluation.reason, hasProgress: false };
+      } else {
+        // Goal still in progress — determine next step
+        const step = await determineNextStep(
+          state,
+          profile,
+          controller.activeGoalType,
+          controller.activeGoalTarget
+        );
+        hasProgress = step.type === 'success';
+        return { action: step.type, reason: step.reason, hasProgress };
       }
-      return { action: evaluation.type, reason: evaluation.reason };
     }
   }
 
-  // 3. No active goal or current goal is in progress — determine next step
-  // GB-12+ will generate candidates and call selectGoal from goal-driven-v1
-  // For now, return a placeholder
+  // 3. Select new goal if no active goal
+  const activeGoal = controller.activeGoalType
+    ? { goalType: controller.activeGoalType, targetRef: controller.activeGoalTarget! }
+    : null;
+  const selection = selectGoalForState(state, profile, activeGoal);
 
-  return { action: 'wait', reason: 'Goal system active — awaiting generators (GB-12+)' };
+  if (!selection.selected) {
+    return { action: 'wait', reason: selection.reason, hasProgress: false };
+  }
+
+  // 4. Execute the next step toward the selected goal
+  const step = await determineNextStep(
+    state,
+    profile,
+    selection.selected.goalType,
+    selection.selected.targetRef
+  );
+
+  if (step.type === 'success') {
+    // Goal was just selected — set it
+    await db
+      .update(botControllers)
+      .set({
+        activeGoalType: selection.selected.goalType,
+        activeGoalTarget: selection.selected.targetRef,
+        goalStartedAt: now,
+        blockedCount: 0,
+        updatedAt: now,
+      })
+      .where(eq(botControllers.userId, userId));
+    hasProgress = true;
+  }
+
+  return { action: step.type, reason: step.reason, hasProgress };
 }
 
 export async function runBotDecisionTick(now = new Date()): Promise<void> {
@@ -147,6 +200,7 @@ export async function runBotDecisionTick(now = new Date()): Promise<void> {
 
     let action = 'wait';
     let reason = 'Bot has no station';
+    let hasProgress = false;
     let errorMessage: string | null = null;
     try {
       if (claimed.strategy === 'economic_v1') {
@@ -157,6 +211,7 @@ export async function runBotDecisionTick(now = new Date()): Promise<void> {
         const r = await handleGoalV1(bot.userId, now);
         action = r.action;
         reason = r.reason;
+        hasProgress = r.hasProgress;
       } else {
         action = 'wait';
         reason = `Unknown bot strategy: ${claimed.strategy}`;
@@ -176,7 +231,7 @@ export async function runBotDecisionTick(now = new Date()): Promise<void> {
       lastReason: reason.slice(0, 255),
       updatedAt: now,
     };
-    if (action !== 'wait' && action !== 'blocked' && !action.endsWith('_failed')) {
+    if (hasProgress || (action !== 'wait' && action !== 'blocked' && !action.endsWith('_failed'))) {
       updates['lastProgressAt'] = now;
     }
     await db.update(botControllers).set(updates).where(eq(botControllers.userId, bot.userId));
