@@ -17,6 +17,13 @@ import type { GoalCandidate } from './goal-driven-v1.js';
 import type { GoalResult } from './goal-lifecycle.service.js';
 import { GOAL_CATEGORY } from './goal-driven-v1.js';
 import { getFrontierTargets, getKnownSectors } from '../world-mission.service.js';
+import {
+  calculateHostility,
+  calculateReserve,
+  estimateDefenseScore,
+  availableOffensivePower,
+  scoreConflictTarget,
+} from './conflict-intel.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1214,6 +1221,497 @@ export async function stepBuildStrikeForce(
     type: 'success',
     actionLabel: `build_spacecrafts:${station.id}:${best.key}:1`,
     reason: `Building 1 ${best.key} (attack ${best.attack}, crew ${getSpacecraft(best.key)?.crew})`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Raid & Retaliate
+// ---------------------------------------------------------------------------
+
+/** Safety margins on estimated target defense per profile (GB-17). */
+const SAFETY_MARGIN: Record<BotProfile, number> = {
+  industrialist: 1.4,
+  pioneer: 1.3,
+  technocrat: 1.25,
+  warlord: 1.15,
+};
+
+/** Cooldown durations in ms. */
+const COOLDOWN_WIN_MS = 6 * 3_600_000;
+const COOLDOWN_LOSS_MS = 24 * 3_600_000;
+const COOLDOWN_RETRY_RETALIATION_MS = 1 * 3_600_000;
+
+/** Find the smallest fighter group that can exceed required attack power. */
+function smallestSufficientGroup(
+  station: StationSnapshot,
+  requiredAttack: number
+): { spacecraftKey: string; amount: number; totalAttack: number } | null {
+  const fighters = station.fleets
+    .filter((f) => {
+      const sc = getSpacecraft(f.spacecraftKey);
+      return sc?.role === 'fighter' && f.amount - f.lockedAmount > 0;
+    })
+    .map((f) => ({
+      spacecraftKey: f.spacecraftKey,
+      available: f.amount - f.lockedAmount,
+      attackPerShip: getSpacecraft(f.spacecraftKey)?.attack ?? 0,
+    }))
+    .filter((f) => f.attackPerShip > 0)
+    .sort((a, b) => a.attackPerShip - b.attackPerShip);
+
+  if (fighters.length === 0) return null;
+
+  for (const f of fighters) {
+    const needed = Math.ceil(requiredAttack / f.attackPerShip);
+    const amount = Math.min(needed, f.available);
+    if (amount >= 1) {
+      return { spacecraftKey: f.spacecraftKey, amount, totalAttack: amount * f.attackPerShip };
+    }
+  }
+
+  return null;
+}
+
+/** Check if this station has attacked the given owner recently (cooldown). */
+function hasCooldown(
+  _station: StationSnapshot,
+  state: GoalBotState,
+  ownerId: string,
+  now: Date
+): { onCooldown: boolean; reason?: string } {
+  const relevant = state.combatReports.filter(
+    (r) =>
+      (r.attackerUserId === state.userId || r.defenderUserId === state.userId) &&
+      (r.attackerUserId === ownerId || r.defenderUserId === ownerId)
+  );
+  if (relevant.length === 0) return { onCooldown: false };
+
+  const last = relevant.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )[0]!;
+
+  const elapsed = now.getTime() - new Date(last.createdAt).getTime();
+  const isAttacker = last.attackerUserId === state.userId;
+
+  if (isAttacker && last.winner === 'attacker') {
+    if (elapsed < COOLDOWN_WIN_MS) {
+      return {
+        onCooldown: true,
+        reason: `Cooldown after won attack (${Math.round((COOLDOWN_WIN_MS - elapsed) / 60_000)}min remaining)`,
+      };
+    }
+  } else if (isAttacker && last.winner !== 'attacker') {
+    if (elapsed < COOLDOWN_LOSS_MS) {
+      return {
+        onCooldown: true,
+        reason: `Cooldown after lost attack (${Math.round((COOLDOWN_LOSS_MS - elapsed) / 60_000)}min remaining)`,
+      };
+    }
+  } else if (!isAttacker) {
+    const hasRetaliated = relevant.some(
+      (r) => r.attackerUserId === state.userId && r.defenderUserId === ownerId
+    );
+    if (hasRetaliated && elapsed < COOLDOWN_WIN_MS) {
+      return { onCooldown: true, reason: `Already retaliated recently` };
+    }
+    if (elapsed < COOLDOWN_RETRY_RETALIATION_MS) {
+      return {
+        onCooldown: true,
+        reason: `Recent attack, waiting for retaliation window (${Math.round((COOLDOWN_RETRY_RETALIATION_MS - elapsed) / 60_000)}min)`,
+      };
+    }
+  }
+
+  return { onCooldown: false };
+}
+
+/** Generate raid candidates for visible foreign stations. */
+export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile): GoalCandidate[] {
+  const candidates: GoalCandidate[] = [];
+  const now = new Date();
+  const hostility = calculateHostility(state.userId, state.combatReports, now);
+
+  for (const station of state.ownStations) {
+    const reserve = calculateReserve(
+      localFighterAttack(station),
+      _profile,
+      false,
+      !hasActiveMining(station)
+    );
+    const offensive = availableOffensivePower(localFighterAttack(station), reserve);
+    if (offensive <= 0) continue;
+
+    for (const target of state.visibleStations) {
+      if (target.isOwn) continue;
+      if (!target.visualProfile) continue;
+
+      const cooldown = hasCooldown(station, state, target.ownerId, now);
+      if (cooldown.onCooldown) continue;
+
+      const dist = Math.hypot(target.x - station.x, target.y - station.y);
+      const scored = scoreConflictTarget({
+        targetStationId: target.id,
+        ownerId: target.ownerId,
+        distance: dist,
+        visualProfile: target.visualProfile,
+        hostilityScore: hostility,
+        profile: _profile,
+        ownAttackPower: offensive,
+        botUserId: state.userId,
+      });
+      if (scored.score <= 0) continue;
+
+      candidates.push({
+        goalType: 'raid',
+        category: GOAL_CATEGORY['raid'],
+        targetRef: `station:${target.id}`,
+        baseNeed: Math.min(scored.score, 100),
+        opportunity: scored.breakdown.lootValue,
+        longTermValue: Math.round(scored.breakdown.retaliationValue / 2),
+        commitment: 0,
+        cost: Math.round(scored.breakdown.defensePenalty / 2),
+        risk: Math.round(scored.breakdown.defensePenalty),
+        blockers: 0,
+      });
+    }
+  }
+
+  return candidates;
+}
+
+/** Generate retaliation candidates from combat reports. */
+export function generateRetaliateCandidates(
+  state: GoalBotState,
+  _profile: BotProfile
+): GoalCandidate[] {
+  const candidates: GoalCandidate[] = [];
+  const now = new Date();
+
+  const attackerIds = new Set<string>();
+  for (const report of state.combatReports) {
+    if (report.defenderUserId === state.userId) {
+      attackerIds.add(report.attackerUserId);
+    }
+  }
+
+  for (const station of state.ownStations) {
+    const reserve = calculateReserve(
+      localFighterAttack(station),
+      _profile,
+      true,
+      !hasActiveMining(station)
+    );
+    const offensive = availableOffensivePower(localFighterAttack(station), reserve);
+    if (offensive <= 0) continue;
+
+    for (const ownerId of attackerIds) {
+      const target = state.visibleStations.find((s) => s.ownerId === ownerId && !s.isOwn);
+      if (!target) continue;
+
+      const cooldown = hasCooldown(station, state, ownerId, now);
+      if (cooldown.onCooldown) continue;
+
+      const dist = Math.hypot(target.x - station.x, target.y - station.y);
+      const hostility = calculateHostility(state.userId, state.combatReports, now);
+      const scored = scoreConflictTarget({
+        targetStationId: target.id,
+        ownerId: target.ownerId,
+        distance: dist,
+        visualProfile: target.visualProfile,
+        hostilityScore: hostility,
+        profile: _profile,
+        ownAttackPower: offensive,
+        botUserId: state.userId,
+      });
+
+      candidates.push({
+        goalType: 'retaliate',
+        category: GOAL_CATEGORY['retaliate'],
+        targetRef: `user:${ownerId}`,
+        baseNeed: Math.min(scored.score + 20, 100),
+        opportunity: scored.breakdown.lootValue,
+        longTermValue: 50,
+        commitment: 0,
+        cost: Math.round(scored.breakdown.defensePenalty / 2),
+        risk: Math.round(scored.breakdown.defensePenalty),
+        blockers: 0,
+      });
+    }
+  }
+
+  return candidates;
+}
+
+/** Execute a raid against a visible target station. */
+export async function stepRaid(
+  _state: GoalBotState,
+  station: StationSnapshot,
+  targetRef: string,
+  profile: BotProfile
+): Promise<GoalResult> {
+  const parts = targetRef.split(':');
+  const targetStationId = parts[1]!;
+
+  const attackPower = localFighterAttack(station);
+  if (attackPower <= 0) {
+    return {
+      type: 'blocked',
+      detail: 'no_fighters',
+      reason: `No fighter attack power at ${station.name}`,
+    };
+  }
+
+  const target = _state.visibleStations.find((s) => s.id === targetStationId);
+  if (!target) {
+    return {
+      type: 'blocked',
+      detail: 'target_not_visible',
+      reason: `Target station ${targetStationId} not visible`,
+    };
+  }
+
+  const estimatedDefense = estimateDefenseScore(target.visualProfile);
+  const margin = SAFETY_MARGIN[profile];
+  const requiredAttack = Math.round(estimatedDefense * margin);
+
+  const reserve = calculateReserve(attackPower, profile, false, !hasActiveMining(station));
+  const offensive = availableOffensivePower(attackPower, reserve);
+  if (offensive <= 0) {
+    return {
+      type: 'blocked',
+      detail: 'no_offensive_power',
+      reason: `All ${attackPower} attack power reserved (need ${reserve} reserve)`,
+    };
+  }
+
+  const group = smallestSufficientGroup(station, requiredAttack);
+  if (!group || group.totalAttack > offensive) {
+    return {
+      type: 'saving',
+      detail: 'needs_more_fighters',
+      reason: `Need ${requiredAttack} attack to breach ${estimatedDefense} defense, have ${offensive} offensive power`,
+    };
+  }
+
+  return {
+    type: 'success',
+    actionLabel: `start_attack:${station.id}:${targetStationId}:${group.spacecraftKey}:${group.amount}`,
+    reason: `Attacking ${target.name || targetStationId} with ${group.amount}x ${group.spacecraftKey} (${group.totalAttack} attack vs est. ${estimatedDefense} defense)`,
+  };
+}
+
+/** Execute a retaliation against a known attacker. */
+export async function stepRetaliate(
+  _state: GoalBotState,
+  station: StationSnapshot,
+  targetRef: string,
+  profile: BotProfile
+): Promise<GoalResult> {
+  const parts = targetRef.split(':');
+  const ownerId = parts[1]!;
+
+  const target = _state.visibleStations.find((s) => s.ownerId === ownerId && !s.isOwn);
+  if (!target) {
+    return {
+      type: 'blocked',
+      detail: 'retaliate_target_not_visible',
+      reason: `No visible station for attacker ${ownerId}`,
+    };
+  }
+
+  return stepRaid(_state, station, `station:${target.id}`, profile);
+}
+
+// ---------------------------------------------------------------------------
+// Salvage
+// ---------------------------------------------------------------------------
+
+const COLLECTOR_KEY = 'collector';
+const COLLECTOR_COST = getSpacecraft(COLLECTOR_KEY)?.costs ?? [];
+const PAYBACK_THRESHOLD = 1.25;
+
+/** Resource preference weights for valuing salvage cargo. */
+const RESOURCE_WEIGHT: Record<string, number> = {
+  carbon: 1.0,
+  titanium: 1.2,
+  hydrogenium: 1.5,
+  kyber_crystal: 2.0,
+  astatine: 3.0,
+};
+
+/** Estimate the total resource value of a debris field using preference weights. */
+function debrisValue(resources: Record<string, number>): number {
+  return Object.entries(resources).reduce(
+    (sum, [key, amount]) => sum + amount * (RESOURCE_WEIGHT[key] ?? 0.5),
+    0
+  );
+}
+
+/** Find the best visible asteroid for a station's mining comparison. */
+function bestMiningRate(state: GoalBotState, station: StationSnapshot): number {
+  const bestAsteroid = state.visibleAsteroids
+    .filter((a) => a.remainingAmount > 0)
+    .map((a) => ({
+      asteroid: a,
+      dist: Math.hypot(a.x - station.x, a.y - station.y),
+    }))
+    .sort((a, b) => a.dist - b.dist || a.asteroid.id.localeCompare(b.asteroid.id))[0];
+  if (!bestAsteroid) return 0;
+
+  const mole = getSpacecraft('mole');
+  if (!mole) return 0;
+
+  const cycle = calculateMiningCycle({
+    distance: bestAsteroid.dist,
+    speed: mole.speed,
+    miningRate: mole.miningRate,
+    cargoCapacity: mole.cargo,
+    minerCount: 1,
+    remainingAmount: bestAsteroid.asteroid.remainingAmount,
+  });
+  return Math.round(cycle.totalDeliveryPerHour);
+}
+
+/** Generate salvage candidates for visible debris fields. */
+export function generateSalvageCandidates(
+  state: GoalBotState,
+  _profile: BotProfile
+): GoalCandidate[] {
+  const candidates: GoalCandidate[] = [];
+  const stationMap = new Map(state.ownStations.map((s) => [s.id, s]));
+
+  for (const debris of state.visibleDebris) {
+    if (debrisValue(debris.resources) <= 0) continue;
+
+    let bestStation: { id: string; netRate: number; dist: number } | null = null;
+
+    for (const station of state.ownStations) {
+      const dist = Math.hypot(debris.x - station.x, debris.y - station.y);
+
+      // Calculate effective cargo with research
+      const baseCargo = getSpacecraft(COLLECTOR_KEY)?.cargo ?? 250;
+      // Use base cargo for estimation (research effects checked at runtime)
+      const effectiveCargo = baseCargo;
+
+      // Travel time
+      const collectorSpeed = getSpacecraft(COLLECTOR_KEY)?.speed ?? 80;
+      const travelHours = (dist / (collectorSpeed * 60 * 60)) * 2; // round trip in hours
+      const tripsPerHour = travelHours > 0 ? 1 / travelHours : 0;
+      const hourlyValue = tripsPerHour * Math.min(debrisValue(debris.resources), effectiveCargo);
+
+      // Compare with mining
+      const miningRate = bestMiningRate(state, station);
+      const netRate = hourlyValue - miningRate;
+
+      if (
+        !bestStation ||
+        netRate > bestStation.netRate ||
+        (netRate === bestStation.netRate && dist < bestStation.dist)
+      ) {
+        bestStation = { id: station.id, netRate, dist };
+      }
+    }
+
+    if (!bestStation || bestStation.netRate <= 0) continue;
+
+    const station = stationMap.get(bestStation.id);
+    if (!station) continue;
+
+    const collector = station.fleets.find((f) => f.spacecraftKey === COLLECTOR_KEY);
+    const availableCollectors = collector ? collector.amount - collector.lockedAmount : 0;
+    const needsBuild = availableCollectors <= 0;
+    const hasCapacity = needsBuild ? canAfford(station, COLLECTOR_COST) : true;
+
+    const baseNeed = needsBuild ? 40 : 60;
+    candidates.push({
+      goalType: 'salvage',
+      category: GOAL_CATEGORY['salvage'],
+      targetRef: `debris:${debris.id}`,
+      baseNeed,
+      opportunity: Math.round(debrisValue(debris.resources) / 10),
+      longTermValue: 20,
+      commitment: 0,
+      cost: needsBuild ? 30 : 10,
+      risk: 15,
+      blockers: hasCapacity ? 0 : 40,
+    });
+  }
+
+  return candidates;
+}
+
+/** Execute a salvage operation on a visible debris field. */
+export async function stepSalvage(
+  _state: GoalBotState,
+  station: StationSnapshot,
+  targetRef: string,
+  _profile: BotProfile
+): Promise<GoalResult> {
+  const parts = targetRef.split(':');
+  const debrisId = parts[1]!;
+
+  // Check if debris is still visible
+  const debris = _state.visibleDebris.find((d) => d.id === debrisId);
+  if (!debris) {
+    return {
+      type: 'blocked',
+      detail: 'debris_gone',
+      reason: `Debris field ${debrisId} no longer visible`,
+    };
+  }
+
+  const collector = station.fleets.find((f) => f.spacecraftKey === COLLECTOR_KEY);
+  const availableCollectors = collector ? collector.amount - collector.lockedAmount : 0;
+
+  if (availableCollectors <= 0) {
+    // Need to build a Collector first
+    const canBuild = canAfford(station, COLLECTOR_COST);
+    if (!canBuild) {
+      return {
+        type: 'saving',
+        detail: 'collector_cost',
+        reason: `Saving resources for Collector build`,
+      };
+    }
+
+    // Check payback threshold: weighted value per trip ≥ 125% of build cost
+    const weightedValue = debrisValue(debris.resources);
+    const buildCostWeighted = COLLECTOR_COST.reduce(
+      (sum, c) => sum + c.amount * (RESOURCE_WEIGHT[c.resourceKey] ?? 1.0),
+      0
+    );
+
+    if (weightedValue < buildCostWeighted * PAYBACK_THRESHOLD) {
+      return {
+        type: 'blocked',
+        detail: 'salvage_not_worthwhile',
+        reason: `Debris weighted value ${weightedValue} below ${PAYBACK_THRESHOLD}x build cost ${buildCostWeighted}`,
+      };
+    }
+
+    // Check shipyard level
+    const syLevel = getShipyardLevel(station);
+    if (syLevel < 2) {
+      return {
+        type: 'blocked',
+        detail: 'low_shipyard',
+        reason: `Shipyard level ${syLevel} < 2 needed for Collector`,
+      };
+    }
+
+    return {
+      type: 'success',
+      actionLabel: `build_spacecrafts:${station.id}:${COLLECTOR_KEY}:1`,
+      reason: `Building Collector for salvage at debris ${debrisId}`,
+    };
+  }
+
+  // Already have a collector — start salvage
+  const minerCount = 1;
+  return {
+    type: 'success',
+    actionLabel: `start_salvage:${station.id}:${debrisId}:${COLLECTOR_KEY}:${minerCount}`,
+    reason: `Starting salvage at debris ${debrisId} with ${minerCount}x ${COLLECTOR_KEY}`,
   };
 }
 

@@ -1,6 +1,6 @@
 # Bot-System
 
-Stand: Die erste wirtschaftliche Strategie `economic_v1` ist umgesetzt.
+Stand: Schritt 1 (Glaubwürdige Bewohner) vollständig – `goal_v1` aktiv.
 
 Bots beleben dieselbe persistente Welt wie Spieler. Sie besitzen normale Benutzer, Stationen,
 Ressourcen, Gebäude, Schiffe und Reisen. Nur der kleine Controller, der die nächste Aktion wählt,
@@ -26,21 +26,49 @@ Der persistente Controller speichert nur Benutzer, Strategie, nächsten Entschei
 die letzte Entscheidung. Snapshots, Aktionsqueues, Ziel-JSON, Behavior Trees und ein eigener
 Bot-Prozess sind nicht erforderlich.
 
-## Strategie `economic_v1`
+## Strategie `goal_v1`
 
-Die Entscheidung ist eine reine Funktion über einen kompakten Stationszustand. Ihre feste
-Priorität lautet:
+Die zielorientierte Strategie verwendet elf Zieltypen, vier Profile und eine gewichtete
+Score-Funktion. Die Kandidatenerzeugung und -bewertung ist dokumentiert in
+`docs/goal-driven-bots-plan.md`.
 
-1. freien Titan einem geeigneten sichtbaren Asteroiden zuweisen;
-2. andernfalls eine freie Mole zuweisen;
-3. bis zu drei Mole über die reguläre Bau-Queue aufbauen;
-4. das Shipyard bis Level 5 ausbauen;
-5. einen Titan bauen und anschließend einsetzen;
-6. andernfalls warten.
+### Profile
 
-Asteroiden werden anhand der vorhandenen Mining-Rundlaufberechnung und des nächsten
-Investitionsbedarfs bewertet. Unsichtbare und erschöpfte Ziele entfallen. Bei Gleichstand sorgt
-die Asteroiden-ID für eine deterministische Reihenfolge.
+| Profil        | futureWeight | riskWeight | Kolonisationsfaktor | Aggressionsfaktor |
+| ------------- | -----------: | ---------: | ------------------: | ----------------: |
+| Industrieller |          1,0 |        1,3 |                 0,8 |               0,5 |
+| Pionier       |          1,1 |        1,0 |                 1,5 |               0,7 |
+| Technokrat    |          1,5 |        1,0 |                 0,9 |               0,8 |
+| Warlord       |          0,9 |        0,7 |                 0,8 |               1,5 |
+
+Jedes Profil kann Ziele aller Kategorien wählen; die Kategoriegewichte bevorzugen jedoch den
+jeweiligen Spielstil.
+
+### Elf Zieltypen
+
+| Zieltyp               | Kategorie | Beschreibung                                            |
+| --------------------- | --------- | ------------------------------------------------------- |
+| `stabilize_station`   | economy   | Ersten Miner zuweisen, Mole bauen, Lager aufbauen       |
+| `increase_income`     | economy   | Drei Mole und einen Titan aufbauen                      |
+| `increase_capacity`   | economy   | Warehouse/Hangar/Laboratory bei Engpass ausbauen        |
+| `research_technology` | research  | Nutzenbringende Technologie erforschen                  |
+| `explore_sector`      | expansion | Frontier-Sektor per Expedition entdecken                |
+| `establish_colony`    | expansion | Kolonie in entdecktem Sektor gründen                    |
+| `fortify_station`     | conflict  | Station mit Defense-Upgrades befestigen                 |
+| `build_strike_force`  | conflict  | Kampfflugzeuge für Angriffsziel bauen                   |
+| `raid`                | conflict  | Opportunistischen Angriff auf sichtbare Station fliegen |
+| `retaliate`           | conflict  | Vergeltung gegen bekannten Angreifer                    |
+| `salvage`             | economy   | Wertvolles Trümmerfeld bergen                           |
+
+### Zielbindung
+
+Ein aktives Ziel bleibt gebunden, bis ein anderes Ziel mindestens 25 % höher bewertet wird,
+das Ziel abgeschlossen ist oder fünf aufeinanderfolgende Entscheidungsintervalle `blocked` waren.
+
+### Mehrere Stationen
+
+Jede Station verwendet eigene lokale Ressourcen, Schiffe und Reserven. Profile, Zielbewertung und
+Konfliktgeschichte sind accountweit.
 
 ## Ausführung
 

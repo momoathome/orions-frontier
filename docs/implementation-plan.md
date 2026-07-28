@@ -30,6 +30,8 @@ Die fachlichen Verträge stehen in [Mining-Rundlauf](./mining-loop.md),
 - persistente Bau-, Forschungs-, Expeditions-, Kolonisations-, Kampf- und Bergungsaufträge;
 - gemeinsame Eigentums-, Kosten-, Freischaltungs- und Kapazitätsprüfung in Domain-Services;
 - deterministische wirtschaftliche Bots ohne eigene Ressourcen- oder Simulationsregeln;
+- zielorientierte Bot-Strategie (`goal_v1`) mit elf Zieltypen, vier Profilen, gewichteter
+  Score-Funktion, 25-%-Hysterese und accountweiter Konfliktgeschichte;
 - konfigurierbare Startwelt, sektorgebundene Bots und dynamisch wachsende Frontier;
 - Hangarkapazität, Scannerreichweite, eigene Defense-Upgrades;
 - stationseigene Scannerkreise, geschützte Weltobjekt-Aktionen und informationsarme Radarkontakte;
@@ -37,6 +39,8 @@ Die fachlichen Verträge stehen in [Mining-Rundlauf](./mining-loop.md),
 - statische Checks, Build und datenbankgestützte Verhaltenstests über `npm run verify`.
 
 ## Aktuelle Arbeit
+
+Schritt 2 (beschleunigter Spieltest) ist noch nicht begonnen.
 
 Weitere Änderungen richten sich nach beobachteten Spielverläufen. Relevant sind insbesondere:
 

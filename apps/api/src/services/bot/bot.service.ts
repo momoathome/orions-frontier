@@ -2,11 +2,6 @@ import { and, asc, eq, lte } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { botControllers } from '../../lib/db/schema/bot-controllers.js';
 import { logger as rootLogger } from '../../lib/logger.js';
-import { startBuildingUpgrade } from '../building.service.js';
-import { createAsteroidAssignment } from '../mining/assignment.service.js';
-import { buildSpacecrafts } from '../spacecraft.service.js';
-import { loadEconomicBotState } from './bot-state.service.js';
-import { decideEconomicAction } from './economic-v1.js';
 import { loadGoalBotState } from './goal-loader.service.js';
 import {
   checkUrgentMaintenance,
@@ -14,7 +9,6 @@ import {
   determineNextStep,
   selectGoalForState,
 } from './goal-lifecycle.service.js';
-import type { BotIntent } from './economic-v1.js';
 
 const logger = rootLogger.child({ name: 'bots' });
 const DECISION_INTERVAL_MS = 60_000;
@@ -28,39 +22,6 @@ function botOffsetMs(userId: string): number {
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash % DECISION_OFFSET_MAX_MS;
-}
-
-async function executeIntent(userId: string, intent: BotIntent): Promise<void> {
-  switch (intent.type) {
-    case 'wait':
-      return;
-    case 'assign_miner': {
-      const result = await createAsteroidAssignment({
-        userId,
-        asteroidId: intent.asteroidId,
-        stationId: intent.stationId,
-        spacecraftKey: intent.spacecraftKey,
-        assignedAmount: intent.amount,
-      });
-      if ('code' in result) throw new Error(`${result.code}: ${result.message}`);
-      return;
-    }
-    case 'build_spacecraft':
-      await buildSpacecrafts(intent.stationId, userId, [
-        { spacecraftKey: intent.spacecraftKey, amount: intent.amount },
-      ]);
-      return;
-    case 'upgrade_building':
-      await startBuildingUpgrade(intent.stationId, intent.buildingKey, userId);
-  }
-}
-
-async function handleEconomicV1(userId: string) {
-  const state = await loadEconomicBotState(userId);
-  if (!state) return { action: 'wait', reason: 'Bot has no station' };
-  const intent = decideEconomicAction(state);
-  await executeIntent(userId, intent);
-  return { action: intent.type, reason: intent.reason };
 }
 
 async function handleGoalV1(
@@ -203,11 +164,7 @@ export async function runBotDecisionTick(now = new Date()): Promise<void> {
     let hasProgress = false;
     let errorMessage: string | null = null;
     try {
-      if (claimed.strategy === 'economic_v1') {
-        const r = await handleEconomicV1(bot.userId);
-        action = r.action;
-        reason = r.reason;
-      } else if (claimed.strategy === 'goal_v1') {
+      if (claimed.strategy === 'goal_v1') {
         const r = await handleGoalV1(bot.userId, now);
         action = r.action;
         reason = r.reason;

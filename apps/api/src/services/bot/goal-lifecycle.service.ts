@@ -18,6 +18,12 @@ import {
   generateBuildStrikeForceCandidate,
   stepFortifyStation,
   stepBuildStrikeForce,
+  generateRaidCandidates,
+  generateRetaliateCandidates,
+  stepRaid,
+  stepRetaliate,
+  generateSalvageCandidates,
+  stepSalvage,
 } from './goal-economy.js';
 
 // Local helpers (mirrored from goal-economy to avoid circular deps)
@@ -159,9 +165,32 @@ function findStationForGoal(state: GoalBotState, targetRef: string): StationSnap
     return state.ownStations.find((s) => s.id === stationId);
   }
   if (targetRef.startsWith('sector:')) {
-    // For sector goals, use the first station (or the one with most available ships)
-    // In practice the bot picks the best station during generation
     return state.ownStations[0];
+  }
+  if (targetRef.startsWith('user:')) {
+    // For retaliate goals, find the station with most offensive power
+    return state.ownStations.sort((a, b) => {
+      const aPower = a.fleets.reduce((s, f) => {
+        const sc = getSpacecraft(f.spacecraftKey);
+        return s + (sc?.role === 'fighter' ? (f.amount - f.lockedAmount) * (sc?.attack ?? 0) : 0);
+      }, 0);
+      const bPower = b.fleets.reduce((s, f) => {
+        const sc = getSpacecraft(f.spacecraftKey);
+        return s + (sc?.role === 'fighter' ? (f.amount - f.lockedAmount) * (sc?.attack ?? 0) : 0);
+      }, 0);
+      return bPower - aPower || a.id.localeCompare(b.id);
+    })[0];
+  }
+  if (targetRef.startsWith('debris:')) {
+    // For salvage goals, pick the station closest to the debris
+    const debrisId = targetRef.split(':')[1];
+    const debris = state.visibleDebris.find((d) => d.id === debrisId);
+    if (!debris) return state.ownStations[0];
+    return state.ownStations.sort((a, b) => {
+      const distA = Math.hypot(a.x - debris.x, a.y - debris.y);
+      const distB = Math.hypot(b.x - debris.x, b.y - debris.y);
+      return distA - distB || a.id.localeCompare(b.id);
+    })[0];
   }
   return undefined;
 }
@@ -210,7 +239,10 @@ export async function evaluateActiveGoal(
 // Candidate generation
 // ---------------------------------------------------------------------------
 
-export async function generateGoalCandidates(state: GoalBotState): Promise<GoalCandidate[]> {
+export async function generateGoalCandidates(
+  state: GoalBotState,
+  profile?: BotProfile
+): Promise<GoalCandidate[]> {
   const economic = generateEconomicCandidates(state);
   const expansion: GoalCandidate[] = [];
   const conflict: GoalCandidate[] = [];
@@ -229,6 +261,17 @@ export async function generateGoalCandidates(state: GoalBotState): Promise<GoalC
     const strike = generateBuildStrikeForceCandidate(state, station);
     if (strike) conflict.push(strike);
   }
+
+  // Raid & retaliate candidates (conflict)
+  const usedProfile: BotProfile = profile ?? 'industrialist';
+  const raidCandidates = generateRaidCandidates(state, usedProfile);
+  conflict.push(...raidCandidates);
+  const retaliateCandidates = generateRetaliateCandidates(state, usedProfile);
+  conflict.push(...retaliateCandidates);
+
+  // Salvage candidates
+  const salvageCandidates = generateSalvageCandidates(state, usedProfile);
+  economic.push(...salvageCandidates);
 
   return [...economic, ...expansion, ...conflict];
 }
@@ -310,6 +353,30 @@ export async function determineNextStep(
           reason: `Station for ${targetRef} not found`,
         };
       return stepBuildStrikeForce(state, station, targetRef, profile);
+    case 'raid':
+      if (!station)
+        return {
+          type: 'blocked',
+          detail: 'station_missing',
+          reason: `Station for ${targetRef} not found`,
+        };
+      return stepRaid(state, station, targetRef, profile);
+    case 'retaliate':
+      if (!station)
+        return {
+          type: 'blocked',
+          detail: 'station_missing',
+          reason: `Station for ${targetRef} not found`,
+        };
+      return stepRetaliate(state, station, targetRef, profile);
+    case 'salvage':
+      if (!station)
+        return {
+          type: 'blocked',
+          detail: 'station_missing',
+          reason: `Station for ${targetRef} not found`,
+        };
+      return stepSalvage(state, station, targetRef, profile);
     default:
       return {
         type: 'blocked',
@@ -331,7 +398,7 @@ export async function selectGoalForState(
   selected: GoalCandidate | null;
   reason: string;
 }> {
-  const candidates = await generateGoalCandidates(state);
+  const candidates = await generateGoalCandidates(state, profile);
   const goalTypeList = goalTypes as readonly string[];
   const typedActive =
     activeGoal && goalTypeList.includes(activeGoal.goalType)

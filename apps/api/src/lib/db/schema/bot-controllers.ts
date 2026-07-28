@@ -25,7 +25,7 @@ export const botControllers = pgTable(
     userId: uuid('user_id')
       .primaryKey()
       .references(() => users.id, { onDelete: 'cascade' }),
-    strategy: varchar('strategy', { length: 32 }).notNull().default('economic_v1'),
+    strategy: varchar('strategy', { length: 32 }).notNull().default('goal_v1'),
     strategyVersion: varchar('strategy_version', { length: 32 }).notNull().default('1'),
     profile: varchar('profile', { length: 16 }).notNull().default('industrialist'),
     activeGoalType: varchar('active_goal_type', { length: 32 }),
