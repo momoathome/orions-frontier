@@ -242,7 +242,14 @@ async function handleGoalV1(
   };
 
   // 1. Urgent maintenance uses the regular dispatcher and consumes this interval's action.
-  const maintenance = await checkUrgentMaintenance(state, profile, {});
+  const maintenance = await checkUrgentMaintenance(
+    state,
+    profile,
+    {},
+    controller.activeGoalType && controller.activeGoalTarget
+      ? { goalType: controller.activeGoalType, targetRef: controller.activeGoalTarget }
+      : null
+  );
   if (maintenance?.type === 'success') {
     try {
       await executeBotIntent(userId, maintenance.intent, context);

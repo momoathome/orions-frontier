@@ -276,6 +276,70 @@ fehlenden gültigen Angriffschancen und nicht gewählten Angriffen. Deshalb ist 
 Einzel-Seed-Befund, aber noch keine Abnahme von PB-05; dafür bleiben die drei dort festgelegten
 7-Tage-Seeds und eine präzisere Chancenmetrik erforderlich.
 
+### Wiederholung nach Transport- und Warnungskorrekturen
+
+Am 30. Juli 2026 wurde `langlauf-01` nach den aus dem ersten Lauf abgeleiteten Korrekturen erneut
+mit demselben Konfigurationshash `7d7090716d67b934` und derselben Weltchecksumme
+`4ba6ac4d8e43…` ausgeführt. Der finale Bericht liegt unter
+`artifacts/playtests/2030-01-01T00-00-00-000Z-langlauf-01-7d7090716d67b934.json`.
+
+Umgesetzt wurden:
+
+- ganzzahlige Cargo-Claims nach Cargo-Forschung, damit fällige Mining-Trips nicht an
+  Gleitkommaresten hängen bleiben;
+- Forschungsziele nur mit einem erreichbaren Ressourcen- und Laboratory-Pfad;
+- Priorisierung instabiler Kolonien sowie generische Auswahl jedes verfügbaren Minerschiffs statt
+  einer fest verdrahteten Mole;
+- zusammenhängende Ziel-/Zielreferenz-Blockaden, reguläres Warten ohne Wiederholungswarnung,
+  stationsweise Lagerdauer und getrennte historische/aktuelle Stillstandsfenster;
+- eine stufenweise Konfliktchancenmetrik von Sichtbarkeit bis zum positiv bewerteten Ziel;
+- Stabilisierungszeit je Kolonie, eingefroren beim ersten stabilen Snapshot.
+
+| Kennzahl                            | erster 7d-Lauf | finaler 7d-Lauf |
+| ----------------------------------- | -------------: | --------------: |
+| Welttakte / harte Befunde           |     10.081 / 0 |      10.081 / 0 |
+| doppelte Abschlüsse                 |              0 |               0 |
+| blockierte Forschungsentscheidungen |         21.203 |              15 |
+| abgeschlossene Forschungen          |              – |              42 |
+| gegründete / stabile Kolonien       |         10 / 7 |         10 / 10 |
+| Kolonie-Stabilisierungsdauer        |   teils > 48 h |     0,39–6,17 h |
+| geliefert                           |        380.127 |         445.937 |
+| verworfen                           |        814.794 |         759.751 |
+| Verlustanteil                       |        68,19 % |         63,01 % |
+| Angriffe / Bergungen                |          0 / 0 |           0 / 0 |
+
+Die Forschungsblockaden sanken um 99,93 Prozent und alle zehn Kolonien erfüllten das
+24-Stunden-Ziel von PB-09. Ein zusätzlicher identischer Lauf vor dem Einfrieren der
+Stabilisierungsdauer und der finale Lauf waren bis auf reale Betriebszeit und genau dieses
+Telemetriefeld identisch. Die Spielentscheidungen änderten sich durch die Messkorrektur nicht.
+
+Die 126 finalen Warnungen sind nicht direkt mit den früheren 108 Warnungen gleichzusetzen, weil
+PB-10 ihre Semantik präzisiert und Lagerwarnungen nun je Station statt je Bot ausgibt:
+
+| Warnung                                  | final | Einordnung                                                                      |
+| ---------------------------------------- | ----: | ------------------------------------------------------------------------------- |
+| `storage_capacity_bottleneck`            |    42 | echte Stationsengpässe; alle Dauern liegen innerhalb ihres Beobachtungsfensters |
+| `no_measurable_progress`                 |    32 | 27 am Laufende aktiv, 5 ausschließlich historisch                               |
+| `repeated_action_without_progress`       |    23 | ausschließlich Sparpfade; kein reguläres `waiting`                              |
+| `unreachable_resource_without_expansion` |    15 | weiterhin echter Expansions-/Ressourcenbefund                                   |
+| `warlord_without_attack_chance`          |     8 | 35.048 Proben, ausnahmslos `no_visible_target`                                  |
+| `long_blocked_goal`                      |     5 | vier Pionier-Kolonisationsziele und ein Warlord-Einkommensziel                  |
+| `hangar_capacity_bottleneck`             |     1 | ein Warlord                                                                     |
+| `unstable_colony`                        |     0 | PB-09 im Einzel-Seed erfüllt                                                    |
+
+Damit sind PB-09 und die fachliche Korrektur aus PB-10 für diesen Seed abgenommen. PB-08 erfüllt
+im Langlauf sein 90-Prozent-Ziel deutlich; für seine vollständige Mehrseed-Abnahme fehlen noch die
+drei erneuten 24-Stunden-Seeds. PB-05 kann nun belastbar sagen, warum kein Angriff stattfand: Kein
+Warlord sah ein fremdes Ziel. Die vereinbarten drei 7-Tage-Seeds bleiben für eine
+seedübergreifende Konfliktaussage erforderlich.
+
+Die reale Tickrate schwankte auf derselben lokalen Docker-Umgebung bei zwei spielrelevant
+identischen Abschlussläufen zwischen 7,95 und 3,55 Ticks/s. Sie ist unter paralleler Hostlast nicht
+stabil genug für eine PB-07-Abnahme und darf nicht als Beleg für eine spielrelevante Regression
+verwendet werden. Die weiter sichtbaren Lagerverluste, aktiven Stillstände, unerreichbaren
+Ressourcenpfade und Pionier-Kolonisationsblockaden begründeten die später in diesem Dokument
+beschriebenen Nachbesserungen PB-11 bis PB-14.
+
 ## Abgeleitete Folgetickets
 
 ### PB-01 – Lagerverlust vor weiterem Mining priorisieren
@@ -418,12 +482,63 @@ Einzel-Seed-Befund, aber noch keine Abnahme von PB-05; dafür bleiben die drei d
   historischen gegenüber aktuellem Stillstand sowie derselbe 7-Tage-Seed; spielrelevanter Verlauf
   und Metriken bleiben identisch, nur Warnungsbelege ändern sich.
 
+## Umgesetzte Bot-Nachbesserungen
+
+Aus den Warnungen des korrigierten Langlaufs wurden vier zusammenhängende, am 30. Juli 2026
+umgesetzte Arbeitspakete abgeleitet:
+
+| Paket | Ziel                           | Umgesetzte Regel                                                                                                                   | Fokussierter Nachweis                                                                                     |
+| ----- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| PB-11 | Lagerverluste vermeiden        | Asteroiden nach tatsächlich lagerbarem Anteil bewerten und Warehouse bei gemessenem Druck unabhängig vom Gebäudelevel priorisieren | volles Ressourcenfach wird nicht weiter beliefert; Warehouse bleibt auch auf höheren Levels dringlich     |
+| PB-12 | Sparschleifen auflösen         | exakte Kosten des nächsten Schritts auf sichtbare Rohstoffpfade prüfen und freie Miner gezielt auf fehlende Ressourcen ansetzen    | Kyber-Bedarf erzeugt eine Kyber-Zuweisung; Forschung ohne Einkommenspfad wird nicht angeboten             |
+| PB-13 | Expansion ausführbar machen    | mobilen Miner reservieren und fehlende Shipyard-, Hangar- oder Mole-Voraussetzungen innerhalb des Ziels herstellen                 | aktive Expansion behält ihr Missionsschiff; Kolonisation baut bei vollständig gebundenen Minern eine Mole |
+| PB-14 | Warlords Kontakt suchen lassen | Scanner und Expedition bei fehlendem Fremdkontakt priorisieren, begrenzt auf zwei abgeschlossene Expeditionen je eigener Station   | Bonus endet deterministisch am Expeditionsbudget oder bei sichtbarem Fremdkontakt                         |
+
+Kosten, Bauzeiten, Startressourcen, Schutzregeln und Domain-Services wurden dabei nicht verändert.
+Die Bots erhalten keine zusätzlichen Informationen: Rohstoffpfade beruhen auf der normalen
+Scanner-Sicht, abgeschlossene Expeditionen auf persistenten eigenen Missionen.
+
+Die Abschlussreview ergänzte drei Schutzfälle: Eine Kostenposition oberhalb der lokalen
+Lagerkapazität gilt trotz sichtbarem Vorkommen nicht als erreichbar, die mobile Minerreserve eines
+aktiven Expansionsziels gilt nur für dessen deterministisch gewählte Ursprungsstation, und ein
+Kapazitätsziel wird nach dem Upgrade gegen den noch bestehenden Engpass neu bewertet. Gezielte
+Unit-Tests decken diese Regeln einschließlich eines Mehrstationskontos ab.
+
+### Vorläufiger 12-Stunden-Playtest
+
+Ein deterministischer Lauf mit Seed `smart-bots-smoke`, zwölf Bots und stündlichem Beitritt diente
+als schneller Verhaltensnachweis. Er lief über 721 Welttakte erfolgreich und ohne harte Befunde
+oder Softlockwarnungen.
+
+| Kennzahl                         |                Ergebnis |
+| -------------------------------- | ----------------------: |
+| reale Laufzeit / Tickdurchsatz   | 1:30 min / 8,02 Ticks/s |
+| abgebaut / geliefert / verworfen | 52.903 / 50.949 / 1.954 |
+| Verlustanteil                    |                  3,69 % |
+| stabile Ausgangsstationen        |                 12 / 12 |
+| Forschungen                      |                       3 |
+| Expeditionen                     |                      18 |
+| Warlord-Expeditionen             |        4 bei 2 Warlords |
+| sichtbare Konfliktziele          |             124 Samples |
+| gültige Angriffsgelegenheiten    |                       0 |
+
+Beide Warlords führten genau zwei Expeditionen aus und wechselten danach zu Befestigung und
+Kapazitätsausbau. Die Kontaktaufnahme funktioniert damit und läuft nicht endlos. Alle sichtbaren
+fremden Ziele waren im kurzen Test noch durch den allgemeinen 24-Stunden-Accountschutz
+ausgeschlossen; Angriffsentscheidungen und Kolonien sind deshalb durch diesen Lauf nicht
+abgenommen. Ebenso ist der Verlustwert wegen der kürzeren Dauer kein direkter Vorher-Nachher-Beleg
+gegen den siebentägigen Langlauf. Der Lauf entstand vor den drei Schutzfällen aus der
+Abschlussreview; diese verändern seine Kernaussage nicht, gehören aber in den nächsten Lauf. Die
+belastbare Endabnahme bleibt ein erneuter Lauf desselben 7-Tage-Seeds und anschließend der drei
+festgelegten 7-Tage-Seeds.
+
 ## Schlussfolgerung
 
 Das Werkzeug liefert reproduzierbare, isolierte und hinreichend detaillierte Baselines. Die
 Startwirtschaft funktioniert, die vier Profile unterscheiden sich sichtbar und die technische
 Invariantenebene blieb über insgesamt 14.404 dokumentierte Welttakte sauber. Die erste
-Balanceaussage ist jedoch ebenfalls eindeutig: Lagerüberlauf und daraus folgende Stillstände
-müssen vor feineren Profilgewichten untersucht werden. Konflikt und Bergung benötigen zunächst
-eine explizite Chancenmetrik und die drei festgelegten 7-Tage-Seeds statt eine voreilige
-Regeländerung.
+Balanceaussage war ebenfalls eindeutig: Lagerüberlauf, unerreichbare Sparziele und fehlender
+Fremdkontakt mussten vor feineren Profilgewichten adressiert werden. PB-11 bis PB-14 setzen diese
+Folgerung ohne Kosten- oder Schutzregeländerung um; ihr 12-Stunden-Lauf ist ein technischer
+Verhaltensnachweis, noch keine Langzeitabnahme. Konflikt, Bergung und nachhaltiger Lagerverlust
+benötigen weiterhin denselben 7-Tage-Seed und anschließend die drei festgelegten 7-Tage-Seeds.

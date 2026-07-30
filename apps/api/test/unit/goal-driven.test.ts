@@ -282,10 +282,15 @@ import {
   analyzeConflictOpportunities,
   generateSalvageCandidates,
   generateIncreaseCapacityCandidate,
+  generateIncreaseIncomeCandidate,
   generateResearchCandidates,
   generateStabilizeCandidate,
   pickBestSalvageStation,
   prioritizeStationsForStabilization,
+  selectBestAsteroid,
+  stepEstablishColony,
+  stepIncreaseCapacity,
+  stepIncreaseIncome,
   stepRaid,
   stepResearchTechnology,
   stepSalvage,
@@ -331,6 +336,7 @@ const baseState = (
 ): GoalBotState => ({
   userId: 'bot-1',
   now: new Date('2026-01-01T00:00:00.000Z'),
+  completedExpeditions: 0,
   ownStations: [station],
   visibleAsteroids: [
     {
@@ -377,6 +383,7 @@ test('capacity goals exist only for a demonstrated local bottleneck', () => {
   assert.equal(generateIncreaseCapacityCandidate(baseState(ordinary), ordinary), null);
 
   const labBlocked = baseStation({
+    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 0 }],
     research: [
       {
         technologyKey: 'automated_shipyard',
@@ -386,9 +393,340 @@ test('capacity goals exist only for a demonstrated local bottleneck', () => {
     ],
   });
   assert.equal(
-    generateIncreaseCapacityCandidate(baseState(labBlocked), labBlocked)?.targetRef,
+    generateIncreaseCapacityCandidate(
+      baseState(labBlocked, {
+        visibleAsteroids: [
+          {
+            id: 'asteroid-1',
+            x: 100,
+            y: 0,
+            remainingByResource: { carbon: 1_000, kyber_crystal: 1_000 },
+            remainingAmount: 2_000,
+          },
+        ],
+      }),
+      labBlocked
+    )?.targetRef,
     'station:station-1:laboratory'
   );
+});
+
+test('storage pressure keeps warehouse expansion urgent at higher levels', () => {
+  const assignment = {
+    id: 'assignment-1',
+    asteroidId: 'asteroid-1',
+    spacecraftKey: 'mole',
+    assignedAmount: 1,
+    status: 'mining',
+  };
+  const station = baseStation({
+    resources: { carbon: 100_000, titanium: 100_000, hydrogenium: 100_000 },
+    buildings: baseStation().buildings.map((building) =>
+      building.buildingKey === 'warehouse' ? { ...building, level: 7 } : building
+    ),
+    miningAssignments: [assignment],
+  });
+  const state = baseState(station);
+
+  assert.equal(
+    generateIncreaseCapacityCandidate(state, station)?.targetRef,
+    'station:station-1:warehouse'
+  );
+});
+
+test('capacity goal completes after its concrete bottleneck is resolved', async () => {
+  const station = baseStation();
+  const result = await stepIncreaseCapacity(
+    baseState(station),
+    station,
+    'station:station-1:warehouse',
+    'industrialist'
+  );
+
+  assert.equal(result.type, 'complete');
+  assert.equal(result.type === 'complete' ? result.goalType : null, 'increase_capacity');
+});
+
+test('asteroid selection ignores resources that the station cannot store', () => {
+  const station = baseStation({
+    resources: { carbon: 1_500, titanium: 0, hydrogenium: 0 },
+  });
+  const state = baseState(station, {
+    visibleAsteroids: [
+      {
+        id: 'carbon-full',
+        x: 10,
+        y: 0,
+        remainingByResource: { carbon: 10_000 },
+        remainingAmount: 10_000,
+      },
+      {
+        id: 'titanium-open',
+        x: 1_000,
+        y: 0,
+        remainingByResource: { titanium: 10_000 },
+        remainingAmount: 10_000,
+      },
+    ],
+  });
+
+  assert.equal(selectBestAsteroid(state, station, 'mole')?.id, 'titanium-open');
+});
+
+test('warlords without foreign contact prioritize scanner reach', () => {
+  const station = baseStation();
+  const state = baseState(station);
+
+  assert.equal(
+    generateIncreaseCapacityCandidate(state, station, 'warlord')?.targetRef,
+    'station:station-1:scanner'
+  );
+  assert.equal(generateIncreaseCapacityCandidate(state, station, 'industrialist'), null);
+  assert.equal(
+    generateIncreaseCapacityCandidate({ ...state, completedExpeditions: 2 }, station, 'warlord'),
+    null
+  );
+  assert.equal(
+    generateIncreaseCapacityCandidate(
+      {
+        ...state,
+        visibleStations: [
+          {
+            id: 'foreign-station',
+            name: 'Foreign Station',
+            x: 100,
+            y: 0,
+            chunkX: 0,
+            chunkY: 0,
+            ownerType: 'player',
+            ownerId: 'opponent-1',
+            isOwn: false,
+            visualProfile: {
+              scaleTier: 1,
+              modules: {
+                core: 0,
+                shipyard: 0,
+                warehouse: 0,
+                scanner: 0,
+                hangar: 0,
+                laboratory: 0,
+              },
+              defense: {
+                armor_plating: 0,
+                guardian_cannon: 0,
+                defense_drones: 0,
+                minefield: 0,
+              },
+              traffic: { civilian: 0, military: 0 },
+            },
+          },
+        ],
+      },
+      station,
+      'warlord'
+    ),
+    null
+  );
+});
+
+test('income expansion prepares enough hangar crew for a Titan', async () => {
+  const station = baseStation({
+    resources: { carbon: 10_000, titanium: 10_000, hydrogenium: 10_000, kyber_crystal: 1_000 },
+    buildings: baseStation().buildings.map((building) =>
+      building.buildingKey === 'shipyard' ? { ...building, level: 5 } : building
+    ),
+    fleets: [
+      { spacecraftKey: 'mole', amount: 3, lockedAmount: 3 },
+      { spacecraftKey: 'merlin', amount: 14, lockedAmount: 0 },
+    ],
+  });
+  const result = await stepIncreaseIncome(baseState(station), station, 'warlord');
+
+  assert.equal(result.type, 'success');
+  assert.equal(result.type === 'success' && result.intent.type, 'upgrade_building');
+  assert.equal(
+    result.type === 'success' && result.intent.type === 'upgrade_building'
+      ? result.intent.buildingKey
+      : null,
+    'hangar'
+  );
+});
+
+test('saving goals send an idle miner toward their missing resource', async () => {
+  const station = baseStation({
+    resources: { carbon: 1_000, titanium: 1_000, hydrogenium: 1_000, kyber_crystal: 0 },
+    buildings: baseStation().buildings.map((building) =>
+      building.buildingKey === 'shipyard' ? { ...building, level: 5 } : building
+    ),
+    fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 2 }],
+    miningAssignments: [
+      {
+        id: 'assignment-1',
+        asteroidId: 'carbon-field',
+        spacecraftKey: 'mole',
+        assignedAmount: 2,
+        status: 'mining',
+      },
+    ],
+  });
+  const state = baseState(station, {
+    visibleAsteroids: [
+      {
+        id: 'carbon-field',
+        x: 10,
+        y: 0,
+        remainingByResource: { carbon: 10_000 },
+        remainingAmount: 10_000,
+      },
+      {
+        id: 'kyber-field',
+        x: 1_000,
+        y: 0,
+        remainingByResource: { kyber_crystal: 10_000 },
+        remainingAmount: 10_000,
+      },
+    ],
+  });
+  const result = await stepIncreaseIncome(state, station, 'technocrat');
+
+  assert.equal(result.type, 'success');
+  assert.equal(result.type === 'success' && result.intent.type, 'assign_miner');
+  assert.equal(
+    result.type === 'success' && result.intent.type === 'assign_miner'
+      ? result.intent.asteroidId
+      : null,
+    'kyber-field'
+  );
+});
+
+test('visible resources without a usable miner are not treated as an income path', () => {
+  const station = baseStation({
+    resources: { carbon: 0, titanium: 0, hydrogenium: 0 },
+    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 1 }],
+  });
+  const state = baseState(station, {
+    visibleAsteroids: [
+      {
+        id: 'rich-field',
+        x: 100,
+        y: 0,
+        remainingByResource: { carbon: 10_000, titanium: 10_000, hydrogenium: 10_000 },
+        remainingAmount: 30_000,
+      },
+    ],
+  });
+
+  assert.equal(generateIncreaseIncomeCandidate(state, station), null);
+});
+
+test('resource costs above local storage capacity are not treated as mineable', async () => {
+  const station = baseStation({
+    storageCapacity: 50,
+    resources: { carbon: 0, titanium: 0, hydrogenium: 0 },
+    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 0 }],
+  });
+  const state = baseState(station, {
+    visibleAsteroids: [
+      {
+        id: 'rich-field',
+        x: 100,
+        y: 0,
+        remainingByResource: { carbon: 10_000, titanium: 10_000, hydrogenium: 10_000 },
+        remainingAmount: 30_000,
+      },
+    ],
+  });
+
+  assert.equal(generateIncreaseIncomeCandidate(state, station), null);
+  assert.equal((await stepIncreaseIncome(state, station, 'industrialist')).type, 'blocked');
+});
+
+test('colonization prepares a free miner instead of blocking on locked mining ships', async () => {
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 1 }],
+    miningAssignments: [
+      {
+        id: 'assignment-1',
+        asteroidId: 'asteroid-1',
+        spacecraftKey: 'mole',
+        assignedAmount: 1,
+        status: 'mining',
+      },
+    ],
+  });
+  const state = baseState(station);
+  const result = await stepEstablishColony(state, station, 'sector:1:0', 'pioneer');
+
+  assert.equal(result.type, 'success');
+  assert.equal(result.type === 'success' && result.intent.type, 'build_spacecraft');
+  assert.equal(
+    result.type === 'success' && result.intent.type === 'build_spacecraft'
+      ? result.intent.spacecraftKey
+      : null,
+    'mole'
+  );
+});
+
+test('active expansion keeps its last free support miner out of urgent mining', async () => {
+  const onlySupportMiner = baseStation({
+    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 0 }],
+  });
+  const activeGoal = {
+    goalType: 'explore_sector',
+    targetRef: 'sector:1:0',
+  };
+  assert.equal(
+    await checkUrgentMaintenance(baseState(onlySupportMiner), 'pioneer', {}, activeGoal),
+    null
+  );
+
+  const otherStation = baseStation({
+    id: 'station-2',
+    createdAt: new Date(1),
+    sectorX: 10,
+    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 0 }],
+  });
+  const otherAssignment = await checkUrgentMaintenance(
+    baseState(onlySupportMiner, { ownStations: [onlySupportMiner, otherStation] }),
+    'pioneer',
+    {},
+    activeGoal
+  );
+  assert.equal(
+    otherAssignment?.type === 'success' && otherAssignment.intent.type === 'assign_miner'
+      ? otherAssignment.intent.stationId
+      : null,
+    'station-2'
+  );
+
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'mole', amount: 2, lockedAmount: 1 }],
+    miningAssignments: [
+      {
+        id: 'assignment-1',
+        asteroidId: 'asteroid-1',
+        spacecraftKey: 'mole',
+        assignedAmount: 1,
+        status: 'mining',
+      },
+    ],
+  });
+  const result = await checkUrgentMaintenance(baseState(station), 'pioneer', {}, activeGoal);
+
+  assert.equal(result, null);
+
+  const stationWithSpareMiner = {
+    ...station,
+    fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 1 }],
+  };
+  const assignment = await checkUrgentMaintenance(
+    baseState(stationWithSpareMiner),
+    'pioneer',
+    {},
+    activeGoal
+  );
+  assert.equal(assignment?.type, 'success');
+  assert.equal(assignment?.type === 'success' && assignment.intent.type, 'assign_miner');
 });
 
 test('research does not claim to save when the station has no income', async () => {
@@ -396,6 +734,7 @@ test('research does not claim to save when the station has no income', async () 
     resources: { carbon: 0, titanium: 0, hydrogenium: 0 },
   });
   const result = await stepResearchTechnology(
+    baseState(station),
     station,
     'tech:station-1:extraction_algorithms',
     'technocrat'
@@ -414,7 +753,7 @@ test('research candidates require a reachable resource and laboratory path', () 
       },
     ],
   });
-  assert.deepEqual(generateResearchCandidates(noIncome), []);
+  assert.deepEqual(generateResearchCandidates(baseState(noIncome), noIncome), []);
 
   const withIncome = baseStation({
     ...noIncome,
@@ -428,7 +767,26 @@ test('research candidates require a reachable resource and laboratory path', () 
       },
     ],
   });
-  assert.ok(generateResearchCandidates(withIncome).length > 0);
+  assert.ok(
+    generateResearchCandidates(
+      baseState(withIncome, {
+        visibleAsteroids: [
+          {
+            id: 'asteroid-1',
+            x: 100,
+            y: 0,
+            remainingByResource: {
+              carbon: 1_000,
+              titanium: 1_000,
+              kyber_crystal: 1_000,
+            },
+            remainingAmount: 3_000,
+          },
+        ],
+      }),
+      withIncome
+    ).length > 0
+  );
 });
 
 test('an unstable colony is prioritized ahead of the initial station', () => {
@@ -495,7 +853,7 @@ test('research with active miners gives extraction_algorithms a high score', () 
       },
     ],
   });
-  const candidates = generateResearchCandidates(station);
+  const candidates = generateResearchCandidates(baseState(station), station);
   const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
   assert.ok(extraction, 'extraction_algorithms should be a candidate');
   assert.ok(
@@ -511,7 +869,7 @@ test('research with many ships gives modular_cargo_frames a high score', () => {
       { spacecraftKey: 'collector', amount: 2, lockedAmount: 0 },
     ],
   });
-  const candidates = generateResearchCandidates(station);
+  const candidates = generateResearchCandidates(baseState(station), station);
   const cargo = candidates.find((c) => c.targetRef.includes('modular_cargo_frames'));
   assert.ok(cargo, 'modular_cargo_frames should be a candidate');
   assert.ok(
@@ -539,7 +897,7 @@ test('research with active trips gives vector_navigation a high score', () => {
       },
     ],
   });
-  const candidates = generateResearchCandidates(station);
+  const candidates = generateResearchCandidates(baseState(station), station);
   const vector = candidates.find((c) => c.targetRef.includes('vector_navigation'));
   assert.ok(vector, 'vector_navigation should be a candidate');
   assert.ok(vector.baseNeed > 30, 'vector_navigation should have high baseNeed with active trips');
@@ -549,7 +907,7 @@ test('research with fighters gives combat_analytics a non-zero score', () => {
   const station = baseStation({
     fleets: [{ spacecraftKey: 'javelin', amount: 2, lockedAmount: 0 }],
   });
-  const candidates = generateResearchCandidates(station);
+  const candidates = generateResearchCandidates(baseState(station), station);
   const combat = candidates.find((c) => c.targetRef.includes('combat_analytics'));
   assert.ok(combat, 'combat_analytics should be a candidate');
   assert.ok(combat.baseNeed > 10, 'combat_analytics should have non-zero baseNeed with fighters');
@@ -726,7 +1084,7 @@ test('research with upgrades in progress gives station_grid_optimization a boost
       { buildingKey: 'core', level: 1, upgradeEndsAt: null },
     ],
   });
-  const candidates = generateResearchCandidates(station);
+  const candidates = generateResearchCandidates(baseState(station), station);
   const grid = candidates.find((c) => c.targetRef.includes('station_grid_optimization'));
   assert.ok(grid, 'station_grid_optimization should be a candidate');
   assert.ok(grid.baseNeed > 15, 'station_grid_optimization should benefit from active upgrades');
@@ -738,7 +1096,7 @@ test('started research is excluded from candidates', () => {
       { technologyKey: 'extraction_algorithms', status: 'researching', completesAt: new Date() },
     ],
   });
-  const candidates = generateResearchCandidates(station);
+  const candidates = generateResearchCandidates(baseState(station), station);
   const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
   assert.equal(extraction, undefined, 'started research should be excluded');
 });

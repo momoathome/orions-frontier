@@ -411,6 +411,7 @@ test('a newly selected saving goal remains persisted', async () => {
   const db = getDb();
   const botUserId = randomUUID();
   const localStationId = randomUUID();
+  const localAsteroidId = randomUUID();
   const suffix = randomUUID();
   await db.insert(users).values({
     id: botUserId,
@@ -431,6 +432,35 @@ test('a newly selected saving goal remains persisted', async () => {
   await seedStationBuildings(localStationId);
   await seedStationSpacecrafts(localStationId);
   await seedStationResources(localStationId);
+  await db.insert(asteroids).values({
+    id: localAsteroidId,
+    x: 20_100,
+    y: 20_000,
+    chunkX: 20,
+    chunkY: 20,
+    size: 'small',
+    sectorId,
+  });
+  await db.insert(asteroidVeins).values([
+    {
+      asteroidId: localAsteroidId,
+      veinType: 'primary',
+      resourceKey: 'carbon',
+      remainingAmount: 1_000,
+    },
+    {
+      asteroidId: localAsteroidId,
+      veinType: 'secondary',
+      resourceKey: 'titanium',
+      remainingAmount: 1_000,
+    },
+    {
+      asteroidId: localAsteroidId,
+      veinType: 'trace',
+      resourceKey: 'hydrogenium',
+      remainingAmount: 1_000,
+    },
+  ]);
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
   await db
     .update(stationResources)
@@ -461,6 +491,7 @@ test('a newly selected saving goal remains persisted', async () => {
   await db.delete(stationBuildings).where(eq(stationBuildings.stationId, localStationId));
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
   await db.delete(stations).where(eq(stations.id, localStationId));
+  await db.delete(asteroids).where(eq(asteroids.id, localAsteroidId));
   await db.delete(users).where(eq(users.id, botUserId));
 });
 

@@ -72,6 +72,39 @@ das Ziel abgeschlossen ist oder fünf aufeinanderfolgende Entscheidungsintervall
 Jede Station verwendet eigene lokale Ressourcen, Schiffe und Reserven. Profile, Zielbewertung und
 Konfliktgeschichte sind accountweit.
 
+### Ressourcenpfade
+
+Ein Bot bewertet nicht nur, ob er die Kosten des nächsten Schritts bereits besitzt. Für jeden
+fehlenden Rohstoff muss zusätzlich ein sichtbares, noch nicht erschöpftes Vorkommen und ein
+nutzbarer Minerpfad existieren: ein freier beziehungsweise im Bau befindlicher Miner oder eine
+bereits passende Abbauzuweisung. Ist ein Miner frei, wird er gezielt zu einem Vorkommen geschickt,
+das einen fehlenden Rohstoff für das aktive Ziel liefert. Ohne Beschaffungspfad wird ein Ziel nicht
+als dauerhaftes `saving` behandelt, sondern verworfen beziehungsweise nach der Blockadegrenze
+freigegeben. Die benötigte Menge muss außerdem vollständig in das lokale Ressourcenfach passen;
+ein Vorkommen allein macht Kosten oberhalb der aktuellen Lagerkapazität nicht erreichbar.
+
+Die Asteroidenwahl berücksichtigt Entfernung, Lieferrate und den Anteil, den die konkrete Station
+noch lagern kann. Ein volles Carbonlager schließt daher Carbonvorkommen aus, verhindert aber nicht
+die Förderung eines weiterhin lagerbaren Rohstoffs. Steigt ein einzelner Lagerbestand über
+85 Prozent, erhält ein erreichbares Warehouse-Upgrade eine levelunabhängig hohe Zielpriorität.
+Nach einem Kapazitätsupgrade wird der konkrete Engpass neu bewertet; ist er behoben oder hat ein
+anderer erreichbarer Engpass Vorrang, wird das bisherige Kapazitätsziel abgeschlossen.
+
+### Mobile Reserve und Expansion
+
+Eine produktive Station mit mindestens drei Minern hält grundsätzlich einen freien mobilen Miner
+zurück. Während eines aktiven Expeditions- oder Kolonisationsziels wird der letzte freie Miner
+ebenfalls nicht automatisch dem Bergbau zugeteilt. Fehlt das Missionsschiff, bereitet das Ziel
+seine Voraussetzungen über die normalen Spieleraktionen vor: Shipyard beziehungsweise Hangar
+ausbauen, eine Mole bauen und anschließend die Mission starten. Die Stationswahl darf dafür eine
+eigene Station ohne aktuell freies Schiff wählen, solange dieser Vorbereitungspfad erreichbar ist.
+
+Warlords ohne sichtbaren fremden Kontakt priorisieren Scanner und Exploration. Die Suche ist auf
+zwei abgeschlossene Expeditionen je eigener Station begrenzt; eine neue Kolonie erweitert das
+Budget. Sobald eine fremde Station sichtbar ist, endet dieser Kontaktbonus und der Bot bewertet
+Ausbau, Verteidigung und Konflikt wieder regulär. Gezählt werden ausschließlich tatsächlich
+abgeschlossene Expeditionsmissionen aus dem persistenten Missionsverlauf.
+
 ## Ausführung
 
 Der API-interne Welttakt verarbeitet zuerst fällige Reisen, Upgrades und Bauaufträge, anschließend

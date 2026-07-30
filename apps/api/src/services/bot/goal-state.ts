@@ -57,6 +57,7 @@ export interface StationSnapshot {
 export interface GoalBotState {
   userId: string;
   now: Date;
+  completedExpeditions: number;
   ownStations: StationSnapshot[];
   visibleAsteroids: {
     id: string;

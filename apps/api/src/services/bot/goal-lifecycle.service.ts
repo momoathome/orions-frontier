@@ -29,6 +29,7 @@ import {
   pickBestSalvageStation,
   prioritizeStationsForStabilization,
   pickAvailableMinerKey,
+  selectBestAsteroid,
 } from './goal-economy.js';
 
 // ---------------------------------------------------------------------------
@@ -53,16 +54,39 @@ export type GoalResult =
 export async function checkUrgentMaintenance(
   state: GoalBotState,
   _profile: BotProfile,
-  _reservedCosts: Record<string, number>
+  _reservedCosts: Record<string, number>,
+  activeGoal: { goalType: string; targetRef: string } | null = null
 ): Promise<GoalResult | null> {
+  const activeExpansionStationId =
+    activeGoal &&
+    (activeGoal.goalType === 'explore_sector' || activeGoal.goalType === 'establish_colony')
+      ? findStationForGoal(state, activeGoal.targetRef, activeGoal.goalType, _profile)?.id
+      : null;
+
   for (const station of prioritizeStationsForStabilization(state)) {
     const minerKey = pickAvailableMinerKey(station);
     if (!minerKey) continue;
 
-    const spacecraft = getSpacecraft(minerKey);
-    if (!spacecraft) continue;
+    const activeMiners = station.miningAssignments.reduce(
+      (sum, assignment) => sum + assignment.assignedAmount,
+      0
+    );
+    const totalMiners = station.fleets.reduce((sum, fleet) => {
+      const definition = getSpacecraft(fleet.spacecraftKey);
+      return definition?.role === 'miner' ? sum + fleet.amount : sum;
+    }, 0);
+    const freeMiners = station.fleets.reduce((sum, fleet) => {
+      const definition = getSpacecraft(fleet.spacecraftKey);
+      return definition?.role === 'miner'
+        ? sum + Math.max(0, fleet.amount - fleet.lockedAmount)
+        : sum;
+    }, 0);
+    const hasActiveExpansion = station.id === activeExpansionStationId;
+    const reservesLastMobileSupport =
+      freeMiners <= 1 && (hasActiveExpansion || (activeMiners > 0 && totalMiners >= 3));
+    if (reservesLastMobileSupport) continue;
 
-    const asteroid = pickAsteroidForStation(state, station, minerKey);
+    const asteroid = selectBestAsteroid(state, station, minerKey);
     if (!asteroid) continue;
 
     return {
@@ -78,22 +102,6 @@ export async function checkUrgentMaintenance(
     };
   }
   return null;
-}
-
-function pickAsteroidForStation(
-  state: GoalBotState,
-  station: StationSnapshot,
-  spacecraftKey: string
-): { id: string } | null {
-  const spacecraft = getSpacecraft(spacecraftKey);
-  if (!spacecraft) return null;
-
-  const best = state.visibleAsteroids
-    .filter((a) => a.remainingAmount > 0)
-    .map((a) => ({ asteroid: a, dist: Math.hypot(a.x - station.x, a.y - station.y) }))
-    .sort((a, b) => a.dist - b.dist || a.asteroid.id.localeCompare(b.asteroid.id))[0];
-
-  return best ? { id: best.asteroid.id } : null;
 }
 
 function availableFighterAttack(station: StationSnapshot): number {
@@ -183,7 +191,15 @@ function findStationForGoal(
             )
           )
         : availableStations;
-    return (affordableStations.length > 0 ? affordableStations : availableStations).sort((a, b) => {
+    const candidateStations =
+      affordableStations.length > 0
+        ? affordableStations
+        : availableStations.length > 0
+          ? availableStations
+          : goalType === 'establish_colony' || goalType === 'explore_sector'
+            ? [...state.ownStations]
+            : [];
+    return candidateStations.sort((a, b) => {
       const distanceA = Math.hypot(a.sectorX - sectorX, a.sectorY - sectorY);
       const distanceB = Math.hypot(b.sectorX - sectorX, b.sectorY - sectorY);
       return distanceA - distanceB || a.id.localeCompare(b.id);
@@ -241,7 +257,8 @@ export async function generateGoalCandidates(
   state: GoalBotState,
   profile?: BotProfile
 ): Promise<GoalCandidate[]> {
-  const economic = generateEconomicCandidates(state);
+  const usedProfile: BotProfile = profile ?? 'industrialist';
+  const economic = generateEconomicCandidates(state, usedProfile);
   const expansion: GoalCandidate[] = [];
   const conflict: GoalCandidate[] = [];
 
@@ -249,8 +266,8 @@ export async function generateGoalCandidates(
   const perStationCandidates = await Promise.all(
     state.ownStations.map(async (station) => {
       const [explore, colony] = await Promise.all([
-        generateExploreSectorCandidate(state, station),
-        generateEstablishColonyCandidate(state, station, profile),
+        generateExploreSectorCandidate(state, station, usedProfile),
+        generateEstablishColonyCandidate(state, station, usedProfile),
       ]);
       return {
         explore,
@@ -268,7 +285,6 @@ export async function generateGoalCandidates(
   }
 
   // Raid & retaliate candidates (conflict)
-  const usedProfile: BotProfile = profile ?? 'industrialist';
   const raidCandidates = generateRaidCandidates(state, usedProfile);
   conflict.push(...raidCandidates);
   const retaliateCandidates = generateRetaliateCandidates(state, usedProfile);
@@ -311,7 +327,7 @@ export async function determineNextStep(
       return stepIncreaseCapacity(state, station, targetRef, profile);
     case 'research_technology':
       if (!station) return missingStation(targetRef);
-      return stepResearchTechnology(station, targetRef, profile);
+      return stepResearchTechnology(state, station, targetRef, profile);
     case 'explore_sector':
       if (!station) return missingStation(targetRef);
       return stepExploreSector(state, station, targetRef, profile);

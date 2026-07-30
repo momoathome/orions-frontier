@@ -1,4 +1,4 @@
-import { and, asc, between, eq, inArray, ne, or } from 'drizzle-orm';
+import { and, asc, between, count, eq, inArray, ne, or } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { asteroidAssignments } from '../../lib/db/schema/asteroids.js';
@@ -64,6 +64,7 @@ export async function loadGoalBotState(
     allMissions,
     allCombatMissions,
     allSalvageMissions,
+    completedExpeditionRows,
   ] = await Promise.all([
     db.select().from(stationResources).where(inArray(stationResources.stationId, stationIds)),
     db.select().from(stationBuildings).where(inArray(stationBuildings.stationId, stationIds)),
@@ -108,6 +109,16 @@ export async function loadGoalBotState(
       .select()
       .from(salvageMissions)
       .where(and(eq(salvageMissions.userId, userId), ne(salvageMissions.status, 'resolved'))),
+    db
+      .select({ count: count() })
+      .from(worldMissions)
+      .where(
+        and(
+          eq(worldMissions.userId, userId),
+          eq(worldMissions.missionType, 'expedition'),
+          eq(worldMissions.status, 'arrived')
+        )
+      ),
   ]);
 
   const groupByStation = <T extends { stationId: string }>(
@@ -321,6 +332,7 @@ export async function loadGoalBotState(
   return {
     userId,
     now,
+    completedExpeditions: completedExpeditionRows[0]?.count ?? 0,
     ownStations,
     visibleAsteroids: [...visibleAsteroidsMap.values()],
     visibleStations,
