@@ -1,5 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { and, eq, ne } from 'drizzle-orm';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
 import { botControllers } from '../../lib/db/schema/bot-controllers.js';
 import { sectors } from '../../lib/db/schema/sectors.js';
@@ -7,11 +10,13 @@ import { stations } from '../../lib/db/schema/stations.js';
 import { users } from '../../lib/db/schema/users.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { createStation } from '../station.service.js';
-import { profileForKey } from './bot-profiles.js';
+import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION, profileForKey } from './bot-profiles.js';
 
 const coordinateKey = (value: number) => (value < 0 ? `m${-value}` : `p${value}`);
 
-export async function seedBotsForOccupiedSectors(): Promise<void> {
+export async function seedBotsForOccupiedSectors(
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> {
   const db = getDb();
   const settlementSectors = await db
     .select({ id: sectors.id })
@@ -19,11 +24,14 @@ export async function seedBotsForOccupiedSectors(): Promise<void> {
     .where(eq(sectors.role, 'settlement'));
 
   for (const sector of settlementSectors) {
-    await seedBotsForSector(sector.id);
+    await seedBotsForSector(sector.id, context);
   }
 }
 
-export async function seedBotsForSector(sectorId: string): Promise<void> {
+export async function seedBotsForSector(
+  sectorId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> {
   const db = getDb();
   const [sector] = await db
     .select({ id: sectors.id, sectorX: sectors.sectorX, sectorY: sectors.sectorY })
@@ -48,7 +56,14 @@ export async function seedBotsForSector(sectorId: string): Promise<void> {
   for (const bot of existingBots) {
     await db
       .insert(botControllers)
-      .values({ userId: bot.userId, profile: profileForKey(bot.userId) })
+      .values({
+        userId: bot.userId,
+        strategy: GOAL_BOT_STRATEGY,
+        strategyVersion: GOAL_BOT_STRATEGY_VERSION,
+        profile: profileForKey(bot.userId),
+        nextDecisionAt: context.now,
+        updatedAt: context.now,
+      })
       .onConflictDoNothing({ target: botControllers.userId });
   }
 
@@ -59,10 +74,13 @@ export async function seedBotsForSector(sectorId: string): Promise<void> {
     const [createdUser] = await db
       .insert(users)
       .values({
+        id: context.nextId('user'),
         username,
         email,
-        passwordHash: `disabled:${randomUUID()}`,
+        passwordHash: `disabled:${context.nextId('disabled-password')}`,
         role: 'bot',
+        createdAt: context.now,
+        updatedAt: context.now,
       })
       .onConflictDoNothing()
       .returning({ id: users.id });
@@ -73,13 +91,24 @@ export async function seedBotsForSector(sectorId: string): Promise<void> {
 
     await db
       .insert(botControllers)
-      .values({ userId: user.id, profile: profileForKey(key) })
+      .values({
+        userId: user.id,
+        strategy: GOAL_BOT_STRATEGY,
+        strategyVersion: GOAL_BOT_STRATEGY_VERSION,
+        profile: profileForKey(key),
+        nextDecisionAt: context.now,
+        updatedAt: context.now,
+      })
       .onConflictDoNothing({ target: botControllers.userId });
 
-    await createStation(user.id, {
-      name: `Prospector ${index}`,
-      slotType: 'bot',
-      sectorId: sector.id,
-    });
+    await createStation(
+      user.id,
+      {
+        name: `Prospector ${index}`,
+        slotType: 'bot',
+        sectorId: sector.id,
+      },
+      context
+    );
   }
 }

@@ -9,6 +9,10 @@ import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getUserScannerCoverages, isPointVisible } from '../scanner-visibility.service.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
 import { applyVectorNavigation } from '../research-effects.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../../lib/game-execution-context.js';
 
 // Assignment Service
 //
@@ -36,7 +40,8 @@ export interface CreateAssignmentError {
 }
 
 export const createAsteroidAssignment = async (
-  params: CreateAssignmentParams
+  params: CreateAssignmentParams,
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<{ id: string } | CreateAssignmentError> => {
   const db = getDb();
   const { userId, asteroidId, stationId, spacecraftKey, assignedAmount } = params;
@@ -94,7 +99,7 @@ export const createAsteroidAssignment = async (
     };
   }
 
-  const departedAt = new Date();
+  const departedAt = context.now;
   const distance = calcDistance({ x: station.x, y: station.y }, { x: asteroid.x, y: asteroid.y });
   const created = await db.transaction(async (tx) => {
     const [lockedAsteroid] = await tx
@@ -127,10 +132,12 @@ export const createAsteroidAssignment = async (
     const [assignment] = await tx
       .insert(asteroidAssignments)
       .values({
+        id: context.nextId('assignment'),
         asteroidId,
         stationId,
         spacecraftKey,
         assignedAmount,
+        assignedAt: context.now,
         status: 'traveling_to_asteroid',
       })
       .returning({ id: asteroidAssignments.id });
@@ -138,6 +145,7 @@ export const createAsteroidAssignment = async (
     const [trip] = await tx
       .insert(spacecraftTrips)
       .values({
+        id: context.nextId('trip'),
         stationSpacecraftId: stationScraft.id,
         assignmentId: assignment!.id,
         groupSize: assignedAmount,
@@ -152,6 +160,7 @@ export const createAsteroidAssignment = async (
         departedAt,
         arrivesAt,
         purpose: 'mine',
+        createdAt: context.now,
       })
       .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
 
@@ -171,12 +180,15 @@ export const createAsteroidAssignment = async (
   return { id: created.assignmentId };
 };
 
-export const requestAsteroidAssignmentRecall = async (params: {
-  assignmentId: string;
-  asteroidId: string;
-  userId: string;
-  amount?: number;
-}): Promise<boolean> => {
+export const requestAsteroidAssignmentRecall = async (
+  params: {
+    assignmentId: string;
+    asteroidId: string;
+    userId: string;
+    amount?: number;
+  },
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<boolean> => {
   const amount = params.amount ?? 1;
   if (!Number.isInteger(amount) || amount < 1) return false;
 
@@ -184,7 +196,7 @@ export const requestAsteroidAssignmentRecall = async (params: {
   const result = await db
     .update(asteroidAssignments)
     .set({
-      recallRequestedAt: new Date(),
+      recallRequestedAt: context.now,
       recallRequestedAmount: sql`${asteroidAssignments.recallRequestedAmount} + ${amount}`,
     })
     .from(stations)

@@ -8,6 +8,10 @@ import { startExpedition, startColonization } from '../world-mission.service.js'
 import { startDefenseUpgrade } from '../defense.service.js';
 import { startAttack } from '../combat.service.js';
 import { startSalvage } from '../salvage.service.js';
+import {
+  resolveGameExecutionContext,
+  type GameExecutionContext,
+} from '../../lib/game-execution-context.js';
 
 export type BotIntent =
   | {
@@ -80,18 +84,22 @@ function classifyDomainError(error: AppError): BotIntentRejected {
 export async function executeBotIntent(
   userId: string,
   intent: BotIntent,
-  now: Date
+  contextOrNow: GameExecutionContext | Date
 ): Promise<void> {
+  const context = resolveGameExecutionContext(contextOrNow);
   try {
     switch (intent.type) {
       case 'assign_miner': {
-        const result = await createAsteroidAssignment({
-          userId,
-          stationId: intent.stationId,
-          asteroidId: intent.asteroidId,
-          spacecraftKey: intent.spacecraftKey,
-          assignedAmount: intent.amount,
-        });
+        const result = await createAsteroidAssignment(
+          {
+            userId,
+            stationId: intent.stationId,
+            asteroidId: intent.asteroidId,
+            spacecraftKey: intent.spacecraftKey,
+            assignedAmount: intent.amount,
+          },
+          context
+        );
         if ('code' in result) {
           const kind = result.code === 'INSUFFICIENT_SPACECRAFT' ? 'waiting' : 'blocked';
           throw new BotIntentRejected(kind, result.message);
@@ -99,35 +107,44 @@ export async function executeBotIntent(
         break;
       }
       case 'build_spacecraft':
-        await buildSpacecrafts(intent.stationId, userId, [
-          { spacecraftKey: intent.spacecraftKey, amount: intent.amount },
-        ]);
+        await buildSpacecrafts(
+          intent.stationId,
+          userId,
+          [{ spacecraftKey: intent.spacecraftKey, amount: intent.amount }],
+          context
+        );
         break;
       case 'upgrade_building':
-        await startBuildingUpgrade(intent.stationId, intent.buildingKey, userId);
+        await startBuildingUpgrade(intent.stationId, intent.buildingKey, userId, context);
         break;
       case 'start_research':
-        await startResearch(intent.stationId, userId, intent.technologyKey);
+        await startResearch(intent.stationId, userId, intent.technologyKey, context);
         break;
       case 'start_expedition':
-        await startExpedition({
-          userId,
-          stationId: intent.stationId,
-          sectorX: intent.sectorX,
-          sectorY: intent.sectorY,
-        });
+        await startExpedition(
+          {
+            userId,
+            stationId: intent.stationId,
+            sectorX: intent.sectorX,
+            sectorY: intent.sectorY,
+          },
+          context
+        );
         break;
       case 'start_colonization':
-        await startColonization({
-          userId,
-          stationId: intent.stationId,
-          sectorX: intent.sectorX,
-          sectorY: intent.sectorY,
-          name: intent.name,
-        });
+        await startColonization(
+          {
+            userId,
+            stationId: intent.stationId,
+            sectorX: intent.sectorX,
+            sectorY: intent.sectorY,
+            name: intent.name,
+          },
+          context
+        );
         break;
       case 'upgrade_defense':
-        await startDefenseUpgrade(intent.stationId, intent.upgradeKey, userId);
+        await startDefenseUpgrade(intent.stationId, intent.upgradeKey, userId, context);
         break;
       case 'start_attack':
         await startAttack({
@@ -136,17 +153,20 @@ export async function executeBotIntent(
           targetStationId: intent.targetStationId,
           spacecraftKey: intent.spacecraftKey,
           amount: intent.amount,
-          now,
+          context,
         });
         break;
       case 'start_salvage':
-        await startSalvage({
-          userId,
-          stationId: intent.stationId,
-          debrisFieldId: intent.debrisFieldId,
-          spacecraftKey: intent.spacecraftKey,
-          amount: intent.amount,
-        });
+        await startSalvage(
+          {
+            userId,
+            stationId: intent.stationId,
+            debrisFieldId: intent.debrisFieldId,
+            spacecraftKey: intent.spacecraftKey,
+            amount: intent.amount,
+          },
+          context
+        );
         break;
     }
   } catch (error) {

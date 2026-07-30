@@ -8,6 +8,7 @@ build
 .env.local
 *.log
 coverage
+artifacts
 .DS_Store
 README.md
 .vscode

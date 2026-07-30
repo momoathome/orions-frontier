@@ -11,8 +11,9 @@ import {
 } from '../../src/lib/db/schema/asteroids.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
+import { stationResearch } from '../../src/lib/db/schema/station-research.js';
+import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -123,6 +124,9 @@ after(async () => {
   await db
     .delete(stationBuildings)
     .where(inArray(stationBuildings.stationId, [stationId, secondStationId]));
+  await db
+    .delete(stationResearch)
+    .where(inArray(stationResearch.stationId, [stationId, secondStationId]));
   if (assignmentId) {
     await db.delete(asteroidAssignments).where(eq(asteroidAssignments.id, assignmentId));
   }
@@ -557,6 +561,63 @@ test('recalls one miner while the rest of its group continues mining', async () 
   });
   assert.equal(nextOutbound?.groupSize, 2);
   assert.equal(fleet?.lockedAmount, 2);
+});
+
+test('modular cargo frames claims whole resource units for a Mole', async () => {
+  const db = getDb();
+  await resetMiningState();
+  await db
+    .update(asteroidVeins)
+    .set({ remainingAmount: 1_000 })
+    .where(eq(asteroidVeins.asteroidId, asteroidId));
+  const completedAt = new Date();
+  await db.insert(stationResearch).values({
+    stationId,
+    technologyKey: 'modular_cargo_frames',
+    status: 'completed',
+    completesAt: completedAt,
+    completedAt,
+  });
+
+  try {
+    const created = await createAsteroidAssignment({
+      userId,
+      asteroidId,
+      stationId,
+      spacecraftKey,
+      assignedAmount: 1,
+    });
+    assert.ok(!('code' in created));
+
+    const [outbound] = await db
+      .select()
+      .from(spacecraftTrips)
+      .where(
+        and(
+          eq(spacecraftTrips.assignmentId, created.id),
+          eq(spacecraftTrips.purpose, 'mine'),
+          eq(spacecraftTrips.status, 'traveling')
+        )
+      );
+    assert.ok(outbound);
+    assert.equal(await settleTripArrival(outbound), true);
+
+    const [returnTrip] = await db
+      .select()
+      .from(spacecraftTrips)
+      .where(
+        and(
+          eq(spacecraftTrips.assignmentId, created.id),
+          eq(spacecraftTrips.purpose, 'mining_return'),
+          eq(spacecraftTrips.status, 'traveling')
+        )
+      );
+    assert.ok(returnTrip);
+    assert.deepEqual(returnTrip.cargoManifest, { carbon: 55 });
+  } finally {
+    await resetMiningState();
+    await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
+  }
 });
 
 test('the exhausted asteroid remains until the last mining group returns', async () => {

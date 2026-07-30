@@ -27,13 +27,10 @@ import {
   stepSalvage,
   isEligibleAttackSource,
   pickBestSalvageStation,
+  prioritizeStationsForStabilization,
+  pickAvailableMinerKey,
 } from './goal-economy.js';
 
-// Local helpers (mirrored from goal-economy to avoid circular deps)
-const hasAvailableShips = (station: StationSnapshot, key: string): boolean => {
-  const fleet = station.fleets.find((f) => f.spacecraftKey === key);
-  return fleet !== undefined && fleet.amount - fleet.lockedAmount >= 1;
-};
 // ---------------------------------------------------------------------------
 // Result types
 // ---------------------------------------------------------------------------
@@ -58,13 +55,14 @@ export async function checkUrgentMaintenance(
   _profile: BotProfile,
   _reservedCosts: Record<string, number>
 ): Promise<GoalResult | null> {
-  for (const station of state.ownStations) {
-    if (!hasAvailableShips(station, 'mole')) continue;
+  for (const station of prioritizeStationsForStabilization(state)) {
+    const minerKey = pickAvailableMinerKey(station);
+    if (!minerKey) continue;
 
-    const spacecraft = getSpacecraft('mole');
+    const spacecraft = getSpacecraft(minerKey);
     if (!spacecraft) continue;
 
-    const asteroid = pickAsteroidForStation(state, station, 'mole');
+    const asteroid = pickAsteroidForStation(state, station, minerKey);
     if (!asteroid) continue;
 
     return {
@@ -73,10 +71,10 @@ export async function checkUrgentMaintenance(
         type: 'assign_miner',
         stationId: station.id,
         asteroidId: asteroid.id,
-        spacecraftKey: 'mole',
+        spacecraftKey: minerKey,
         amount: 1,
       },
-      reason: `Urgent: assigning free Mole at ${station.name} to asteroid ${asteroid.id}`,
+      reason: `Urgent: assigning free ${minerKey} miner at ${station.name} to asteroid ${asteroid.id}`,
     };
   }
   return null;

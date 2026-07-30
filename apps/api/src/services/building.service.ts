@@ -16,6 +16,10 @@ import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontie
 import { AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
 import { applyGridOptimization } from './research-effects.js';
 import { hasCompletedResearch } from './research.service.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
 
 // Seed station buildings (initialize all buildings at level 1 for new station)
 
@@ -23,15 +27,19 @@ type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 
 export const seedStationBuildings = async (
   stationId: string,
-  db: SeedDb = getDb()
+  db: SeedDb = getDb(),
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> => {
   await db
     .insert(stationBuildings)
     .values(
       buildings.map((building) => ({
+        id: context.nextId('station-building'),
         stationId,
         buildingKey: building.key,
         level: 1,
+        createdAt: context.now,
+        updatedAt: context.now,
       }))
     )
     .onConflictDoNothing();
@@ -40,7 +48,8 @@ export const seedStationBuildings = async (
 // Get all buildings for a station (with computed effects / costs)
 
 export const getStationBuildings = async (
-  stationId: string
+  stationId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<StationBuildingWithDefinition[]> => {
   const db = getDb();
 
@@ -49,7 +58,7 @@ export const getStationBuildings = async (
     .from(stationBuildings)
     .where(eq(stationBuildings.stationId, stationId));
 
-  const now = new Date();
+  const now = context.now;
 
   return rows
     .filter((building) => (buildingKeys as readonly string[]).includes(building.buildingKey))
@@ -80,7 +89,8 @@ export const getStationBuildings = async (
 export const startBuildingUpgrade = async (
   stationId: string,
   buildingKey: BuildingKey,
-  userId: string
+  userId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<StationBuildingWithDefinition> => {
   const db = getDb();
 
@@ -135,9 +145,9 @@ export const startBuildingUpgrade = async (
     }
 
     const buildTimeSeconds = calculateBuildingBuildTime(buildingKey, targetLevel);
-    const baseUpgradeEndsAt = new Date(Date.now() + buildTimeSeconds * 1000);
+    const baseUpgradeEndsAt = new Date(context.now.getTime() + buildTimeSeconds * 1000);
     const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
-    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt);
+    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt, context.now);
     for (const cost of costs) {
       await tx
         .update(stationResources)
@@ -156,7 +166,7 @@ export const startBuildingUpgrade = async (
 
     await tx
       .update(stationBuildings)
-      .set({ upgradeEndsAt, updatedAt: new Date() })
+      .set({ upgradeEndsAt, updatedAt: context.now })
       .where(eq(stationBuildings.id, stationBuilding.id));
 
     return currentResources;
@@ -167,7 +177,7 @@ export const startBuildingUpgrade = async (
     resources: Object.fromEntries(resourceMap),
   });
 
-  const allBuildings = await getStationBuildings(stationId);
+  const allBuildings = await getStationBuildings(stationId, context);
   const result = allBuildings.find((b) => b.definition.key === buildingKey);
 
   if (!result) {

@@ -1,4 +1,4 @@
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import { AppError, ErrorCode, type ResearchState } from '@orions-frontier/shared';
 import {
   calculateBuildingEffect,
@@ -10,6 +10,11 @@ import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResearch } from '../lib/db/schema/station-research.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
+import { completionEventId, type ResearchCompletedEvent } from '../lib/playtest/events.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 export type QueryDb = Tx | ReturnType<typeof getDb>;
@@ -62,7 +67,8 @@ export async function getResearchState(stationId: string, userId: string): Promi
 export async function startResearch(
   stationId: string,
   userId: string,
-  technologyKey: string
+  technologyKey: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> {
   const definition = getResearchDefinition(technologyKey);
   if (!definition) throw new AppError(ErrorCode.NOT_FOUND, 'Research not found');
@@ -113,9 +119,11 @@ export async function startResearch(
         );
     }
     await tx.insert(stationResearch).values({
+      id: context.nextId('station-research'),
       stationId,
       technologyKey,
-      completesAt: new Date(Date.now() + definition.duration * 1000),
+      completesAt: new Date(context.now.getTime() + definition.duration * 1000),
+      createdAt: context.now,
     });
   });
 }
@@ -138,11 +146,50 @@ export async function hasCompletedResearch(
   return Boolean(row);
 }
 
-export async function completeDueResearch(now = new Date()): Promise<number> {
-  const rows = await getDb()
-    .update(stationResearch)
-    .set({ status: 'completed', completedAt: now })
+export async function completeDueResearchDetailed(
+  now = new Date()
+): Promise<ResearchCompletedEvent[]> {
+  const db = getDb();
+  const due = await db
+    .select({
+      id: stationResearch.id,
+      stationId: stationResearch.stationId,
+      userId: stations.userId,
+      technologyKey: stationResearch.technologyKey,
+      completesAt: stationResearch.completesAt,
+    })
+    .from(stationResearch)
+    .innerJoin(stations, eq(stations.id, stationResearch.stationId))
     .where(and(eq(stationResearch.status, 'researching'), lte(stationResearch.completesAt, now)))
-    .returning({ id: stationResearch.id });
-  return rows.length;
+    .orderBy(asc(stationResearch.completesAt), asc(stationResearch.id));
+  const events: ResearchCompletedEvent[] = [];
+  for (const research of due) {
+    const [claimed] = await db
+      .update(stationResearch)
+      .set({ status: 'completed', completedAt: research.completesAt })
+      .where(
+        and(
+          eq(stationResearch.id, research.id),
+          eq(stationResearch.status, 'researching'),
+          lte(stationResearch.completesAt, now)
+        )
+      )
+      .returning({ id: stationResearch.id });
+    if (claimed) {
+      events.push({
+        type: 'research_completed',
+        eventId: completionEventId('research_completed', research.id),
+        occurredAt: research.completesAt,
+        userId: research.userId,
+        stationId: research.stationId,
+        researchId: research.id,
+        technologyKey: research.technologyKey,
+      });
+    }
+  }
+  return events;
+}
+
+export async function completeDueResearch(now = new Date()): Promise<number> {
+  return (await completeDueResearchDetailed(now)).length;
 }

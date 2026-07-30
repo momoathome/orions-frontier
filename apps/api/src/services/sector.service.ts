@@ -3,9 +3,12 @@ import { getDb } from '../lib/db/index.js';
 import { asteroids, asteroidVeins } from '../lib/db/schema/asteroids.js';
 import { sectors } from '../lib/db/schema/sectors.js';
 import { spawnSlots } from '../lib/db/schema/spawn-slots.js';
-import { WORLD_CONFIG } from '../lib/world-config.js';
 import { generateSector } from '../lib/world-gen/sector-gen.js';
 import type { GeneratedAsteroid, SectorRole } from '../lib/world-gen/types.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
 
 type SectorDb = Pick<ReturnType<typeof getDb>, 'insert' | 'select'>;
 const BATCH_SIZE = 500;
@@ -13,30 +16,32 @@ const BATCH_SIZE = 500;
 export async function insertGeneratedAsteroids(
   db: Pick<SectorDb, 'insert'>,
   sectorId: string,
-  generated: GeneratedAsteroid[]
+  generated: GeneratedAsteroid[],
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> {
   for (let offset = 0; offset < generated.length; offset += BATCH_SIZE) {
     const batch = generated.slice(offset, offset + BATCH_SIZE);
-    const inserted = await db
-      .insert(asteroids)
-      .values(
-        batch.map((asteroid) => ({
-          x: asteroid.x,
-          y: asteroid.y,
-          chunkX: asteroid.chunkX,
-          chunkY: asteroid.chunkY,
-          size: asteroid.size,
-          sectorId,
-        }))
-      )
-      .returning({ id: asteroids.id });
+    const asteroidRows = batch.map((asteroid) => ({
+      id: context.nextId('asteroid'),
+      x: asteroid.x,
+      y: asteroid.y,
+      chunkX: asteroid.chunkX,
+      chunkY: asteroid.chunkY,
+      size: asteroid.size,
+      sectorId,
+      createdAt: context.now,
+      updatedAt: context.now,
+    }));
+    await db.insert(asteroids).values(asteroidRows);
 
-    const veins = inserted.flatMap((asteroid, index) =>
+    const veins = asteroidRows.flatMap((asteroid, index) =>
       batch[index]!.veins.map((vein) => ({
+        id: context.nextId('asteroid-vein'),
         asteroidId: asteroid.id,
         veinType: vein.veinType,
         resourceKey: vein.resourceKey,
         remainingAmount: vein.remainingAmount,
+        createdAt: context.now,
       }))
     );
     if (veins.length > 0) await db.insert(asteroidVeins).values(veins);
@@ -47,12 +52,20 @@ export async function ensureSector(
   db: SectorDb,
   sectorX: number,
   sectorY: number,
-  role: SectorRole
+  role: SectorRole,
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<{ id: string; created: boolean; role: SectorRole }> {
-  const generated = generateSector(sectorX, sectorY, WORLD_CONFIG.WORLD_SEED, role);
+  const generated = generateSector(sectorX, sectorY, context.worldSeed, role);
   const [created] = await db
     .insert(sectors)
-    .values({ sectorX, sectorY, role, seed: generated.seed })
+    .values({
+      id: context.nextId('sector'),
+      sectorX,
+      sectorY,
+      role,
+      seed: generated.seed,
+      createdAt: context.now,
+    })
     .onConflictDoNothing({ target: [sectors.sectorX, sectors.sectorY] })
     .returning({ id: sectors.id });
 
@@ -66,22 +79,27 @@ export async function ensureSector(
     return { id: existing.id, created: false, role: existing.role as SectorRole };
   }
 
-  await insertGeneratedAsteroids(db, created.id, generated.asteroids);
+  await insertGeneratedAsteroids(db, created.id, generated.asteroids, context);
   if (generated.spawnSlots.length > 0) {
     await db.insert(spawnSlots).values(
       generated.spawnSlots.map((slot) => ({
+        id: context.nextId('spawn-slot'),
         sectorId: created.id,
         slotIndex: slot.slotIndex,
         slotType: slot.slotType,
         x: slot.x,
         y: slot.y,
+        createdAt: context.now,
       }))
     );
   }
   return { id: created.id, created: true, role };
 }
 
-export async function openNextSettlementSector(db: SectorDb): Promise<string> {
+export async function openNextSettlementSector(
+  db: SectorDb,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<string> {
   const existing = await db
     .select({ sectorX: sectors.sectorX, sectorY: sectors.sectorY })
     .from(sectors);
@@ -111,7 +129,13 @@ export async function openNextSettlementSector(db: SectorDb): Promise<string> {
   if (candidates.length === 0) candidates.push({ sectorX: 0, sectorY: 0 });
 
   for (const candidate of candidates) {
-    const sector = await ensureSector(db, candidate.sectorX, candidate.sectorY, 'settlement');
+    const sector = await ensureSector(
+      db,
+      candidate.sectorX,
+      candidate.sectorY,
+      'settlement',
+      context
+    );
     if (sector.role === 'settlement') return sector.id;
   }
   throw new Error('No settlement sector coordinate is available');

@@ -66,11 +66,14 @@ export async function effectiveAttackPower(
 /**
  * Returns the upgrade end timestamp with station_grid_optimization applied.
  */
-export function applyGridOptimization(hasResearch: boolean, baseUpgradeEndsAt: Date): Date {
+export function applyGridOptimization(
+  hasResearch: boolean,
+  baseUpgradeEndsAt: Date,
+  startsAt: Date
+): Date {
   if (hasResearch) {
-    const now = Date.now();
-    const baseDuration = baseUpgradeEndsAt.getTime() - now;
-    return new Date(now + Math.round(baseDuration * 0.9));
+    const baseDuration = baseUpgradeEndsAt.getTime() - startsAt.getTime();
+    return new Date(startsAt.getTime() + Math.round(baseDuration * 0.9));
   }
   return baseUpgradeEndsAt;
 }

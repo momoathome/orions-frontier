@@ -227,6 +227,10 @@ Einkommen, freien Minern, Kapazitäten, Ausbau und Bedrohung.
 
 ## Schritt 2: Beschleunigter Spieltest
 
+Status: technisch umgesetzt und am 30. Juli 2026 mit drei reproduzierbaren 24-Stunden-Seeds
+abgenommen. Ergebnisse und nächste Balancefragen stehen in der
+[Playtest-Baseline](./playtest-baseline.md).
+
 Nach Fertigstellung der zielorientierten Bots entsteht ein separates Entwicklungswerkzeug auf
 einer wegwerfbaren PostgreSQL-Testwelt.
 
@@ -290,6 +294,8 @@ Die konkreten, einzeln abnehmbaren Arbeitspakete für Schritt 1 stehen im
 [Ticketpaket für glaubwürdige Bewohner](./goal-driven-bots-step-1-tickets.md).
 Die Nachbesserungen der ersten Implementierung und ihre Abnahmekriterien stehen im
 [Fix- und Reviewplan für Schritt 1](./goal-driven-bots-step-1-fix-plan.md).
+Die konkrete Umsetzung von Schritt 2 steht im
+[Ticketpaket für den beschleunigten Spieltest](./goal-driven-bots-step-2-tickets.md).
 
 1. Sofortübernahme und die ausschließlich dafür vorhandene Einflusslogik entfernen.
 2. Accountweiten Schutz junger Stationen im gemeinsamen Angriffs-Service ergänzen.

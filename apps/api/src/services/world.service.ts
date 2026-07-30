@@ -5,6 +5,7 @@ import { botControllers } from '../lib/db/schema/bot-controllers.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
+import { users } from '../lib/db/schema/users.js';
 import { worldMissions } from '../lib/db/schema/world-missions.js';
 import {
   AppError,
@@ -13,7 +14,7 @@ import {
   type VisibleWorldMovement,
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
-import { getSpacecraft } from '@orions-frontier/game-config';
+import { ATTACK_PROTECTION_DURATION_MS, getSpacecraft } from '@orions-frontier/game-config';
 import {
   getUserScannerCoverages,
   isPointVisible,
@@ -28,6 +29,11 @@ export interface WorldChunkRange {
   maxChunkX: number;
   minChunkY: number;
   maxChunkY: number;
+}
+
+export interface VisibleStationCombatDiagnostics {
+  now: Date;
+  protectedOwnerIds: Set<string>;
 }
 
 export function parseChunkRange(query: unknown, maxSpan: number): WorldChunkRange {
@@ -66,7 +72,8 @@ export async function getVisibleChunkStations(
   userId: string,
   coverages: readonly ScannerCoverage[],
   stats?: VisibilityProjectionStats,
-  scannerBypass = false
+  scannerBypass = false,
+  combatDiagnostics?: VisibleStationCombatDiagnostics
 ): Promise<VisibleStation[]> {
   const db = getDb();
   const coverageBounds = scannerBypass
@@ -80,8 +87,11 @@ export async function getVisibleChunkStations(
       x: stations.x,
       y: stations.y,
       botUserId: botControllers.userId,
+      ownerCreatedAt: users.createdAt,
+      attackProtectionBrokenAt: users.attackProtectionBrokenAt,
     })
     .from(stations)
+    .innerJoin(users, eq(users.id, stations.userId))
     .leftJoin(botControllers, eq(botControllers.userId, stations.userId))
     .where(
       and(
@@ -102,21 +112,29 @@ export async function getVisibleChunkStations(
 
   const visibleRows = rows.flatMap((station) => {
     const isOwn = station.userId === userId;
-    return scannerBypass || isOwn || isPointVisible(coverages, station)
-      ? [
-          {
-            id: station.id,
-            name: station.name,
-            x: station.x,
-            y: station.y,
-            chunkX: Math.floor(station.x / WORLD_CONFIG.CHUNK_SIZE),
-            chunkY: Math.floor(station.y / WORLD_CONFIG.CHUNK_SIZE),
-            ownerType: station.botUserId ? ('bot' as const) : ('player' as const),
-            ownerId: station.userId,
-            isOwn,
-          },
-        ]
-      : [];
+    if (!scannerBypass && !isOwn && !isPointVisible(coverages, station)) return [];
+    if (
+      combatDiagnostics &&
+      !isOwn &&
+      !station.attackProtectionBrokenAt &&
+      combatDiagnostics.now.getTime() <
+        station.ownerCreatedAt.getTime() + ATTACK_PROTECTION_DURATION_MS
+    ) {
+      combatDiagnostics.protectedOwnerIds.add(station.userId);
+    }
+    return [
+      {
+        id: station.id,
+        name: station.name,
+        x: station.x,
+        y: station.y,
+        chunkX: Math.floor(station.x / WORLD_CONFIG.CHUNK_SIZE),
+        chunkY: Math.floor(station.y / WORLD_CONFIG.CHUNK_SIZE),
+        ownerType: station.botUserId ? ('bot' as const) : ('player' as const),
+        ownerId: station.userId,
+        isOwn,
+      },
+    ];
   });
   const visualProfiles = await getStationVisualProfiles(visibleRows.map((station) => station.id));
 

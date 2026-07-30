@@ -15,6 +15,10 @@ import { WORLD_CONFIG } from '../lib/world-config.js';
 import { calculateScannerRange } from '@orions-frontier/game-config';
 import { getUserScannerCoverages } from './scanner-visibility.service.js';
 import { getStationVisualProfiles, starterStationVisualProfile } from './station-visual.service.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
 
 const toStation = (
   row: typeof stations.$inferSelect,
@@ -45,7 +49,8 @@ export const getUserStations = async (userId: string): Promise<Station[]> => {
 
 export const createStation = async (
   userId: string,
-  data: { name: string; slotType?: 'player' | 'bot'; sectorId?: string }
+  data: { name: string; slotType?: 'player' | 'bot'; sectorId?: string },
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<Station> => {
   const db = getDb();
   const slotType = data.slotType ?? 'player';
@@ -82,14 +87,19 @@ export const createStation = async (
         .from(spawnSlots)
         .innerJoin(sectors, eq(spawnSlots.sectorId, sectors.id))
         .where(and(...conditions))
-        .orderBy(asc(sectors.createdAt), asc(spawnSlots.slotIndex))
+        .orderBy(
+          asc(sectors.createdAt),
+          asc(sectors.sectorY),
+          asc(sectors.sectorX),
+          asc(spawnSlots.slotIndex)
+        )
         .limit(1)
         .for('update');
     };
 
     let [slot] = await findSlot();
     if (!slot && slotType === 'player' && !data.sectorId) {
-      await openNextSettlementSector(tx);
+      await openNextSettlementSector(tx, context);
       [slot] = await findSlot();
     }
 
@@ -100,6 +110,7 @@ export const createStation = async (
     const [station] = await tx
       .insert(stations)
       .values({
+        id: context.nextId('station'),
         userId,
         name: data.name,
         sectorId: slot.slot.sectorId,
@@ -107,6 +118,7 @@ export const createStation = async (
         y: slot.slot.y,
         chunkX: Math.floor(slot.slot.x / WORLD_CONFIG.CHUNK_SIZE),
         chunkY: Math.floor(slot.slot.y / WORLD_CONFIG.CHUNK_SIZE),
+        createdAt: context.now,
       })
       .returning();
     if (!station) throw new Error('Failed to create station');
@@ -116,13 +128,14 @@ export const createStation = async (
       .set({ stationId: station.id })
       .where(eq(spawnSlots.id, slot.slot.id));
     await seedStationResources(station.id, tx);
-    await seedStationBuildings(station.id, tx);
-    await seedStationDefenseUpgrades(station.id, tx);
-    await seedStationSpacecrafts(station.id, tx);
+    await seedStationBuildings(station.id, tx, context);
+    await seedStationDefenseUpgrades(station.id, tx, context);
+    await seedStationSpacecrafts(station.id, tx, context);
     await insertGeneratedAsteroids(
       tx,
       slot.slot.sectorId,
-      generateStarterPocket(slot.slot, slot.sectorSeed)
+      generateStarterPocket(slot.slot, slot.sectorSeed),
+      context
     );
 
     return toStation(station, calculateScannerRange(1));

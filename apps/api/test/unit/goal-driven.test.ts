@@ -279,17 +279,20 @@ test('scored candidate includes breakdown', () => {
 
 import type { StationSnapshot } from '../../src/services/bot/goal-state.js';
 import {
+  analyzeConflictOpportunities,
   generateSalvageCandidates,
   generateIncreaseCapacityCandidate,
   generateResearchCandidates,
   generateStabilizeCandidate,
   pickBestSalvageStation,
+  prioritizeStationsForStabilization,
   stepRaid,
   stepResearchTechnology,
   stepSalvage,
   stepStabilizeStation,
 } from '../../src/services/bot/goal-economy.js';
 import type { GoalBotState } from '../../src/services/bot/goal-state.js';
+import { checkUrgentMaintenance } from '../../src/services/bot/goal-lifecycle.service.js';
 
 const baseStation = (overrides: Partial<StationSnapshot> = {}): StationSnapshot => ({
   id: 'station-1',
@@ -341,6 +344,7 @@ const baseState = (
   visibleStations: [],
   visibleDebris: [],
   combatReports: [],
+  conflictDiagnostics: { protectedOwnerIds: [] },
   ...overrides,
 });
 
@@ -397,6 +401,85 @@ test('research does not claim to save when the station has no income', async () 
     'technocrat'
   );
   assert.equal(result.type, 'blocked');
+});
+
+test('research candidates require a reachable resource and laboratory path', () => {
+  const noIncome = baseStation({
+    resources: { carbon: 1, titanium: 1, hydrogenium: 1 },
+    research: [
+      {
+        technologyKey: 'extraction_algorithms',
+        status: 'completed',
+        completesAt: new Date(0),
+      },
+    ],
+  });
+  assert.deepEqual(generateResearchCandidates(noIncome), []);
+
+  const withIncome = baseStation({
+    ...noIncome,
+    miningAssignments: [
+      {
+        id: 'assignment-1',
+        asteroidId: 'asteroid-1',
+        spacecraftKey: 'mole',
+        assignedAmount: 1,
+        status: 'mining',
+      },
+    ],
+  });
+  assert.ok(generateResearchCandidates(withIncome).length > 0);
+});
+
+test('an unstable colony is prioritized ahead of the initial station', () => {
+  const initial = baseStation({ id: 'station-initial', createdAt: new Date(0) });
+  const colony = baseStation({
+    id: 'station-colony',
+    createdAt: new Date(1),
+    fleets: [{ spacecraftKey: 'titan', amount: 1, lockedAmount: 0 }],
+  });
+  const state = baseState(initial, { ownStations: [initial, colony] });
+
+  assert.deepEqual(
+    prioritizeStationsForStabilization(state).map((station) => station.id),
+    ['station-colony', 'station-initial']
+  );
+  assert.ok(
+    (generateStabilizeCandidate(state, colony)?.commitment ?? 0) >
+      (generateStabilizeCandidate(state, initial)?.commitment ?? 0)
+  );
+});
+
+test('urgent miner maintenance acts on an unstable colony first', async () => {
+  const initial = baseStation({
+    id: 'station-initial',
+    createdAt: new Date(0),
+    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 0 }],
+  });
+  const colony = baseStation({
+    id: 'station-colony',
+    createdAt: new Date(1),
+    fleets: [{ spacecraftKey: 'titan', amount: 1, lockedAmount: 0 }],
+  });
+  const result = await checkUrgentMaintenance(
+    baseState(initial, { ownStations: [initial, colony] }),
+    'industrialist',
+    {}
+  );
+
+  assert.equal(result?.type, 'success');
+  assert.equal(
+    result?.type === 'success' && result.intent.type === 'assign_miner'
+      ? result.intent.stationId
+      : null,
+    'station-colony'
+  );
+  assert.equal(
+    result?.type === 'success' && result.intent.type === 'assign_miner'
+      ? result.intent.spacecraftKey
+      : null,
+    'titan'
+  );
 });
 
 test('research with active miners gives extraction_algorithms a high score', () => {
@@ -524,6 +607,58 @@ test('raid sends the smallest sufficient single fighter group', async () => {
       : null,
     { spacecraftKey: 'javelin', amount: 1 }
   );
+});
+
+test('conflict opportunities record the authoritative exclusion stage', () => {
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 0 }],
+  });
+  const target = {
+    id: 'target-1',
+    name: 'Target',
+    x: 100,
+    y: 0,
+    chunkX: 0,
+    chunkY: 0,
+    ownerType: 'player' as const,
+    ownerId: 'opponent-1',
+    isOwn: false,
+    visualProfile: {
+      scaleTier: 1 as const,
+      modules: {
+        core: 0 as const,
+        shipyard: 0 as const,
+        warehouse: 0 as const,
+        scanner: 0 as const,
+        hangar: 0 as const,
+        laboratory: 0 as const,
+      },
+      defense: {
+        armor_plating: 0 as const,
+        guardian_cannon: 0 as const,
+        defense_drones: 0 as const,
+        minefield: 0 as const,
+      },
+      traffic: { civilian: 0 as const, military: 0 as const },
+    },
+  };
+  const protectedState = baseState(station, {
+    visibleStations: [target],
+    conflictDiagnostics: { protectedOwnerIds: ['opponent-1'] },
+  });
+  assert.deepEqual(analyzeConflictOpportunities(protectedState, 'warlord'), {
+    visibleTargets: 1,
+    eligibleAfterProtectionAndCooldown: 0,
+    sufficientFleetAndReserve: 0,
+    viableTargets: 0,
+    lastExclusionStage: 'target_protected',
+  });
+
+  const unprotected = baseState(station, { visibleStations: [target] });
+  const opportunity = analyzeConflictOpportunities(unprotected, 'warlord');
+  assert.equal(opportunity.eligibleAfterProtectionAndCooldown, 1);
+  assert.equal(opportunity.sufficientFleetAndReserve, 1);
+  assert.equal(opportunity.lastExclusionStage, 'viable_target');
 });
 
 test('salvage must beat mining and chooses the best local station deterministically', () => {

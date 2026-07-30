@@ -25,6 +25,15 @@ import { getUserScannerCoverages, isPointVisible } from './scanner-visibility.se
 import { calculateStationDefenseScore } from './defense.service.js';
 import { creditStationResources } from './station-resource.service.js';
 import { effectiveAttackPower, applyVectorNavigation } from './research-effects.js';
+import {
+  resolveGameExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
+import {
+  completionEventId,
+  discardedResources,
+  type PlaytestCompletionEvent,
+} from '../lib/playtest/events.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -55,10 +64,12 @@ export async function startAttack(params: {
   spacecraftKey: string;
   amount: number;
   now?: Date;
+  context?: GameExecutionContext;
 }): Promise<CombatReport> {
   if (!Number.isInteger(params.amount) || params.amount < 1) {
     throw new AppError(ErrorCode.VALIDATION_ERROR, 'Amount must be a positive integer');
   }
+  const context = resolveGameExecutionContext(params.context ?? params.now);
   const db = getDb();
   const mission = await db.transaction(async (tx) => {
     const [attacker] = await tx
@@ -81,7 +92,7 @@ export async function startAttack(params: {
     }
 
     // Lock both user rows in stable ID order to prevent deadlocks
-    const now = params.now ?? new Date();
+    const { now } = context;
     const defenderUserId = defender.userId;
     const sortedIds = [params.userId, defenderUserId].sort();
     const [userA, userB] = await Promise.all([
@@ -151,7 +162,7 @@ export async function startAttack(params: {
         .where(eq(users.id, params.userId));
     }
 
-    const departedAt = new Date();
+    const departedAt = context.now;
     const baseArrivesAt = calcArrivesAt(
       departedAt,
       calcDistance(attacker, defender),
@@ -161,6 +172,7 @@ export async function startAttack(params: {
     const [trip] = await tx
       .insert(spacecraftTrips)
       .values({
+        id: context.nextId('trip'),
         stationSpacecraftId: fleet.id,
         groupSize: params.amount,
         fromType: 'station',
@@ -174,17 +186,20 @@ export async function startAttack(params: {
         departedAt,
         arrivesAt,
         purpose: 'combat',
+        createdAt: context.now,
       })
       .returning({ id: spacecraftTrips.id });
     const [created] = await tx
       .insert(combatMissions)
       .values({
+        id: context.nextId('combat-mission'),
         userId: params.userId,
         attackerStationId: attacker.id,
         defenderStationId: defender.id,
         attackerStationSpacecraftId: fleet.id,
         outboundTripId: trip!.id,
         attackerAmount: params.amount,
+        createdAt: context.now,
       })
       .returning();
     return { mission: created!, defenderUserId: defender.userId };
@@ -239,13 +254,17 @@ async function stationDefenseScore(tx: Tx, stationId: string): Promise<number> {
   return calculateStationDefenseScore(levels);
 }
 
-async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
+async function resolveOutboundCombat(
+  tx: Tx,
+  trip: Trip,
+  context: GameExecutionContext
+): Promise<PlaytestCompletionEvent[]> {
   const [mission] = await tx
     .select()
     .from(combatMissions)
     .where(and(eq(combatMissions.outboundTripId, trip.id), eq(combatMissions.status, 'traveling')))
     .for('update');
-  if (!mission) return;
+  if (!mission) return [];
 
   const [attackerFleet] = await tx
     .select({
@@ -350,7 +369,57 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
     })
     .where(eq(stationSpacecrafts.id, mission.attackerStationSpacecraftId));
 
-  await createDebrisFromLosses(tx, mission.defenderStationId, destroyed);
+  const debris = await createDebrisFromLosses(tx, mission.defenderStationId, destroyed, context);
+  const events: PlaytestCompletionEvent[] = [
+    {
+      type: 'combat_resolved',
+      eventId: completionEventId('combat_resolved', mission.id),
+      occurredAt: trip.arrivesAt,
+      userId: mission.userId,
+      stationId: mission.attackerStationId,
+      missionId: mission.id,
+      defenderStationId: mission.defenderStationId,
+      winner,
+      attackerLosses,
+      defenderLosses,
+      targetVisibilityVerified: true,
+    },
+  ];
+  if (Object.keys(loot).length > 0) {
+    events.push({
+      type: 'loot_acquired',
+      eventId: completionEventId('loot_acquired', mission.id),
+      occurredAt: trip.arrivesAt,
+      userId: mission.userId,
+      stationId: mission.attackerStationId,
+      missionId: mission.id,
+      resources: loot,
+    });
+  }
+  if (attackerLosses + defenderLosses > 0) {
+    events.push({
+      type: 'fleet_losses',
+      eventId: completionEventId('fleet_losses', mission.id),
+      occurredAt: trip.arrivesAt,
+      userId: mission.userId,
+      stationId: mission.attackerStationId,
+      missionId: mission.id,
+      attackerLosses,
+      defenderLosses,
+    });
+  }
+  if (debris) {
+    events.push({
+      type: 'debris_created',
+      eventId: completionEventId('debris_created', mission.id),
+      occurredAt: trip.arrivesAt,
+      userId: mission.userId,
+      stationId: mission.attackerStationId,
+      missionId: mission.id,
+      debrisId: debris.id,
+      resources: debris.resources,
+    });
+  }
 
   if (survivors === 0) {
     await tx
@@ -364,7 +433,7 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
         resolvedAt: trip.arrivesAt,
       })
       .where(eq(combatMissions.id, mission.id));
-    return;
+    return events;
   }
 
   const [attackerStation, defenderStation] = await Promise.all([
@@ -395,6 +464,7 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
   const [returnTrip] = await tx
     .insert(spacecraftTrips)
     .values({
+      id: context.nextId('trip'),
       stationSpacecraftId: mission.attackerStationSpacecraftId,
       groupSize: survivors,
       fromType: 'station',
@@ -409,6 +479,7 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
       arrivesAt,
       purpose: 'combat_return',
       cargoManifest: loot,
+      createdAt: departedAt,
     })
     .returning({ id: spacecraftTrips.id });
   await tx
@@ -422,20 +493,18 @@ async function resolveOutboundCombat(tx: Tx, trip: Trip): Promise<void> {
       status: 'returning',
     })
     .where(eq(combatMissions.id, mission.id));
+  return events;
 }
 
-async function resolveCombatReturn(tx: Tx, trip: Trip): Promise<void> {
+async function resolveCombatReturn(tx: Tx, trip: Trip): Promise<PlaytestCompletionEvent[]> {
   const [mission] = await tx
     .select()
     .from(combatMissions)
     .where(and(eq(combatMissions.returnTripId, trip.id), eq(combatMissions.status, 'returning')))
     .for('update');
-  if (!mission) return;
-  const credited = await creditStationResources(
-    tx,
-    mission.attackerStationId,
-    (trip.cargoManifest ?? {}) as Record<string, number>
-  );
+  if (!mission) return [];
+  const requested = { ...((trip.cargoManifest ?? {}) as Record<string, number>) };
+  const credited = await creditStationResources(tx, mission.attackerStationId, requested);
   await tx
     .update(spacecraftTrips)
     .set({ cargoManifest: credited })
@@ -448,9 +517,27 @@ async function resolveCombatReturn(tx: Tx, trip: Trip): Promise<void> {
     .update(combatMissions)
     .set({ status: 'resolved', resolvedAt: trip.arrivesAt })
     .where(eq(combatMissions.id, mission.id));
+  return [
+    {
+      type: 'loot_delivered',
+      eventId: completionEventId('loot_delivered', mission.id),
+      occurredAt: trip.arrivesAt,
+      userId: mission.userId,
+      stationId: mission.attackerStationId,
+      missionId: mission.id,
+      requested,
+      credited,
+      discarded: discardedResources(requested, credited),
+    },
+  ];
 }
 
-export async function handleCombatTripArrival(tx: Tx, trip: Trip): Promise<void> {
-  if (trip.purpose === 'combat') await resolveOutboundCombat(tx, trip);
-  else if (trip.purpose === 'combat_return') await resolveCombatReturn(tx, trip);
+export async function handleCombatTripArrival(
+  tx: Tx,
+  trip: Trip,
+  context: GameExecutionContext
+): Promise<PlaytestCompletionEvent[]> {
+  if (trip.purpose === 'combat') return resolveOutboundCombat(tx, trip, context);
+  if (trip.purpose === 'combat_return') return resolveCombatReturn(tx, trip);
+  return [];
 }

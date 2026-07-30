@@ -49,7 +49,7 @@ jeweiligen Spielstil.
 
 | Zieltyp               | Kategorie | Beschreibung                                            |
 | --------------------- | --------- | ------------------------------------------------------- |
-| `stabilize_station`   | economy   | Ersten Miner zuweisen, Mole bauen, Lager aufbauen       |
+| `stabilize_station`   | economy   | Verfügbaren Miner zuweisen, sonst Mole und Lager bauen  |
 | `increase_income`     | economy   | Drei Mole und einen Titan aufbauen                      |
 | `increase_capacity`   | economy   | Warehouse/Hangar/Laboratory bei Engpass ausbauen        |
 | `research_technology` | research  | Nutzenbringende Technologie erforschen                  |

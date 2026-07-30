@@ -16,6 +16,10 @@ import {
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { hasCompletedResearch } from './research.service.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
 
 export const getStationSpacecrafts = async (
   stationId: string
@@ -92,14 +96,18 @@ type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 
 export const seedStationSpacecrafts = async (
   stationId: string,
-  db: SeedDb = getDb()
+  db: SeedDb = getDb(),
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> => {
   await db.insert(stationSpacecrafts).values(
     INITIAL_SPACECRAFTS.map((spacecraft) => ({
+      id: context.nextId('station-spacecraft'),
       stationId,
       spacecraftKey: spacecraft.key,
       amount: spacecraft.amount,
       lockedAmount: 0,
+      createdAt: context.now,
+      updatedAt: context.now,
     }))
   );
 };
@@ -157,7 +165,8 @@ export async function getStationHangar(stationId: string): Promise<{
 export const buildSpacecrafts = async (
   stationId: string,
   userId: string,
-  orders: BuildOrder[]
+  orders: BuildOrder[],
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> => {
   const db = getDb();
 
@@ -295,7 +304,7 @@ export const buildSpacecrafts = async (
         );
       if (row?.maxEndsAt) endsAtByKey.set(def.key, row.maxEndsAt);
     }
-    const now = Date.now();
+    const now = context.now.getTime();
     const orderEndsAt = orders.map((order) => {
       const def = defByKey.get(order.spacecraftKey)!;
       const baseline = Math.max((endsAtByKey.get(def.key) ?? new Date(0)).getTime(), now);
@@ -321,20 +330,25 @@ export const buildSpacecrafts = async (
 
     for (const { order, def, endsAt } of orderEndsAt) {
       await tx.insert(spacecraftBuildOrders).values({
+        id: context.nextId('spacecraft-build-order'),
         stationId,
         spacecraftKey: def.key,
         amount: order.amount,
         endsAt,
+        createdAt: context.now,
       });
 
       // Ensure stationSpacecrafts row exists (amount=0 if brand new)
       await tx
         .insert(stationSpacecrafts)
         .values({
+          id: context.nextId('station-spacecraft'),
           stationId,
           spacecraftKey: def.key,
           amount: 0,
           lockedAmount: 0,
+          createdAt: context.now,
+          updatedAt: context.now,
         })
         .onConflictDoNothing();
     }

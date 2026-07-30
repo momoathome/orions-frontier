@@ -24,6 +24,15 @@ import {
 } from './scanner-visibility.service.js';
 import { creditStationResources } from './station-resource.service.js';
 import { effectiveCargoCapacity, applyVectorNavigation } from './research-effects.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
+import {
+  completionEventId,
+  discardedResources,
+  type PlaytestCompletionEvent,
+} from '../lib/playtest/events.js';
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
@@ -42,8 +51,9 @@ const toMission = (row: typeof salvageMissions.$inferSelect): SalvageMission => 
 export async function createDebrisFromLosses(
   tx: Tx,
   stationId: string,
-  losses: Map<string, number>
-): Promise<void> {
+  losses: Map<string, number>,
+  context: GameExecutionContext
+): Promise<{ id: string; resources: ResourceMap } | null> {
   const [station] = await tx
     .select({ sectorId: stations.sectorId, x: stations.x, y: stations.y })
     .from(stations)
@@ -59,18 +69,22 @@ export async function createDebrisFromLosses(
       }
     }
   }
-  if (Object.keys(resources).length === 0) return;
+  if (Object.keys(resources).length === 0) return null;
 
   const x = station.x + 90;
   const y = station.y + 70;
+  const id = context.nextId('debris');
   await tx.insert(debrisFields).values({
+    id,
     sectorId: station.sectorId,
     x,
     y,
     chunkX: Math.floor(x / WORLD_CONFIG.CHUNK_SIZE),
     chunkY: Math.floor(y / WORLD_CONFIG.CHUNK_SIZE),
     resources,
+    createdAt: context.now,
   });
+  return { id, resources };
 }
 
 export async function getVisibleDebris(
@@ -143,13 +157,16 @@ export async function getUserSalvageMissions(userId: string): Promise<SalvageMis
   return rows.map(toMission);
 }
 
-export async function startSalvage(params: {
-  userId: string;
-  stationId: string;
-  debrisFieldId: string;
-  spacecraftKey: string;
-  amount: number;
-}): Promise<SalvageMission> {
+export async function startSalvage(
+  params: {
+    userId: string;
+    stationId: string;
+    debrisFieldId: string;
+    spacecraftKey: string;
+    amount: number;
+  },
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<SalvageMission> {
   if (!Number.isInteger(params.amount) || params.amount < 1) {
     throw new AppError(ErrorCode.VALIDATION_ERROR, 'Amount must be a positive integer');
   }
@@ -203,10 +220,11 @@ export async function startSalvage(params: {
       .returning({ id: stationSpacecrafts.id });
     if (!locked) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Not enough spacecraft available');
 
-    const departedAt = new Date();
+    const departedAt = context.now;
     const [trip] = await tx
       .insert(spacecraftTrips)
       .values({
+        id: context.nextId('trip'),
         stationSpacecraftId: fleet.id,
         groupSize: params.amount,
         fromType: 'station',
@@ -225,17 +243,20 @@ export async function startSalvage(params: {
           departedAt
         ),
         purpose: 'salvage',
+        createdAt: context.now,
       })
       .returning({ id: spacecraftTrips.id });
     const [mission] = await tx
       .insert(salvageMissions)
       .values({
+        id: context.nextId('salvage-mission'),
         userId: params.userId,
         stationId: station.id,
         debrisFieldId: debris.id,
         stationSpacecraftId: fleet.id,
         outboundTripId: trip!.id,
         amount: params.amount,
+        createdAt: context.now,
       })
       .returning();
     return mission!;
@@ -243,7 +264,11 @@ export async function startSalvage(params: {
   return toMission(created);
 }
 
-async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
+async function resolveSalvageOutbound(
+  tx: Tx,
+  trip: Trip,
+  context: GameExecutionContext
+): Promise<void> {
   const [mission] = await tx
     .select()
     .from(salvageMissions)
@@ -281,7 +306,7 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
     'salvager'
   );
   const cargo: ResourceMap = {};
-  let capacity = effectiveCargo * mission.amount;
+  let capacity = Math.floor(effectiveCargo * mission.amount);
   const remaining = { ...(debris.resources as ResourceMap) };
   for (const key of resourceKeys) {
     const amount = Math.min(capacity, remaining[key] ?? 0);
@@ -297,6 +322,7 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
   const [returnTrip] = await tx
     .insert(spacecraftTrips)
     .values({
+      id: context.nextId('trip'),
       stationSpacecraftId: mission.stationSpacecraftId,
       groupSize: mission.amount,
       fromType: 'debris',
@@ -316,6 +342,7 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
       ),
       purpose: 'salvage_return',
       cargoManifest: cargo,
+      createdAt: departedAt,
     })
     .returning({ id: spacecraftTrips.id });
   await tx
@@ -324,15 +351,16 @@ async function resolveSalvageOutbound(tx: Tx, trip: Trip): Promise<void> {
     .where(eq(salvageMissions.id, mission.id));
 }
 
-async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<void> {
+async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<PlaytestCompletionEvent[]> {
   const [mission] = await tx
     .select()
     .from(salvageMissions)
     .where(and(eq(salvageMissions.returnTripId, trip.id), eq(salvageMissions.status, 'returning')))
     .for('update');
-  if (!mission) return;
+  if (!mission) return [];
 
-  const credited = await creditStationResources(tx, mission.stationId, mission.cargo ?? {});
+  const requested = { ...(mission.cargo ?? {}) };
+  const credited = await creditStationResources(tx, mission.stationId, requested);
   await tx
     .update(spacecraftTrips)
     .set({ cargoManifest: credited })
@@ -366,9 +394,31 @@ async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<void> {
       await tx.delete(debrisFields).where(eq(debrisFields.id, debrisFieldId));
     }
   }
+  return [
+    {
+      type: 'salvage_completed',
+      eventId: completionEventId('salvage_completed', mission.id),
+      occurredAt: trip.arrivesAt,
+      userId: mission.userId,
+      stationId: mission.stationId,
+      missionId: mission.id,
+      requested,
+      credited,
+      discarded: discardedResources(requested, credited),
+      targetVisibilityVerified: true,
+    },
+  ];
 }
 
-export async function handleSalvageTripArrival(tx: Tx, trip: Trip): Promise<void> {
-  if (trip.purpose === 'salvage') await resolveSalvageOutbound(tx, trip);
-  else if (trip.purpose === 'salvage_return') await resolveSalvageReturn(tx, trip);
+export async function handleSalvageTripArrival(
+  tx: Tx,
+  trip: Trip,
+  context: GameExecutionContext
+): Promise<PlaytestCompletionEvent[]> {
+  if (trip.purpose === 'salvage') {
+    await resolveSalvageOutbound(tx, trip, context);
+    return [];
+  }
+  if (trip.purpose === 'salvage_return') return resolveSalvageReturn(tx, trip);
+  return [];
 }

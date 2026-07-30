@@ -13,6 +13,10 @@ import {
   type ResourceKey,
   type ResourceMap,
 } from '@orions-frontier/shared';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
 
 // Initial resource amounts for new stations
 
@@ -150,7 +154,8 @@ export const creditStationResources = async (
 
 export const getDeliveredResourceRates = async (
   userId: string,
-  stationId: string
+  stationId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<ResourceMap> => {
   const db = getDb();
   const [station] = await db
@@ -169,7 +174,7 @@ export const getDeliveredResourceRates = async (
   const ssIds = ssRows.map((s) => s.id);
 
   // Look at all arrived trips heading TO station in the last hour
-  const oneHourAgo = new Date(Date.now() - 3_600_000);
+  const oneHourAgo = new Date(context.now.getTime() - 3_600_000);
   const arrivedTrips = await db
     .select({
       cargoManifest: spacecraftTrips.cargoManifest,

@@ -616,8 +616,34 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
   assert.equal(ctrl.activeGoalTarget, null);
   assert.match(ctrl.lastReason ?? '', /released after 5 blocked intervals/);
 
+  // Completing an active goal remains observable even if another goal is selected in the same
+  // decision. This is required by playtest goal-completion metrics.
+  const completedAt = new Date(now.getTime() + 5 * 120_000);
+  await db.insert(stationResearch).values({
+    id: randomUUID(),
+    stationId,
+    technologyKey: 'extraction_algorithms',
+    status: 'completed',
+    completesAt: completedAt,
+    createdAt: completedAt,
+    completedAt,
+  });
+  await db
+    .update(botControllers)
+    .set({
+      activeGoalType: 'research_technology',
+      activeGoalTarget: `tech:${stationId}:extraction_algorithms`,
+      goalStartedAt: now,
+      nextDecisionAt: completedAt,
+    })
+    .where(eq(botControllers.userId, botUserId));
+  const completionOutcomes = await runBotDecisionTick(completedAt);
+  const completion = completionOutcomes.find((outcome) => outcome.botUserId === botUserId);
+  assert.equal(completion?.completedGoalType, 'research_technology');
+
   // Cleanup
   await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
+  await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
   await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
   await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
@@ -929,6 +955,7 @@ test('bot raid and retaliate goal generation with visible target', async () => {
   });
 
   const sectorX5 = uniqueSectorCoordinate(suffix5, 600_000);
+  const stationOrigin5 = sectorX5;
   const sectorId5 = randomUUID();
   await db.insert(sectors).values({
     id: sectorId5,
@@ -945,15 +972,19 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     userId: botUserId,
     sectorId: sectorId5,
     name: 'Raid HQ',
-    x: 0,
-    y: 0,
-    chunkX: 0,
-    chunkY: 0,
+    x: stationOrigin5,
+    y: stationOrigin5,
+    chunkX: Math.floor(stationOrigin5 / 1000),
+    chunkY: Math.floor(stationOrigin5 / 1000),
   });
   await seedStationBuildings(botStationId);
   await seedStationDefenseUpgrades(botStationId);
   await seedStationSpacecrafts(botStationId);
   await seedStationResources(botStationId);
+  await db
+    .update(stationBuildings)
+    .set({ level: 15 })
+    .where(eq(stationBuildings.stationId, botStationId));
   // Give the bot some fighters (Merlins)
   await db.insert(stationSpacecrafts).values({
     stationId: botStationId,
@@ -979,10 +1010,10 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     userId: targetUserId,
     sectorId: sectorId5,
     name: 'Raid Target',
-    x: 100,
-    y: 100,
-    chunkX: 0,
-    chunkY: 0,
+    x: stationOrigin5 + 100,
+    y: stationOrigin5 + 100,
+    chunkX: Math.floor((stationOrigin5 + 100) / 1000),
+    chunkY: Math.floor((stationOrigin5 + 100) / 1000),
   });
   await seedStationBuildings(targetStationId);
   await seedStationDefenseUpgrades(targetStationId);

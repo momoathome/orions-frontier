@@ -24,6 +24,12 @@ import { ensureSector } from './sector.service.js';
 import { seedStationResources } from './station-resource.service.js';
 import { applyVectorNavigation } from './research-effects.js';
 import { hasCompletedResearch } from './research.service.js';
+import {
+  createRealtimeExecutionContext,
+  resolveGameExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
+import { completionEventId, type PlaytestCompletionEvent } from '../lib/playtest/events.js';
 
 const sectorCenter = (sectorX: number, sectorY: number) => ({
   x: sectorX * WORLD_CONFIG.SECTOR.WIDTH,
@@ -249,12 +255,15 @@ async function lockAvailableShip(
   return ship;
 }
 
-export async function startExpedition(params: {
-  userId: string;
-  stationId: string;
-  sectorX: number;
-  sectorY: number;
-}): Promise<WorldMission> {
+export async function startExpedition(
+  params: {
+    userId: string;
+    stationId: string;
+    sectorX: number;
+    sectorY: number;
+  },
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<WorldMission> {
   const db = getDb();
   const mission = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${params.userId}))`);
@@ -291,7 +300,7 @@ export async function startExpedition(params: {
     if (active) throw new AppError(ErrorCode.ALREADY_EXISTS, 'Expedition already underway');
 
     const ship = await lockAvailableShip(tx, station.id);
-    const departedAt = new Date();
+    const departedAt = context.now;
     const target = sectorCenter(params.sectorX, params.sectorY);
     const arrivesAt = await applyVectorNavigation(
       tx,
@@ -302,6 +311,7 @@ export async function startExpedition(params: {
     const [created] = await tx
       .insert(worldMissions)
       .values({
+        id: context.nextId('world-mission'),
         userId: params.userId,
         originStationId: station.id,
         stationSpacecraftId: ship.stationSpacecraftId,
@@ -311,6 +321,7 @@ export async function startExpedition(params: {
         targetSectorY: params.sectorY,
         departedAt,
         arrivesAt,
+        createdAt: context.now,
       })
       .returning();
     return created!;
@@ -372,13 +383,16 @@ async function colonyPosition(
   throw new AppError(ErrorCode.VALIDATION_ERROR, 'No valid colony position is available');
 }
 
-export async function startColonization(params: {
-  userId: string;
-  stationId: string;
-  sectorX: number;
-  sectorY: number;
-  name: string;
-}): Promise<WorldMission> {
+export async function startColonization(
+  params: {
+    userId: string;
+    stationId: string;
+    sectorX: number;
+    sectorY: number;
+    name: string;
+  },
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<WorldMission> {
   const db = getDb();
   const mission = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${params.userId}))`);
@@ -452,7 +466,7 @@ export async function startColonization(params: {
 
     const ship = await lockAvailableShip(tx, station.id, 'miner');
     const target = await colonyPosition(tx, targetSector, params.userId);
-    const departedAt = new Date();
+    const departedAt = context.now;
     const arrivesAt = await applyVectorNavigation(
       tx,
       station.id,
@@ -462,6 +476,7 @@ export async function startColonization(params: {
     const [created] = await tx
       .insert(worldMissions)
       .values({
+        id: context.nextId('world-mission'),
         userId: params.userId,
         originStationId: station.id,
         stationSpacecraftId: ship.stationSpacecraftId,
@@ -474,6 +489,7 @@ export async function startColonization(params: {
         colonyName: params.name,
         departedAt,
         arrivesAt,
+        createdAt: context.now,
       })
       .returning();
     return created!;
@@ -512,7 +528,16 @@ export async function getUserWorldMissions(userId: string): Promise<WorldMission
   return Promise.all(rows.map((row) => missionWithSpacecraftName(row.id)));
 }
 
-export async function completeDueWorldMissions(now = new Date()): Promise<number> {
+export interface WorldMissionCompletionResult {
+  completed: number;
+  events: PlaytestCompletionEvent[];
+}
+
+export async function completeDueWorldMissionsDetailed(
+  contextOrNow?: GameExecutionContext | Date
+): Promise<WorldMissionCompletionResult> {
+  const context = resolveGameExecutionContext(contextOrNow);
+  const { now } = context;
   const db = getDb();
   const due = await db
     .select({ id: worldMissions.id })
@@ -525,6 +550,7 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
     )
     .orderBy(asc(worldMissions.arrivesAt), asc(worldMissions.id));
   let completed = 0;
+  const events: PlaytestCompletionEvent[] = [];
 
   for (const candidate of due) {
     const result = await db.transaction(async (tx) => {
@@ -540,8 +566,12 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
         )
         .for('update');
       if (!mission) return null;
+      const eventContext = context.at(mission.arrivesAt);
+      let stage: 'target_reached' | 'returned' | 'arrived';
+      let colonyStationId: string | null = null;
 
       if (mission.status === 'returning') {
+        stage = 'returned';
         await tx
           .update(stationSpacecrafts)
           .set({ lockedAmount: sql`greatest(0, ${stationSpacecrafts.lockedAmount} - 1)` })
@@ -551,7 +581,14 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
           .set({ status: 'arrived' })
           .where(eq(worldMissions.id, mission.id));
       } else if (mission.missionType === 'expedition') {
-        await ensureSector(tx, mission.targetSectorX, mission.targetSectorY, 'frontier');
+        stage = 'target_reached';
+        await ensureSector(
+          tx,
+          mission.targetSectorX,
+          mission.targetSectorY,
+          'frontier',
+          eventContext
+        );
         const [origin] = await tx
           .select({ x: stations.x, y: stations.y })
           .from(stations)
@@ -575,6 +612,7 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
           })
           .where(eq(worldMissions.id, mission.id));
       } else if (mission.missionType === 'colonization') {
+        stage = 'arrived';
         if (mission.targetX === null || mission.targetY === null || !mission.colonyName) {
           throw new Error('Colonization mission is incomplete');
         }
@@ -591,6 +629,7 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
         const [station] = await tx
           .insert(stations)
           .values({
+            id: eventContext.nextId('station'),
             userId: mission.userId,
             name: mission.colonyName,
             sectorId: targetSector.id,
@@ -598,11 +637,13 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
             y: Math.round(mission.targetY),
             chunkX: Math.floor(mission.targetX / WORLD_CONFIG.CHUNK_SIZE),
             chunkY: Math.floor(mission.targetY / WORLD_CONFIG.CHUNK_SIZE),
+            createdAt: eventContext.now,
           })
           .returning({ id: stations.id });
+        colonyStationId = station!.id;
         await seedStationResources(station!.id, tx, {});
-        await seedStationBuildings(station!.id, tx);
-        await seedStationDefenseUpgrades(station!.id, tx);
+        await seedStationBuildings(station!.id, tx, eventContext);
+        await seedStationDefenseUpgrades(station!.id, tx, eventContext);
         const [moved] = await tx
           .update(stationSpacecrafts)
           .set({
@@ -621,9 +662,12 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
         await tx
           .insert(stationSpacecrafts)
           .values({
+            id: eventContext.nextId('station-spacecraft'),
             stationId: station!.id,
             spacecraftKey: mission.spacecraftKey,
             amount: 1,
+            createdAt: eventContext.now,
+            updatedAt: eventContext.now,
           })
           .onConflictDoUpdate({
             target: [stationSpacecrafts.stationId, stationSpacecrafts.spacecraftKey],
@@ -636,14 +680,53 @@ export async function completeDueWorldMissions(now = new Date()): Promise<number
       } else {
         throw new Error(`Unknown world mission: ${mission.missionType}`);
       }
-      return { userId: mission.userId, id: mission.id, missionType: mission.missionType };
+      return {
+        userId: mission.userId,
+        id: mission.id,
+        missionType: mission.missionType,
+        originStationId: mission.originStationId,
+        occurredAt: mission.arrivesAt,
+        targetSectorX: mission.targetSectorX,
+        targetSectorY: mission.targetSectorY,
+        stage,
+        colonyStationId,
+      };
     });
     if (!result) continue;
     completed += 1;
+    events.push({
+      type: 'world_mission_completed',
+      eventId: completionEventId('world_mission_completed', result.id, result.stage),
+      occurredAt: result.occurredAt,
+      userId: result.userId,
+      stationId: result.originStationId,
+      missionId: result.id,
+      missionType: result.missionType,
+      stage: result.stage,
+    });
+    if (result.colonyStationId) {
+      events.push({
+        type: 'colony_established',
+        eventId: completionEventId('colony_established', result.id),
+        occurredAt: result.occurredAt,
+        userId: result.userId,
+        stationId: result.originStationId,
+        missionId: result.id,
+        colonyStationId: result.colonyStationId,
+        sectorX: result.targetSectorX,
+        sectorY: result.targetSectorY,
+      });
+    }
     publishUserEvent(result.userId, 'world_mission_completed', {
       missionId: result.id,
       missionType: result.missionType,
     });
   }
-  return completed;
+  return { completed, events };
+}
+
+export async function completeDueWorldMissions(
+  contextOrNow?: GameExecutionContext | Date
+): Promise<number> {
+  return (await completeDueWorldMissionsDetailed(contextOrNow)).completed;
 }

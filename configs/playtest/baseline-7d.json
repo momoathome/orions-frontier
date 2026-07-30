@@ -1,0 +1,26 @@
+{
+  "seed": "baseline-7d",
+  "virtualStart": "2030-01-01T00:00:00.000Z",
+  "durationHours": 168,
+  "stepSeconds": 60,
+  "joinIntervalMinutes": 120,
+  "populationLimit": 24,
+  "profileWeights": {
+    "industrialist": 1,
+    "pioneer": 1,
+    "technocrat": 1,
+    "warlord": 1
+  },
+  "snapshotIntervalMinutes": 360,
+  "outputDirectory": "artifacts/playtests",
+  "diagnosticWindowSize": 10000,
+  "softlockThresholds": {
+    "blockedGoalHours": 6,
+    "noProgressHours": 6,
+    "unstableColonyHours": 6,
+    "repeatedActionCount": 5,
+    "goalSwitchesPerHour": 6,
+    "capacityBottleneckHours": 6,
+    "coreMilestoneHours": 24
+  }
+}

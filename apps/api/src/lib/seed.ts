@@ -9,8 +9,14 @@ import { WORLD_CONFIG } from './world-config.js';
 import { logger } from './logger.js';
 import { createStation } from '../services/station.service.js';
 import { ensureSector } from '../services/sector.service.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from './game-execution-context.js';
 
-export const seedAsteroidWorld = async (): Promise<void> => {
+export const seedAsteroidWorld = async (
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> => {
   const db = getDb();
   const [sectorCount] = await db.select({ count: sql<number>`count(*)::int` }).from(sectors);
   if ((sectorCount?.count ?? 0) > 0) return;
@@ -22,7 +28,8 @@ export const seedAsteroidWorld = async (): Promise<void> => {
           tx,
           sectorX,
           sectorY,
-          sectorX === 0 && sectorY === 0 ? 'settlement' : 'frontier'
+          sectorX === 0 && sectorY === 0 ? 'settlement' : 'frontier',
+          context
         );
       }
     }

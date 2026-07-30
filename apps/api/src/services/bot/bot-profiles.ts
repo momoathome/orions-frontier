@@ -1,5 +1,8 @@
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 
+export const GOAL_BOT_STRATEGY = 'goal_v1';
+export const GOAL_BOT_STRATEGY_VERSION = '1';
+
 /**
  * Profile parameters used by the goal-driven bot strategy (goal-driven-v1).
  * These are bot-strategy-internal values, not shared gameplay rules.

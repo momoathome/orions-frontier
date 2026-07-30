@@ -20,20 +20,28 @@ import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { applyGridOptimization } from './research-effects.js';
 import { hasCompletedResearch } from './research.service.js';
+import {
+  createRealtimeExecutionContext,
+  type GameExecutionContext,
+} from '../lib/game-execution-context.js';
 
 type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 
 export const seedStationDefenseUpgrades = async (
   stationId: string,
-  db: SeedDb = getDb()
+  db: SeedDb = getDb(),
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> => {
   await db
     .insert(stationBuildings)
     .values(
       defenseUpgrades.map((upgrade) => ({
+        id: context.nextId('station-defense'),
         stationId,
         buildingKey: upgrade.key,
         level: upgrade.startingLevel,
+        createdAt: context.now,
+        updatedAt: context.now,
       }))
     )
     .onConflictDoNothing();
@@ -59,14 +67,15 @@ export function calculateStationDefenseScore(
 }
 
 export const getStationDefenseUpgrades = async (
-  stationId: string
+  stationId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<StationDefenseUpgradeWithDefinition[]> => {
   const rows = await getDb()
     .select()
     .from(stationBuildings)
     .where(eq(stationBuildings.stationId, stationId));
   const byKey = new Map(rows.map((row) => [row.buildingKey, row]));
-  const now = new Date();
+  const now = context.now;
 
   return defenseUpgrades.map((definition) => {
     const row = byKey.get(definition.key);
@@ -107,7 +116,8 @@ export async function getStationDefenseScore(stationId: string): Promise<number>
 export const startDefenseUpgrade = async (
   stationId: string,
   upgradeKey: DefenseUpgradeKey,
-  userId: string
+  userId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<StationDefenseUpgradeWithDefinition> => {
   const db = getDb();
   const def = getDefenseUpgrade(upgradeKey);
@@ -122,7 +132,14 @@ export const startDefenseUpgrade = async (
 
     const [upgrade] = await tx
       .insert(stationBuildings)
-      .values({ stationId, buildingKey: upgradeKey, level: def.startingLevel })
+      .values({
+        id: context.nextId('station-defense'),
+        stationId,
+        buildingKey: upgradeKey,
+        level: def.startingLevel,
+        createdAt: context.now,
+        updatedAt: context.now,
+      })
       .onConflictDoNothing()
       .returning();
 
@@ -168,10 +185,10 @@ export const startDefenseUpgrade = async (
     }
 
     const baseUpgradeEndsAt = new Date(
-      Date.now() + calculateDefenseUpgradeBuildTime(upgradeKey, targetLevel) * 1000
+      context.now.getTime() + calculateDefenseUpgradeBuildTime(upgradeKey, targetLevel) * 1000
     );
     const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
-    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt);
+    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt, context.now);
     for (const cost of costs) {
       await tx
         .update(stationResources)
@@ -190,7 +207,7 @@ export const startDefenseUpgrade = async (
 
     await tx
       .update(stationBuildings)
-      .set({ upgradeEndsAt, updatedAt: new Date() })
+      .set({ upgradeEndsAt, updatedAt: context.now })
       .where(eq(stationBuildings.id, stationUpgrade.id));
 
     return currentResources;
@@ -201,7 +218,7 @@ export const startDefenseUpgrade = async (
     resources: Object.fromEntries(resourceMap),
   });
 
-  return (await getStationDefenseUpgrades(stationId)).find(
+  return (await getStationDefenseUpgrades(stationId, context)).find(
     (upgrade) => upgrade.definition.key === upgradeKey
   )!;
 };

@@ -300,9 +300,12 @@ test('all six research foundations expose their canonical server-side multiplier
   assert.equal(vectorArrival.getTime(), 90_000);
 
   const gridStartedAt = Date.now();
-  const gridArrival = applyGridOptimization(true, new Date(gridStartedAt + 100_000));
-  assert.ok(gridArrival.getTime() - gridStartedAt >= 89_000);
-  assert.ok(gridArrival.getTime() - gridStartedAt <= 91_000);
+  const gridArrival = applyGridOptimization(
+    true,
+    new Date(gridStartedAt + 100_000),
+    new Date(gridStartedAt)
+  );
+  assert.equal(gridArrival.getTime() - gridStartedAt, 90_000);
 
   await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
 });

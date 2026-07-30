@@ -39,13 +39,34 @@ import { PROFILE_PARAMS } from './bot-profiles.js';
 const MINER_COST = getSpacecraft('mole')?.costs ?? [];
 const TITAN_COST = getSpacecraft('titan')?.costs ?? [];
 
-const hasAvailableShips = (station: StationSnapshot, key: string, minFree = 1): boolean => {
-  const fleet = station.fleets.find((f) => f.spacecraftKey === key);
-  return fleet !== undefined && fleet.amount - fleet.lockedAmount >= minFree;
-};
-
 const hasInBuild = (station: StationSnapshot, key: string): boolean =>
   station.builds.some((b) => b.spacecraftKey === key);
+
+export function pickAvailableMinerKey(station: StationSnapshot): string | null {
+  return (
+    station.fleets
+      .filter((fleet) => {
+        const definition = getSpacecraft(fleet.spacecraftKey);
+        return definition?.role === 'miner' && fleet.amount - fleet.lockedAmount > 0;
+      })
+      .sort((left, right) => {
+        const leftDefinition = getSpacecraft(left.spacecraftKey);
+        const rightDefinition = getSpacecraft(right.spacecraftKey);
+        return (
+          (rightDefinition?.miningRate ?? 0) - (leftDefinition?.miningRate ?? 0) ||
+          left.spacecraftKey.localeCompare(right.spacecraftKey)
+        );
+      })[0]?.spacecraftKey ?? null
+  );
+}
+
+const hasMinerInBuild = (station: StationSnapshot): boolean =>
+  station.builds.some((build) => getSpacecraft(build.spacecraftKey)?.role === 'miner');
+
+const minerCount = (station: StationSnapshot): number =>
+  station.fleets
+    .filter((fleet) => getSpacecraft(fleet.spacecraftKey)?.role === 'miner')
+    .reduce((sum, fleet) => sum + fleet.amount, 0);
 
 const getShipyardLevel = (station: StationSnapshot): number => {
   const b = station.buildings.find((bld) => bld.buildingKey === 'shipyard');
@@ -77,6 +98,28 @@ const hasActiveMining = (station: StationSnapshot): boolean =>
 
 const hasVisibleAsteroids = (_state: GoalBotState): boolean =>
   _state.visibleAsteroids.some((a) => a.remainingAmount > 0);
+
+function initialStationId(state: GoalBotState): string | null {
+  return (
+    [...state.ownStations].sort(
+      (left, right) =>
+        left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id)
+    )[0]?.id ?? null
+  );
+}
+
+export function prioritizeStationsForStabilization(state: GoalBotState): StationSnapshot[] {
+  const firstStationId = initialStationId(state);
+  return [...state.ownStations].sort((left, right) => {
+    const leftUnstable = !hasActiveMining(left) || !hasStorageHeadroom(state, left);
+    const rightUnstable = !hasActiveMining(right) || !hasStorageHeadroom(state, right);
+    const leftUnstableColony = left.id !== firstStationId && leftUnstable;
+    const rightUnstableColony = right.id !== firstStationId && rightUnstable;
+    if (leftUnstableColony !== rightUnstableColony) return leftUnstableColony ? -1 : 1;
+    if (leftUnstable !== rightUnstable) return leftUnstable ? -1 : 1;
+    return left.id.localeCompare(right.id);
+  });
+}
 
 /** Check if a station can afford a set of costs given its current resources. */
 const canAfford = (
@@ -142,12 +185,13 @@ export function generateStabilizeCandidate(
   }
 
   // Calculate how badly stabilization is needed
-  const hasMiner = hasAvailableShips(station, 'mole');
-  const hasMinerInBuild = hasInBuild(station, 'mole');
+  const hasMiner = pickAvailableMinerKey(station) !== null;
+  const minerInBuild = hasMinerInBuild(station);
+  const isColony = station.id !== initialStationId(state);
 
-  let baseNeed = 80;
+  let baseNeed = isColony ? 100 : 80;
   if (hasMiner) baseNeed -= 20;
-  if (hasMinerInBuild) baseNeed -= 10;
+  if (minerInBuild) baseNeed -= 10;
 
   return {
     goalType: 'stabilize_station',
@@ -156,7 +200,7 @@ export function generateStabilizeCandidate(
     baseNeed,
     opportunity: hasVisibleAsteroids(state) ? 30 : 0,
     longTermValue: 50,
-    commitment: 0,
+    commitment: isColony ? 30 : 0,
     cost: hasMiner ? 10 : 30,
     risk: hasMiner ? 10 : 20,
     blockers: hasVisibleAsteroids(state) ? 0 : 40,
@@ -260,13 +304,7 @@ export function generateIncreaseCapacityCandidate(
 export function generateEconomicCandidates(state: GoalBotState): GoalCandidate[] {
   const candidates: GoalCandidate[] = [];
 
-  // Sort stations: unstable colonies first, then higher need, then station ID
-  const sorted = [...state.ownStations].sort((a, b) => {
-    const aStable = hasActiveMining(a);
-    const bStable = hasActiveMining(b);
-    if (aStable !== bStable) return aStable ? 1 : -1; // unstable first
-    return a.id.localeCompare(b.id);
-  });
+  const sorted = prioritizeStationsForStabilization(state);
 
   for (const station of sorted) {
     const s = generateStabilizeCandidate(state, station);
@@ -331,8 +369,9 @@ export async function stepStabilizeStation(
   }
 
   // 1. Free miner → assign
-  if (hasAvailableShips(station, 'mole')) {
-    const asteroid = selectBestAsteroid(_state, station, 'mole');
+  const availableMinerKey = pickAvailableMinerKey(station);
+  if (availableMinerKey) {
+    const asteroid = selectBestAsteroid(_state, station, availableMinerKey);
     if (asteroid) {
       return {
         type: 'success',
@@ -340,10 +379,10 @@ export async function stepStabilizeStation(
           type: 'assign_miner',
           stationId: station.id,
           asteroidId: asteroid.id,
-          spacecraftKey: 'mole',
+          spacecraftKey: availableMinerKey,
           amount: 1,
         },
-        reason: `Assigning free Mole at ${station.name} to asteroid ${asteroid.id}`,
+        reason: `Assigning free ${availableMinerKey} miner at ${station.name} to asteroid ${asteroid.id}`,
       };
     }
     if (isUpgrading(station, 'scanner')) {
@@ -368,13 +407,12 @@ export async function stepStabilizeStation(
   }
 
   // 2. No mole → build one
-  const moleCount = station.fleets.find((f) => f.spacecraftKey === 'mole')?.amount ?? 0;
-  if (moleCount === 0) {
-    if (hasInBuild(station, 'mole')) {
+  if (minerCount(station) === 0) {
+    if (hasMinerInBuild(station)) {
       return {
         type: 'waiting',
-        detail: 'mole_building',
-        reason: `Waiting for first Mole at ${station.name}`,
+        detail: 'miner_building',
+        reason: `Waiting for first miner at ${station.name}`,
       };
     }
     if (canAfford(station, moleCost())) {
@@ -411,11 +449,11 @@ export async function stepStabilizeStation(
     };
   }
 
-  const moleFleet = station.fleets.find((fleet) => fleet.spacecraftKey === 'mole');
   if (
     !hasActiveMining(station) &&
-    moleFleet &&
-    moleFleet.lockedAmount > 0 &&
+    station.fleets.some(
+      (fleet) => getSpacecraft(fleet.spacecraftKey)?.role === 'miner' && fleet.lockedAmount > 0
+    ) &&
     (station.trips.some((trip) => trip.status === 'traveling') ||
       station.missions.some((mission) => mission.status === 'traveling'))
   ) {
@@ -693,12 +731,30 @@ function researchBenefit(
 export function generateResearchCandidates(station: StationSnapshot): GoalCandidate[] {
   const candidates: GoalCandidate[] = [];
   const started = new Set(station.research.map((r) => r.technologyKey));
+  const hasIncome = hasActiveMining(station);
+  const laboratoryLevel = getLaboratoryLevel(station);
+  const usedResearchPoints = station.research.reduce(
+    (sum, research) => sum + (getResearchDefinition(research.technologyKey)?.points ?? 0),
+    0
+  );
+  const laboratoryUpgradeReachable =
+    isUpgrading(station, 'laboratory') ||
+    canAfford(station, buildingUpgradeCost(station, 'laboratory')) ||
+    hasIncome;
 
   for (const def of researchDefinitions) {
     if (started.has(def.key)) continue;
 
+    const researchAffordable = canAfford(station, def.costs);
+    if (!researchAffordable && !hasIncome) continue;
+
+    const hasLaboratoryCapacity =
+      laboratoryLevel >= 1 &&
+      usedResearchPoints + def.points <= laboratoryLevel * RESEARCH_LAB_CAPACITY_PER_LEVEL;
+    if (!hasLaboratoryCapacity && !laboratoryUpgradeReachable) continue;
+
     const benefit = researchBenefit(station, def.key);
-    const affordRatio = canAfford(station, def.costs)
+    const affordRatio = researchAffordable
       ? 1.0
       : def.costs.every(
             (c) => (station.resources[c.resourceKey as keyof typeof station.resources] ?? 0) > 0
@@ -710,8 +766,6 @@ export function generateResearchCandidates(station: StationSnapshot): GoalCandid
     if (baseNeed <= 0) continue;
 
     const totalCost = def.costs.reduce((s, c) => s + c.amount, 0);
-    const labOk = getLaboratoryLevel(station) >= 1;
-
     candidates.push({
       goalType: 'research_technology',
       category: GOAL_CATEGORY['research_technology'],
@@ -722,7 +776,7 @@ export function generateResearchCandidates(station: StationSnapshot): GoalCandid
       commitment: 0,
       cost: Math.round(totalCost / 10),
       risk: 5,
-      blockers: affordRatio === 0 ? 80 : labOk ? 0 : 50,
+      blockers: affordRatio === 0 ? 80 : hasLaboratoryCapacity ? 0 : 50,
     });
   }
 
@@ -1716,6 +1770,85 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
   return [...candidates.values()];
 }
 
+export type ConflictOpportunityStage =
+  | 'no_visible_target'
+  | 'target_protected'
+  | 'target_on_cooldown'
+  | 'insufficient_fleet_or_reserve'
+  | 'non_positive_target_score'
+  | 'viable_target';
+
+export interface ConflictOpportunitySnapshot {
+  visibleTargets: number;
+  eligibleAfterProtectionAndCooldown: number;
+  sufficientFleetAndReserve: number;
+  viableTargets: number;
+  lastExclusionStage: ConflictOpportunityStage;
+}
+
+/**
+ * Explain how far visible raid targets progressed through the authoritative filters.
+ * This is diagnostic-only and deliberately separate from candidate generation.
+ */
+export function analyzeConflictOpportunities(
+  state: GoalBotState,
+  profile: BotProfile
+): ConflictOpportunitySnapshot {
+  const visibleTargets = state.visibleStations.filter((target) => !target.isOwn);
+  if (visibleTargets.length === 0) {
+    return {
+      visibleTargets: 0,
+      eligibleAfterProtectionAndCooldown: 0,
+      sufficientFleetAndReserve: 0,
+      viableTargets: 0,
+      lastExclusionStage: 'no_visible_target',
+    };
+  }
+
+  const protectedOwnerIds = new Set(state.conflictDiagnostics.protectedOwnerIds);
+  const eligibleTargets = [];
+  let protectedTargets = 0;
+  let cooldownTargets = 0;
+  for (const target of visibleTargets) {
+    if (protectedOwnerIds.has(target.ownerId)) {
+      protectedTargets += 1;
+      continue;
+    }
+    const cooldown = hasCooldown(state.ownStations[0]!, state, target.ownerId, state.now);
+    if (cooldown.onCooldown) {
+      cooldownTargets += 1;
+      continue;
+    }
+    eligibleTargets.push(target);
+  }
+
+  const sufficientlyPowered = eligibleTargets.filter((target) =>
+    state.ownStations.some((station) => isEligibleAttackSource(state, station, target.id, profile))
+  );
+  const viableTargetIds = new Set(
+    generateRaidCandidates(state, profile).map((candidate) => candidate.targetRef.slice(8))
+  );
+  const viableTargets = sufficientlyPowered.filter((target) =>
+    viableTargetIds.has(target.id)
+  ).length;
+
+  let lastExclusionStage: ConflictOpportunityStage;
+  if (viableTargets > 0) lastExclusionStage = 'viable_target';
+  else if (sufficientlyPowered.length > 0) lastExclusionStage = 'non_positive_target_score';
+  else if (eligibleTargets.length > 0) lastExclusionStage = 'insufficient_fleet_or_reserve';
+  else if (cooldownTargets > 0) lastExclusionStage = 'target_on_cooldown';
+  else if (protectedTargets > 0) lastExclusionStage = 'target_protected';
+  else lastExclusionStage = 'no_visible_target';
+
+  return {
+    visibleTargets: visibleTargets.length,
+    eligibleAfterProtectionAndCooldown: eligibleTargets.length,
+    sufficientFleetAndReserve: sufficientlyPowered.length,
+    viableTargets,
+    lastExclusionStage,
+  };
+}
+
 /** Generate retaliation candidates from combat reports. */
 export function generateRetaliateCandidates(
   state: GoalBotState,
@@ -1927,7 +2060,7 @@ const COLLECTOR_COST = getSpacecraft(COLLECTOR_KEY)?.costs ?? [];
 const PAYBACK_THRESHOLD = 1.25;
 
 /** Resource preference weights for valuing salvage cargo. */
-const RESOURCE_WEIGHT: Record<string, number> = {
+export const BOT_RESOURCE_PREFERENCE_WEIGHTS: Record<string, number> = {
   carbon: 1.0,
   titanium: 1.2,
   hydrogenium: 1.5,
@@ -1938,7 +2071,7 @@ const RESOURCE_WEIGHT: Record<string, number> = {
 /** Estimate the total resource value of a debris field using preference weights. */
 function debrisValue(resources: Record<string, number>): number {
   return Object.entries(resources).reduce(
-    (sum, [key, amount]) => sum + amount * (RESOURCE_WEIGHT[key] ?? 0.5),
+    (sum, [key, amount]) => sum + amount * (BOT_RESOURCE_PREFERENCE_WEIGHTS[key] ?? 0.5),
     0
   );
 }
@@ -1978,7 +2111,9 @@ function usefulSalvageValue(
           station.storageCapacity
         : 1;
     const localNeedMultiplier = 1 + Math.max(0, 1 - fillRatio);
-    return sum + amount * (RESOURCE_WEIGHT[resourceKey] ?? 0.5) * localNeedMultiplier;
+    return (
+      sum + amount * (BOT_RESOURCE_PREFERENCE_WEIGHTS[resourceKey] ?? 0.5) * localNeedMultiplier
+    );
   }, 0);
 }
 
@@ -2136,7 +2271,7 @@ export async function stepSalvage(
       effectiveCargo(station, getSpacecraft(COLLECTOR_KEY)?.cargo ?? 0)
     );
     const buildCostWeighted = COLLECTOR_COST.reduce(
-      (sum, c) => sum + c.amount * (RESOURCE_WEIGHT[c.resourceKey] ?? 1.0),
+      (sum, c) => sum + c.amount * (BOT_RESOURCE_PREFERENCE_WEIGHTS[c.resourceKey] ?? 1.0),
       0
     );
 

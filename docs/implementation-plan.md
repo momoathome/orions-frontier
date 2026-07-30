@@ -1,6 +1,6 @@
 # Aktueller Entwicklungsstand
 
-Stand: 22. Juli 2026.
+Stand: 30. Juli 2026.
 
 Orion's Frontier besitzt einen spielbaren vertikalen Schnitt: Spieler und wirtschaftliche Bots
 erschließen endliche Asteroiden, bauen Stationen und Schiffe aus und erweitern die persistente Welt
@@ -32,6 +32,10 @@ Die fachlichen Verträge stehen in [Mining-Rundlauf](./mining-loop.md),
 - deterministische wirtschaftliche Bots ohne eigene Ressourcen- oder Simulationsregeln;
 - zielorientierte Bot-Strategie (`goal_v1`) mit elf Zieltypen, vier Profilen, gewichteter
   Score-Funktion, 25-%-Hysterese und accountweiter Konfliktgeschichte;
+- beschleunigter, seedbarer Spieltest mit expliziter virtueller Zeit, normalem Welttakt,
+  synthetischen Spielern, harter Invariantenprüfung, Softlockanalyse und versioniertem Bericht;
+- reproduzierbare 24-Stunden-Baseline über drei isolierte Welten mit dokumentierten
+  Balance-Folgetickets;
 - konfigurierbare Startwelt, sektorgebundene Bots und dynamisch wachsende Frontier;
 - Hangarkapazität, Scannerreichweite, eigene Defense-Upgrades;
 - stationseigene Scannerkreise, geschützte Weltobjekt-Aktionen und informationsarme Radarkontakte;
@@ -40,12 +44,15 @@ Die fachlichen Verträge stehen in [Mining-Rundlauf](./mining-loop.md),
 
 ## Aktuelle Arbeit
 
-Schritt 2 (beschleunigter Spieltest) ist noch nicht begonnen.
+Schritt 2 (beschleunigter Spieltest) ist technisch abgeschlossen und gemäß
+[Playtest-Baseline](./playtest-baseline.md) abgenommen. Die nächste Arbeit verändert nicht mehrere
+Balancebereiche gleichzeitig, sondern prüft die dort abgeleiteten Folgetickets mit denselben Seeds.
 
 Weitere Änderungen richten sich nach beobachteten Spielverläufen. Relevant sind insbesondere:
 
-- zielorientierte Bots und einen anschließenden beschleunigten Balance- und Softlock-Test gemäß
-  [Bot- und Spieltestplan](./goal-driven-bots-plan.md) umsetzen;
+- Lagerverlust und wiederholtes Sparen ohne Fortschritt anhand der Mehrseed-Baseline reduzieren;
+- Warlord-Ressourcenstillstand und Pionier-Kolonisationsblockaden getrennt untersuchen;
+- Konflikt und Bergung zunächst über das vorhandene 7-Tage-Preset vermessen;
 - Scannerreichweite, Radarfrequenz und Kontaktdarstellung anhand echter Sessions abstimmen;
 - Vorräte, Flugzeiten, Bauzeiten und Flottenwachstum anhand echter Sessions abstimmen;
 - Defense-Upgrades, Panzerung, Guardian-Kanone, Drohnen und Minenfeld im Kampfbalance testen;

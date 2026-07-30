@@ -242,6 +242,7 @@ export async function loadGoalBotState(
     }),
     { minChunkX: Infinity, maxChunkX: -Infinity, minChunkY: Infinity, maxChunkY: -Infinity }
   );
+  const conflictDiagnostics = { now, protectedOwnerIds: new Set<string>() };
   const [asteroidRows, debrisRows, visibleStations, combatReports] = await Promise.all([
     coverageBounds.length > 0
       ? db
@@ -281,7 +282,7 @@ export async function loadGoalBotState(
           )
       : Promise.resolve([]),
     coverageBounds.length > 0
-      ? getVisibleChunkStations(allBounds, userId, coverages)
+      ? getVisibleChunkStations(allBounds, userId, coverages, undefined, false, conflictDiagnostics)
       : Promise.resolve([]),
     getUserCombatReports(userId, {
       since: new Date(now.getTime() - 30 * 24 * 3_600_000),
@@ -325,5 +326,8 @@ export async function loadGoalBotState(
     visibleStations,
     visibleDebris,
     combatReports,
+    conflictDiagnostics: {
+      protectedOwnerIds: [...conflictDiagnostics.protectedOwnerIds].sort(),
+    },
   };
 }

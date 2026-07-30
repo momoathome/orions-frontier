@@ -73,4 +73,8 @@ export interface GoalBotState {
     resources: ResourceMap;
   }[];
   combatReports: CombatReport[];
+  /** Authoritative diagnostic inputs which never participate in candidate selection. */
+  conflictDiagnostics: {
+    protectedOwnerIds: string[];
+  };
 }

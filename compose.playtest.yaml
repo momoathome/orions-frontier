@@ -1,0 +1,47 @@
+services:
+  playtest-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: playtest_runner
+      POSTGRES_PASSWORD: playtest_only
+      POSTGRES_DB: orions_frontier_playtest
+    tmpfs:
+      - /var/lib/postgresql/data:size=1g,mode=0700
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U playtest_runner -d orions_frontier_playtest']
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      - playtest
+
+  playtest-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    entrypoint:
+      - node
+      - --import
+      - tsx
+      - apps/api/src/lib/playtest/main.ts
+    environment:
+      PLAYTEST_MODE: '1'
+      PLAYTEST_EXPECTED_HOST: playtest-postgres
+      PLAYTEST_EXPECTED_DATABASE: orions_frontier_playtest
+      PLAYTEST_INJECT_INVARIANT: ${PLAYTEST_INJECT_INVARIANT:-}
+      PLAYTEST_INJECT_WARNING: ${PLAYTEST_INJECT_WARNING:-}
+      DATABASE_URL: postgresql://playtest_runner:playtest_only@playtest-postgres:5432/orions_frontier_playtest
+      NODE_ENV: test
+    volumes:
+      - type: bind
+        source: ./artifacts/playtests
+        target: /app/artifacts/playtests
+    depends_on:
+      playtest-postgres:
+        condition: service_healthy
+    networks:
+      - playtest
+
+networks:
+  playtest:
+    internal: true

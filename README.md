@@ -102,6 +102,48 @@ Die API benötigt dabei die Werte aus `.env` sowie laufendes PostgreSQL. Für di
 Entwicklung ist deshalb Docker Compose der vorgesehene Einstieg. WebSocket und Simulation laufen
 direkt im API-Prozess; fällige Vorgänge werden aus PostgreSQL nachgeholt.
 
+## Beschleunigter Spieltest
+
+Der Playtest läuft ohne HTTP-Server und ohne Echtzeitwarten gegen eine eigene, wegwerfbare
+PostgreSQL-Instanz. Er akzeptiert weder die Entwicklungs- noch die normale Testdatenbank.
+
+```bash
+npm run playtest -- \
+  --seed lokaler-versuch \
+  --duration-hours 24 \
+  --step-seconds 60 \
+  --join-interval-minutes 15 \
+  --population-limit 12 \
+  --snapshot-interval-minutes 15
+```
+
+Ohne Flags gelten genau diese Werte sowie der virtuelle Start
+`2030-01-01T00:00:00.000Z`. Mit `--config <datei.json>` kann eine Konfiguration geladen werden;
+einzelne CLI-Flags überschreiben die Datei. Profilgewichte lassen sich beispielsweise über
+`--profile-technocrat 4` und die entsprechenden Flags für `industrialist`, `pioneer` und `warlord`
+setzen.
+
+Der versionierte JSON-Bericht landet standardmäßig unter `artifacts/playtests/`. Harte
+Invariantenverletzungen beenden den Lauf mit Fehlerstatus und erzeugen einen gültigen Teilbericht.
+Softlock- und Balancehinweise sind dagegen Warnungen: Sie erscheinen mit Belegen im Bericht,
+verändern den Exit-Code in Version 1 aber nicht.
+
+Kurze technische Prüfungen:
+
+```bash
+npm run test:playtest-bootstrap
+npm run test:playtest-population
+npm run test:playtest-runner
+npm run test:playtest-e2e
+```
+
+Reproduzierbare Presets liegen unter `configs/playtest/`. Die technische Entwicklungsbaseline
+über drei frische Welten läuft mit:
+
+```bash
+npm run playtest:baseline
+```
+
 ## Entwicklungsprinzip
 
 Wir erweitern den vorhandenen technischen Vorsprung nicht um weitere klassische
