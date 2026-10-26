@@ -1,4 +1,4 @@
-import { and, between, eq, inArray, or } from 'drizzle-orm';
+import { and, between, eq, inArray, or, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
@@ -188,6 +188,7 @@ export async function getVisibleWorldMovements(
   scannerBypass = false
 ): Promise<VisibleWorldMovement[]> {
   const db = getDb();
+  const bounds = worldBounds(range);
   const [trips, missions, coverages] = await Promise.all([
     db
       .select({
@@ -208,7 +209,16 @@ export async function getVisibleWorldMovements(
       .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
       .innerJoin(stations, eq(stationSpacecrafts.stationId, stations.id))
       .leftJoin(botControllers, eq(botControllers.userId, stations.userId))
-      .where(eq(spacecraftTrips.status, 'traveling')),
+      .where(
+        and(
+          eq(spacecraftTrips.status, 'traveling'),
+          // A trip's position stays on its straight path, so its bounding box must touch the view.
+          sql`least(${spacecraftTrips.fromX}, ${spacecraftTrips.toX}) < ${bounds.maxX}`,
+          sql`greatest(${spacecraftTrips.fromX}, ${spacecraftTrips.toX}) >= ${bounds.minX}`,
+          sql`least(${spacecraftTrips.fromY}, ${spacecraftTrips.toY}) < ${bounds.maxY}`,
+          sql`greatest(${spacecraftTrips.fromY}, ${spacecraftTrips.toY}) >= ${bounds.minY}`
+        )
+      ),
     db
       .select({
         id: worldMissions.id,
@@ -232,7 +242,6 @@ export async function getVisibleWorldMovements(
       .where(inArray(worldMissions.status, ['traveling', 'returning'])),
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
   ]);
-  const bounds = worldBounds(range);
 
   const visibleTrips = trips.flatMap((trip): VisibleWorldMovement[] => {
     const position = interpolateWorldPosition(trip, now);

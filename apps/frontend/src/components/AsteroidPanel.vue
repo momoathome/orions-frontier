@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { ApiError, apiClient } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
+import { debounced } from '../lib/debounce';
 import {
   estimateMiningCycle,
   getMiningTripPhase,
@@ -52,15 +53,15 @@ watch(
   { immediate: true }
 );
 
-function refreshAsteroid() {
-  void loadAsteroid(asteroidId, false);
-}
+// Own actions and their realtime echo collapse into one reload.
+const refreshAsteroid = debounced(() => loadAsteroid(asteroidId, false), 300);
 
 const unsubMining = wsClient.on('mining_tick_completed', refreshAsteroid);
 const unsubTrips = wsClient.on('transport_tick_completed', refreshAsteroid);
 const now = ref(Date.now());
 const clock = window.setInterval(() => (now.value = Date.now()), 1_000);
 onUnmounted(() => {
+  refreshAsteroid.cancel();
   unsubMining();
   unsubTrips();
   window.clearInterval(clock);
@@ -77,10 +78,10 @@ function toggleAction(next: 'assign' | 'recall') {
   action.value = action.value === next ? null : next;
 }
 
-async function onActionDone() {
+function onActionDone() {
   action.value = null;
   emit('refresh');
-  await loadAsteroid(asteroidId, false);
+  refreshAsteroid();
 }
 
 type Assignment = AsteroidDetail['assignments'][number];

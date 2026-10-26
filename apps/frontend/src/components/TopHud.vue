@@ -3,6 +3,7 @@ import { ref, onUnmounted } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { apiClient } from '../lib/api-client.js';
 import { wsClient } from '../lib/ws-client.js';
+import { debounced } from '../lib/debounce.js';
 import { resourceKeys, type ResourceKey, type UserResourceSummary } from '@orions-frontier/shared';
 
 const { stationId } = defineProps<{ stationId: string }>();
@@ -19,17 +20,7 @@ interface ResourceEntry {
 const resourceEntries = ref<ResourceEntry[]>([]);
 const isOnline = ref(true);
 
-// Debounce timer: collapses rapid bursts of WS events (e.g. 10 simultaneous
-// trip arrivals with concurrency=10) into a single fetch 300 ms after the last.
-let fetchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleFetch() {
-  if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
-  fetchDebounceTimer = setTimeout(() => {
-    fetchDebounceTimer = null;
-    void fetchResources();
-  }, 1000);
-}
+const scheduleFetch = debounced(fetchResources, 1000);
 
 function applyResourceSummary(summary: UserResourceSummary) {
   resourceEntries.value = resourceKeys
@@ -85,7 +76,7 @@ const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) 
 void fetchResources();
 
 onUnmounted(() => {
-  if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
+  scheduleFetch.cancel();
   unsubscribeResources();
   unsubscribeTick();
   unsubscribeTransport();

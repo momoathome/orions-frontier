@@ -225,6 +225,7 @@ export interface StationMiningAssignment {
   asteroidY: number;
   asteroidSize: AsteroidSize;
   asteroidPrimaryResourceKey: string | null;
+  asteroidRemainingAmount: number;
   spacecraftKey: string;
   spacecraftName: string;
   spacecraftMiningRate: number;
@@ -254,6 +255,10 @@ export const getStationMiningAssignments = async (
       asteroidY: asteroids.y,
       asteroidSize: asteroids.size,
       asteroidPrimaryResourceKey: asteroidVeins.resourceKey,
+      asteroidRemainingAmount: sql<number>`(
+        SELECT COALESCE(SUM(v.remaining_amount), 0)::int
+        FROM asteroid_veins v WHERE v.asteroid_id = ${asteroids.id}
+      )`,
     })
     .from(asteroidAssignments)
     .innerJoin(asteroids, eq(asteroids.id, asteroidAssignments.asteroidId))
@@ -273,6 +278,7 @@ export const getStationMiningAssignments = async (
     asteroidY: r.asteroidY,
     asteroidSize: r.asteroidSize,
     asteroidPrimaryResourceKey: r.asteroidPrimaryResourceKey ?? null,
+    asteroidRemainingAmount: r.asteroidRemainingAmount,
     spacecraftKey: r.spacecraftKey,
     spacecraftName: requireSpacecraft(r.spacecraftKey).name,
     spacecraftMiningRate: requireSpacecraft(r.spacecraftKey).miningRate,

@@ -1,13 +1,10 @@
 <script setup lang="ts">
 import type { StationSpacecraftsResponse } from '@orions-frontier/shared';
 import { computed, onUnmounted, ref } from 'vue';
-import {
-  getMiningTripPhase,
-  type AsteroidDetail,
-  type StationSpacecraftWithDefinition,
-} from '@orions-frontier/shared';
+import { getMiningTripPhase, type StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { apiClient } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
+import { debounced } from '../lib/debounce';
 import { resourceColor, resourceName } from '../lib/mining-utils';
 import AsteroidPanel from './AsteroidPanel.vue';
 
@@ -17,6 +14,7 @@ interface MiningAssignment {
   asteroidX: number;
   asteroidY: number;
   asteroidPrimaryResourceKey: string | null;
+  asteroidRemainingAmount: number;
   spacecraftName: string;
   assignedAmount: number;
   status: 'traveling_to_asteroid' | 'traveling_to_station';
@@ -35,7 +33,6 @@ interface Trip {
 
 const { stationId } = defineProps<{ stationId: string }>();
 const assignments = ref<MiningAssignment[]>([]);
-const details = ref<Record<string, AsteroidDetail>>({});
 const fleet = ref<StationSpacecraftWithDefinition[]>([]);
 const trips = ref<Trip[]>([]);
 const selectedAsteroidId = ref<string | null>(null);
@@ -80,14 +77,6 @@ const availableMiners = computed(() =>
     .filter((entry) => entry.definition.role === 'miner')
     .reduce((sum, entry) => sum + entry.amount - entry.lockedAmount, 0)
 );
-const remainingReserve = computed(() =>
-  Object.values(details.value).reduce(
-    (sum, detail) =>
-      sum + detail.veins.reduce((veinSum, vein) => veinSum + vein.remainingAmount, 0),
-    0
-  )
-);
-
 const asteroidRows = computed(() => {
   const grouped = new Map<string, MiningAssignment[]>();
   for (const assignment of assignments.value) {
@@ -98,7 +87,6 @@ const asteroidRows = computed(() => {
   return [...grouped.entries()].map(([asteroidId, group]) => ({
     asteroidId,
     assignments: group,
-    detail: details.value[asteroidId] ?? null,
     totalMiners: group.reduce((sum, assignment) => sum + assignment.assignedAmount, 0),
     recallRequestedAmount: group.reduce(
       (sum, assignment) => sum + assignment.recallRequestedAmount,
@@ -114,15 +102,15 @@ const asteroidRows = computed(() => {
           }`
       )
       .join(' · '),
-    remainingAmount: (details.value[asteroidId]?.veins ?? []).reduce(
-      (sum, vein) => sum + vein.remainingAmount,
-      0
-    ),
+    remainingAmount: group[0]?.asteroidRemainingAmount ?? 0,
   }));
 });
+const remainingReserve = computed(() =>
+  asteroidRows.value.reduce((sum, row) => sum + row.remainingAmount, 0)
+);
 
-async function loadAll() {
-  loading.value = true;
+async function loadAll(showLoading = true) {
+  if (showLoading) loading.value = true;
   error.value = null;
   try {
     const [assignmentResponse, fleetResponse, tripResponse] = await Promise.all([
@@ -135,15 +123,6 @@ async function loadAll() {
     assignments.value = assignmentResponse.assignments;
     fleet.value = fleetResponse.spacecrafts;
     trips.value = tripResponse;
-
-    const asteroidIds = [...new Set(assignments.value.map((assignment) => assignment.asteroidId))];
-    const loaded = await Promise.all(
-      asteroidIds.map(async (asteroidId) => {
-        const response = await apiClient.get<AsteroidDetail>(`/asteroids/${asteroidId}`);
-        return [asteroidId, response] as const;
-      })
-    );
-    details.value = Object.fromEntries(loaded);
   } catch {
     error.value = 'Failed to load mining operations';
   } finally {
@@ -153,9 +132,12 @@ async function loadAll() {
 
 void loadAll();
 const clock = window.setInterval(() => (now.value = Date.now()), 1_000);
-const unsubMining = wsClient.on('mining_tick_completed', () => void loadAll());
-const unsubTrips = wsClient.on('transport_tick_completed', () => void loadAll());
+// Background reloads keep the list on screen instead of the loading state.
+const reload = debounced(() => loadAll(false), 500);
+const unsubMining = wsClient.on('mining_tick_completed', reload);
+const unsubTrips = wsClient.on('transport_tick_completed', reload);
 onUnmounted(() => {
+  reload.cancel();
   window.clearInterval(clock);
   unsubMining();
   unsubTrips();
@@ -237,7 +219,7 @@ onUnmounted(() => {
       :asteroid-id="selectedAsteroidId"
       :station-id="stationId"
       @close="selectedAsteroidId = null"
-      @refresh="loadAll"
+      @refresh="reload"
     />
   </div>
 </template>
