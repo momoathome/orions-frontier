@@ -1,4 +1,4 @@
-import type { AsteroidSize, VeinType } from '@orions-frontier/shared';
+import type { AsteroidSize, ResourceKey, VeinType } from '@orions-frontier/shared';
 
 export type { AsteroidSize, VeinType };
 export type SectorRole = 'settlement' | 'frontier';
@@ -6,7 +6,7 @@ export type SpawnSlotType = 'player' | 'bot';
 
 export interface GeneratedVein {
   veinType: VeinType;
-  resourceKey: string;
+  resourceKey: ResourceKey;
   remainingAmount: number;
 }
 

@@ -7,12 +7,15 @@ import {
   type AsteroidDetail,
   type AsteroidVein,
 } from '@orions-frontier/shared';
-import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
+import type {
+  StationSpacecraftsResponse,
+  StationSpacecraftWithDefinition,
+} from '@orions-frontier/shared';
 import AssignMinerModal from './AssignMinerModal.vue';
 import RecallMinerModal, { type AssignmentGroup } from './RecallMinerModal.vue';
 import { resourceColor, resourceName } from '../lib/mining-utils';
 
-const props = defineProps<{
+const { asteroidId, scannerBypass, stationId } = defineProps<{
   asteroidId: string;
   stationId: string | null;
   scannerBypass?: boolean;
@@ -29,8 +32,8 @@ async function loadAsteroid(id: string, showLoading = true) {
   error.value = null;
   if (showLoading) asteroid.value = null;
   try {
-    const response = await apiClient.get(`/asteroids/${id}`, {
-      params: { scannerBypass: props.scannerBypass },
+    const response = await apiClient.get<AsteroidDetail>(`/asteroids/${id}`, {
+      params: { scannerBypass: scannerBypass },
     });
     asteroid.value = response;
   } catch (cause) {
@@ -45,13 +48,13 @@ async function loadAsteroid(id: string, showLoading = true) {
 }
 
 watch(
-  () => props.asteroidId,
+  () => asteroidId,
   (id) => loadAsteroid(id),
   { immediate: true }
 );
 
 function refreshAsteroid() {
-  void loadAsteroid(props.asteroidId, false);
+  void loadAsteroid(asteroidId, false);
 }
 
 const unsubMining = wsClient.on('mining_tick_completed', refreshAsteroid);
@@ -68,9 +71,11 @@ const showAssignModal = ref(false);
 const miners = ref<StationSpacecraftWithDefinition[]>([]);
 
 async function openAssignModal() {
-  if (props.stationId && miners.value.length === 0) {
-    const response = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
-    miners.value = (response.spacecrafts as StationSpacecraftWithDefinition[]).filter(
+  if (stationId && miners.value.length === 0) {
+    const response = await apiClient.get<StationSpacecraftsResponse>(
+      `/stations/${stationId}/spacecrafts`
+    );
+    miners.value = response.spacecrafts.filter(
       (s) =>
         s.definition.role === 'miner' &&
         s.definition.miningRate > 0 &&
@@ -84,7 +89,7 @@ async function onAssignDone() {
   showAssignModal.value = false;
   miners.value = [];
   emit('refresh');
-  await loadAsteroid(props.asteroidId);
+  await loadAsteroid(asteroidId);
 }
 
 const showRecallModal = ref(false);
@@ -96,7 +101,7 @@ function openRecallModal() {
 async function onRecallDone() {
   showRecallModal.value = false;
   emit('refresh');
-  await loadAsteroid(props.asteroidId);
+  await loadAsteroid(asteroidId);
 }
 
 type Assignment = AsteroidDetail['assignments'][number];
@@ -125,7 +130,7 @@ const operationGroups = computed<OperationGroup[]>(() => {
       totalAmount: 0,
       activeAmount: 0,
       recallRequestedAmount: 0,
-      isOwn: assignment.stationId === props.stationId,
+      isOwn: assignment.stationId === stationId,
     };
     group.assignments.push(assignment);
     group.totalAmount += assignment.assignedAmount;
@@ -296,8 +301,8 @@ function formatCountdown(deadline: number | null): string {
 function formatCargo(trip: NonNullable<Assignment['activeTrip']> | null): string {
   if (!trip?.cargoManifest) return '—';
   return Object.entries(trip.cargoManifest)
-    .filter(([, amount]) => (amount ?? 0) > 0)
-    .map(([key, amount]) => `${amount} ${resourceName(key as AsteroidVein['resourceKey'])}`)
+    .filter(([, amount]) => amount > 0)
+    .map(([key, amount]) => `${amount} ${resourceName(key)}`)
     .join(' · ');
 }
 
@@ -349,8 +354,7 @@ function formatCoord(n: number) {
 
 <template>
   <div
-    class="absolute bottom-0 left-0 w-full cursor-default z-20 flex flex-col font-mono select-none"
-    style="min-height: 260px"
+    class="absolute bottom-0 left-0 w-full min-h-[260px] cursor-default z-20 flex flex-col font-mono select-none"
   >
     <!-- Panel background -->
     <div
@@ -391,8 +395,9 @@ function formatCoord(n: number) {
             </span>
           </div>
           <button
-            @click="emit('close')"
+            type="button"
             class="w-8 h-8 flex items-center justify-center rounded text-white/55 hover:text-white/90 hover:bg-white/6 transition text-[14px]"
+            @click="emit('close')"
           >
             ✕
           </button>
@@ -591,13 +596,15 @@ function formatCoord(n: number) {
       <div class="flex items-center gap-3 px-5 py-3 shrink-0 border-t border-white/7">
         <button
           v-if="stationId"
-          @click="openAssignModal"
+          type="button"
           class="px-4 h-8 rounded text-[11px] uppercase tracking-[0.12em] text-cyan-300 border border-cyan-400/45 hover:bg-cyan-400/12 hover:border-cyan-400/70 transition font-semibold"
+          @click="openAssignModal"
         >
           ⊕ {{ ownGroups.length > 0 ? 'Assign More' : 'Assign Miner' }}
         </button>
         <button
           v-else
+          type="button"
           disabled
           class="px-4 h-8 rounded text-[11px] uppercase tracking-[0.12em] text-white/30 border border-white/10 cursor-not-allowed"
         >
@@ -605,8 +612,9 @@ function formatCoord(n: number) {
         </button>
         <button
           v-if="ownGroups.length > 0"
-          @click="openRecallModal()"
+          type="button"
           class="px-4 h-8 rounded text-[11px] uppercase tracking-[0.12em] text-red-300 border border-red-400/40 hover:bg-red-400/12 hover:border-red-400/65 transition font-semibold"
+          @click="openRecallModal()"
         >
           ↩ Recall
         </button>

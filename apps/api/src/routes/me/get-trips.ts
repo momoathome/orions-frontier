@@ -1,4 +1,3 @@
-import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../middleware/auth.js';
 import { eq, and, inArray } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
@@ -6,14 +5,15 @@ import { stations } from '../../lib/db/schema/stations.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
+import { defineRoute } from '../../lib/route.js';
 
 /**
  * GET /api/me/trips
  * Returns all active (traveling) spacecraft trips across all stations of the user.
  * Used by the map to render in-flight spacecraft with interpolated positions.
  */
-export default (async (app) => {
-  app.get('/trips', { preHandler: [authenticate] }, async (request) => {
+export default defineRoute(async (app) => {
+  app.get('/trips', { onRequest: [authenticate] }, async (request) => {
     const { userId } = request.user;
     const db = getDb();
 
@@ -84,4 +84,4 @@ export default (async (app) => {
 
     return data;
   });
-}) satisfies FastifyPluginAsync;
+});

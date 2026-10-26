@@ -142,6 +142,6 @@ export class AsteroidLayer {
     if (this.textures.length === 0) return Texture.WHITE;
     // Use the last 4 hex chars of the UUID for a uniform distribution
     const n = parseInt(id.replace(/-/g, '').slice(-4), 16);
-    return this.textures[n % this.textures.length]!;
+    return this.textures[n % this.textures.length] ?? Texture.WHITE;
   }
 }

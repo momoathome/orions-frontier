@@ -1,3 +1,4 @@
+import { required } from '@orions-frontier/shared';
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 
 export const GOAL_BOT_STRATEGY = 'goal_v1';
@@ -43,5 +44,5 @@ export function profileForKey(seed: string): BotProfile {
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   const profiles: BotProfile[] = ['industrialist', 'pioneer', 'technocrat', 'warlord'];
-  return profiles[hash % profiles.length]!;
+  return required(profiles[hash % profiles.length], 'profiles[hash % profiles.length]');
 }

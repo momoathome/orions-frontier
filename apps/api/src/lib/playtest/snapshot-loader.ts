@@ -1,5 +1,11 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { defenseUpgradeKeys, type ResourceMap } from '@orions-frontier/shared';
+import {
+  required,
+  entriesOf,
+  isOneOf,
+  defenseUpgradeKeys,
+  type ResourceMap,
+} from '@orions-frontier/shared';
 import { calculateBuildingEffect } from '@orions-frontier/game-config';
 import { getDb } from '../db/index.js';
 import { asteroids, asteroidVeins } from '../db/schema/asteroids.js';
@@ -16,7 +22,7 @@ import { stationSpacecrafts } from '../db/schema/station-spacecrafts.js';
 import { stations } from '../db/schema/stations.js';
 import { users } from '../db/schema/users.js';
 import { worldMissions } from '../db/schema/world-missions.js';
-import { PlaytestAliasRegistry } from './aliases.js';
+import type { PlaytestAliasRegistry } from './aliases.js';
 import type { CollectorSnapshot } from './collector.js';
 import type { PopulationKind } from './population.js';
 import { progressFingerprint } from './progress-fingerprint.js';
@@ -248,17 +254,21 @@ export async function loadPlaytestSnapshot(
 
   const byStation = new Map(stationIds.map((stationId) => [stationId, emptyStation()]));
   for (const resource of resourceRows) {
-    const station = byStation.get(resource.stationId)!;
-    station.resources[resource.resourceKey as keyof ResourceMap] = resource.amount;
+    const station = required(
+      byStation.get(resource.stationId),
+      'byStation.get(resource.stationId)'
+    );
+    station.resources[resource.resourceKey] = resource.amount;
     station.resourceUnits += resource.amount;
   }
   for (const building of buildingRows) {
     if (building.buildingKey === 'warehouse') {
-      byStation.get(building.stationId)!.storageCapacityPerResource = warehouseCapacity(
-        building.level
-      );
+      required(
+        byStation.get(building.stationId),
+        'byStation.get(building.stationId)'
+      ).storageCapacityPerResource = warehouseCapacity(building.level);
     }
-    const defense = (defenseUpgradeKeys as readonly string[]).includes(building.buildingKey);
+    const defense = isOneOf(defenseUpgradeKeys, building.buildingKey);
     incrementStation(
       byStation,
       building.stationId,
@@ -270,7 +280,10 @@ export async function loadPlaytestSnapshot(
     }
   }
   for (const spacecraft of spacecraftRows) {
-    const station = byStation.get(spacecraft.stationId)!;
+    const station = required(
+      byStation.get(spacecraft.stationId),
+      'byStation.get(spacecraft.stationId)'
+    );
     station.spacecraftByKey[spacecraft.spacecraftKey] =
       (station.spacecraftByKey[spacecraft.spacecraftKey] ?? 0) + spacecraft.amount;
     incrementStation(byStation, spacecraft.stationId, 'spacecraftUnits', spacecraft.amount);
@@ -303,10 +316,13 @@ export async function loadPlaytestSnapshot(
   }
 
   const stationSnapshots = orderedStations.map((station): PlaytestStationSnapshot => {
-    const values = byStation.get(station.id)!;
-    const normalizedResources = Object.fromEntries(
-      Object.entries(values.resources).sort(([left], [right]) => left.localeCompare(right))
-    ) as ResourceMap;
+    const values = required(byStation.get(station.id), 'byStation.get(station.id)');
+    const normalizedResources: ResourceMap = {};
+    for (const [key, amount] of entriesOf(values.resources).sort(([left], [right]) =>
+      left.localeCompare(right)
+    )) {
+      normalizedResources[key] = amount;
+    }
     const reportValues = {
       ...values,
       resources: normalizedResources,
@@ -330,6 +346,7 @@ export async function loadPlaytestSnapshot(
   }
   const bots = [...stationRowsByUser.entries()]
     .map(([userId, ownedStations]): PlaytestBotSnapshot => {
+      const primary = required(ownedStations[0], `stations of ${userId}`);
       const owned = stationSnapshots.filter(
         (station) => station.ownerAlias === aliases.user(userId)
       );
@@ -355,13 +372,13 @@ export async function loadPlaytestSnapshot(
         ),
         completedResearch: owned.reduce((sum, station) => sum + station.completedResearch, 0),
         activeWork,
-        activeGoal: ownedStations[0]!.activeGoal,
-        lastAction: ownedStations[0]!.lastAction,
+        activeGoal: primary.activeGoal,
+        lastAction: primary.lastAction,
       };
       return {
         botAlias: aliases.user(userId),
-        populationKind: ownedStations[0]!.role === 'bot' ? 'resident_bot' : 'synthetic_player',
-        profile: ownedStations[0]!.profile as BotProfile,
+        populationKind: primary.role === 'bot' ? 'resident_bot' : 'synthetic_player',
+        profile: primary.profile,
         ...values,
         progressFingerprint: progressFingerprint({
           ...values,
@@ -380,14 +397,13 @@ export async function loadPlaytestSnapshot(
   for (const asteroid of asteroidRows) {
     asteroidIds.add(asteroid.asteroidId);
     if (asteroid.resourceKey && (asteroid.remainingAmount ?? 0) > 0) {
-      const key = asteroid.resourceKey as keyof ResourceMap;
+      const key = asteroid.resourceKey;
       asteroidResources[key] = (asteroidResources[key] ?? 0) + (asteroid.remainingAmount ?? 0);
     }
   }
   const debrisResources: ResourceMap = {};
   for (const debris of debrisRows) {
-    for (const [resourceKey, amount] of Object.entries(debris.resources)) {
-      const key = resourceKey as keyof ResourceMap;
+    for (const [key, amount] of entriesOf(debris.resources)) {
       debrisResources[key] = (debrisResources[key] ?? 0) + amount;
     }
   }

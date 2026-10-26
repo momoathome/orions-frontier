@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { DebrisField, StationSpacecraftWithDefinition } from '@orions-frontier/shared';
+import type {
+  StationSpacecraftsResponse,
+  DebrisField,
+  StationSpacecraftWithDefinition,
+} from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 
-const props = defineProps<{ field: DebrisField; stationId: string }>();
+const { field, stationId } = defineProps<{ field: DebrisField; stationId: string }>();
 const emit = defineEmits<{ close: []; launched: [] }>();
 
-const current = ref(props.field);
+// eslint-disable-next-line vue/no-setup-props-reactivity-loss -- Startwert; der Watcher unten lädt bei jedem Feldwechsel nach.
+const current = ref(field);
 const salvagers = ref<StationSpacecraftWithDefinition[]>([]);
 const selectedSpacecraftKey = ref('');
 const amount = ref(1);
@@ -17,20 +22,19 @@ const resources = computed(() =>
 );
 
 watch(
-  () => props.field.id,
+  () => field.id,
   async () => {
     feedback.value = null;
     salvagers.value = [];
     selectedSpacecraftKey.value = '';
     try {
       const [fieldResponse, fleetResponse] = await Promise.all([
-        apiClient.get(`/debris/${props.field.id}`),
-        apiClient.get(`/stations/${props.stationId}/spacecrafts`),
+        apiClient.get<DebrisField>(`/debris/${field.id}`),
+        apiClient.get<StationSpacecraftsResponse>(`/stations/${stationId}/spacecrafts`),
       ]);
       current.value = fieldResponse;
       salvagers.value = fleetResponse.spacecrafts.filter(
-        (entry: StationSpacecraftWithDefinition) =>
-          entry.definition.role === 'salvager' && entry.amount > entry.lockedAmount
+        (entry) => entry.definition.role === 'salvager' && entry.amount > entry.lockedAmount
       );
       selectedSpacecraftKey.value = salvagers.value[0]?.definition.key ?? '';
     } catch (error) {
@@ -46,7 +50,7 @@ async function launch(): Promise<void> {
   feedback.value = null;
   try {
     await apiClient.post(`/debris/${current.value.id}/salvage`, {
-      stationId: props.stationId,
+      stationId: stationId,
       spacecraftKey: selectedSpacecraftKey.value,
       amount: amount.value,
     });
@@ -66,7 +70,7 @@ async function launch(): Promise<void> {
   >
     <div class="flex h-11 items-center justify-between border-b border-white/7 px-5">
       <span class="text-sm font-semibold tracking-widest text-violet-200">DEBRIS FIELD</span>
-      <button class="h-7 w-7 text-white/50" @click="$emit('close')">✕</button>
+      <button type="button" class="h-7 w-7 text-white/50" @click="$emit('close')">✕</button>
     </div>
     <div class="grid flex-1 grid-cols-2 gap-8 px-5 py-4 text-[10px]">
       <div>
@@ -102,6 +106,7 @@ async function launch(): Promise<void> {
             class="h-7 rounded border border-white/10 bg-white/5 px-2"
           />
           <button
+            type="button"
             :disabled="sending || amount < 1"
             class="h-7 rounded border border-violet-400/30 text-violet-200 disabled:opacity-30"
             @click="launch"

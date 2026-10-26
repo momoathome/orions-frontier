@@ -117,7 +117,7 @@ export async function runPlaytest(
   };
 
   try {
-    while (true) {
+    for (;;) {
       while (playerIndex < config.populationLimit && nextJoinAt.getTime() <= now.getTime()) {
         const joined = await joinSyntheticPlayer(
           {

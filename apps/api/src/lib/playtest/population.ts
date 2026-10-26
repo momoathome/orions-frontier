@@ -115,7 +115,7 @@ async function registerResidents(
       )}-${paddedIndex(index)}`,
       userId: resident.userId,
       initialStationId: resident.stationId,
-      profile: resident.profile as BotProfile,
+      profile: resident.profile,
       joinedAt: resident.createdAt,
       populationKind: 'resident_bot',
     };

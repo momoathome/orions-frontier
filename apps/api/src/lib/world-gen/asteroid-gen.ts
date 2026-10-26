@@ -1,3 +1,4 @@
+import { required } from '@orions-frontier/shared';
 import { WORLD_CONFIG } from '../world-config.js';
 import { resources } from '@orions-frontier/game-config';
 import type { AsteroidSize, ResourceKey, VeinType } from '@orions-frontier/shared';
@@ -12,17 +13,17 @@ const worldToChunk = (x: number, y: number): { chunkX: number; chunkY: number } 
 });
 
 export function pickWeighted(
-  pool: readonly { resource: string; weight: number }[],
+  pool: readonly { resource: ResourceKey; weight: number }[],
   rng: SeededRng
-): string {
+): ResourceKey {
   const total = pool.reduce((s, p) => s + p.weight, 0);
-  if (total <= 0) return pool[0]!.resource;
+  if (total <= 0) return required(pool[0], 'pool[0]').resource;
   let roll = rng.next() * total;
   for (const p of pool) {
     roll -= p.weight;
     if (roll < 0) return p.resource;
   }
-  return pool[pool.length - 1]!.resource;
+  return required(pool[pool.length - 1], 'pool[pool.length - 1]').resource;
 }
 
 export interface SizeWeights {
@@ -63,13 +64,13 @@ function buildAsteroidBase(x: number, y: number, size: AsteroidSize, rng: Seeded
 
 const VEIN_TYPES: readonly VeinType[] = ['primary', 'secondary', 'trace'];
 
-const isRareResource = (resourceKey: string): boolean =>
-  resources[resourceKey as ResourceKey]?.rarity === 'rare';
+const isRareResource = (resourceKey: ResourceKey): boolean =>
+  resources[resourceKey].rarity === 'rare';
 
 function majorPoolForSize(
   size: AsteroidSize,
   veinType: VeinType,
-  pool: readonly { resource: string; weight: number }[]
+  pool: readonly { resource: ResourceKey; weight: number }[]
 ) {
   if (size !== 'massive' || veinType === 'trace') return pool;
   const nonRarePool = pool.filter((resource) => !isRareResource(resource.resource));
@@ -79,8 +80,8 @@ function majorPoolForSize(
 export function buildAsteroid(
   x: number,
   y: number,
-  primaryResource: string,
-  secondaryPool: readonly { resource: string; weight: number }[],
+  primaryResource: ResourceKey,
+  secondaryPool: readonly { resource: ResourceKey; weight: number }[],
   rng: SeededRng,
   sizeWeights: SizeWeights
 ): GeneratedAsteroid {
@@ -90,7 +91,10 @@ export function buildAsteroid(
   const veinRange = WORLD_CONFIG.VEIN_COUNT[size];
   const veinCount = rng.nextInt(veinRange.min, veinRange.max);
   const amountWeights = Array.from({ length: veinCount }, (_, index) => {
-    const veinType = VEIN_TYPES[Math.min(index, VEIN_TYPES.length - 1)]!;
+    const veinType = required(
+      VEIN_TYPES[Math.min(index, VEIN_TYPES.length - 1)],
+      'VEIN_TYPES[Math.min(index, VEIN_TYPES.length - 1)]'
+    );
     return veinCount === 1 ? 1 : WORLD_CONFIG.VEIN_WEIGHTS[veinType];
   });
   const totalAmountWeight = amountWeights.reduce((sum, weight) => sum + weight, 0);
@@ -100,9 +104,12 @@ export function buildAsteroid(
 
   const veins: GeneratedVein[] = [];
   for (let i = 0; i < veinCount; i++) {
-    const veinType = VEIN_TYPES[Math.min(i, VEIN_TYPES.length - 1)]!;
+    const veinType = required(
+      VEIN_TYPES[Math.min(i, VEIN_TYPES.length - 1)],
+      'VEIN_TYPES[Math.min(i, VEIN_TYPES.length - 1)]'
+    );
 
-    let resourceKey: string;
+    let resourceKey: ResourceKey;
     if (i === 0 && !(size === 'massive' && isRareResource(primaryResource))) {
       resourceKey = primaryResource;
     } else {
@@ -115,7 +122,10 @@ export function buildAsteroid(
     const remainingAmount =
       i === veinCount - 1
         ? base.resourceAmount - allocatedAmount
-        : Math.round(base.resourceAmount * (amountWeights[i]! / totalAmountWeight));
+        : Math.round(
+            base.resourceAmount *
+              (required(amountWeights[i], 'amountWeights[i]') / totalAmountWeight)
+          );
     allocatedAmount += remainingAmount;
 
     veins.push({ veinType, resourceKey, remainingAmount });
@@ -134,7 +144,7 @@ export function buildAsteroid(
 export function buildStarterAsteroid(
   x: number,
   y: number,
-  guaranteed: { primaryResource: string; size: AsteroidSize },
+  guaranteed: { primaryResource: ResourceKey; size: AsteroidSize },
   rng: SeededRng
 ): GeneratedAsteroid {
   const base = buildAsteroidBase(x, y, guaranteed.size, rng);

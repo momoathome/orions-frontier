@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { users } from '../lib/db/schema/users.js';
-import { AppError, ErrorCode } from '@orions-frontier/shared';
+import { required, AppError, ErrorCode } from '@orions-frontier/shared';
 import type { AuthenticatedUser } from '@orions-frontier/shared';
 
 const BCRYPT_ROUNDS = 12;
@@ -11,8 +11,8 @@ export const toAuthenticatedUser = (user: typeof users.$inferSelect): Authentica
   id: user.id,
   username: user.username,
   email: user.email,
-  role: user.role as AuthenticatedUser['role'],
-  status: user.status as AuthenticatedUser['status'],
+  role: user.role,
+  status: user.status,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
 });
@@ -65,5 +65,5 @@ export const registerUser = async (
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   const [user] = await getDb().insert(users).values({ username, email, passwordHash }).returning();
-  return toAuthenticatedUser(user!);
+  return toAuthenticatedUser(required(user, 'user'));
 };

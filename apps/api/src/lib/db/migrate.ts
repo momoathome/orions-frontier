@@ -36,9 +36,9 @@ if (import.meta.main) {
     .then(() => {
       console.log('✅ Migrations completed');
     })
-    .catch((err) => {
+    .catch((error: unknown) => {
       console.error('❌ Migration failed');
-      console.error(err);
+      console.error(error);
       process.exit(1);
     });
 }

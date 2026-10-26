@@ -181,20 +181,20 @@ export function createStationVisual(model: StationVisualModel): StationVisual {
         guardian.turret.rotation =
           guardian.baseAngle + Math.sin(timeMs / 4200 + guardian.phase) * 0.16;
       }
-      for (let i = 0; i < laboratorySignals.length; i++) {
+      for (const [i, signal] of laboratorySignals.entries()) {
         const phase = (timeMs + variation * 37 + i * 1050) % 3600;
         const pulse = phase < 320 ? Math.sin((phase / 320) * Math.PI) : 0;
-        laboratorySignals[i]!.alpha = 0.3 + pulse * 0.7;
+        signal.alpha = 0.3 + pulse * 0.7;
       }
-      for (let i = 0; i < shipyardSignals.length; i++) {
+      for (const [i, signal] of shipyardSignals.entries()) {
         const phase = (timeMs + variation * 23 + i * 700) % 1400;
         const pulse = phase < 220 ? Math.sin((phase / 220) * Math.PI) : 0;
-        shipyardSignals[i]!.alpha = 0.18 + pulse * 0.82;
+        signal.alpha = 0.18 + pulse * 0.82;
       }
-      for (let i = 0; i < scannerSignals.length; i++) {
+      for (const [i, signal] of scannerSignals.entries()) {
         const phase = (timeMs / 1900 + i / scannerSignals.length) % 1;
-        scannerSignals[i]!.scale.set(0.45 + phase * 1.9);
-        scannerSignals[i]!.alpha = (1 - phase) * 0.5;
+        signal.scale.set(0.45 + phase * 1.9);
+        signal.alpha = (1 - phase) * 0.5;
       }
       for (const drone of defenseDrones) {
         const angle = drone.offset + timeMs * drone.speed;
@@ -588,8 +588,7 @@ function addLaboratory(
   container.addChild(g);
 
   const signals: Graphics[] = [];
-  for (let i = 0; i < tier; i++) {
-    const [nodeX, nodeY] = nodes[i]!;
+  for (const [nodeX, nodeY] of nodes.slice(0, tier)) {
     const signal = new Graphics();
     signal.circle(x + r * nodeX, y + r * nodeY, Math.max(1.5, r * 0.13));
     signal.fill({ color: ACCENT_COLORS.active, alpha: 1 });

@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { StationSpacecraftWithDefinition, VisibleStation } from '@orions-frontier/shared';
+import type {
+  StationSpacecraftsResponse,
+  StationSpacecraftWithDefinition,
+  VisibleStation,
+} from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 
-const props = defineProps<{
+const { origin, station } = defineProps<{
   station: VisibleStation;
   origin: { id: string; x: number; y: number } | null;
 }>();
@@ -11,9 +15,7 @@ const props = defineProps<{
 defineEmits<{ close: [] }>();
 
 const distance = computed(() =>
-  props.origin
-    ? Math.hypot(props.station.x - props.origin.x, props.station.y - props.origin.y)
-    : null
+  origin ? Math.hypot(station.x - origin.x, station.y - origin.y) : null
 );
 
 const fighters = ref<StationSpacecraftWithDefinition[]>([]);
@@ -23,15 +25,16 @@ const feedback = ref<string | null>(null);
 const sending = ref(false);
 
 watch(
-  () => [props.origin?.id, props.station.id] as const,
+  () => [origin?.id, station.id] as const,
   async ([stationId]) => {
     fighters.value = [];
     if (!stationId) return;
     try {
-      const fleetResponse = await apiClient.get(`/stations/${stationId}/spacecrafts`);
+      const fleetResponse = await apiClient.get<StationSpacecraftsResponse>(
+        `/stations/${stationId}/spacecrafts`
+      );
       fighters.value = fleetResponse.spacecrafts.filter(
-        (entry: StationSpacecraftWithDefinition) =>
-          entry.definition.role === 'fighter' && entry.amount > entry.lockedAmount
+        (entry) => entry.definition.role === 'fighter' && entry.amount > entry.lockedAmount
       );
       selectedSpacecraftKey.value = fighters.value[0]?.definition.key ?? '';
     } catch (error) {
@@ -42,12 +45,12 @@ watch(
 );
 
 async function attack() {
-  if (!props.origin || !selectedSpacecraftKey.value) return;
+  if (!origin || !selectedSpacecraftKey.value) return;
   sending.value = true;
   feedback.value = null;
   try {
-    await apiClient.post(`/stations/${props.origin.id}/attacks`, {
-      targetStationId: props.station.id,
+    await apiClient.post(`/stations/${origin.id}/attacks`, {
+      targetStationId: station.id,
       spacecraftKey: selectedSpacecraftKey.value,
       amount: amount.value,
     });
@@ -73,6 +76,7 @@ async function attack() {
         </span>
       </div>
       <button
+        type="button"
         class="flex h-7 w-7 items-center justify-center rounded text-[11px] text-white/50 transition hover:bg-white/5 hover:text-white/80"
         @click="$emit('close')"
       >
@@ -115,6 +119,7 @@ async function attack() {
             class="h-7 rounded border border-white/10 bg-white/5 px-2 text-[10px]"
           />
           <button
+            type="button"
             :disabled="sending || amount < 1"
             class="h-7 rounded border border-red-400/30 text-[9px] uppercase tracking-widest text-red-300 disabled:opacity-30"
             @click="attack"

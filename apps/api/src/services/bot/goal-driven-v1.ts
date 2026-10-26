@@ -1,3 +1,4 @@
+import { required } from '@orions-frontier/shared';
 import type { BotProfile, GoalType } from '../../lib/db/schema/bot-controllers.js';
 import { PROFILE_PARAMS } from './bot-profiles.js';
 
@@ -177,7 +178,7 @@ export function selectGoal(
     return compareCandidates(a, b);
   });
 
-  const best = scored[0]!;
+  const best = required(scored[0], 'scored[0]');
 
   // If there's an active goal, check hysteresis
   if (activeGoal) {

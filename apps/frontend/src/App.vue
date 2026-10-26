@@ -1,9 +1,3 @@
-<template>
-  <div id="app">
-    <router-view />
-  </div>
-</template>
-
 <script setup lang="ts">
 import { watch } from 'vue';
 import { useAuthStore } from './stores/auth';
@@ -22,6 +16,12 @@ watch(
   { immediate: true }
 );
 </script>
+
+<template>
+  <div id="app">
+    <router-view />
+  </div>
+</template>
 
 <style scoped>
 #app {

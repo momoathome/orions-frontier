@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { eq, inArray } from 'drizzle-orm';
+import type { ResourceMap } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
@@ -36,22 +37,28 @@ before(async () => {
     seed: suffix,
   });
 
-  [{ id: userId }] = await db
-    .insert(users)
-    .values({
-      username: `phase1-${suffix}`,
-      email: `phase1-${suffix}@example.test`,
-      passwordHash: 'not-used',
-    })
-    .returning({ id: users.id });
-  [{ id: stationId }] = await db
-    .insert(stations)
-    .values({ userId, sectorId, name: 'Phase 1', x: 0, y: 0 })
-    .returning({ id: stations.id });
-  [{ id: stationSpacecraftId }] = await db
-    .insert(stationSpacecrafts)
-    .values({ stationId, spacecraftKey, amount: 2, lockedAmount: 2 })
-    .returning({ id: stationSpacecrafts.id });
+  userId = (
+    await db
+      .insert(users)
+      .values({
+        username: `phase1-${suffix}`,
+        email: `phase1-${suffix}@example.test`,
+        passwordHash: 'not-used',
+      })
+      .returning({ id: users.id })
+  )[0]!.id;
+  stationId = (
+    await db
+      .insert(stations)
+      .values({ userId, sectorId, name: 'Phase 1', x: 0, y: 0 })
+      .returning({ id: stations.id })
+  )[0]!.id;
+  stationSpacecraftId = (
+    await db
+      .insert(stationSpacecrafts)
+      .values({ stationId, spacecraftKey, amount: 2, lockedAmount: 2 })
+      .returning({ id: stationSpacecrafts.id })
+  )[0]!.id;
   await db.insert(stationBuildings).values({ stationId, buildingKey: 'warehouse', level: 1 });
 });
 
@@ -127,7 +134,7 @@ test('parallel mining returns store only free warehouse capacity', async () => {
     .returning();
   tripIds.push(...trips.map((trip) => trip.id));
 
-  await Promise.all(trips.map(settleTripArrival));
+  await Promise.all(trips.map((trip) => settleTripArrival(trip)));
 
   const [resource] = await db
     .select({ amount: stationResources.amount })
@@ -144,10 +151,7 @@ test('parallel mining returns store only free warehouse capacity', async () => {
     );
   assert.equal(resource?.amount, 1_500);
   assert.equal(
-    settled.reduce(
-      (sum, trip) => sum + ((trip.cargoManifest as { carbon?: number } | null)?.carbon ?? 0),
-      0
-    ),
+    settled.reduce((sum, trip) => sum + (trip.cargoManifest?.carbon ?? 0), 0),
     10
   );
 });
@@ -184,6 +188,8 @@ test('simulation tick catches up a trip that became due while the API was offlin
 test('a failing due trip does not block later simulation work', async () => {
   const db = getDb();
   const now = new Date();
+
+  const corruptManifest: ResourceMap = JSON.parse('{"poison":1}');
   const [poisonTrip, validTrip] = await db
     .insert(spacecraftTrips)
     .values([
@@ -197,7 +203,7 @@ test('a failing due trip does not block later simulation work', async () => {
         departedAt: new Date(now.getTime() - 3_000),
         arrivesAt: new Date(now.getTime() - 2_000),
         purpose: 'mining_return',
-        cargoManifest: { poison: 1 },
+        cargoManifest: corruptManifest,
       },
       {
         stationSpacecraftId,

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -103,13 +104,13 @@ after(async () => {
   await closeDb();
 });
 
-async function setResources(amounts: Record<string, number>) {
+async function setResources(amounts: ResourceMap) {
   const db = getDb();
   await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
   await db
     .insert(stationResources)
     .values(
-      Object.entries(amounts).map(([resourceKey, amount]) => ({ stationId, resourceKey, amount }))
+      entriesOf(amounts).map(([resourceKey, amount]) => ({ stationId, resourceKey, amount }))
     );
 }
 
@@ -291,8 +292,8 @@ test('all six research foundations expose their canonical server-side multiplier
   );
 
   assert.ok(Math.abs((await effectiveMiningRate(db, stationId, 100)) - 110) < 1e-9);
-  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100, 'miner')) - 110) < 1e-9);
-  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100, 'salvager')) - 110) < 1e-9);
+  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100)) - 110) < 1e-9);
+  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100)) - 110) < 1e-9);
   assert.ok(Math.abs((await effectiveAttackPower(db, stationId, 100)) - 110) < 1e-9);
 
   const departedAt = new Date(0);

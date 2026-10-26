@@ -19,9 +19,9 @@ export const stations = pgTable(
     chunkY: integer('chunk_y').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (table) => ({
-    userIdIdx: index('stations_user_id_idx').on(table.userId),
-    sectorIdIdx: index('stations_sector_id_idx').on(table.sectorId),
-    chunkIdx: index('stations_chunk_idx').on(table.chunkX, table.chunkY),
-  })
+  (table) => [
+    index('stations_user_id_idx').on(table.userId),
+    index('stations_sector_id_idx').on(table.sectorId),
+    index('stations_chunk_idx').on(table.chunkX, table.chunkY),
+  ]
 );

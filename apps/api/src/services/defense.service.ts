@@ -7,6 +7,8 @@ import {
   getDefenseUpgrade,
 } from '@orions-frontier/game-config';
 import {
+  required,
+  isOneOf,
   AppError,
   defenseUpgradeKeys,
   ErrorCode,
@@ -48,9 +50,7 @@ export const seedStationDefenseUpgrades = async (
 };
 
 export const defenseUpgradeMaxLevel = (key: string): number | null =>
-  (defenseUpgradeKeys as readonly string[]).includes(key)
-    ? getDefenseUpgrade(key as DefenseUpgradeKey).maxLevel
-    : null;
+  isOneOf(defenseUpgradeKeys, key) ? getDefenseUpgrade(key).maxLevel : null;
 
 export function calculateStationDefenseScore(
   levels: Partial<Record<DefenseUpgradeKey, number>>
@@ -106,8 +106,8 @@ export async function getStationDefenseScore(stationId: string): Promise<number>
     .where(eq(stationBuildings.stationId, stationId));
   const levels: Partial<Record<DefenseUpgradeKey, number>> = {};
   for (const row of rows) {
-    if ((defenseUpgradeKeys as readonly string[]).includes(row.buildingKey)) {
-      levels[row.buildingKey as DefenseUpgradeKey] = row.level;
+    if (isOneOf(defenseUpgradeKeys, row.buildingKey)) {
+      levels[row.buildingKey] = row.level;
     }
   }
   return calculateStationDefenseScore(levels);
@@ -218,7 +218,10 @@ export const startDefenseUpgrade = async (
     resources: Object.fromEntries(resourceMap),
   });
 
-  return (await getStationDefenseUpgrades(stationId, context)).find(
-    (upgrade) => upgrade.definition.key === upgradeKey
-  )!;
+  return required(
+    (await getStationDefenseUpgrades(stationId, context)).find(
+      (upgrade) => upgrade.definition.key === upgradeKey
+    ),
+    `defense upgrade ${upgradeKey}`
+  );
 };

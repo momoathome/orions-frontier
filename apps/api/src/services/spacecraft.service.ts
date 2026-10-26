@@ -13,8 +13,8 @@ import {
   SHIPYARD_UNLOCKS,
   spacecrafts,
 } from '@orions-frontier/game-config';
-import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
-import { AppError, ErrorCode } from '@orions-frontier/shared';
+import type { ResourceKey, StationSpacecraftWithDefinition } from '@orions-frontier/shared';
+import { required, AppError, ErrorCode } from '@orions-frontier/shared';
 import { hasCompletedResearch } from './research.service.js';
 import {
   createRealtimeExecutionContext,
@@ -192,9 +192,9 @@ export const buildSpacecrafts = async (
   }
 
   // Aggregate total resource costs across all orders
-  const totalCosts = new Map<string, number>();
+  const totalCosts = new Map<ResourceKey, number>();
   for (const order of orders) {
-    const def = defByKey.get(order.spacecraftKey)!;
+    const def = required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)');
     for (const cost of def.costs) {
       totalCosts.set(
         cost.resourceKey,
@@ -258,7 +258,10 @@ export const buildSpacecrafts = async (
     const hangarCapacity = calculateHangarCapacity(hangarBuilding[0]?.level ?? 0);
     const hangarUsed = calculateCrewUsage(fleet) + calculateCrewUsage(queued);
     const requestedCrew = orders.reduce(
-      (sum, order) => sum + order.amount * defByKey.get(order.spacecraftKey)!.crew,
+      (sum, order) =>
+        sum +
+        order.amount *
+          required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)').crew,
       0
     );
     if (hangarUsed + requestedCrew > hangarCapacity) {
@@ -306,7 +309,7 @@ export const buildSpacecrafts = async (
     }
     const now = context.now.getTime();
     const orderEndsAt = orders.map((order) => {
-      const def = defByKey.get(order.spacecraftKey)!;
+      const def = required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)');
       const baseline = Math.max((endsAtByKey.get(def.key) ?? new Date(0)).getTime(), now);
       const endsAt = new Date(
         baseline + Math.ceil(order.amount * def.buildTime * buildTimeMultiplier) * 1000

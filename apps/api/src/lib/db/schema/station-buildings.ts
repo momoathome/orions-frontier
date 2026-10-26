@@ -14,11 +14,11 @@ export const stationBuildings = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
-  (table) => ({
-    stationIdIdx: index('station_buildings_station_id_idx').on(table.stationId),
-    uniqueStationBuilding: unique('station_buildings_station_id_building_key_unique').on(
+  (table) => [
+    index('station_buildings_station_id_idx').on(table.stationId),
+    unique('station_buildings_station_id_building_key_unique').on(
       table.stationId,
       table.buildingKey
     ),
-  })
+  ]
 );

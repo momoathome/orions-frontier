@@ -1,3 +1,4 @@
+import { entriesOf } from '@orions-frontier/shared';
 /**
  * GB-16 – Conflict intelligence: hostility, target estimation, and reserve.
  *
@@ -99,7 +100,7 @@ export function isSignificantHostility(score: number): boolean {
  * Upper-bound level for each visual tier.
  * Tier 0 = 0, Tier 1 = 4, Tier 2 = 9, Tier 3 = max level of the upgrade.
  */
-function tierMaxLevel(tier: number, upgradeKey: string): number {
+function tierMaxLevel(tier: number, upgradeKey: DefenseUpgradeKey): number {
   switch (tier) {
     case 0:
       return 0;
@@ -108,7 +109,7 @@ function tierMaxLevel(tier: number, upgradeKey: string): number {
     case 2:
       return 9;
     case 3:
-      return getDefenseUpgrade(upgradeKey as DefenseUpgradeKey).maxLevel;
+      return getDefenseUpgrade(upgradeKey).maxLevel;
     default:
       return 0;
   }
@@ -123,9 +124,9 @@ function tierMaxLevel(tier: number, upgradeKey: string): number {
 export function estimateDefenseScore(profile: StationVisualProfile): number {
   let total = 0;
 
-  for (const [key, tier] of Object.entries(profile.defense)) {
-    const maxLvl = tierMaxLevel(tier as number, key);
-    const effect = calculateDefenseUpgradeEffect(key as DefenseUpgradeKey, maxLvl);
+  for (const [key, tier] of entriesOf(profile.defense)) {
+    const maxLvl = tierMaxLevel(tier, key);
+    const effect = calculateDefenseUpgradeEffect(key, maxLvl);
     total += effect.reduce((s, e) => s + e.value, 0);
   }
 

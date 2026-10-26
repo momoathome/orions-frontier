@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref } from 'vue';
 import type { CombatReport, StationDefenseUpgradeWithDefinition } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 
-const props = defineProps<{ stationId: string }>();
+const { stationId } = defineProps<{ stationId: string }>();
 const reports = ref<CombatReport[]>([]);
 const upgrades = ref<StationDefenseUpgradeWithDefinition[]>([]);
 const loading = ref(true);
@@ -17,28 +17,25 @@ const nowInterval = setInterval(() => {
 
 const relevantReports = computed(() =>
   reports.value.filter(
-    (report) =>
-      report.attackerStationId === props.stationId || report.defenderStationId === props.stationId
+    (report) => report.attackerStationId === stationId || report.defenderStationId === stationId
   )
 );
 
 const defenseScore = computed(() =>
   upgrades.value.reduce(
     (sum, upgrade) =>
-      sum +
-      upgrade.effects
-        .filter((effect) => effect.type === 'defense_score')
-        .reduce((effectSum, effect) => effectSum + effect.value, 0),
+      sum + upgrade.effects.reduce((effectSum, effect) => effectSum + effect.value, 0),
     0
   )
 );
 
 function defenseEffectValue(upgrade: StationDefenseUpgradeWithDefinition): number {
-  return upgrade.effects.find((effect) => effect.type === 'defense_score')?.value ?? 0;
+  // Verteidigungs-Upgrades haben laut Typ nur `defense_score`-Effekte.
+  return upgrade.effects[0]?.value ?? 0;
 }
 
 function nextDefenseEffectValue(upgrade: StationDefenseUpgradeWithDefinition): number | null {
-  return upgrade.nextLevelEffects?.find((effect) => effect.type === 'defense_score')?.value ?? null;
+  return upgrade.nextLevelEffects?.[0]?.value ?? null;
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -58,8 +55,10 @@ function upgradeTimeRemaining(upgrade: StationDefenseUpgradeWithDefinition): str
 async function load(): Promise<void> {
   try {
     const [combatReports, defenseResponse] = await Promise.all([
-      apiClient.get('/me/combats'),
-      apiClient.get(`/stations/${props.stationId}/defense`),
+      apiClient.get<CombatReport[]>('/me/combats'),
+      apiClient.get<{ upgrades: StationDefenseUpgradeWithDefinition[] }>(
+        `/stations/${stationId}/defense`
+      ),
     ]);
     reports.value = combatReports;
     upgrades.value = defenseResponse.upgrades;
@@ -75,7 +74,7 @@ async function startUpgrade(upgrade: StationDefenseUpgradeWithDefinition): Promi
   if (upgrading.value || upgrade.isUpgrading) return;
   upgrading.value = upgrade.definition.key;
   try {
-    await apiClient.post(`/stations/${props.stationId}/defense/${upgrade.definition.key}/upgrade`);
+    await apiClient.post(`/stations/${stationId}/defense/${upgrade.definition.key}/upgrade`);
     await load();
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Defense upgrade failed');
@@ -170,12 +169,17 @@ onUnmounted(() => {
             </span>
           </div>
           <button
+            type="button"
             class="rounded border px-3 py-1.5 text-[9px] uppercase tracking-[0.2em] transition"
             :disabled="
-              upgrade.isUpgrading || upgrade.level >= upgrade.definition.maxLevel || !!upgrading
+              upgrade.isUpgrading ||
+              upgrade.level >= upgrade.definition.maxLevel ||
+              Boolean(upgrading)
             "
             :class="
-              upgrade.isUpgrading || upgrade.level >= upgrade.definition.maxLevel || !!upgrading
+              upgrade.isUpgrading ||
+              upgrade.level >= upgrade.definition.maxLevel ||
+              Boolean(upgrading)
                 ? 'border-amber-500/25 bg-amber-500/8 text-amber-400/50'
                 : 'border-rose-400/35 bg-rose-500/8 text-rose-200 hover:bg-rose-500/16'
             "

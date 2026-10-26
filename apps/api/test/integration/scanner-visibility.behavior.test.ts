@@ -314,10 +314,13 @@ test('foreign movement is a route-free contact while the owner keeps its full tr
     ({ id }) => id === tripId
   );
   assert.equal(contact?.kind, 'radar_contact');
-  assert.deepEqual(contact?.kind === 'radar_contact' ? { x: contact.x, y: contact.y } : null, {
-    x: 0,
-    y: 0,
-  });
+  assert.deepEqual(
+    { x: contact.x, y: contact.y },
+    {
+      x: 0,
+      y: 0,
+    }
+  );
   for (const privateField of [
     'fromX',
     'toX',
@@ -326,7 +329,7 @@ test('foreign movement is a route-free contact while the owner keeps its full tr
     'cargoManifest',
     'assignmentId',
   ]) {
-    assert.equal(contact ? privateField in contact : true, false);
+    assert.equal(privateField in contact, false);
   }
   assert.equal(
     (await getVisibleWorldMovements(range, viewerId, new Date(now.getTime() + 5_000))).some(
@@ -339,8 +342,8 @@ test('foreign movement is a route-free contact while the owner keeps its full tr
     ({ id }) => id === tripId
   );
   assert.equal(ownTrip?.kind, 'own_trip');
-  assert.equal(ownTrip?.kind === 'own_trip' ? ownTrip.fromX : null, 2_500);
-  assert.equal(ownTrip?.kind === 'own_trip' ? ownTrip.toX : null, -2_500);
+  assert.equal(ownTrip.fromX, 2_500);
+  assert.equal(ownTrip.toX, -2_500);
 });
 
 test('dev scanner bypass projects the requested chunks without scanner coverage', async () => {

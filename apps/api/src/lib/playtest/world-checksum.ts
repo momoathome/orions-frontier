@@ -90,7 +90,8 @@ export async function calculatePlaytestWorldChecksum(): Promise<PlaytestWorldSum
       .orderBy(asc(sectors.sectorY), asc(sectors.sectorX), asc(spawnSlots.slotIndex)),
     db
       .select({
-        amount: sql<number>`coalesce(sum(${asteroidVeins.remainingAmount}), 0)::bigint`,
+        // postgres-js liefert bigint als String.
+        amount: sql<string>`coalesce(sum(${asteroidVeins.remainingAmount}), 0)::bigint`,
       })
       .from(asteroidVeins),
   ]);

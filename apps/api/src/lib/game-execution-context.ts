@@ -52,8 +52,8 @@ function createDeterministicIdSequence(seed: string): IdSequence {
         .subarray(0, 16);
 
       // RFC 4122 variant with a name-based (version 5) UUID marker.
-      bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-      bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+      bytes.writeUInt8((bytes.readUInt8(6) & 0x0f) | 0x50, 6);
+      bytes.writeUInt8((bytes.readUInt8(8) & 0x3f) | 0x80, 8);
       return formatUuid(bytes);
     },
   };
@@ -103,20 +103,11 @@ export function createSeededExecutionContext(
 }
 
 export function resolveGameExecutionContext(
-  contextOrNow?: GameExecutionContext | Date | unknown
+  contextOrNow?: GameExecutionContext | Date
 ): GameExecutionContext {
-  if (!contextOrNow) return createRealtimeExecutionContext();
-  if (contextOrNow instanceof Date) return createRealtimeExecutionContext(contextOrNow);
-  if (
-    typeof contextOrNow === 'object' &&
-    'now' in contextOrNow &&
-    contextOrNow.now instanceof Date &&
-    'nextId' in contextOrNow &&
-    typeof contextOrNow.nextId === 'function' &&
-    'at' in contextOrNow &&
-    typeof contextOrNow.at === 'function'
-  ) {
-    return contextOrNow as GameExecutionContext;
+  // `typeof` fängt auch Callback-Indizes ab, wenn eine Funktion direkt an `.map()` übergeben wird.
+  if (typeof contextOrNow !== 'object' || contextOrNow instanceof Date) {
+    return createRealtimeExecutionContext(contextOrNow instanceof Date ? contextOrNow : undefined);
   }
-  return createRealtimeExecutionContext();
+  return contextOrNow;
 }

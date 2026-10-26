@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { StationSpacecraftsResponse } from '@orions-frontier/shared';
 import { computed, onUnmounted, ref } from 'vue';
 import {
   getMiningTripPhase,
@@ -32,7 +33,7 @@ interface Trip {
   purpose: 'mine' | 'mining_return' | 'combat' | 'combat_return' | 'salvage' | 'salvage_return';
 }
 
-const props = defineProps<{ stationId: string }>();
+const { stationId } = defineProps<{ stationId: string }>();
 const assignments = ref<MiningAssignment[]>([]);
 const details = ref<Record<string, AsteroidDetail>>({});
 const fleet = ref<StationSpacecraftWithDefinition[]>([]);
@@ -54,7 +55,7 @@ function tripPhase(trip: Trip) {
 }
 
 const stationTrips = computed(() =>
-  trips.value.filter((trip) => trip.fromId === props.stationId || trip.toId === props.stationId)
+  trips.value.filter((trip) => trip.fromId === stationId || trip.toId === stationId)
 );
 const outboundMiners = computed(() =>
   stationTrips.value
@@ -103,6 +104,20 @@ const asteroidRows = computed(() => {
       (sum, assignment) => sum + assignment.recallRequestedAmount,
       0
     ),
+    summary: group
+      .map(
+        (assignment) =>
+          `${assignment.assignedAmount}× ${assignment.spacecraftName}${
+            assignment.recallRequestedAmount
+              ? ` (${assignment.recallRequestedAmount} returning)`
+              : ''
+          }`
+      )
+      .join(' · '),
+    remainingAmount: (details.value[asteroidId]?.veins ?? []).reduce(
+      (sum, vein) => sum + vein.remainingAmount,
+      0
+    ),
   }));
 });
 
@@ -111,9 +126,11 @@ async function loadAll() {
   error.value = null;
   try {
     const [assignmentResponse, fleetResponse, tripResponse] = await Promise.all([
-      apiClient.get(`/stations/${props.stationId}/mining-assignments`),
-      apiClient.get(`/stations/${props.stationId}/spacecrafts`),
-      apiClient.get('/me/trips'),
+      apiClient.get<{ assignments: MiningAssignment[] }>(
+        `/stations/${stationId}/mining-assignments`
+      ),
+      apiClient.get<StationSpacecraftsResponse>(`/stations/${stationId}/spacecrafts`),
+      apiClient.get<Trip[]>('/me/trips'),
     ]);
     assignments.value = assignmentResponse.assignments;
     fleet.value = fleetResponse.spacecrafts;
@@ -122,7 +139,7 @@ async function loadAll() {
     const asteroidIds = [...new Set(assignments.value.map((assignment) => assignment.asteroidId))];
     const loaded = await Promise.all(
       asteroidIds.map(async (asteroidId) => {
-        const response = await apiClient.get(`/asteroids/${asteroidId}`);
+        const response = await apiClient.get<AsteroidDetail>(`/asteroids/${asteroidId}`);
         return [asteroidId, response] as const;
       })
     );
@@ -136,8 +153,8 @@ async function loadAll() {
 
 void loadAll();
 const clock = window.setInterval(() => (now.value = Date.now()), 1_000);
-const unsubMining = wsClient.on('mining_tick_completed', loadAll);
-const unsubTrips = wsClient.on('transport_tick_completed', loadAll);
+const unsubMining = wsClient.on('mining_tick_completed', () => void loadAll());
+const unsubTrips = wsClient.on('transport_tick_completed', () => void loadAll());
 onUnmounted(() => {
   window.clearInterval(clock);
   unsubMining();
@@ -183,6 +200,7 @@ onUnmounted(() => {
       <button
         v-for="row in asteroidRows"
         :key="row.asteroidId"
+        type="button"
         class="grid grid-cols-[1fr_auto] gap-4 text-left bg-white/2 border border-white/6 rounded px-3 py-2 hover:bg-white/4 hover:border-cyan-400/20 transition"
         @click="selectedAsteroidId = row.asteroidId"
       >
@@ -201,28 +219,13 @@ onUnmounted(() => {
             </span>
           </div>
           <span class="text-[9px] text-white/30 truncate">
-            {{
-              row.assignments
-                .map(
-                  (assignment) =>
-                    `${assignment.assignedAmount}× ${assignment.spacecraftName}${
-                      assignment.recallRequestedAmount
-                        ? ` (${assignment.recallRequestedAmount} returning)`
-                        : ''
-                    }`
-                )
-                .join(' · ')
-            }}
+            {{ row.summary }}
           </span>
         </div>
         <div class="text-right flex flex-col gap-1">
           <span class="text-[11px] text-white/60 tabular-nums">{{ row.totalMiners }} miners</span>
           <span class="text-[8px] text-white/25 tabular-nums">
-            {{
-              (row.detail?.veins ?? [])
-                .reduce((sum, vein) => sum + vein.remainingAmount, 0)
-                .toLocaleString('de-DE')
-            }}
+            {{ row.remainingAmount.toLocaleString('de-DE') }}
             remaining
           </span>
         </div>

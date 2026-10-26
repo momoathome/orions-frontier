@@ -1,4 +1,5 @@
-import { Application, Assets, Container, Graphics, Text, Texture } from 'pixi.js';
+import type { Texture } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Text } from 'pixi.js';
 import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
 import { AsteroidLayer } from './AsteroidLayer.js';
@@ -221,7 +222,9 @@ export class WorldRenderer {
 
     this._bindInput(el);
 
-    this.app.ticker.add(() => this._tick());
+    this.app.ticker.add(() => {
+      this._tick();
+    });
 
     this.streamer.immediateUpdate(this.camera);
   }
@@ -233,7 +236,8 @@ export class WorldRenderer {
   setAssignedAsteroids(asteroids: AssignedAsteroid[]): void {
     this._assignedAsteroids = asteroids;
 
-    if (this.stationInfo) {
+    const station = this.stationInfo;
+    if (station) {
       // Deduplicate by asteroid id (multiple assignment rows → same asteroid)
       const seen = new Set<string>();
       const routes = asteroids
@@ -244,8 +248,8 @@ export class WorldRenderer {
         })
         .map((a) => ({
           id: a.asteroidId,
-          fromX: this.stationInfo!.x,
-          fromY: this.stationInfo!.y,
+          fromX: station.x,
+          fromY: station.y,
           toX: a.x,
           toY: a.y,
           color: 0x00a8cc,
@@ -367,6 +371,7 @@ export class WorldRenderer {
     this.asteroidLayer.clear();
     this.stationLayer.clear();
     this.debrisLayer.clear();
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- destroy() kann vor init() laufen, dann ist `app` noch nicht gesetzt.
     if (this.app) {
       this.app.destroy({ removeView: true }, { children: true });
     }

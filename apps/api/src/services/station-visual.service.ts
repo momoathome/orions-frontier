@@ -1,3 +1,4 @@
+import { buildingKeys, defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import { inArray } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
@@ -84,10 +85,8 @@ export function buildStationVisualProfile(
 
 export const starterStationVisualProfile = (): StationVisualProfile =>
   buildStationVisualProfile(
-    Object.fromEntries(buildings.map((building) => [building.key, 1])) as StationBuildingLevels,
-    Object.fromEntries(
-      defenseUpgrades.map((upgrade) => [upgrade.key, upgrade.startingLevel])
-    ) as StationDefenseLevels,
+    Object.fromEntries(buildings.map((building) => [building.key, 1])),
+    Object.fromEntries(defenseUpgrades.map((upgrade) => [upgrade.key, upgrade.startingLevel])),
     { civilian: 1, military: 0 }
   );
 
@@ -119,13 +118,13 @@ export async function getStationVisualProfiles(
   const levelsByStation = new Map<string, StationBuildingLevels>();
   const defenseLevelsByStation = new Map<string, StationDefenseLevels>();
   for (const row of buildingRows) {
-    if (buildings.some((building) => building.key === row.buildingKey)) {
+    if (isOneOf(buildingKeys, row.buildingKey)) {
       const levels = levelsByStation.get(row.stationId) ?? {};
-      levels[row.buildingKey as BuildingKey] = row.level;
+      levels[row.buildingKey] = row.level;
       levelsByStation.set(row.stationId, levels);
-    } else if (defenseUpgrades.some((upgrade) => upgrade.key === row.buildingKey)) {
+    } else if (isOneOf(defenseUpgradeKeys, row.buildingKey)) {
       const levels = defenseLevelsByStation.get(row.stationId) ?? {};
-      levels[row.buildingKey as DefenseUpgradeKey] = row.level;
+      levels[row.buildingKey] = row.level;
       defenseLevelsByStation.set(row.stationId, levels);
     }
   }

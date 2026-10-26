@@ -43,7 +43,9 @@ export const start = async () => {
     // Complete overdue work before accepting traffic, then poll PostgreSQL.
     await runWorldTick();
     const simulationScheduler = startSimulationScheduler();
-    fastify.addHook('onClose', async () => clearInterval(simulationScheduler));
+    fastify.addHook('onClose', async () => {
+      clearInterval(simulationScheduler);
+    });
 
     // Start server
     const port = Number(process.env['API_PORT']) || 3000;

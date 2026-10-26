@@ -1,12 +1,12 @@
 import { sql } from 'drizzle-orm';
-import type { FastifyPluginAsync } from 'fastify';
 import { getDb } from '../../lib/db/index.js';
+import { defineRoute } from '../../lib/route.js';
 
 /**
  * Health check endpoint
  * GET /health
  */
-export default (async (app) => {
+export default defineRoute(async (app) => {
   app.get('/', { logLevel: 'silent' }, async (_request, reply) => {
     const health = {
       status: 'ok',
@@ -29,4 +29,4 @@ export default (async (app) => {
     const statusCode = health.status === 'ok' ? 200 : 503;
     return reply.status(statusCode).send(health);
   });
-}) satisfies FastifyPluginAsync;
+});

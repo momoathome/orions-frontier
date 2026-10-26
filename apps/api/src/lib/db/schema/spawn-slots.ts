@@ -24,13 +24,10 @@ export const spawnSlots = pgTable(
       .references(() => sectors.id),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (table) => ({
-    stationIdIdx: index('spawn_slots_station_id_idx').on(table.stationId),
-    sectorIdIdx: index('spawn_slots_sector_id_idx').on(table.sectorId),
-    sectorSlotUnique: uniqueIndex('spawn_slots_sector_slot_unique').on(
-      table.sectorId,
-      table.slotIndex
-    ),
-    stationUnique: uniqueIndex('spawn_slots_station_id_unique').on(table.stationId),
-  })
+  (table) => [
+    index('spawn_slots_station_id_idx').on(table.stationId),
+    index('spawn_slots_sector_id_idx').on(table.sectorId),
+    uniqueIndex('spawn_slots_sector_slot_unique').on(table.sectorId, table.slotIndex),
+    uniqueIndex('spawn_slots_station_id_unique').on(table.stationId),
+  ]
 );

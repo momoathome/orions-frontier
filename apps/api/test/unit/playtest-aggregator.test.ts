@@ -284,10 +284,10 @@ test('aggregator covers goals, milestones and every metric family with traceable
   const metrics = aggregator.finalize(end);
   const bot = metrics.bots[0]!;
   assert.equal(bot.goals['increase_income']?.selections, 1);
-  assert.equal(bot.goals['increase_income']?.completions, 1);
+  assert.equal(bot.goals['increase_income'].completions, 1);
   assert.equal(bot.goals['retaliate']?.switches, 0);
-  assert.equal(bot.goals['increase_income']?.activeDurationMs, 3_600_000);
-  assert.equal(bot.goals['retaliate']?.success, 1);
+  assert.equal(bot.goals['increase_income'].activeDurationMs, 3_600_000);
+  assert.equal(bot.goals['retaliate'].success, 1);
   assert.deepEqual(Object.keys(bot.milestones).sort(), [
     'firstAttack',
     'firstColony',
@@ -352,7 +352,7 @@ test('aggregator covers goals, milestones and every metric family with traceable
   assert.deepEqual(metrics.world.sectorsByRole, { frontier: 8, settlement: 1 });
 
   assert.equal(metrics.profiles[0]?.bots, 1);
-  assert.equal(metrics.profiles[0]?.economy.deliveredResources.carbon, 8);
+  assert.equal(metrics.profiles[0].economy.deliveredResources.carbon, 8);
   assert.equal(metrics.run.economy.deliveredResources.carbon, 8);
   assert.equal(
     metrics.run.development.spacecraftUnits,

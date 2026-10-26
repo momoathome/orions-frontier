@@ -1,3 +1,4 @@
+import { required } from '@orions-frontier/shared';
 // world-gen/rng.ts
 // Seeded pseudo-random number generator (mulberry32 variant).
 
@@ -37,6 +38,9 @@ export class SeededRng {
 
   /** Returns a random element from a readonly array. */
   pick<T>(arr: readonly T[]): T {
-    return arr[Math.floor(this.next() * arr.length)]!;
+    return required(
+      arr[Math.floor(this.next() * arr.length)],
+      'arr[Math.floor(this.next() * arr.length)]'
+    );
   }
 }

@@ -21,16 +21,14 @@ export function playtestConsoleSummary(report: PlaytestReport, reportPath: strin
     .join(', ');
   const milestoneProfiles = report.metrics.profiles
     .map((profile) => {
-      const reached = Object.values(profile.milestonesReached as Record<string, number>).reduce(
+      const reached = Object.values(profile.milestonesReached).reduce(
         (sum, count) => sum + count,
         0
       );
       return `${profile.profile}:${reached}`;
     })
     .join(', ');
-  const goals = Object.entries(
-    report.metrics.run.goals as Record<string, { selections: number; blocked: number }>
-  )
+  const goals = Object.entries(report.metrics.run.goals)
     .map(([goal, values]) => `${goal}=${values.selections}/${values.blocked} blocked`)
     .slice(0, 8)
     .join(', ');
@@ -43,9 +41,9 @@ export function playtestConsoleSummary(report: PlaytestReport, reportPath: strin
     `Milestones by profile ${milestoneProfiles || 'none'}`,
     `Goals ${goals || 'no goal selections'}`,
     `Economy delivered ${resourceTotal(
-      report.metrics.run.economy.deliveredResources as Record<string, number>
+      report.metrics.run.economy.deliveredResources
     )}, discarded ${resourceTotal(
-      report.metrics.run.economy.discardedResources as Record<string, number>
+      report.metrics.run.economy.discardedResources
     )} · attacks ${report.metrics.run.conflict.attacks} · viable/eligible/visible targets ${
       report.metrics.run.conflict.viableTargets
     }/${report.metrics.run.conflict.eligibleAfterProtectionAndCooldown}/${

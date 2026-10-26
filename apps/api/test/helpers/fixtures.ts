@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import type { ResourceMap } from '@orions-frontier/shared';
+import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 import { getDb } from '../../src/lib/db/index.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
@@ -84,7 +84,7 @@ export async function createTestStation({
 export async function setTestResources(stationId: string, amounts: ResourceMap): Promise<void> {
   const db = getDb();
   await Promise.all(
-    Object.entries(amounts).map(([resourceKey, amount]) =>
+    entriesOf(amounts).map(([resourceKey, amount]) =>
       db
         .update(stationResources)
         .set({ amount })

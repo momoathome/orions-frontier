@@ -34,9 +34,11 @@ export function selectWeightedProfile(
 
   const total = botProfiles.reduce((sum, profile) => sum + weights[profile], 0);
   let draw = new SeededRng(`${seed}:synthetic-profile:${playerIndex}`).next() * total;
+  let selected: BotProfile = botProfiles[0];
   for (const profile of botProfiles) {
+    selected = profile;
     draw -= weights[profile];
-    if (draw < 0) return profile;
+    if (draw < 0) break;
   }
-  return botProfiles.at(-1)!;
+  return selected;
 }

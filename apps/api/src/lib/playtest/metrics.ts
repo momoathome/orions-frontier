@@ -1,4 +1,4 @@
-import type { ResourceMap } from '@orions-frontier/shared';
+import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 import type { Milestones } from './milestones.js';
 import type {
   PlaytestStateSnapshot,
@@ -201,8 +201,7 @@ export function emptySalvageMetrics(): SalvageMetrics {
 }
 
 export function addResources(target: ResourceMap, source: ResourceMap): void {
-  for (const [resourceKey, amount] of Object.entries(source)) {
-    const key = resourceKey as keyof ResourceMap;
+  for (const [key, amount] of entriesOf(source)) {
     target[key] = (target[key] ?? 0) + amount;
   }
 }
@@ -210,7 +209,7 @@ export function addResources(target: ResourceMap, source: ResourceMap): void {
 export function sortedResources(resources: ResourceMap): ResourceMap {
   return Object.fromEntries(
     Object.entries(resources).sort(([left], [right]) => left.localeCompare(right))
-  ) as ResourceMap;
+  );
 }
 
 export function safeRatio(numerator: number, denominator: number): number {

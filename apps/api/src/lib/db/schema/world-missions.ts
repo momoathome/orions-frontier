@@ -1,3 +1,4 @@
+import type { WorldMissionStatus, WorldMissionType } from '@orions-frontier/shared';
 import {
   doublePrecision,
   index,
@@ -25,7 +26,7 @@ export const worldMissions = pgTable(
       .notNull()
       .references(() => stationSpacecrafts.id),
     spacecraftKey: varchar('spacecraft_key', { length: 64 }).notNull(),
-    missionType: varchar('mission_type', { length: 16 }).notNull(),
+    missionType: varchar('mission_type', { length: 16 }).$type<WorldMissionType>().notNull(),
     targetSectorX: integer('target_sector_x').notNull(),
     targetSectorY: integer('target_sector_y').notNull(),
     targetX: doublePrecision('target_x'),
@@ -33,11 +34,14 @@ export const worldMissions = pgTable(
     colonyName: varchar('colony_name', { length: 128 }),
     departedAt: timestamp('departed_at').notNull(),
     arrivesAt: timestamp('arrives_at').notNull(),
-    status: varchar('status', { length: 16 }).notNull().default('traveling'),
+    status: varchar('status', { length: 16 })
+      .$type<WorldMissionStatus>()
+      .notNull()
+      .default('traveling'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (table) => ({
-    dueIdx: index('world_missions_due_idx').on(table.status, table.arrivesAt),
-    userIdx: index('world_missions_user_id_idx').on(table.userId),
-  })
+  (table) => [
+    index('world_missions_due_idx').on(table.status, table.arrivesAt),
+    index('world_missions_user_id_idx').on(table.userId),
+  ]
 );

@@ -8,13 +8,13 @@ import { stations } from '../lib/db/schema/stations.js';
 import { users } from '../lib/db/schema/users.js';
 import { worldMissions } from '../lib/db/schema/world-missions.js';
 import {
+  required,
   AppError,
   ErrorCode,
   type VisibleStation,
   type VisibleWorldMovement,
-  type WorldTripPurpose,
 } from '@orions-frontier/shared';
-import { ATTACK_PROTECTION_DURATION_MS, getSpacecraft } from '@orions-frontier/game-config';
+import { ATTACK_PROTECTION_DURATION_MS, requireSpacecraft } from '@orions-frontier/game-config';
 import {
   getUserScannerCoverages,
   isPointVisible,
@@ -36,15 +36,17 @@ export interface VisibleStationCombatDiagnostics {
   protectedOwnerIds: Set<string>;
 }
 
-export function parseChunkRange(query: unknown, maxSpan: number): WorldChunkRange {
-  const values = query as Record<string, string | undefined>;
+/** Rohe Query-Werte; leere oder fehlende Werte sind ungültig. */
+export type ChunkRangeQuery = Partial<Record<keyof WorldChunkRange, string>>;
+
+export function parseChunkRange(values: ChunkRangeQuery, maxSpan: number): WorldChunkRange {
   const number = (value: string | undefined) =>
     value === undefined || value.trim() === '' ? Number.NaN : Number(value);
   const range = {
-    minChunkX: number(values['minChunkX']),
-    maxChunkX: number(values['maxChunkX']),
-    minChunkY: number(values['minChunkY']),
-    maxChunkY: number(values['maxChunkY']),
+    minChunkX: number(values.minChunkX),
+    maxChunkX: number(values.maxChunkX),
+    minChunkY: number(values.minChunkY),
+    maxChunkY: number(values.maxChunkY),
   };
 
   if (
@@ -140,7 +142,7 @@ export async function getVisibleChunkStations(
 
   return visibleRows.map((station) => ({
     ...station,
-    visualProfile: visualProfiles.get(station.id)!,
+    visualProfile: required(visualProfiles.get(station.id), `visual profile ${station.id}`),
   }));
 }
 
@@ -235,7 +237,7 @@ export async function getVisibleWorldMovements(
   const visibleTrips = trips.flatMap((trip): VisibleWorldMovement[] => {
     const position = interpolateWorldPosition(trip, now);
     if (!isInsideWorldBounds(position, bounds)) return [];
-    const spacecraft = getSpacecraft(trip.spacecraftKey)!;
+    const spacecraft = requireSpacecraft(trip.spacecraftKey);
     if (trip.userId !== userId) {
       return scannerBypass || isPointVisible(coverages, position)
         ? [
@@ -259,7 +261,7 @@ export async function getVisibleWorldMovements(
         toY: trip.toY,
         departedAt: trip.departedAt.toISOString(),
         arrivesAt: trip.arrivesAt.toISOString(),
-        purpose: trip.purpose as WorldTripPurpose,
+        purpose: trip.purpose,
         groupSize: trip.groupSize,
         ownerType: trip.botUserId ? 'bot' : 'player',
         spacecraft: { name: spacecraft.name, image: spacecraft.image, role: spacecraft.role },
@@ -268,7 +270,7 @@ export async function getVisibleWorldMovements(
   });
 
   const visibleMissions = missions.flatMap((mission): VisibleWorldMovement[] => {
-    const spacecraft = getSpacecraft(mission.spacecraftKey)!;
+    const spacecraft = requireSpacecraft(mission.spacecraftKey);
     const targetX = mission.targetX ?? mission.targetSectorX * WORLD_CONFIG.SECTOR.WIDTH;
     const targetY = mission.targetY ?? mission.targetSectorY * WORLD_CONFIG.SECTOR.HEIGHT;
     const returning = mission.status === 'returning';
@@ -309,7 +311,7 @@ export async function getVisibleWorldMovements(
         toY,
         departedAt: mission.departedAt.toISOString(),
         arrivesAt: mission.arrivesAt.toISOString(),
-        purpose: mission.purpose as WorldTripPurpose,
+        purpose: mission.purpose,
         groupSize: 1,
         ownerType: mission.botUserId ? 'bot' : 'player',
         spacecraft: { name: spacecraft.name, image: spacecraft.image, role: spacecraft.role },

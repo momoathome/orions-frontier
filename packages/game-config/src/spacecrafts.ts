@@ -1,4 +1,8 @@
-import type { SpacecraftRole, SpacecraftDefinitionCost } from '@orions-frontier/shared';
+import {
+  required,
+  type SpacecraftRole,
+  type SpacecraftDefinitionCost,
+} from '@orions-frontier/shared';
 
 export interface SpacecraftSeedDefinition {
   key: string;
@@ -258,3 +262,6 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
 
 export const getSpacecraft = (key: string) =>
   spacecrafts.find((spacecraft) => spacecraft.key === key);
+
+/** Für Schlüssel aus der Datenbank, die immer auf eine Definition zeigen. */
+export const requireSpacecraft = (key: string) => required(getSpacecraft(key), `spacecraft ${key}`);

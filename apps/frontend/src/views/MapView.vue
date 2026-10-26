@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, useTemplateRef } from 'vue';
 import TopHud from '../components/TopHud.vue';
 import StationPanel from '../components/StationPanel.vue';
 import TargetStationPanel from '../components/TargetStationPanel.vue';
@@ -51,15 +51,14 @@ async function loadUserStation(): Promise<StationInfo | null> {
       visualProfile: station.visualProfile,
     }));
     const preferredId = localStorage.getItem('active_station_id');
-    const first =
-      response.find((station: { id: string }) => station.id === preferredId) ?? response[0];
+    const first = response.find((station) => station.id === preferredId) ?? response[0];
     if (first) {
       stationId.value = first.id;
       stationName.value = first.name;
       return {
         id: first.id,
-        x: first.x ?? 0,
-        y: first.y ?? 0,
+        x: first.x,
+        y: first.y,
         name: first.name,
         scannerRange: first.scannerRange,
         visualProfile: first.visualProfile,
@@ -126,13 +125,15 @@ async function loadTrips(): Promise<void> {
 async function loadAssignments(): Promise<void> {
   if (!renderer || !stationId.value) return;
   try {
-    const response = await apiClient.get(`/stations/${stationId.value}/mining-assignments`);
-    const raw = (response.assignments ?? []) as Array<{
-      asteroidId: string;
-      asteroidX: number;
-      asteroidY: number;
-      asteroidSize: string;
-    }>;
+    const response = await apiClient.get<{
+      assignments: {
+        asteroidId: string;
+        asteroidX: number;
+        asteroidY: number;
+        asteroidSize: string;
+      }[];
+    }>(`/stations/${stationId.value}/mining-assignments`);
+    const raw = response.assignments;
     // Deduplicate by asteroid (multiple assignment rows → same asteroid)
     const seen = new Set<string>();
     const asteroids: AssignedAsteroid[] = [];
@@ -158,7 +159,12 @@ async function refreshMiningState(): Promise<void> {
   await loadTrips();
 }
 
-const worldRef = ref<HTMLDivElement | null>(null);
+function closeAsteroidPanel() {
+  deselect();
+  void loadAssignments();
+}
+
+const worldEl = useTemplateRef<HTMLDivElement>('worldRef');
 let renderer: WorldRenderer | null = null;
 let stationInfo: StationInfo | null = null;
 
@@ -220,7 +226,8 @@ onMounted(async () => {
     stationPanelOpen.value = false;
   };
 
-  await renderer.mount(worldRef.value!, stationInfo, ownStations);
+  if (!worldEl.value) return;
+  await renderer.mount(worldEl.value, stationInfo, ownStations);
   if (scannerBypass.value && canBypassScanner.value) {
     renderer.setScannerBypass(true);
   }
@@ -402,12 +409,7 @@ watch(canBypassScanner, (allowed) => {
         :asteroid-id="selectedEntity.id"
         :station-id="stationId"
         :scanner-bypass="scannerBypass"
-        @close="
-          () => {
-            deselect();
-            loadAssignments();
-          }
-        "
+        @close="closeAsteroidPanel"
         @refresh="loadAssignments"
       />
     </transition>

@@ -39,6 +39,7 @@ const makeReport = (overrides: Partial<CombatReport> & { id: string }): CombatRe
 /** Create a minimal visual profile with optional defense overrides. */
 const makeProfile = (overrides?: Partial<StationVisualProfile>): StationVisualProfile => ({
   scaleTier: 1,
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Fixture: die Analyse liest keine Module.
   modules: {} as StationVisualProfile['modules'],
   defense: {
     armor_plating: 0,

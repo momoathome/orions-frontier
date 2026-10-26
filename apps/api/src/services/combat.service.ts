@@ -1,5 +1,7 @@
 import { and, asc, desc, eq, gte, or, sql } from 'drizzle-orm';
 import {
+  required,
+  isOneOf,
   AppError,
   defenseUpgradeKeys,
   ErrorCode,
@@ -9,6 +11,7 @@ import {
 import {
   calculateBuildingEffect,
   getSpacecraft,
+  requireSpacecraft,
   ATTACK_PROTECTION_DURATION_MS,
 } from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
@@ -50,9 +53,9 @@ const toReport = (
   attackerAmount: row.attackerAmount,
   attackerLosses: row.attackerLosses,
   defenderLosses: row.defenderLosses,
-  winner: row.winner as CombatReport['winner'],
+  winner: row.winner,
   loot: row.loot ?? {},
-  status: row.status as CombatReport['status'],
+  status: row.status,
   createdAt: row.createdAt.toISOString(),
   resolvedAt: row.resolvedAt?.toISOString() ?? null,
 });
@@ -99,13 +102,13 @@ export async function startAttack(params: {
       tx
         .select()
         .from(users)
-        .where(eq(users.id, sortedIds[0]!))
+        .where(eq(users.id, required(sortedIds[0], 'sortedIds[0]')))
         .for('update')
         .then((rows) => rows[0]),
       tx
         .select()
         .from(users)
-        .where(eq(users.id, sortedIds[1]!))
+        .where(eq(users.id, required(sortedIds[1], 'sortedIds[1]')))
         .for('update')
         .then((rows) => rows[0]),
     ]);
@@ -136,7 +139,7 @@ export async function startAttack(params: {
       )
       .limit(1);
     const spacecraft = fleet ? getSpacecraft(fleet.spacecraftKey) : undefined;
-    if (!fleet || !spacecraft || spacecraft.role !== 'fighter' || spacecraft.speed <= 0) {
+    if (!fleet || spacecraft?.role !== 'fighter' || spacecraft.speed <= 0) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Selected spacecraft cannot attack');
     }
     if (fleet.amount - fleet.lockedAmount < params.amount) {
@@ -197,12 +200,12 @@ export async function startAttack(params: {
         attackerStationId: attacker.id,
         defenderStationId: defender.id,
         attackerStationSpacecraftId: fleet.id,
-        outboundTripId: trip!.id,
+        outboundTripId: required(trip, 'trip').id,
         attackerAmount: params.amount,
         createdAt: context.now,
       })
       .returning();
-    return { mission: created!, defenderUserId: defender.userId };
+    return { mission: required(created, 'created'), defenderUserId: defender.userId };
   });
   return toReport(mission.mission, mission.defenderUserId);
 }
@@ -247,8 +250,8 @@ async function stationDefenseScore(tx: Tx, stationId: string): Promise<number> {
 
   const levels: Partial<Record<DefenseUpgradeKey, number>> = {};
   for (const row of rows) {
-    if ((defenseUpgradeKeys as readonly string[]).includes(row.buildingKey)) {
-      levels[row.buildingKey as DefenseUpgradeKey] = row.level;
+    if (isOneOf(defenseUpgradeKeys, row.buildingKey)) {
+      levels[row.buildingKey] = row.level;
     }
   }
   return calculateStationDefenseScore(levels);
@@ -273,7 +276,7 @@ async function resolveOutboundCombat(
     .from(stationSpacecrafts)
     .where(eq(stationSpacecrafts.id, mission.attackerStationSpacecraftId));
   if (!attackerFleet) throw new Error('Attacking fleet no longer exists');
-  const attacker = getSpacecraft(attackerFleet.spacecraftKey)!;
+  const attacker = requireSpacecraft(attackerFleet.spacecraftKey);
 
   const defenderRows = await tx
     .select({
@@ -286,7 +289,7 @@ async function resolveOutboundCombat(
     .where(eq(stationSpacecrafts.stationId, mission.defenderStationId))
     .for('update');
   const defenderFleets = defenderRows
-    .map((fleet) => ({ ...fleet, defense: getSpacecraft(fleet.spacecraftKey)!.defense }))
+    .map((fleet) => ({ ...fleet, defense: requireSpacecraft(fleet.spacecraftKey).defense }))
     .sort((a, b) => a.defense - b.defense || a.id.localeCompare(b.id));
   const defenderFleetPower = defenderFleets.reduce(
     (sum, fleet) => sum + Math.max(0, fleet.amount - fleet.lockedAmount) * fleet.defense,
@@ -485,7 +488,7 @@ async function resolveOutboundCombat(
   await tx
     .update(combatMissions)
     .set({
-      returnTripId: returnTrip!.id,
+      returnTripId: required(returnTrip, 'returnTrip').id,
       attackerLosses,
       defenderLosses,
       winner,
@@ -503,7 +506,7 @@ async function resolveCombatReturn(tx: Tx, trip: Trip): Promise<PlaytestCompleti
     .where(and(eq(combatMissions.returnTripId, trip.id), eq(combatMissions.status, 'returning')))
     .for('update');
   if (!mission) return [];
-  const requested = { ...((trip.cargoManifest ?? {}) as Record<string, number>) };
+  const requested = { ...trip.cargoManifest };
   const credited = await creditStationResources(tx, mission.attackerStationId, requested);
   await tx
     .update(spacecraftTrips)

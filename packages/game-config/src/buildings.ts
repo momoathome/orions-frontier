@@ -1,3 +1,4 @@
+import { required } from '@orions-frontier/shared';
 import type {
   BuildingKey,
   BuildingEffectType,
@@ -78,7 +79,10 @@ export const buildings: BuildingSeedDefinition[] = [
 ];
 
 export const getBuilding = (key: BuildingKey) =>
-  buildings.find((building) => building.key === key)!;
+  required(
+    buildings.find((building) => building.key === key),
+    `building ${key}`
+  );
 
 // Upgrade Cost Config
 

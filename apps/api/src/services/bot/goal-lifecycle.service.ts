@@ -1,8 +1,9 @@
+import { isOneOf, required, entriesOf } from '@orions-frontier/shared';
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 import { COLONIZATION_COST, getSpacecraft } from '@orions-frontier/game-config';
 import type { GoalBotState, StationSnapshot } from './goal-state.js';
 import { selectGoal } from './goal-driven-v1.js';
-import type { GoalCandidate, GoalType } from './goal-driven-v1.js';
+import type { GoalCandidate } from './goal-driven-v1.js';
 import { goalTypes } from '../../lib/db/schema/bot-controllers.js';
 import type { BotIntent } from './bot-intent.js';
 import {
@@ -127,7 +128,9 @@ function findStationForGoal(
       const target = state.visibleStations.find((station) => station.id === stationId);
       if (!target) return undefined;
       const eligible = [...state.ownStations]
-        .filter((station) => isEligibleAttackSource(state, station, stationId!, profile))
+        .filter((station) =>
+          isEligibleAttackSource(state, station, required(stationId, 'stationId'), profile)
+        )
         .sort((a, b) => {
           const distanceA = Math.hypot(a.x - target.x, a.y - target.y);
           const distanceB = Math.hypot(b.x - target.x, b.y - target.y);
@@ -185,9 +188,8 @@ function findStationForGoal(
     const affordableStations =
       goalType === 'establish_colony'
         ? availableStations.filter((station) =>
-            Object.entries(COLONIZATION_COST).every(
-              ([resourceKey, amount]) =>
-                (station.resources[resourceKey as keyof typeof station.resources] ?? 0) >= amount
+            entriesOf(COLONIZATION_COST).every(
+              ([resourceKey, amount]) => (station.resources[resourceKey] ?? 0) >= amount
             )
           )
         : availableStations;
@@ -372,10 +374,9 @@ export async function selectGoalForState(
   activeCandidateFound: boolean;
 }> {
   const candidates = await generateGoalCandidates(state, profile);
-  const goalTypeList = goalTypes as readonly string[];
   const typedActive =
-    activeGoal && goalTypeList.includes(activeGoal.goalType)
-      ? (activeGoal as { goalType: GoalType; targetRef: string })
+    activeGoal && isOneOf(goalTypes, activeGoal.goalType)
+      ? { goalType: activeGoal.goalType, targetRef: activeGoal.targetRef }
       : null;
   if (typedActive) {
     const activeCandidate = candidates.find(

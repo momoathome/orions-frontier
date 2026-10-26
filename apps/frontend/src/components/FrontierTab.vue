@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { COLONIZATION_COST, resources } from '@orions-frontier/game-config';
-import type {
-  KnownSector,
-  FrontierTarget,
-  ResourceKey,
-  WorldMission,
+import {
+  entriesOf,
+  type KnownSector,
+  type FrontierTarget,
+  type WorldMission,
 } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
@@ -22,11 +22,8 @@ let unsubscribe: (() => void) | null = null;
 const colonizable = computed(() =>
   sectors.value.filter((sector) => sector.role === 'frontier' && !sector.hasOwnStation)
 );
-const colonizationCostLabel = Object.entries(COLONIZATION_COST)
-  .map(
-    ([resourceKey, amount]) =>
-      `${amount.toLocaleString()} ${resources[resourceKey as ResourceKey].name}`
-  )
+const colonizationCostLabel = entriesOf(COLONIZATION_COST)
+  .map(([resourceKey, amount]) => `${amount.toLocaleString()} ${resources[resourceKey].name}`)
   .join(' · ');
 
 const formatDuration = (hours: number | null) => {
@@ -87,7 +84,7 @@ onMounted(async () => {
     error.value = apiErrorMessage(cause, 'Frontier data could not be loaded');
   }
   unsubscribe = wsClient.on('world_mission_completed', () => {
-    void load().catch((cause) => {
+    void load().catch((cause: unknown) => {
       error.value = apiErrorMessage(cause, 'Frontier data could not be loaded');
     });
   });
@@ -111,6 +108,7 @@ onUnmounted(() => unsubscribe?.());
             <div class="text-[9px] text-white/35">{{ formatDuration(target.travelHours) }}</div>
           </div>
           <button
+            type="button"
             class="rounded border border-cyan-400/25 px-2 py-1 text-[9px] text-cyan-200 disabled:opacity-30"
             :disabled="busy || target.travelHours === null"
             @click="explore(target)"
@@ -142,6 +140,7 @@ onUnmounted(() => unsubscribe?.());
             <div class="text-[9px] text-white/35">{{ formatDuration(sector.travelHours) }}</div>
           </div>
           <button
+            type="button"
             class="rounded border border-amber-400/25 px-2 py-1 text-[9px] text-amber-200 disabled:opacity-30"
             :disabled="busy || !colonyName || sector.travelHours === null"
             @click="colonize(sector)"

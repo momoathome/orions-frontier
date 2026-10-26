@@ -7,14 +7,14 @@ import { resourceKeys, type ResourceKey, type UserResourceSummary } from '@orion
 
 const { stationId } = defineProps<{ stationId: string }>();
 
-type ResourceEntry = {
+interface ResourceEntry {
   key: ResourceKey;
   name: string;
   image: string;
   amount: number;
   capacity: number;
   ratePerHour: number;
-};
+}
 
 const resourceEntries = ref<ResourceEntry[]>([]);
 const isOnline = ref(true);
@@ -27,7 +27,7 @@ function scheduleFetch() {
   if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
   fetchDebounceTimer = setTimeout(() => {
     fetchDebounceTimer = null;
-    fetchResources();
+    void fetchResources();
   }, 1000);
 }
 
@@ -35,12 +35,12 @@ function applyResourceSummary(summary: UserResourceSummary) {
   resourceEntries.value = resourceKeys
     .filter((key) => summary.resources[key] !== undefined)
     .map((key) => {
-      const def = resources[key as ResourceKey];
+      const def = resources[key];
       return {
-        key: key as ResourceKey,
+        key: key,
         name: def.name,
         image: def.image,
-        amount: summary.resources[key] as number,
+        amount: summary.resources[key] ?? 0,
         capacity: summary.storageCapacity,
         ratePerHour: summary.rates[key] ?? 0,
       };
@@ -61,14 +61,12 @@ async function fetchResources() {
 
 // Instant update when resources are deducted (building upgrade / spacecraft build)
 const unsubscribeResources = wsClient.on('resources_updated', (payload) => {
-  const p = payload as { stationId?: string; resources?: UserResourceSummary['resources'] };
-  if (p?.stationId === stationId && p.resources) {
-    // Merge amounts only — rates remain until next full fetch
-    resourceEntries.value = resourceEntries.value.map((e) => ({
-      ...e,
-      amount: p.resources![e.key] ?? e.amount,
-    }));
-  }
+  if (payload.stationId !== stationId) return;
+  // Merge amounts only — rates remain until next full fetch
+  resourceEntries.value = resourceEntries.value.map((e) => ({
+    ...e,
+    amount: payload.resources[e.key] ?? e.amount,
+  }));
 });
 
 // Refetch when assignments change.
@@ -81,11 +79,10 @@ const unsubscribeTransport = wsClient.on('transport_tick_completed', () => {
   scheduleFetch();
 });
 const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) => {
-  const event = payload as { stationId?: string; buildingKey?: string };
-  if (event.stationId === stationId && event.buildingKey === 'warehouse') scheduleFetch();
+  if (payload.stationId === stationId && payload.buildingKey === 'warehouse') scheduleFetch();
 });
 
-fetchResources();
+void fetchResources();
 
 onUnmounted(() => {
   if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
@@ -114,7 +111,7 @@ function fmtRate(n: number): string {
     <!-- Resources -->
     <div class="flex items-center gap-1">
       <template v-for="(entry, i) in resourceEntries" :key="entry.key">
-        <div class="h-3 w-px bg-white/10" v-if="i > 0" />
+        <div v-if="i > 0" class="h-3 w-px bg-white/10" />
         <div class="flex items-center gap-1.5">
           <img
             :src="entry.image"
@@ -135,7 +132,7 @@ function fmtRate(n: number): string {
       <!-- Skeleton while loading -->
       <template v-if="resourceEntries.length === 0">
         <div v-for="n in 5" :key="n" class="flex items-center gap-1.5">
-          <div class="h-3 w-px bg-white/10" v-if="n > 1" />
+          <div v-if="n > 1" class="h-3 w-px bg-white/10" />
           <div class="w-3.5 h-3.5 rounded bg-white/5 animate-pulse" />
           <div class="w-12 h-2 rounded bg-white/5 animate-pulse" />
         </div>

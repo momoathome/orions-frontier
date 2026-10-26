@@ -1,3 +1,4 @@
+import type { AsteroidSize, ResourceKey, VeinType } from '@orions-frontier/shared';
 import {
   pgTable,
   uuid,
@@ -29,19 +30,19 @@ export const asteroids = pgTable(
     chunkX: integer('chunk_x').notNull(),
     chunkY: integer('chunk_y').notNull(),
     /** Size category: determines its finite reserve range. */
-    size: varchar('size', { length: 16 }).notNull(),
+    size: varchar('size', { length: 16 }).$type<AsteroidSize>().notNull(),
     sectorId: uuid('sector_id')
       .notNull()
       .references(() => sectors.id),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
-  (table) => ({
-    chunkIdx: index('asteroids_chunk_idx').on(table.chunkX, table.chunkY),
-    chunkXIdx: index('asteroids_chunk_x_idx').on(table.chunkX),
-    chunkYIdx: index('asteroids_chunk_y_idx').on(table.chunkY),
-    sectorIdIdx: index('asteroids_sector_id_idx').on(table.sectorId),
-  })
+  (table) => [
+    index('asteroids_chunk_idx').on(table.chunkX, table.chunkY),
+    index('asteroids_chunk_x_idx').on(table.chunkX),
+    index('asteroids_chunk_y_idx').on(table.chunkY),
+    index('asteroids_sector_id_idx').on(table.sectorId),
+  ]
 );
 
 // asteroid_veins — Resource veins within an asteroid
@@ -55,19 +56,16 @@ export const asteroidVeins = pgTable(
       .notNull()
       .references(() => asteroids.id, { onDelete: 'cascade' }),
     /** primary | secondary | trace */
-    veinType: varchar('vein_type', { length: 16 }).notNull(),
-    resourceKey: varchar('resource_key', { length: 64 }).notNull(),
+    veinType: varchar('vein_type', { length: 16 }).$type<VeinType>().notNull(),
+    resourceKey: varchar('resource_key', { length: 64 }).$type<ResourceKey>().notNull(),
     /** Unclaimed resource units still available for new mining cycles. */
     remainingAmount: integer('remaining_amount').notNull().default(10_000),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (table) => ({
-    asteroidIdIdx: index('asteroid_veins_asteroid_id_idx').on(table.asteroidId),
-    remainingAmountNonNegative: check(
-      'asteroid_veins_remaining_amount_non_negative',
-      sql`${table.remainingAmount} >= 0`
-    ),
-  })
+  (table) => [
+    index('asteroid_veins_asteroid_id_idx').on(table.asteroidId),
+    check('asteroid_veins_remaining_amount_non_negative', sql`${table.remainingAmount} >= 0`),
+  ]
 );
 
 // asteroid_assignments — Persistent miner assignments
@@ -96,12 +94,12 @@ export const asteroidAssignments = pgTable(
     /** Number of ships that stop at the station after the current round trip. */
     recallRequestedAmount: integer('recall_requested_amount').notNull().default(0),
   },
-  (table) => ({
-    asteroidIdIdx: index('asteroid_assignments_asteroid_id_idx').on(table.asteroidId),
-    stationIdIdx: index('asteroid_assignments_station_id_idx').on(table.stationId),
-    recallRequestedAmountValid: check(
+  (table) => [
+    index('asteroid_assignments_asteroid_id_idx').on(table.asteroidId),
+    index('asteroid_assignments_station_id_idx').on(table.stationId),
+    check(
       'asteroid_assignments_recall_requested_amount_valid',
       sql`${table.recallRequestedAmount} >= 0 AND ${table.recallRequestedAmount} <= ${table.assignedAmount}`
     ),
-  })
+  ]
 );

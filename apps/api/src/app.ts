@@ -3,6 +3,11 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import fastifyJwt from '@fastify/jwt';
 import Fastify from 'fastify';
+import {
+  serializerCompiler,
+  validatorCompiler,
+  type ZodTypeProvider,
+} from 'fastify-type-provider-zod';
 import { join } from 'node:path';
 import { logger } from './lib/logger.js';
 import { attachRealtimeServer } from './lib/realtime.js';
@@ -20,7 +25,10 @@ export async function buildApp(
 
   const app = Fastify({
     loggerInstance: options.logger === false ? logger.child({}, { level: 'silent' }) : logger,
-  });
+  }).withTypeProvider<ZodTypeProvider>();
+
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
 
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, {

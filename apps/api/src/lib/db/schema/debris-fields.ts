@@ -1,3 +1,4 @@
+import type { ResourceMap } from '@orions-frontier/shared';
 import { index, integer, jsonb, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { sectors } from './sectors.js';
 import { spacecraftTrips } from './spacecraft-trips.js';
@@ -16,13 +17,13 @@ export const debrisFields = pgTable(
     y: integer('y').notNull(),
     chunkX: integer('chunk_x').notNull(),
     chunkY: integer('chunk_y').notNull(),
-    resources: jsonb('resources').$type<Record<string, number>>().notNull(),
+    resources: jsonb('resources').$type<ResourceMap>().notNull(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (table) => ({
-    chunkIdx: index('debris_fields_chunk_idx').on(table.chunkX, table.chunkY),
-    sectorIdx: index('debris_fields_sector_id_idx').on(table.sectorId),
-  })
+  (table) => [
+    index('debris_fields_chunk_idx').on(table.chunkX, table.chunkY),
+    index('debris_fields_sector_id_idx').on(table.sectorId),
+  ]
 );
 
 export const salvageMissions = pgTable(
@@ -44,7 +45,7 @@ export const salvageMissions = pgTable(
       .references(() => spacecraftTrips.id),
     returnTripId: uuid('return_trip_id').references(() => spacecraftTrips.id),
     amount: integer('amount').notNull(),
-    cargo: jsonb('cargo').$type<Record<string, number>>(),
+    cargo: jsonb('cargo').$type<ResourceMap>(),
     status: varchar('status', { length: 16 })
       .$type<'traveling' | 'returning' | 'resolved'>()
       .notNull()
@@ -52,8 +53,8 @@ export const salvageMissions = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
     resolvedAt: timestamp('resolved_at'),
   },
-  (table) => ({
-    userIdx: index('salvage_missions_user_id_idx').on(table.userId),
-    debrisIdx: index('salvage_missions_debris_field_id_idx').on(table.debrisFieldId),
-  })
+  (table) => [
+    index('salvage_missions_user_id_idx').on(table.userId),
+    index('salvage_missions_debris_field_id_idx').on(table.debrisFieldId),
+  ]
 );

@@ -1,45 +1,45 @@
+import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../../middleware/auth.js';
 import { getDb } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
 import { startBuildingUpgrade } from '../../../services/building.service.js';
 import { AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
-import type { BuildingKey } from '@orions-frontier/shared';
+import { defineRoute, stationParams } from '../../../lib/route.js';
 
 /**
  * POST /api/stations/:stationId/buildings/:buildingKey/upgrade
  * Starts upgrading a building if the station has sufficient resources.
  */
-export default (async (app) => {
-  app.post('/buildings/:buildingKey/upgrade', { preHandler: [authenticate] }, async (request) => {
-    const { stationId, buildingKey } = request.params as {
-      stationId: string;
-      buildingKey: string;
-    };
+export default defineRoute(async (app) => {
+  app.post(
+    '/buildings/:buildingKey/upgrade',
+    {
+      onRequest: [authenticate],
+      schema: { params: stationParams.extend({ buildingKey: z.enum(buildingKeys) }) },
+    },
+    async (request) => {
+      const { stationId, buildingKey } = request.params;
 
-    if (!(buildingKeys as readonly string[]).includes(buildingKey)) {
-      throw new AppError(ErrorCode.INVALID_INPUT, `Unknown building key: ${buildingKey}`);
+      const db = getDb();
+
+      const [station] = await db
+        .select({ id: stations.id })
+        .from(stations)
+        .where(and(eq(stations.id, stationId), eq(stations.userId, request.user.userId)))
+        .limit(1);
+
+      if (!station) {
+        throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+      }
+
+      const updatedBuilding = await startBuildingUpgrade(
+        station.id,
+        buildingKey,
+        request.user.userId
+      );
+
+      return updatedBuilding;
     }
-
-    const db = getDb();
-
-    const [station] = await db
-      .select({ id: stations.id })
-      .from(stations)
-      .where(and(eq(stations.id, stationId), eq(stations.userId, request.user.userId)))
-      .limit(1);
-
-    if (!station) {
-      throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-    }
-
-    const updatedBuilding = await startBuildingUpgrade(
-      station.id,
-      buildingKey as BuildingKey,
-      request.user.userId
-    );
-
-    return updatedBuilding;
-  });
-}) satisfies FastifyPluginAsync;
+  );
+});

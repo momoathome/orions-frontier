@@ -91,14 +91,14 @@ test('an atomically claimed completion emits once and snapshots remain compact a
   const events = results.flat();
   assert.equal(events.length, 1);
   assert.equal(events[0]?.type, 'research_completed');
-  assert.equal(events[0]?.eventId, `research_completed:${researchId}:complete`);
+  assert.equal(events[0].eventId, `research_completed:${researchId}:complete`);
 
   const [research] = await getDb()
     .select({ status: stationResearch.status, completedAt: stationResearch.completedAt })
     .from(stationResearch)
     .where(eq(stationResearch.id, researchId));
   assert.equal(research?.status, 'completed');
-  assert.equal(research?.completedAt?.toISOString(), completedAt.toISOString());
+  assert.equal(research.completedAt?.toISOString(), completedAt.toISOString());
 
   const aliases = new PlaytestAliasRegistry([member()]);
   const collector = new PlaytestCollector(aliases, 5);
@@ -120,7 +120,7 @@ test('an atomically claimed completion emits once and snapshots remain compact a
   assert.equal(snapshot.bots.length, 1);
   assert.equal(snapshot.stations.length, 1);
   assert.equal(snapshot.bots[0]?.completedResearch, 1);
-  assert.match(snapshot.bots[0]?.progressFingerprint ?? '', /^[0-9a-f]{24}$/);
+  assert.match(snapshot.bots[0].progressFingerprint, /^[0-9a-f]{24}$/);
   assert.match(snapshot.stations[0]?.progressFingerprint ?? '', /^[0-9a-f]{24}$/);
   assert.doesNotMatch(JSON.stringify(snapshot), new RegExp(userId));
   assert.doesNotMatch(JSON.stringify(snapshot), new RegExp(stationId));

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { entriesOf } from '@orions-frontier/shared';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -174,7 +175,7 @@ test('simultaneous expeditions discover their shared target sector once', async 
 
 test('active colonization missions reserve their target position', async () => {
   const db = getDb();
-  for (const [resourceKey, amount] of Object.entries(COLONIZATION_COST)) {
+  for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
     await db
       .update(stationResources)
       .set({ amount })
@@ -216,7 +217,7 @@ test('active colonization missions reserve their target position', async () => {
       .set({ lockedAmount: 0 })
       .where(eq(stationSpacecrafts.stationId, originStationId));
 
-    for (const [resourceKey, amount] of Object.entries(COLONIZATION_COST)) {
+    for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
       await db
         .update(stationResources)
         .set({ amount })
@@ -244,11 +245,12 @@ test('active colonization missions reserve their target position', async () => {
         WORLD_CONFIG.SECTOR.SAFE_SPAWN_RADIUS * 2
     );
   } finally {
-    await db
-      .delete(worldMissions)
-      .where(
-        inArray(worldMissions.id, [reservation.id, secondMissionId].filter(Boolean) as string[])
-      );
+    await db.delete(worldMissions).where(
+      inArray(
+        worldMissions.id,
+        [reservation.id, secondMissionId].filter((id) => id !== undefined)
+      )
+    );
     await db
       .update(stationSpacecrafts)
       .set({ lockedAmount: 0 })
@@ -276,7 +278,7 @@ test('expedition returns and colonization transfers a miner to the second statio
     .where(eq(worldMissions.id, expedition.id));
   assert.equal(returningExpedition?.status, 'returning');
   assert.equal(
-    await completeDueWorldMissions(new Date(returningExpedition!.arrivesAt.getTime() + 1)),
+    await completeDueWorldMissions(new Date(returningExpedition.arrivesAt.getTime() + 1)),
     1
   );
 
@@ -285,9 +287,9 @@ test('expedition returns and colonization transfers a miner to the second statio
     .from(sectors)
     .where(and(eq(sectors.sectorX, 101), eq(sectors.sectorY, 100)));
   assert.equal(frontier?.role, 'frontier');
-  sectorIds.push(frontier!.id);
+  sectorIds.push(frontier.id);
 
-  for (const [resourceKey, amount] of Object.entries(COLONIZATION_COST)) {
+  for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
     await db
       .update(stationResources)
       .set({ amount })
@@ -326,7 +328,7 @@ test('expedition returns and colonization transfers a miner to the second statio
     .where(eq(worldMissions.id, colonization.id));
   assert.equal(ships[0]?.spacecraftKey, colonizationMission?.spacecraftKey);
   assert.equal(ships[0]?.amount, 1);
-  assert.equal(ships[0]?.lockedAmount, 0);
+  assert.equal(ships[0].lockedAmount, 0);
 
   const [originShip] = await db
     .select({
@@ -382,7 +384,7 @@ test('bot expedition and colonization use the same travel and resource rules', a
     .from(sectors)
     .where(and(eq(sectors.sectorX, 102), eq(sectors.sectorY, 100)));
   sectorIds.push(frontier!.id);
-  for (const [resourceKey, amount] of Object.entries(COLONIZATION_COST)) {
+  for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
     await db
       .update(stationResources)
       .set({ amount })

@@ -13,8 +13,8 @@ import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { worldMissions } from '../../lib/db/schema/world-missions.js';
-import { buildingKeys, defenseUpgradeKeys } from '@orions-frontier/shared';
-import type { ResourceKey, ResourceMap } from '@orions-frontier/shared';
+import { buildingKeys, defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
+import type { ResourceMap } from '@orions-frontier/shared';
 import { calculateBuildingEffect } from '@orions-frontier/game-config';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import {
@@ -174,23 +174,23 @@ export async function loadGoalBotState(
           'warehouse',
           stBuildings.find((building) => building.buildingKey === 'warehouse')?.level ?? 0
         ).find((effect) => effect.type === 'storage_capacity')?.value ?? 0,
-      resources: Object.fromEntries(
-        stResources.map((r) => [r.resourceKey, r.amount])
-      ) as ResourceMap,
-      buildings: stBuildings
-        .filter((building) => (buildingKeys as readonly string[]).includes(building.buildingKey))
-        .map((building) => ({
-          buildingKey: building.buildingKey,
-          level: building.level,
-          upgradeEndsAt: building.upgradeEndsAt,
-        })),
-      defense: stBuildings
-        .filter((b) => (defenseUpgradeKeys as readonly string[]).includes(b.buildingKey))
-        .map((b) => ({
-          upgradeKey: b.buildingKey,
-          level: b.level,
-          upgradeEndsAt: b.upgradeEndsAt,
-        })),
+      resources: Object.fromEntries(stResources.map((r) => [r.resourceKey, r.amount])),
+      buildings: stBuildings.flatMap((building) =>
+        isOneOf(buildingKeys, building.buildingKey)
+          ? [
+              {
+                buildingKey: building.buildingKey,
+                level: building.level,
+                upgradeEndsAt: building.upgradeEndsAt,
+              },
+            ]
+          : []
+      ),
+      defense: stBuildings.flatMap((b) =>
+        isOneOf(defenseUpgradeKeys, b.buildingKey)
+          ? [{ upgradeKey: b.buildingKey, level: b.level, upgradeEndsAt: b.upgradeEndsAt }]
+          : []
+      ),
       fleets: stFleets.map((f) => ({
         spacecraftKey: f.spacecraftKey,
         amount: f.amount,
@@ -310,10 +310,10 @@ export async function loadGoalBotState(
       id: row.id,
       x: row.x,
       y: row.y,
-      remainingByResource: {} as ResourceMap,
+      remainingByResource: {},
       remainingAmount: 0,
     };
-    const resourceKey = row.resourceKey as ResourceKey;
+    const resourceKey = row.resourceKey;
     candidate.remainingByResource[resourceKey] =
       (candidate.remainingByResource[resourceKey] ?? 0) + row.remainingAmount;
     candidate.remainingAmount += row.remainingAmount;
@@ -326,7 +326,7 @@ export async function loadGoalBotState(
       id: row.id,
       x: row.x,
       y: row.y,
-      resources: row.resources as ResourceMap,
+      resources: row.resources,
     }));
 
   return {

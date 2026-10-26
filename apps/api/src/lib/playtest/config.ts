@@ -1,19 +1,20 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
+import { isKeyOf } from '@orions-frontier/shared';
 import { EVEN_PROFILE_WEIGHTS, type BotProfileWeights } from './profile-distribution.js';
 
 export const MAX_PLAYTEST_DURATION_HOURS = 365 * 24;
 export const MAX_PLAYTEST_SYNTHETIC_PLAYERS = 10_000;
 export const MAX_PLAYTEST_TICKS = 31_536_000;
 
-const finitePositive = z.number().finite().positive();
+const finitePositive = z.number().positive();
 const profileWeightsSchema = z
   .object({
-    industrialist: z.number().finite().nonnegative(),
-    pioneer: z.number().finite().nonnegative(),
-    technocrat: z.number().finite().nonnegative(),
-    warlord: z.number().finite().nonnegative(),
+    industrialist: z.number().nonnegative(),
+    pioneer: z.number().nonnegative(),
+    technocrat: z.number().nonnegative(),
+    warlord: z.number().nonnegative(),
   })
   .refine((weights) => Object.values(weights).some((weight) => weight > 0), {
     message: 'At least one profile weight must be positive',
@@ -98,6 +99,10 @@ export interface SoftlockThresholds {
 }
 
 type RawPlaytestConfig = z.input<typeof playtestConfigSchema>;
+/** Datei- und CLI-Werte vor dem Zusammenführen; `validatePlaytestConfig` prüft das Ergebnis. */
+type PlaytestOverrides = Omit<RawPlaytestConfig, 'profileWeights'> & {
+  profileWeights?: Partial<BotProfileWeights>;
+};
 
 const CLI_FIELDS = {
   '--seed': 'seed',
@@ -130,7 +135,7 @@ function valueAfter(args: readonly string[], index: number): string {
   return value;
 }
 
-async function configFile(args: readonly string[]): Promise<RawPlaytestConfig> {
+async function configFile(args: readonly string[]): Promise<PlaytestOverrides> {
   const index = args.indexOf('--config');
   if (index < 0) return {};
   const path = resolve(valueAfter(args, index));
@@ -143,39 +148,41 @@ async function configFile(args: readonly string[]): Promise<RawPlaytestConfig> {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Playtest config file must contain a JSON object');
   }
-  return parsed as RawPlaytestConfig;
+  return parsed;
 }
 
-function cliOverrides(args: readonly string[]): RawPlaytestConfig {
-  const overrides: Record<string, unknown> = {};
+function cliOverrides(args: readonly string[]): PlaytestOverrides {
+  const overrides: PlaytestOverrides = {};
   const profileWeights: Partial<BotProfileWeights> = {};
   for (let index = 0; index < args.length; index += 1) {
-    const flag = args[index]!;
+    const flag = args[index];
+    if (flag === undefined) break;
     if (flag === '--config') {
       index += 1;
       continue;
     }
-    if (flag in CLI_FIELDS) {
+    if (isKeyOf(CLI_FIELDS, flag)) {
       const value = valueAfter(args, index);
-      const field = CLI_FIELDS[flag as keyof typeof CLI_FIELDS];
-      overrides[field] =
-        field === 'seed' || field === 'virtualStart' || field === 'outputDirectory'
-          ? value
-          : numericCliValue(flag, value);
+      const field = CLI_FIELDS[flag];
+      if (field === 'seed' || field === 'virtualStart' || field === 'outputDirectory') {
+        overrides[field] = value;
+      } else {
+        overrides[field] = numericCliValue(flag, value);
+      }
       index += 1;
       continue;
     }
-    if (flag in PROFILE_FLAGS) {
+    if (isKeyOf(PROFILE_FLAGS, flag)) {
       const value = valueAfter(args, index);
-      const profile = PROFILE_FLAGS[flag as keyof typeof PROFILE_FLAGS];
+      const profile = PROFILE_FLAGS[flag];
       profileWeights[profile] = numericCliValue(flag, value);
       index += 1;
       continue;
     }
     throw new Error(`Unknown playtest option: ${flag}`);
   }
-  if (Object.keys(profileWeights).length > 0) overrides['profileWeights'] = profileWeights;
-  return overrides as RawPlaytestConfig;
+  if (Object.keys(profileWeights).length > 0) overrides.profileWeights = profileWeights;
+  return overrides;
 }
 
 export function validatePlaytestConfig(input: RawPlaytestConfig): PlaytestConfig {

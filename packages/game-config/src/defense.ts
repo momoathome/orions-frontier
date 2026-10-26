@@ -1,3 +1,4 @@
+import { required } from '@orions-frontier/shared';
 import type {
   DefenseUpgradeCost,
   DefenseUpgradeDefinition,
@@ -50,7 +51,10 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
 ];
 
 export const getDefenseUpgrade = (key: DefenseUpgradeKey) =>
-  defenseUpgrades.find((upgrade) => upgrade.key === key)!;
+  required(
+    defenseUpgrades.find((upgrade) => upgrade.key === key),
+    `defense upgrade ${key}`
+  );
 
 interface ResourceCostEntry {
   resourceKey: ResourceKey;

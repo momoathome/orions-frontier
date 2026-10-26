@@ -35,3 +35,10 @@ export interface StationSpacecraftWithDefinition {
   lockedAmount: number;
   buildOrders: SpacecraftBuildOrder[];
 }
+
+/** Antwort von `GET /api/stations/:stationId/spacecrafts`. */
+export interface StationSpacecraftsResponse {
+  stationId: string;
+  spacecrafts: StationSpacecraftWithDefinition[];
+  hangar: { capacity: number; used: number };
+}

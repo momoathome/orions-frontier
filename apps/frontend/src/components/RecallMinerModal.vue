@@ -13,7 +13,7 @@ export interface AssignmentGroup {
   members: { id: string; availableAmount: number }[];
 }
 
-const props = defineProps<{
+const { asteroidId, ownGroups, show } = defineProps<{
   show: boolean;
   ownGroups: AssignmentGroup[];
   asteroidId: string;
@@ -24,12 +24,16 @@ const selectedAssignmentId = ref('');
 const recallAmount = ref(1);
 const recallError = ref<string | null>(null);
 const recalling = ref(false);
+const submitLabel = computed(() => {
+  if (recalling.value) return 'Requesting…';
+  return recallAmount.value === 1 ? 'Recall miner' : 'Recall miners';
+});
 
 watch(
-  () => props.show,
-  (show) => {
-    if (!show) return;
-    selectedAssignmentId.value = props.ownGroups[0]?.ids[0] ?? '';
+  () => show,
+  (isShown) => {
+    if (!isShown) return;
+    selectedAssignmentId.value = ownGroups[0]?.ids[0] ?? '';
     recallAmount.value = 1;
     recallError.value = null;
     recalling.value = false;
@@ -37,7 +41,7 @@ watch(
 );
 
 const selectedGroup = computed(
-  () => props.ownGroups.find((group) => group.ids[0] === selectedAssignmentId.value) ?? null
+  () => ownGroups.find((group) => group.ids[0] === selectedAssignmentId.value) ?? null
 );
 const availableAmount = computed(() =>
   selectedGroup.value
@@ -57,11 +61,7 @@ async function submit() {
       const amount = Math.min(remaining, member.availableAmount);
       remaining -= amount;
       return amount > 0
-        ? [
-            apiClient.delete(
-              `/asteroids/${props.asteroidId}/assignments/${member.id}?amount=${amount}`
-            ),
-          ]
+        ? [apiClient.delete(`/asteroids/${asteroidId}/assignments/${member.id}?amount=${amount}`)]
         : [];
     });
     await Promise.all(recalls);
@@ -91,7 +91,11 @@ async function submit() {
       >
         <div class="flex items-center justify-between">
           <span class="text-[12px] text-white/65 uppercase tracking-wider">Recall Miner</span>
-          <button @click="emit('close')" class="text-white/45 hover:text-white/80 text-[14px]">
+          <button
+            type="button"
+            class="text-white/45 hover:text-white/80 text-[14px]"
+            @click="emit('close')"
+          >
             ✕
           </button>
         </div>
@@ -133,7 +137,7 @@ async function submit() {
           <div v-if="recallError" class="text-[11px] text-red-400/85">{{ recallError }}</div>
 
           <button
-            @click="submit"
+            type="button"
             :disabled="
               recalling ||
               !selectedGroup ||
@@ -142,8 +146,9 @@ async function submit() {
               recallAmount > availableAmount
             "
             class="h-8 rounded text-[11px] uppercase tracking-wider bg-red-400/10 text-red-300/90 border border-red-400/30 hover:bg-red-400/15 hover:text-red-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            @click="submit"
           >
-            {{ recalling ? 'Requesting…' : recallAmount === 1 ? 'Recall miner' : 'Recall miners' }}
+            {{ submitLabel }}
           </button>
         </template>
       </div>

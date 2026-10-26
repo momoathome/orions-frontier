@@ -1,4 +1,4 @@
-import type { ResourceMap } from './resource';
+import type { ResourceMap } from './resource.js';
 
 export interface DebrisField {
   id: string;

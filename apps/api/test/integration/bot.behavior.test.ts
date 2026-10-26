@@ -36,7 +36,6 @@ import {
   generateSalvageCandidates,
   stepSalvage,
 } from '../../src/services/bot/goal-economy.js';
-import { type BotProfile } from '../../src/lib/db/schema/bot-controllers.js';
 import { seedStationBuildings } from '../../src/services/building.service.js';
 import { seedStationDefenseUpgrades } from '../../src/services/defense.service.js';
 import { seedStationResources } from '../../src/services/station-resource.service.js';
@@ -45,7 +44,7 @@ import { executeBotIntent } from '../../src/services/bot/bot-intent.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
-const asteroidIds = [randomUUID(), randomUUID(), randomUUID()];
+const asteroidIds = [randomUUID(), randomUUID(), randomUUID()] as const;
 const testNow = new Date(Date.now() + 24 * 60 * 60 * 1_000);
 let sectorId = '';
 
@@ -175,7 +174,7 @@ test('an overdue bot decision survives a database reconnect', async () => {
     })
     .from(botControllers)
     .where(eq(botControllers.userId, userId));
-  assert.ok(controller?.nextDecisionAt.getTime() > dueAt.getTime());
+  assert.ok(controller!.nextDecisionAt.getTime() > dueAt.getTime());
   assert.equal(controller?.lastAction, 'assign_miner');
   const assignments = await getDb()
     .select()
@@ -189,7 +188,7 @@ test('an overdue bot decision survives a database reconnect', async () => {
   assert.equal(trips.length, 1, 'the normal mining service must create the outbound trip');
   const state = await loadGoalBotState(userId, dueAt);
   assert.equal(state?.ownStations[0]?.miningAssignments.length, 1);
-  assert.equal(state?.ownStations[0]?.trips.length, 1);
+  assert.equal(state.ownStations[0].trips.length, 1);
 });
 
 test('goal state loader shows two bot stations with local resources and scanner-limited visibility', async () => {
@@ -294,8 +293,8 @@ test('goal state loader shows two bot stations with local resources and scanner-
   const stationB = state.ownStations.find((s) => s.id === stationBId);
   assert.ok(stationA);
   assert.ok(stationB);
-  assert.equal(stationA.resources['carbon'], 500, 'Station A carbon must be 500');
-  assert.equal(stationB.resources['carbon'], 999, 'Station B carbon must be 999');
+  assert.equal(stationA.resources.carbon, 500, 'Station A carbon must be 500');
+  assert.equal(stationB.resources.carbon, 999, 'Station B carbon must be 999');
 
   // Visible asteroids should include the one near Station A but not the hidden one
   const visibleIds = state.visibleAsteroids.map((a) => a.id);
@@ -481,10 +480,10 @@ test('a newly selected saving goal remains persisted', async () => {
     .from(botControllers)
     .where(eq(botControllers.userId, botUserId));
   assert.equal(controller?.lastAction, 'saving');
-  assert.ok(controller?.activeGoalType, 'saving must not discard the selected goal');
-  assert.ok(controller?.activeGoalTarget);
-  assert.equal(controller?.blockedCount, 0);
-  assert.equal(controller?.lastProgressAt, null);
+  assert.ok(controller.activeGoalType, 'saving must not discard the selected goal');
+  assert.ok(controller.activeGoalTarget);
+  assert.equal(controller.blockedCount, 0);
+  assert.equal(controller.lastProgressAt, null);
 
   await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
   await db.delete(stationResources).where(eq(stationResources.stationId, localStationId));
@@ -619,7 +618,9 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
     .select({
       blockedCount: botControllers.blockedCount,
       activeGoalType: botControllers.activeGoalType,
+      activeGoalTarget: botControllers.activeGoalTarget,
       lastAction: botControllers.lastAction,
+      lastReason: botControllers.lastReason,
     })
     .from(botControllers)
     .where(eq(botControllers.userId, botUserId))
@@ -702,7 +703,7 @@ test('bot exploration and colonization goal generation', async () => {
     id: knownSectorId,
     sectorX: baseX,
     sectorY: baseY,
-    role: 'populated',
+    role: 'settlement',
     seed: suffix3,
   });
 
@@ -735,7 +736,7 @@ test('bot exploration and colonization goal generation', async () => {
 
   // Top up resources so colony can be afforded
   await Promise.all(
-    ['carbon', 'titanium', 'hydrogenium'].map((key) =>
+    (['carbon', 'titanium', 'hydrogenium'] as const).map((key) =>
       db
         .update(stationResources)
         .set({ amount: 2000 })
@@ -784,40 +785,40 @@ test('bot exploration and colonization goal generation', async () => {
   assert.ok(homeStation, 'Should find home station');
 
   // Test explore sector candidate generation
-  const exploreCandidate = await generateExploreSectorCandidate(state, homeStation!);
+  const exploreCandidate = await generateExploreSectorCandidate(state, homeStation);
   // Since we have a frontier at 1:0, a ship, and no active expedition, should generate a candidate
   assert.ok(exploreCandidate, 'Should generate explore_sector candidate');
-  assert.equal(exploreCandidate!.goalType, 'explore_sector');
-  assert.ok(exploreCandidate!.targetRef.startsWith('sector:'), 'Target should be a sector');
+  assert.equal(exploreCandidate.goalType, 'explore_sector');
+  assert.ok(exploreCandidate.targetRef.startsWith('sector:'), 'Target should be a sector');
 
   // Test establish colony candidate generation
-  const colonyCandidate = await generateEstablishColonyCandidate(state, homeStation!);
+  const colonyCandidate = await generateEstablishColonyCandidate(state, homeStation);
   // Since we have frontier sectors without own stations and can afford colonization
   assert.ok(colonyCandidate, 'Should generate establish_colony candidate');
-  assert.equal(colonyCandidate!.goalType, 'establish_colony');
+  assert.equal(colonyCandidate.goalType, 'establish_colony');
 
   // Test the step functions
   const stepResult = await stepExploreSector(
     state,
-    homeStation!,
-    exploreCandidate!.targetRef,
+    homeStation,
+    exploreCandidate.targetRef,
     'pioneer'
   );
   assert.ok(stepResult, 'Should return a step result');
   // The result should be 'success' since we have resources and ships
   assert.equal(stepResult.type, 'success', 'Explore step should succeed');
-  assert.equal(stepResult.type === 'success' && stepResult.intent.type, 'start_expedition');
+  assert.equal(stepResult.intent.type, 'start_expedition');
 
   // Test colony step
   const colonyStep = await stepEstablishColony(
     state,
-    homeStation!,
-    colonyCandidate!.targetRef,
+    homeStation,
+    colonyCandidate.targetRef,
     'pioneer'
   );
   assert.ok(colonyStep, 'Should return colony step result');
   assert.equal(colonyStep.type, 'success', 'Colony step should succeed');
-  assert.equal(colonyStep.type === 'success' && colonyStep.intent.type, 'start_colonization');
+  assert.equal(colonyStep.intent.type, 'start_colonization');
 
   // Verify goal lifecycle integration — generateGoalCandidates should include expansion
   const { generateGoalCandidates } =
@@ -861,7 +862,7 @@ test('bot fortify and strike force goal generation', async () => {
     id: sectorId4,
     sectorX: fortifyCoord,
     sectorY: fortifyCoord,
-    role: 'populated',
+    role: 'settlement',
     seed: suffix4,
   });
 
@@ -882,7 +883,7 @@ test('bot fortify and strike force goal generation', async () => {
   await seedStationResources(stationId4);
   // Top up resources
   await Promise.all(
-    ['carbon', 'titanium', 'hydrogenium'].map((key) =>
+    (['carbon', 'titanium', 'hydrogenium'] as const).map((key) =>
       db
         .update(stationResources)
         .set({ amount: 2000 })
@@ -914,25 +915,25 @@ test('bot fortify and strike force goal generation', async () => {
   // Test fortify candidate
   const fortifyCandidate = generateFortifyCandidate(state, station);
   assert.ok(fortifyCandidate, 'Should generate fortify candidate');
-  assert.equal(fortifyCandidate!.goalType, 'fortify_station');
-  assert.ok(fortifyCandidate!.targetRef.startsWith('station:'), 'Target should point to station');
+  assert.equal(fortifyCandidate.goalType, 'fortify_station');
+  assert.ok(fortifyCandidate.targetRef.startsWith('station:'), 'Target should point to station');
 
   // Test fortify step - should suggest a defense upgrade
   const fortifyStep = await stepFortifyStation(
     state,
     station,
-    fortifyCandidate!.targetRef,
+    fortifyCandidate.targetRef,
     'industrialist'
   );
   assert.ok(fortifyStep, 'Should return fortify step result');
   assert.equal(fortifyStep.type, 'success', 'Fortify step should be success');
-  assert.equal(fortifyStep.type === 'success' && fortifyStep.intent.type, 'upgrade_defense');
+  assert.equal(fortifyStep.intent.type, 'upgrade_defense');
 
   // Test strike force candidate
   const strikeCandidate = generateBuildStrikeForceCandidate(state, station);
   // Station starts with shipyard level 1 by default - fighters need level 2
   if (strikeCandidate) {
-    assert.equal(strikeCandidate!.goalType, 'build_strike_force');
+    assert.equal(strikeCandidate.goalType, 'build_strike_force');
   }
 
   // Test strike force step - without shipyard level 2, should suggest shipyard upgrade
@@ -992,7 +993,7 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     id: sectorId5,
     sectorX: sectorX5,
     sectorY: sectorX5,
-    role: 'populated',
+    role: 'settlement',
     seed: suffix5,
   });
 
@@ -1024,7 +1025,7 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     lockedAmount: 0,
   });
   await Promise.all(
-    ['carbon', 'titanium'].map((key) =>
+    (['carbon', 'titanium'] as const).map((key) =>
       db
         .update(stationResources)
         .set({ amount: 2000 })
@@ -1072,7 +1073,7 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     state,
     state.ownStations[0]!,
     `station:${targetStationId}`,
-    'warlord' as BotProfile
+    'warlord'
   );
   assert.ok(raidStep, 'Should return raid step result');
   assert.ok(
@@ -1112,14 +1113,14 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     .from(botControllers)
     .where(eq(botControllers.userId, botUserId));
   assert.equal(protectedController?.activeGoalType, 'raid');
-  assert.equal(protectedController?.lastAction, 'waiting');
+  assert.equal(protectedController.lastAction, 'waiting');
   assert.equal(
-    protectedController?.nextDecisionAt.getTime(),
+    protectedController.nextDecisionAt.getTime(),
     protectedAttemptAt.getTime() + 60 * 60_000
   );
 
   // Test retaliate candidate generation (no combat reports → no retaliation)
-  const retaliateCandidates = generateRetaliateCandidates(state, 'warlord' as BotProfile);
+  const retaliateCandidates = generateRetaliateCandidates(state, 'warlord');
   assert.equal(retaliateCandidates.length, 0, 'No retaliation without combat reports');
 
   // Cleanup
@@ -1154,7 +1155,7 @@ test('bot salvage goal generation', async () => {
     id: sectorId6,
     sectorX: sectorX6,
     sectorY: sectorX6,
-    role: 'populated',
+    role: 'settlement',
     seed: suffix6,
   });
 
@@ -1174,7 +1175,7 @@ test('bot salvage goal generation', async () => {
   await seedStationSpacecrafts(stationId6);
   await seedStationResources(stationId6);
   await Promise.all(
-    ['carbon', 'titanium', 'hydrogenium'].map((key) =>
+    (['carbon', 'titanium', 'hydrogenium'] as const).map((key) =>
       db
         .update(stationResources)
         .set({ amount: 2000 })
@@ -1202,7 +1203,7 @@ test('bot salvage goal generation', async () => {
   assert.equal(state.ownStations.length, 1, 'Should have 1 station');
 
   // Without visible debris, salvage candidates should be empty
-  const candidates = generateSalvageCandidates(state, 'industrialist' as BotProfile);
+  const candidates = generateSalvageCandidates(state, 'industrialist');
   assert.equal(candidates.length, 0, 'No salvage candidates without visible debris');
 
   // A disappeared field means the bounded salvage goal is finished.
@@ -1210,7 +1211,7 @@ test('bot salvage goal generation', async () => {
     state,
     state.ownStations[0]!,
     'debris:nonexistent',
-    'industrialist' as BotProfile
+    'industrialist'
   );
   assert.ok(step, 'Should return step result');
   assert.equal(step.type, 'complete');

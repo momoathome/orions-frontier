@@ -108,14 +108,14 @@ test('station creation gives all seeded rows deterministic IDs and virtual times
   for (const definition of buildings) {
     const row = byKey.get(definition.key);
     assert.equal(row?.id, expected.nextId('station-building'));
-    assert.equal(row?.createdAt.toISOString(), virtualStart.toISOString());
-    assert.equal(row?.updatedAt.toISOString(), virtualStart.toISOString());
+    assert.equal(row.createdAt.toISOString(), virtualStart.toISOString());
+    assert.equal(row.updatedAt.toISOString(), virtualStart.toISOString());
   }
   for (const definition of defenseUpgrades) {
     const row = byKey.get(definition.key);
     assert.equal(row?.id, expected.nextId('station-defense'));
-    assert.equal(row?.createdAt.toISOString(), virtualStart.toISOString());
-    assert.equal(row?.updatedAt.toISOString(), virtualStart.toISOString());
+    assert.equal(row.createdAt.toISOString(), virtualStart.toISOString());
+    assert.equal(row.updatedAt.toISOString(), virtualStart.toISOString());
   }
 
   const [fleet] = await getDb()
@@ -123,7 +123,7 @@ test('station creation gives all seeded rows deterministic IDs and virtual times
     .from(stationSpacecrafts)
     .where(eq(stationSpacecrafts.stationId, stationId));
   assert.equal(fleet?.id, expected.nextId('station-spacecraft'));
-  assert.equal(fleet?.createdAt.toISOString(), virtualStart.toISOString());
+  assert.equal(fleet.createdAt.toISOString(), virtualStart.toISOString());
 
   const [station] = await getDb().select().from(stations).where(eq(stations.id, stationId));
   assert.equal(station?.createdAt.toISOString(), virtualStart.toISOString());
@@ -159,7 +159,7 @@ test('all economic work starts from one virtual time with deterministic work IDs
     ).toISOString()
   );
   const afterBuildingCompletion = actionContext.at(
-    new Date(progress[0]!.upgradeEndsAt!.getTime() + 1)
+    new Date(progress[0].upgradeEndsAt.getTime() + 1)
   );
   assert.equal(
     (await getStationBuildings(stationId, afterBuildingCompletion)).find(
@@ -198,9 +198,9 @@ test('all economic work starts from one virtual time with deterministic work IDs
   // startDefenseUpgrade attempts the backwards-compatible insert before locking the existing row.
   expected.nextId('station-defense');
   assert.equal(research?.id, expected.nextId('station-research'));
-  assert.equal(research?.createdAt.toISOString(), actionContext.now.toISOString());
+  assert.equal(research.createdAt.toISOString(), actionContext.now.toISOString());
   assert.equal(
-    research?.completesAt.toISOString(),
+    research.completesAt.toISOString(),
     new Date(actionContext.now.getTime() + researchDefinition.duration * 1000).toISOString()
   );
 
@@ -214,9 +214,9 @@ test('all economic work starts from one virtual time with deterministic work IDs
       (effect) => effect.type === 'spacecraft_production_bonus'
     )?.value ?? 0;
   assert.equal(order?.id, expected.nextId('spacecraft-build-order'));
-  assert.equal(order?.createdAt.toISOString(), actionContext.now.toISOString());
+  assert.equal(order.createdAt.toISOString(), actionContext.now.toISOString());
   assert.equal(
-    order?.endsAt.toISOString(),
+    order.endsAt.toISOString(),
     new Date(
       actionContext.now.getTime() +
         Math.ceil(mole.buildTime * Math.max(0.25, 1 - shipyardBonus / 100)) * 1000

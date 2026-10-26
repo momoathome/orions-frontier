@@ -1,3 +1,4 @@
+import { required } from '@orions-frontier/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidVeins, asteroidAssignments } from '../../lib/db/schema/asteroids.js';
@@ -7,7 +8,7 @@ import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import type { AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getUserScannerCoverages, isPointVisible } from '../scanner-visibility.service.js';
-import { getSpacecraft } from '@orions-frontier/game-config';
+import { getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';
 import { applyVectorNavigation } from '../research-effects.js';
 import {
   createRealtimeExecutionContext,
@@ -147,7 +148,7 @@ export const createAsteroidAssignment = async (
       .values({
         id: context.nextId('trip'),
         stationSpacecraftId: stationScraft.id,
-        assignmentId: assignment!.id,
+        assignmentId: required(assignment, 'assignment').id,
         groupSize: assignedAmount,
         fromType: 'station',
         fromId: stationId,
@@ -164,7 +165,11 @@ export const createAsteroidAssignment = async (
       })
       .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
 
-    return { kind: 'created', assignmentId: assignment!.id, trip: trip! } as const;
+    return {
+      kind: 'created',
+      assignmentId: required(assignment, 'assignment').id,
+      trip: required(trip, 'trip'),
+    } as const;
   });
 
   if (created.kind === 'asteroid_missing') {
@@ -266,11 +271,11 @@ export const getStationMiningAssignments = async (
     asteroidId: r.asteroidId,
     asteroidX: r.asteroidX,
     asteroidY: r.asteroidY,
-    asteroidSize: r.asteroidSize as AsteroidSize,
+    asteroidSize: r.asteroidSize,
     asteroidPrimaryResourceKey: r.asteroidPrimaryResourceKey ?? null,
     spacecraftKey: r.spacecraftKey,
-    spacecraftName: getSpacecraft(r.spacecraftKey)!.name,
-    spacecraftMiningRate: getSpacecraft(r.spacecraftKey)!.miningRate,
+    spacecraftName: requireSpacecraft(r.spacecraftKey).name,
+    spacecraftMiningRate: requireSpacecraft(r.spacecraftKey).miningRate,
     assignedAmount: r.assignedAmount,
     assignedAt: r.assignedAt.toISOString(),
     status: r.status,

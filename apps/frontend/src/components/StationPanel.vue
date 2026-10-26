@@ -6,7 +6,6 @@ import LogisticsTab from './LogisticsTab.vue';
 import FrontierTab from './FrontierTab.vue';
 import ResearchTab from './ResearchTab.vue';
 import DefenseTab from './DefenseTab.vue';
-type Section = 'buildings' | 'fleet' | 'logistics' | 'research' | 'frontier' | 'defense';
 
 const { stationId, stationName } = defineProps<{
   stationId: string;
@@ -14,6 +13,8 @@ const { stationId, stationName } = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: [] }>();
+const SECTIONS = ['buildings', 'fleet', 'logistics', 'research', 'frontier', 'defense'] as const;
+type Section = (typeof SECTIONS)[number];
 
 const selectedSection = ref<Section | null>('logistics');
 const buildingsQueueCount = ref(0);
@@ -61,8 +62,9 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
           </div>
         </div>
         <button
-          @click="emit('close')"
+          type="button"
           class="w-7 h-7 flex items-center justify-center rounded text-white/60 hover:text-white/80 hover:bg-white/5 transition text-[11px]"
+          @click="emit('close')"
         >
           ✕
         </button>
@@ -72,22 +74,16 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         class="flex items-center gap-0.5 px-4 h-8 border-b border-white/5 bg-[#040911]/60 shrink-0"
       >
         <button
-          v-for="tab in [
-            'buildings',
-            'fleet',
-            'logistics',
-            'research',
-            'frontier',
-            'defense',
-          ] as Section[]"
+          v-for="tab in SECTIONS"
           :key="tab"
-          @click="selectedSection = tab"
+          type="button"
           class="px-3 h-5 rounded text-[9px] uppercase tracking-[0.25em] transition"
           :class="
             selectedSection === tab
               ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/35'
               : 'text-white/25 hover:text-white/55 hover:bg-white/4'
           "
+          @click="selectedSection = tab"
         >
           {{ tab }}
         </button>

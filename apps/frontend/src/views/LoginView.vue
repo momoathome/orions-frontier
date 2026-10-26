@@ -1,3 +1,52 @@
+<script setup lang="ts">
+import { reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
+
+const router = useRouter();
+const authStore = useAuthStore();
+
+const form = reactive({
+  email: '',
+  password: '',
+});
+
+const errors = reactive<{ email?: string; password?: string }>({});
+const errorMessage = ref('');
+const loading = ref(false);
+
+const validate = (): boolean => {
+  errors.email = undefined;
+  errors.password = undefined;
+
+  if (!form.email) {
+    errors.email = 'Email is required.';
+  }
+  if (!form.password) {
+    errors.password = 'Password is required.';
+  }
+
+  return !errors.email && !errors.password;
+};
+
+const submit = async () => {
+  if (!validate()) return;
+
+  errorMessage.value = '';
+  loading.value = true;
+
+  try {
+    await authStore.login({ email: form.email, password: form.password });
+    await router.push('/map');
+  } catch {
+    errorMessage.value = authStore.error ?? 'Login failed. Please check your credentials.';
+  } finally {
+    loading.value = false;
+    form.password = '';
+  }
+};
+</script>
+
 <template>
   <div class="auth-wrapper">
     <div class="auth-card">
@@ -5,7 +54,7 @@
 
       <p v-if="errorMessage" class="form-error-banner">{{ errorMessage }}</p>
 
-      <form @submit.prevent="submit" novalidate>
+      <form novalidate @submit.prevent="submit">
         <div class="form-group">
           <label for="email" class="form-label">Email</label>
           <input
@@ -47,55 +96,6 @@
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import { reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
-
-const router = useRouter();
-const authStore = useAuthStore();
-
-const form = reactive({
-  email: '',
-  password: '',
-});
-
-const errors = reactive<{ email?: string; password?: string }>({});
-const errorMessage = ref('');
-const loading = ref(false);
-
-const validate = (): boolean => {
-  errors.email = undefined;
-  errors.password = undefined;
-
-  if (!form.email) {
-    errors.email = 'Email is required.';
-  }
-  if (!form.password) {
-    errors.password = 'Password is required.';
-  }
-
-  return !errors.email && !errors.password;
-};
-
-const submit = async () => {
-  if (!validate()) return;
-
-  errorMessage.value = '';
-  loading.value = true;
-
-  try {
-    await authStore.login({ email: form.email, password: form.password });
-    router.push('/map');
-  } catch {
-    errorMessage.value = authStore.error ?? 'Login failed. Please check your credentials.';
-  } finally {
-    loading.value = false;
-    form.password = '';
-  }
-};
-</script>
 
 <style scoped>
 .auth-wrapper {
