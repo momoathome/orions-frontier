@@ -60,6 +60,8 @@ export const asteroidVeins = pgTable(
     resourceKey: varchar('resource_key', { length: 64 }).$type<ResourceKey>().notNull(),
     /** Unclaimed resource units still available for new mining cycles. */
     remainingAmount: integer('remaining_amount').notNull().default(10_000),
+    /** Generated reserve; with remainingAmount it shows how far the vein is mined out. */
+    initialAmount: integer('initial_amount').notNull().default(10_000),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => [

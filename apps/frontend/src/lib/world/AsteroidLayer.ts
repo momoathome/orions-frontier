@@ -53,10 +53,11 @@ export class AsteroidLayer {
         sprite.anchor.set(0.5, 0.5);
         sprite.position.set(a.x, a.y);
 
-        // diameter = 2 * r, with a slight visual margin
-        const size = r * 2.4;
+        // diameter = 2 * r, with a slight visual margin; mined-out asteroids shrink and fade
+        const size = r * 2.4 * (0.45 + 0.55 * a.remainingFraction);
         sprite.width = size;
         sprite.height = size;
+        sprite.alpha = 0.55 + 0.45 * a.remainingFraction;
 
         // Resource-based tint for visual identity
         const tint = RESOURCE_TINT[a.primaryResourceKey];

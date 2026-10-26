@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { getMiningTripPhaseEndsAt } from '@orions-frontier/shared';
 import { calculateMiningCycle } from '../../src/lib/mining-cycle.js';
 import { calcArrivesAt } from '../../src/lib/travel.js';
 
@@ -55,5 +56,16 @@ test('rejects assignments without miners', () => {
         remainingAmount: 1000,
       }),
     /minerCount/
+  );
+});
+
+test('mining phases end at departure while mining and at arrival while flying', () => {
+  const trip = { purpose: 'mining_return', departedAt: 2_000, arrivesAt: 5_000 };
+  assert.equal(getMiningTripPhaseEndsAt(trip, 1_000), 2_000);
+  assert.equal(getMiningTripPhaseEndsAt(trip, 3_000), 5_000);
+  assert.equal(getMiningTripPhaseEndsAt(trip, 5_000), null);
+  assert.equal(
+    getMiningTripPhaseEndsAt({ purpose: 'mine', departedAt: 0, arrivesAt: 4_000 }, 1_000),
+    4_000
   );
 });

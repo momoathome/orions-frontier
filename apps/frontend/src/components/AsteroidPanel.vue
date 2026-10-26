@@ -3,16 +3,15 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { ApiError, apiClient } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import {
+  estimateMiningCycle,
   getMiningTripPhase,
+  getMiningTripPhaseEndsAt,
   type AsteroidDetail,
   type AsteroidVein,
+  type MiningCycleEstimate,
 } from '@orions-frontier/shared';
-import type {
-  StationSpacecraftsResponse,
-  StationSpacecraftWithDefinition,
-} from '@orions-frontier/shared';
-import AssignMinerModal from './AssignMinerModal.vue';
-import RecallMinerModal, { type AssignmentGroup } from './RecallMinerModal.vue';
+import AssignMinersForm from './AssignMinersForm.vue';
+import RecallMinersForm, { type AssignmentGroup } from './RecallMinersForm.vue';
 import { resourceColor, resourceName } from '../lib/mining-utils';
 
 const { asteroidId, scannerBypass, stationId } = defineProps<{
@@ -67,41 +66,21 @@ onUnmounted(() => {
   window.clearInterval(clock);
 });
 
-const showAssignModal = ref(false);
-const miners = ref<StationSpacecraftWithDefinition[]>([]);
+// Assigning and recalling happen inline in the operation column instead of in modals.
+const action = ref<'assign' | 'recall' | null>(null);
+watch(
+  () => asteroidId,
+  () => (action.value = null)
+);
 
-async function openAssignModal() {
-  if (stationId && miners.value.length === 0) {
-    const response = await apiClient.get<StationSpacecraftsResponse>(
-      `/stations/${stationId}/spacecrafts`
-    );
-    miners.value = response.spacecrafts.filter(
-      (s) =>
-        s.definition.role === 'miner' &&
-        s.definition.miningRate > 0 &&
-        s.amount - s.lockedAmount > 0
-    );
-  }
-  showAssignModal.value = true;
+function toggleAction(next: 'assign' | 'recall') {
+  action.value = action.value === next ? null : next;
 }
 
-async function onAssignDone() {
-  showAssignModal.value = false;
-  miners.value = [];
+async function onActionDone() {
+  action.value = null;
   emit('refresh');
-  await loadAsteroid(asteroidId);
-}
-
-const showRecallModal = ref(false);
-
-function openRecallModal() {
-  showRecallModal.value = true;
-}
-
-async function onRecallDone() {
-  showRecallModal.value = false;
-  emit('refresh');
-  await loadAsteroid(asteroidId);
+  await loadAsteroid(asteroidId, false);
 }
 
 type Assignment = AsteroidDetail['assignments'][number];
@@ -174,6 +153,13 @@ const totalMiningPowerRaw = computed(
 const totalRemaining = computed(
   () => asteroid.value?.veins.reduce((sum, vein) => sum + vein.remainingAmount, 0) ?? 0
 );
+const totalInitial = computed(
+  () => asteroid.value?.veins.reduce((sum, vein) => sum + vein.initialAmount, 0) ?? 0
+);
+
+function remainingPercent(remaining: number, initial: number): number {
+  return initial > 0 ? Math.min(100, Math.round((remaining / initial) * 100)) : 100;
+}
 
 const activeMinerCount = computed(
   () =>
@@ -193,17 +179,19 @@ function flightHours(assignment: Assignment): number {
   return Math.max(0, (Date.parse(trip.arrivesAt) - Date.parse(trip.departedAt)) / 3_600_000);
 }
 
-function miningHours(assignment: Assignment): number {
-  return assignment.spacecraftCargo / assignment.spacecraftMiningRate;
-}
-
-function roundTripHours(assignment: Assignment): number {
-  return 2 * flightHours(assignment) + miningHours(assignment);
+function cycle(assignment: Assignment): MiningCycleEstimate | null {
+  if (activeAmount(assignment) <= 0) return null;
+  return estimateMiningCycle({
+    oneWayTravelHours: flightHours(assignment),
+    miningRate: assignment.spacecraftMiningRate,
+    cargoCapacity: assignment.spacecraftCargo,
+    minerCount: activeAmount(assignment),
+    remainingAmount: totalRemaining.value,
+  });
 }
 
 function deliveryPerHour(assignment: Assignment): number {
-  const cycle = roundTripHours(assignment);
-  return cycle > 0 ? (assignment.spacecraftCargo * activeAmount(assignment)) / cycle : 0;
+  return cycle(assignment)?.totalDeliveryPerHour ?? 0;
 }
 
 function referenceAssignment(group: OperationGroup): Assignment | undefined {
@@ -217,12 +205,12 @@ function groupFlightHours(group: OperationGroup): number {
 
 function groupMiningHours(group: OperationGroup): number {
   const assignment = referenceAssignment(group);
-  return assignment ? miningHours(assignment) : 0;
+  return assignment ? (cycle(assignment)?.miningHours ?? 0) : 0;
 }
 
 function groupRoundTripHours(group: OperationGroup): number {
   const assignment = referenceAssignment(group);
-  return assignment ? roundTripHours(assignment) : 0;
+  return assignment ? (cycle(assignment)?.roundTripHours ?? 0) : 0;
 }
 
 function groupLoad(group: OperationGroup): number {
@@ -255,9 +243,14 @@ function phaseLabel(assignment: Assignment): string {
 function phaseDeadline(assignment: Assignment): number | null {
   const trip = assignment.activeTrip;
   if (!trip) return null;
-  return phaseLabel(assignment) === 'MINING'
-    ? Date.parse(trip.departedAt)
-    : Date.parse(trip.arrivesAt);
+  return getMiningTripPhaseEndsAt(
+    {
+      purpose: trip.purpose,
+      departedAt: Date.parse(trip.departedAt),
+      arrivesAt: Date.parse(trip.arrivesAt),
+    },
+    now.value
+  );
 }
 
 function phaseDescription(assignment: Assignment): string {
@@ -388,10 +381,14 @@ function formatCoord(n: number) {
           </span>
         </div>
         <div class="flex items-center gap-5">
-          <div v-if="asteroid && asteroid.veins.length > 1" class="flex items-baseline gap-2">
-            <span class="text-[10px] text-white/40 uppercase tracking-[0.16em]">Total reserve</span>
+          <div v-if="asteroid" class="flex items-baseline gap-2">
+            <span class="text-[10px] text-white/40 uppercase tracking-[0.16em]">Reserve</span>
             <span class="text-[16px] font-semibold text-white/85 tabular-nums">
               {{ totalRemaining.toLocaleString('de-DE') }}
+            </span>
+            <span class="text-[11px] text-white/40 tabular-nums">
+              / {{ totalInitial.toLocaleString('de-DE') }} ·
+              {{ remainingPercent(totalRemaining, totalInitial) }}% left
             </span>
           </div>
           <button
@@ -438,25 +435,42 @@ function formatCoord(n: number) {
                 class="w-1 self-stretch rounded-full shrink-0"
                 :style="`background:${resourceColor(vein.resourceKey)}`"
               />
-              <div class="flex items-center justify-between gap-4 min-w-0 flex-1">
-                <div class="flex items-baseline gap-3 min-w-0">
-                  <span
-                    class="text-[14px] font-medium"
-                    :style="`color:${resourceColor(vein.resourceKey)}`"
-                  >
-                    {{ resourceName(vein.resourceKey) }}
-                  </span>
-                  <span
-                    class="text-[10px] text-white/40 uppercase tracking-[0.14em] whitespace-nowrap"
-                  >
-                    {{ VEIN_TYPE_LABELS[vein.veinType] }}
-                  </span>
+              <div class="flex flex-col gap-1.5 min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-4 min-w-0">
+                  <div class="flex items-baseline gap-3 min-w-0">
+                    <span
+                      class="text-[14px] font-medium"
+                      :style="`color:${resourceColor(vein.resourceKey)}`"
+                    >
+                      {{ resourceName(vein.resourceKey) }}
+                    </span>
+                    <span
+                      class="text-[10px] text-white/40 uppercase tracking-[0.14em] whitespace-nowrap"
+                    >
+                      {{ VEIN_TYPE_LABELS[vein.veinType] }}
+                    </span>
+                  </div>
+                  <div class="flex items-baseline gap-2 shrink-0">
+                    <span class="text-[17px] text-white/85 tabular-nums font-semibold">
+                      {{ vein.remainingAmount.toLocaleString('de-DE') }}
+                    </span>
+                    <span class="text-[10px] text-white/40 uppercase tracking-wide">
+                      / {{ vein.initialAmount.toLocaleString('de-DE') }}
+                    </span>
+                  </div>
                 </div>
-                <div class="flex items-baseline gap-2 shrink-0">
-                  <span class="text-[17px] text-white/85 tabular-nums font-semibold">
-                    {{ vein.remainingAmount.toLocaleString('de-DE') }}
-                  </span>
-                  <span class="text-[10px] text-white/40 uppercase tracking-wide">remaining</span>
+                <div
+                  class="h-1 rounded-full bg-white/8 overflow-hidden"
+                  role="meter"
+                  :aria-valuenow="remainingPercent(vein.remainingAmount, vein.initialAmount)"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  :aria-label="`${resourceName(vein.resourceKey)} reserve left`"
+                >
+                  <div
+                    class="h-full rounded-full transition-[width] duration-700"
+                    :style="`width:${remainingPercent(vein.remainingAmount, vein.initialAmount)}%;background:${resourceColor(vein.resourceKey)}`"
+                  />
                 </div>
               </div>
             </div>
@@ -465,11 +479,25 @@ function formatCoord(n: number) {
 
         <!-- Mining operation -->
         <div class="flex flex-col gap-3 border-l border-white/8 pl-5 overflow-y-auto">
-          <span class="text-[10px] text-white/45 uppercase tracking-[0.18em]">
+          <AssignMinersForm
+            v-if="action === 'assign' && stationId"
+            :asteroid-id="asteroidId"
+            :station-id="stationId"
+            @cancel="action = null"
+            @done="onActionDone"
+          />
+          <RecallMinersForm
+            v-else-if="action === 'recall'"
+            :own-groups="ownGroups"
+            :asteroid-id="asteroidId"
+            @cancel="action = null"
+            @done="onActionDone"
+          />
+          <span v-else class="text-[10px] text-white/45 uppercase tracking-[0.18em]">
             Mining operation
           </span>
 
-          <template v-if="asteroid.operationsVisible && asteroid.assignments.length > 0">
+          <template v-if="!action && asteroid.operationsVisible && asteroid.assignments.length > 0">
             <div class="flex items-baseline justify-between gap-3 text-[11px]">
               <span class="text-white/55">
                 {{ activeMinerCount }} {{ activeMinerCount === 1 ? 'miner' : 'miners' }} ·
@@ -581,7 +609,10 @@ function formatCoord(n: number) {
             </div>
           </template>
 
-          <div v-else class="flex flex-1 flex-col items-center justify-center text-center px-8">
+          <div
+            v-else-if="!action"
+            class="flex flex-1 flex-col items-center justify-center text-center px-8"
+          >
             <span class="text-[11px] text-white/55 uppercase tracking-[0.14em]">
               No local mining telemetry
             </span>
@@ -598,7 +629,9 @@ function formatCoord(n: number) {
           v-if="stationId"
           type="button"
           class="px-4 h-8 rounded text-[11px] uppercase tracking-[0.12em] text-cyan-300 border border-cyan-400/45 hover:bg-cyan-400/12 hover:border-cyan-400/70 transition font-semibold"
-          @click="openAssignModal"
+          :class="action === 'assign' ? 'bg-cyan-400/12 border-cyan-400/70' : ''"
+          :aria-pressed="action === 'assign'"
+          @click="toggleAction('assign')"
         >
           ⊕ {{ ownGroups.length > 0 ? 'Assign More' : 'Assign Miner' }}
         </button>
@@ -614,7 +647,9 @@ function formatCoord(n: number) {
           v-if="ownGroups.length > 0"
           type="button"
           class="px-4 h-8 rounded text-[11px] uppercase tracking-[0.12em] text-red-300 border border-red-400/40 hover:bg-red-400/12 hover:border-red-400/65 transition font-semibold"
-          @click="openRecallModal()"
+          :class="action === 'recall' ? 'bg-red-400/12 border-red-400/65' : ''"
+          :aria-pressed="action === 'recall'"
+          @click="toggleAction('recall')"
         >
           ↩ Recall
         </button>
@@ -632,26 +667,5 @@ function formatCoord(n: number) {
         </div>
       </div>
     </div>
-
-    <!-- Modals -->
-    <AssignMinerModal
-      v-if="asteroid && stationId"
-      :show="showAssignModal"
-      :miners="miners"
-      :asteroid="asteroid"
-      :asteroid-id="asteroidId"
-      :station-id="stationId"
-      @close="showAssignModal = false"
-      @done="onAssignDone"
-    />
-
-    <RecallMinerModal
-      v-if="stationId && asteroid"
-      :show="showRecallModal"
-      :own-groups="ownGroups"
-      :asteroid-id="asteroidId"
-      @close="showRecallModal = false"
-      @done="onRecallDone"
-    />
   </div>
 </template>

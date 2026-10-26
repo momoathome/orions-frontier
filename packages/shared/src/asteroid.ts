@@ -10,6 +10,8 @@ export interface AsteroidVein {
   resourceKey: ResourceKey;
   /** Resource units not yet committed to a mining cycle. */
   remainingAmount: number;
+  /** Generated reserve of this vein. */
+  initialAmount: number;
 }
 
 export interface Asteroid {
@@ -33,6 +35,8 @@ export interface VisibleAsteroid {
   size: AsteroidSize;
   /** Primary vein resource — used for map color rendering */
   primaryResourceKey: ResourceKey;
+  /** Remaining share of the generated reserve (0–1); the map shrinks mined-out asteroids. */
+  remainingFraction: number;
 }
 
 export interface AsteroidDetailAssignment {
