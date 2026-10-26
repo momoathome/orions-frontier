@@ -32,11 +32,13 @@ export interface VisibleAsteroid {
   y: number;
   chunkX: number;
   chunkY: number;
-  size: AsteroidSize;
+  /** False outside scanner coverage: only the position is known, details below are null. */
+  scanned: boolean;
+  size: AsteroidSize | null;
   /** Primary vein resource — used for map color rendering */
-  primaryResourceKey: ResourceKey;
+  primaryResourceKey: ResourceKey | null;
   /** Remaining share of the generated reserve (0–1); the map shrinks mined-out asteroids. */
-  remainingFraction: number;
+  remainingFraction: number | null;
 }
 
 export interface AsteroidDetailAssignment {
@@ -61,7 +63,10 @@ export interface AsteroidDetailAssignment {
   } | null;
 }
 
-export interface AsteroidDetail extends Asteroid {
+export interface AsteroidDetail extends Omit<Asteroid, 'size'> {
+  /** False outside scanner coverage: size and veins stay unknown until own miners work it. */
+  scanned: boolean;
+  size: AsteroidSize | null;
   veins: AsteroidVein[];
   /** Exact operations are visible only while the requesting player has ships here. */
   operationsVisible: boolean;

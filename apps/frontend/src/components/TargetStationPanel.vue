@@ -99,7 +99,10 @@ async function attack() {
 
       <div class="flex flex-col gap-2 border-l border-white/5 pl-5">
         <span class="text-[9px] uppercase tracking-[0.3em] text-white/20">Actions</span>
-        <template v-if="fighters.length > 0">
+        <p v-if="!station.scanned" class="text-[9px] leading-relaxed text-white/35">
+          Outside scanner range. Upgrade a scanner or found a station nearby to target it.
+        </p>
+        <template v-else-if="fighters.length > 0">
           <select
             v-model="selectedSpacecraftKey"
             class="h-7 rounded border border-white/10 bg-[#080d18] px-2 text-[10px] text-white/70"

@@ -1,6 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { calculateScannerRange } from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
+import { asteroidAssignments } from '../lib/db/schema/asteroids.js';
+import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stations } from '../lib/db/schema/stations.js';
 
@@ -27,7 +29,7 @@ export interface VisibilityProjectionStats {
   debrisCandidates?: number;
 }
 
-type ScannerDb = Pick<ReturnType<typeof getDb>, 'select'>;
+type ScannerDb = Pick<ReturnType<typeof getDb>, 'select' | 'selectDistinct'>;
 
 export async function getUserScannerCoverages(
   userId: string,
@@ -53,6 +55,26 @@ export async function getUserScannerCoverages(
     y: row.y,
     range: calculateScannerRange(row.level),
   }));
+}
+
+/** Asteroids outside scanner coverage that the user's own miners have already worked. */
+export async function getUserRevealedAsteroidIds(
+  userId: string,
+  db: ScannerDb = getDb()
+): Promise<Set<string>> {
+  const rows = await db
+    .selectDistinct({ asteroidId: asteroidAssignments.asteroidId })
+    .from(asteroidAssignments)
+    .innerJoin(stations, eq(stations.id, asteroidAssignments.stationId))
+    .innerJoin(
+      spacecraftTrips,
+      and(
+        eq(spacecraftTrips.assignmentId, asteroidAssignments.id),
+        eq(spacecraftTrips.purpose, 'mining_return')
+      )
+    )
+    .where(eq(stations.userId, userId));
+  return new Set(rows.map((row) => row.asteroidId));
 }
 
 export function isPointVisible(coverages: readonly ScannerCoverage[], point: WorldPoint): boolean {

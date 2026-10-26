@@ -25,7 +25,13 @@ const assigning = ref(false);
 const previewLoading = ref(false);
 const previewError = ref<string | null>(null);
 
-type MiningPreview = MiningCycleEstimate & { distance: number; remainingAmount: number };
+/** Reserve fields are null for unscanned asteroids (blind mining). */
+type MiningPreview = Omit<MiningCycleEstimate, 'estimatedDepletionHours' | 'finalBatchAmount'> & {
+  distance: number;
+  remainingAmount: number | null;
+  estimatedDepletionHours: number | null;
+  finalBatchAmount: number | null;
+};
 const preview = ref<MiningPreview | null>(null);
 
 async function loadMiners() {
@@ -224,7 +230,9 @@ async function submit() {
           <div class="flex flex-col gap-0.5">
             <span class="text-white/35">Depletion</span>
             <span class="text-amber-300/85">{{
-              formatDuration(preview.estimatedDepletionHours)
+              preview.estimatedDepletionHours === null
+                ? 'Unknown'
+                : formatDuration(preview.estimatedDepletionHours)
             }}</span>
           </div>
         </div>

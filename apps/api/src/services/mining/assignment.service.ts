@@ -7,7 +7,6 @@ import { stations } from '../../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import type { AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
-import { getUserScannerCoverages, isPointVisible } from '../scanner-visibility.service.js';
 import { getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';
 import { applyVectorNavigation } from '../research-effects.js';
 import {
@@ -50,7 +49,8 @@ export const createAsteroidAssignment = async (
     return { code: 'INVALID_AMOUNT', message: 'assignedAmount must be a positive integer' };
   }
 
-  const [[station], [asteroid], coverages] = await Promise.all([
+  // Unscanned asteroids may be mined blind; the scanner only limits what the player knows.
+  const [[station], [asteroid]] = await Promise.all([
     db
       .select({ id: stations.id, x: stations.x, y: stations.y })
       .from(stations)
@@ -61,10 +61,9 @@ export const createAsteroidAssignment = async (
       .from(asteroids)
       .where(eq(asteroids.id, asteroidId))
       .limit(1),
-    getUserScannerCoverages(userId),
   ]);
   if (!station) return { code: 'STATION_NOT_FOUND', message: 'Station not found' };
-  if (!asteroid || !isPointVisible(coverages, asteroid)) {
+  if (!asteroid) {
     return { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' };
   }
 
@@ -109,10 +108,6 @@ export const createAsteroidAssignment = async (
       .where(eq(asteroids.id, asteroidId))
       .for('update');
     if (!lockedAsteroid) return { kind: 'asteroid_missing' } as const;
-    const currentCoverages = await getUserScannerCoverages(userId, tx);
-    if (!isPointVisible(currentCoverages, lockedAsteroid)) {
-      return { kind: 'asteroid_missing' } as const;
-    }
 
     const [locked] = await tx
       .update(stationSpacecrafts)

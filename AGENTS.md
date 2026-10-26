@@ -7,22 +7,6 @@ decisions; the game automates execution and offline progress. Prefer a complete,
 player-facing loop over a broader simulation or content catalog. Add systems only for a demonstrated
 gameplay need.
 
-## Before Changing Behavior
-
-Use `README.md` for setup and workspace commands. Before changing a domain rule, read only the
-affected contract in `docs/`. Do not preload unrelated documentation. Update the contract when its
-rules or invariants change.
-
-## Boundaries
-
-- `apps/api` owns authoritative game rules, simulation, visibility, and persistence. Routes
-  authenticate and validate input, then delegate to services.
-- `apps/frontend` presents server state and player choices. It is not a security or game-rule
-  boundary.
-- `packages/shared` contains contracts shared across workspaces; `packages/game-config` contains
-  canonical game definitions and balancing values. Do not duplicate either in an app.
-- Follow existing ESM imports; relative TypeScript imports use `.js`.
-
 ## Invariants
 
 - PostgreSQL is the source of truth. Persistent state transitions must be atomic under concurrency.

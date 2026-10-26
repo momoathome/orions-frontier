@@ -254,7 +254,7 @@ export async function loadGoalBotState(
     { minChunkX: Infinity, maxChunkX: -Infinity, minChunkY: Infinity, maxChunkY: -Infinity }
   );
   const conflictDiagnostics = { now, protectedOwnerIds: new Set<string>() };
-  const [asteroidRows, debrisRows, visibleStations, combatReports] = await Promise.all([
+  const [asteroidRows, debrisRows, viewStations, combatReports] = await Promise.all([
     coverageBounds.length > 0
       ? db
           .select({
@@ -299,6 +299,9 @@ export async function loadGoalBotState(
       since: new Date(now.getTime() - 30 * 24 * 3_600_000),
     }),
   ]);
+
+  // Bots act only on scanned stations; the map projection also lists unscanned ones.
+  const visibleStations = viewStations.filter((station) => station.scanned);
 
   const visibleAsteroidsMap = new Map<
     string,

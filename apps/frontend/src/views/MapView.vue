@@ -347,7 +347,7 @@ watch(canBypassScanner, (allowed) => {
       "
       @click.stop="toggleScannerBypass"
     >
-      Scanner {{ scannerBypass ? 'aus' : 'an' }}
+      Scanner {{ scannerBypass ? 'off' : 'on' }}
     </button>
 
     <div
@@ -355,13 +355,13 @@ watch(canBypassScanner, (allowed) => {
       class="absolute top-12 right-4 z-10 flex items-center gap-3 rounded border border-white/8 bg-[#080d18]/75 px-2.5 py-1.5 text-[8px] uppercase tracking-wider text-white/45 backdrop-blur-sm pointer-events-none"
     >
       <span class="flex items-center gap-1.5"
-        ><i class="w-1.5 h-1.5 rounded-full bg-[#44aaff]" />Hinflug</span
+        ><i class="w-1.5 h-1.5 rounded-full bg-[#44aaff]" />Outbound</span
       >
       <span class="flex items-center gap-1.5"
-        ><i class="w-1.5 h-1.5 rounded-full bg-[#ffcc44] animate-pulse" />Abbau</span
+        ><i class="w-1.5 h-1.5 rounded-full bg-[#ffcc44] animate-pulse" />Mining</span
       >
       <span class="flex items-center gap-1.5"
-        ><i class="w-1.5 h-1.5 rounded-full bg-[#ff8a22]" />Rückflug</span
+        ><i class="w-1.5 h-1.5 rounded-full bg-[#ff8a22]" />Returning</span
       >
     </div>
 

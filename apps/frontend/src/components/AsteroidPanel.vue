@@ -341,6 +341,11 @@ const panelAccentColor = computed(() =>
   primaryVein.value ? resourceColor(primaryVein.value.resourceKey) : '#00c8ff'
 );
 
+const headerTitle = computed(() => {
+  if (primaryVein.value) return resourceName(primaryVein.value.resourceKey).toUpperCase();
+  return asteroid.value?.scanned === false ? 'UNSCANNED' : '—';
+});
+
 function formatCoord(n: number) {
   return n.toFixed(1);
 }
@@ -372,17 +377,17 @@ function formatCoord(n: number) {
           />
           <span class="text-[10px] text-white/45 uppercase tracking-[0.2em]">Asteroid</span>
           <span class="text-[15px] font-semibold tracking-wider text-white/90">
-            {{ primaryVein ? resourceName(primaryVein.resourceKey).toUpperCase() : '—' }}
+            {{ headerTitle }}
           </span>
           <span v-if="asteroid" class="text-[10px] text-white/40 tracking-wider uppercase">
-            {{ SIZE_LABELS[asteroid.size] ?? asteroid.size }}
+            {{ asteroid.size ? (SIZE_LABELS[asteroid.size] ?? asteroid.size) : 'Unknown size' }}
           </span>
           <span v-if="asteroid" class="text-[10px] text-white/30 tracking-wider">
             #{{ asteroid.id.slice(0, 6) }}
           </span>
         </div>
         <div class="flex items-center gap-5">
-          <div v-if="asteroid" class="flex items-baseline gap-2">
+          <div v-if="asteroid?.scanned" class="flex items-baseline gap-2">
             <span class="text-[10px] text-white/40 uppercase tracking-[0.16em]">Reserve</span>
             <span class="text-[16px] font-semibold text-white/85 tabular-nums">
               {{ totalRemaining.toLocaleString('de-DE') }}
@@ -420,7 +425,11 @@ function formatCoord(n: number) {
         <!-- Resources -->
         <div class="flex flex-col gap-3 min-w-0 overflow-y-auto pr-1">
           <span class="text-[10px] text-white/45 uppercase tracking-[0.18em]">Resources</span>
-          <div v-if="asteroid.veins.length === 0" class="text-[12px] text-white/40">
+          <div v-if="!asteroid.scanned" class="text-[12px] leading-relaxed text-white/45">
+            Outside scanner range. Composition and reserve are unknown until your miners return
+            their first cargo — or upgrade the scanner to bring it into range.
+          </div>
+          <div v-else-if="asteroid.veins.length === 0" class="text-[12px] text-white/40">
             No veins detected
           </div>
           <div
@@ -604,7 +613,7 @@ function formatCoord(n: number) {
               <div class="rounded border border-white/8 bg-white/2.5 px-3 py-2">
                 <span class="block text-[10px] text-white/40 mb-1">Estimated depletion</span>
                 <span class="text-[12px] text-amber-200/75 tabular-nums font-semibold">
-                  {{ formatDuration(estimatedDepletionHours) }}
+                  {{ asteroid.scanned ? formatDuration(estimatedDepletionHours) : 'Unknown' }}
                 </span>
               </div>
             </div>

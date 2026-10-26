@@ -4,7 +4,11 @@ import { after, before, test } from 'node:test';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { asteroids, asteroidVeins } from '../../src/lib/db/schema/asteroids.js';
+import {
+  asteroidAssignments,
+  asteroids,
+  asteroidVeins,
+} from '../../src/lib/db/schema/asteroids.js';
 import { debrisFields } from '../../src/lib/db/schema/debris-fields.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
@@ -21,6 +25,7 @@ import {
   startSalvage,
 } from '../../src/services/salvage.service.js';
 import { getUserScannerCoverages } from '../../src/services/scanner-visibility.service.js';
+import { starterStationVisualProfile } from '../../src/services/station-visual.service.js';
 import {
   getVisibleChunkStations,
   getVisibleWorldMovements,
@@ -204,7 +209,12 @@ before(async () => {
 
 after(async () => {
   const db = getDb();
-  await db.delete(spacecraftTrips).where(eq(spacecraftTrips.id, tripId));
+  await db
+    .delete(spacecraftTrips)
+    .where(inArray(spacecraftTrips.stationSpacecraftId, [viewerFleetId, targetFleetId]));
+  await db
+    .delete(asteroidAssignments)
+    .where(inArray(asteroidAssignments.asteroidId, [visibleAsteroidId, hiddenAsteroidId]));
   await db.delete(debrisFields).where(eq(debrisFields.sectorId, sectorId));
   await db.delete(asteroids).where(eq(asteroids.sectorId, sectorId));
   await db
@@ -232,30 +242,41 @@ test('each station keeps its own scanner range', async () => {
   );
 });
 
-test('static world lists and details share the same circular visibility', async () => {
+test('the map lists everything while the scanner decides the detail level', async () => {
   const coverages = await getUserScannerCoverages(viewerId);
-  const [visibleAsteroids, visibleStations, visibleDebris] = await Promise.all([
+  const [listedAsteroids, listedStations, visibleDebris] = await Promise.all([
     getVisibleChunkAsteroids(range, coverages),
     getVisibleChunkStations(range, viewerId, coverages),
     getVisibleDebris(range, coverages),
   ]);
 
-  assert.equal(
-    visibleAsteroids.some(({ id }) => id === visibleAsteroidId),
-    true
+  const scannedAsteroid = listedAsteroids.find(({ id }) => id === visibleAsteroidId);
+  assert.equal(scannedAsteroid?.scanned, true);
+  assert.equal(scannedAsteroid.size, 'small');
+  assert.equal(scannedAsteroid.primaryResourceKey, 'carbon');
+  assert.deepEqual(
+    listedAsteroids.find(({ id }) => id === hiddenAsteroidId),
+    {
+      id: hiddenAsteroidId,
+      x: 2_100,
+      y: 0,
+      chunkX: 2,
+      chunkY: 0,
+      scanned: false,
+      size: null,
+      primaryResourceKey: null,
+      remainingFraction: null,
+    }
   );
-  assert.equal(
-    visibleAsteroids.some(({ id }) => id === hiddenAsteroidId),
-    false
-  );
-  assert.equal(
-    visibleStations.some(({ id }) => id === visibleTargetStationId),
-    true
-  );
-  assert.equal(
-    visibleStations.some(({ id }) => id === hiddenTargetStationId),
-    false
-  );
+
+  const scannedStation = listedStations.find(({ id }) => id === visibleTargetStationId);
+  const unscannedStation = listedStations.find(({ id }) => id === hiddenTargetStationId);
+  assert.equal(scannedStation?.scanned, true);
+  assert.equal(unscannedStation?.scanned, false);
+  assert.equal(unscannedStation.name, 'Hidden Target');
+  assert.equal(unscannedStation.ownerType, 'player');
+  assert.deepEqual(unscannedStation.visualProfile, starterStationVisualProfile());
+
   assert.equal(
     visibleDebris.some(({ id }) => id === visibleDebrisId),
     true
@@ -264,23 +285,53 @@ test('static world lists and details share the same circular visibility', async 
     visibleDebris.some(({ id }) => id === hiddenDebrisId),
     false
   );
-  assert.ok(await getAsteroidById(visibleAsteroidId, viewerId));
-  assert.equal(await getAsteroidById(hiddenAsteroidId, viewerId), null);
+
+  assert.equal((await getAsteroidById(visibleAsteroidId, viewerId))?.veins.length, 1);
+  const hiddenDetail = await getAsteroidById(hiddenAsteroidId, viewerId);
+  assert.equal(hiddenDetail?.scanned, false);
+  assert.equal(hiddenDetail.size, null);
+  assert.deepEqual(hiddenDetail.veins, []);
   assert.ok(await getDebrisById(visibleDebrisId, viewerId));
   assert.equal(await getDebrisById(hiddenDebrisId, viewerId), null);
 });
 
-test('direct action ids cannot bypass scanner visibility', async () => {
-  assert.deepEqual(
-    await createAsteroidAssignment({
-      userId: viewerId,
-      stationId: viewerStationId,
-      asteroidId: hiddenAsteroidId,
-      spacecraftKey: 'mole',
-      assignedAmount: 1,
-    }),
-    { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' }
-  );
+test('blind mining reveals an unscanned asteroid once the first cargo heads home', async () => {
+  const created = await createAsteroidAssignment({
+    userId: viewerId,
+    stationId: viewerStationId,
+    asteroidId: hiddenAsteroidId,
+    spacecraftKey: 'mole',
+    assignedAmount: 1,
+  });
+  assert.ok('id' in created);
+  assert.equal((await getAsteroidById(hiddenAsteroidId, viewerId))?.scanned, false);
+
+  await getDb()
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId: viewerFleetId,
+      assignmentId: created.id,
+      groupSize: 1,
+      fromType: 'asteroid',
+      fromId: hiddenAsteroidId,
+      fromX: 2_100,
+      fromY: 0,
+      toType: 'station',
+      toId: viewerStationId,
+      toX: 0,
+      toY: 0,
+      departedAt: now,
+      arrivesAt: new Date(now.getTime() + 60_000),
+      purpose: 'mining_return',
+    });
+
+  const revealed = await getAsteroidById(hiddenAsteroidId, viewerId);
+  assert.equal(revealed?.scanned, true);
+  assert.equal(revealed.veins.length, 1);
+  assert.equal((await getAsteroidById(hiddenAsteroidId, targetId))?.scanned, false);
+});
+
+test('salvage and attacks still require scanner coverage', async () => {
   await assert.rejects(
     startSalvage({
       userId: viewerId,

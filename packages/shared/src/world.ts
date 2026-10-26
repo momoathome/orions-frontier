@@ -24,6 +24,8 @@ export interface VisibleStation {
   ownerType: 'player' | 'bot';
   ownerId: string;
   isOwn: boolean;
+  /** False outside scanner coverage: the visual profile is a neutral placeholder. */
+  scanned: boolean;
   visualProfile: StationVisualProfile;
 }
 
