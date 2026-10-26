@@ -1,0 +1,3 @@
+#!/bin/sh
+# Installed by `npm install` via core.hooksPath; bypass once with `git commit --no-verify`.
+exec npm run check

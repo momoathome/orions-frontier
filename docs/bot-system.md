@@ -42,8 +42,17 @@ Score-Funktion. Die Kandidatenerzeugung und -bewertung ist dokumentiert in
 | Technokrat    |          1,5 |        1,0 |                 0,9 |               0,8 |
 | Warlord       |          0,9 |        0,7 |                 0,8 |               1,5 |
 
-Jedes Profil kann Ziele aller Kategorien wählen; die Kategoriegewichte bevorzugen jedoch den
-jeweiligen Spielstil.
+Jedes Profil kann Ziele aller Kategorien wählen. Die Kategoriegewichte des Profils sind nur
+Startgewichte; jeder Bot lernt eigene Gewichte (`bot_controllers.category_weights`, `null` =
+Startgewichte):
+
+- abgeschlossenes Ziel: Kategorie +0,10
+- Ziel nach fünf `blocked`-Intervallen freigegeben: Kategorie −0,15
+- jedes `saving`-Intervall des aktiven Ziels: Kategorie −0,03
+- danach rückt jede Kategorie pro Entscheidung 2 % zurück zum Startgewicht; Grenzen 0,4–2,0
+
+So verdrängen Bedarf und Gelegenheit (`baseNeed`, `opportunity`) ein stagnierendes Ziel, ohne dass
+das Profil seinen Spielstil verliert.
 
 ### Elf Zieltypen
 
@@ -65,7 +74,9 @@ jeweiligen Spielstil.
 
 Ein aktives Ziel bleibt gebunden, bis ein anderes Ziel mindestens 25 % höher bewertet wird,
 das Ziel abgeschlossen ist oder fünf aufeinanderfolgende Entscheidungsintervalle `blocked` waren.
-`saving` und `waiting` behalten das Ziel und gelten nicht als Fortschritt oder Blockade.
+`saving` und `waiting` behalten das Ziel und gelten nicht als Fortschritt oder Blockade. Das aktive
+Ziel erhält einen Commitment-Bonus von 25 Punkten, der ohne Fortschritt binnen 30 Minuten auf 0
+abklingt; Fortschritt eines früheren Ziels zählt nicht.
 
 ### Mehrere Stationen
 

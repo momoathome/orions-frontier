@@ -36,6 +36,17 @@ const toStation = (
   createdAt: row.createdAt.toISOString(),
 });
 
+/** Returns the station id when it belongs to the user, otherwise throws NOT_FOUND. */
+export const ownStation = async (userId: string, stationId: string): Promise<string> => {
+  const [station] = await getDb()
+    .select({ id: stations.id })
+    .from(stations)
+    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
+    .limit(1);
+  if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+  return station.id;
+};
+
 export const getUserStations = async (userId: string): Promise<Station[]> => {
   const db = getDb();
   const [rows, coverages] = await Promise.all([

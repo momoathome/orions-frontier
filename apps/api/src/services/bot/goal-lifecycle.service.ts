@@ -3,7 +3,7 @@ import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 import { COLONIZATION_COST, getSpacecraft } from '@orions-frontier/game-config';
 import type { GoalBotState, StationSnapshot } from './goal-state.js';
 import { selectGoal } from './goal-driven-v1.js';
-import type { GoalCandidate } from './goal-driven-v1.js';
+import type { CategoryWeights, GoalCandidate } from './goal-driven-v1.js';
 import { goalTypes } from '../../lib/db/schema/bot-controllers.js';
 import type { BotIntent } from './bot-intent.js';
 import {
@@ -367,7 +367,9 @@ export async function determineNextStep(
 export async function selectGoalForState(
   state: GoalBotState,
   profile: BotProfile,
-  activeGoal: { goalType: string; targetRef: string } | null
+  activeGoal: { goalType: string; targetRef: string } | null,
+  weights?: CategoryWeights,
+  activeCommitment = 25
 ): Promise<{
   selected: GoalCandidate | null;
   reason: string;
@@ -383,9 +385,11 @@ export async function selectGoalForState(
       (candidate) =>
         candidate.goalType === typedActive.goalType && candidate.targetRef === typedActive.targetRef
     );
-    if (activeCandidate) activeCandidate.commitment = Math.max(activeCandidate.commitment, 25);
+    if (activeCandidate) {
+      activeCandidate.commitment = Math.max(activeCandidate.commitment, activeCommitment);
+    }
   }
-  const result = selectGoal(candidates, profile, typedActive);
+  const result = selectGoal(candidates, profile, typedActive, weights);
   const activeCandidateFound =
     typedActive !== null &&
     candidates.some(

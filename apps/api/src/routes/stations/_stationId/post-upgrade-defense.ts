@@ -1,10 +1,8 @@
 import { z } from 'zod';
-import { and, eq } from 'drizzle-orm';
 import { authenticate } from '../../../middleware/auth.js';
-import { getDb } from '../../../lib/db/index.js';
-import { stations } from '../../../lib/db/schema/stations.js';
+import { ownStation } from '../../../services/station.service.js';
 import { startDefenseUpgrade } from '../../../services/defense.service.js';
-import { AppError, defenseUpgradeKeys, ErrorCode } from '@orions-frontier/shared';
+import { defenseUpgradeKeys } from '@orions-frontier/shared';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 export default defineRoute(async (app) => {
@@ -17,15 +15,9 @@ export default defineRoute(async (app) => {
     async (request) => {
       const { stationId, upgradeKey } = request.params;
 
-      const [station] = await getDb()
-        .select({ id: stations.id })
-        .from(stations)
-        .where(and(eq(stations.id, stationId), eq(stations.userId, request.user.userId)))
-        .limit(1);
+      const ownedStationId = await ownStation(request.user.userId, stationId);
 
-      if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-
-      return startDefenseUpgrade(station.id, upgradeKey, request.user.userId);
+      return startDefenseUpgrade(ownedStationId, upgradeKey, request.user.userId);
     }
   );
 });

@@ -6,6 +6,7 @@ import LogisticsTab from './LogisticsTab.vue';
 import FrontierTab from './FrontierTab.vue';
 import ResearchTab from './ResearchTab.vue';
 import DefenseTab from './DefenseTab.vue';
+import LogbookTab from './LogbookTab.vue';
 
 const { stationId, stationName } = defineProps<{
   stationId: string;
@@ -13,7 +14,15 @@ const { stationId, stationName } = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: [] }>();
-const SECTIONS = ['buildings', 'fleet', 'logistics', 'research', 'frontier', 'defense'] as const;
+const SECTIONS = [
+  'buildings',
+  'fleet',
+  'logistics',
+  'research',
+  'frontier',
+  'defense',
+  'logbook',
+] as const;
 type Section = (typeof SECTIONS)[number];
 
 const selectedSection = ref<Section | null>('logistics');
@@ -125,6 +134,11 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
       />
       <DefenseTab
         v-if="selectedSection === 'defense'"
+        :station-id="stationId"
+        class="flex-1 overflow-hidden"
+      />
+      <LogbookTab
+        v-if="selectedSection === 'logbook'"
         :station-id="stationId"
         class="flex-1 overflow-hidden"
       />
