@@ -5,6 +5,16 @@ Vertrag, Architekturübersicht und Abnahmenachweis.
 
 ## Ziel
 
+> **Änderung 27. Oktober 2026:** Asteroiden und Stationen sind auf der Karte immer sichtbar. Der
+> Scanner bestimmt nur noch ihren Detailgrad. Außerhalb der Abdeckung liefert der Server für
+> Asteroiden nur die Position (`scanned: false`, Größe, Ressource und Reserve `null`) und für
+> fremde Stationen Name, Position und Besitzerart mit neutralem Starterprofil. Miner dürfen
+> unscannte Asteroiden blind anfliegen; Zusammensetzung und Reserve werden für den Spieler sichtbar,
+> sobald eine eigene Zuweisung dort ihre erste Ladung (`mining_return`) auf den Rückweg geschickt
+> hat. Trümmerfelder, fremde Bewegungen, Bergung und Angriffe bleiben an die Scannerabdeckung
+> gebunden. Die folgenden Abschnitte beschreiben weiterhin die Kreisregel, die jetzt „gescannt“
+> statt „sichtbar“ bedeutet.
+
 Sichtbarkeit wird ausschließlich räumlich bestimmt. Jede Station erzeugt entsprechend ihrem eigenen
 Scannerlevel einen kreisförmigen Erfassungsbereich in Weltkoordinaten. Der Spieler sieht die
 Vereinigung der Erfassungsbereiche aller eigenen Stationen.
@@ -53,14 +63,14 @@ Die Werte sind ein Balancing-Knopf. Die Architektur darf nicht von den konkreten
 
 ## Sichtbarkeit nach Objekttyp
 
-| Objekt                  | Fremd/neutral                         | Eigen           | Öffentliche Daten innerhalb des Radars                  |
-| ----------------------- | ------------------------------------- | --------------- | ------------------------------------------------------- |
-| Asteroid                | nur im Scannerkreis                   | nicht anwendbar | Position, Größe, Adern und Restmengen                   |
-| Station                 | nur im Scannerkreis                   | immer           | Name, Position, Besitzerart, grobe visuelle Signatur    |
-| Trümmerfeld             | nur im Scannerkreis                   | nicht anwendbar | Position und verwertbare Ressourcen                     |
-| Raumflug                | aktuelle Position nur im Scannerkreis | immer           | Signatur, Bewegungsrichtung; keine entfernten Endpunkte |
-| Mining-Gruppe           | aktuelle Position nur im Scannerkreis | eigene immer    | wie Raumflug                                            |
-| Expedition/Kolonisation | aktuelle Position nur im Scannerkreis | eigene immer    | wie Raumflug                                            |
+| Objekt                  | Fremd/neutral                             | Eigen           | Öffentliche Daten innerhalb des Radars                  |
+| ----------------------- | ----------------------------------------- | --------------- | ------------------------------------------------------- |
+| Asteroid                | Position immer, Details im Scanner        | nicht anwendbar | Position, Größe, Adern und Restmengen                   |
+| Station                 | Name/Besitzerart immer, Profil im Scanner | immer           | Name, Position, Besitzerart, grobe visuelle Signatur    |
+| Trümmerfeld             | nur im Scannerkreis                       | nicht anwendbar | Position und verwertbare Ressourcen                     |
+| Raumflug                | aktuelle Position nur im Scannerkreis     | immer           | Signatur, Bewegungsrichtung; keine entfernten Endpunkte |
+| Mining-Gruppe           | aktuelle Position nur im Scannerkreis     | eigene immer    | wie Raumflug                                            |
+| Expedition/Kolonisation | aktuelle Position nur im Scannerkreis     | eigene immer    | wie Raumflug                                            |
 
 Ein Auftrag darf zunächst jedes Objekt verwenden, das durch irgendeine eigene Station sichtbar ist.
 Der Auftrag muss nicht von genau der Station starten, deren Scanner das Ziel erfasst. Die Information

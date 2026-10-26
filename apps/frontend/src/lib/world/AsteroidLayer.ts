@@ -1,10 +1,12 @@
-import { Container, Sprite, Texture } from 'pixi.js';
+import { BlurFilter, Container, Sprite, Texture } from 'pixi.js';
 import type { VisibleAsteroid } from '@orions-frontier/shared';
 import {
   CHUNK_SIZE,
   ASTEROID_SIZE_RADIUS,
   ASTEROID_DEFAULT_RADIUS,
   RESOURCE_TINT,
+  UNSCANNED_ASTEROID_RADIUS,
+  UNSCANNED_ASTEROID_TINT,
 } from './constants.js';
 import { chunkKey } from './ChunkStreamer.js';
 import type { ChunkKey } from './ChunkStreamer.js';
@@ -21,6 +23,9 @@ export interface AsteroidHit {
   r: number;
 }
 
+const radiusFor = (a: VisibleAsteroid): number =>
+  a.size ? (ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS) : UNSCANNED_ASTEROID_RADIUS;
+
 export class AsteroidLayer {
   /** Root container — add this to the world container */
   readonly container = new Container();
@@ -30,6 +35,9 @@ export class AsteroidLayer {
   // Hit-test data: per-chunk list and flat id→position map
   private chunkAsteroidData = new Map<ChunkKey, AsteroidHit[]>();
   private asteroidById = new Map<string, AsteroidHit>();
+
+  /** Shared by every chunk: unscanned asteroids render as blurred, uniform silhouettes. */
+  private unscannedBlur = new BlurFilter({ strength: 2 });
 
   /** Asteroid textures (index 0–5 → asteroid1.webp–asteroid6.webp) */
   private textures: Texture[] = [];
@@ -44,27 +52,38 @@ export class AsteroidLayer {
     const chunkContainer = new Container();
     chunkContainer.label = `chunk-${key}`;
 
-    if (asteroids.length > 0) {
-      // Sprite pass — one sprite per asteroid
-      for (const a of asteroids) {
-        const r = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS;
-        const tex = this._textureFor(a.id);
-        const sprite = new Sprite(tex);
-        sprite.anchor.set(0.5, 0.5);
-        sprite.position.set(a.x, a.y);
+    const unscannedContainer = new Container();
+    unscannedContainer.filters = [this.unscannedBlur];
+    chunkContainer.addChild(unscannedContainer);
 
-        // diameter = 2 * r, with a slight visual margin; mined-out asteroids shrink and fade
-        const size = r * 2.4 * (0.45 + 0.55 * a.remainingFraction);
+    for (const a of asteroids) {
+      const sprite = new Sprite(this._textureFor(a.id));
+      sprite.anchor.set(0.5, 0.5);
+      sprite.position.set(a.x, a.y);
+
+      if (!a.scanned) {
+        const size = UNSCANNED_ASTEROID_RADIUS * 2.4;
         sprite.width = size;
         sprite.height = size;
-        sprite.alpha = 0.55 + 0.45 * a.remainingFraction;
-
-        // Resource-based tint for visual identity
-        const tint = RESOURCE_TINT[a.primaryResourceKey];
-        if (tint !== undefined) sprite.tint = tint;
-
-        chunkContainer.addChild(sprite);
+        sprite.alpha = 0.7;
+        sprite.tint = UNSCANNED_ASTEROID_TINT;
+        unscannedContainer.addChild(sprite);
+        continue;
       }
+
+      const r = radiusFor(a);
+      const remaining = a.remainingFraction ?? 1;
+      // diameter = 2 * r, with a slight visual margin; mined-out asteroids shrink and fade
+      const size = r * 2.4 * (0.45 + 0.55 * remaining);
+      sprite.width = size;
+      sprite.height = size;
+      sprite.alpha = 0.55 + 0.45 * remaining;
+
+      // Resource-based tint for visual identity
+      const tint = a.primaryResourceKey ? RESOURCE_TINT[a.primaryResourceKey] : undefined;
+      if (tint !== undefined) sprite.tint = tint;
+
+      chunkContainer.addChild(sprite);
     }
 
     // Store positions for hit-testing
@@ -72,7 +91,7 @@ export class AsteroidLayer {
       id: a.id,
       x: a.x,
       y: a.y,
-      r: ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS,
+      r: radiusFor(a),
     }));
     this.chunkAsteroidData.set(key, hitData);
     for (const h of hitData) {

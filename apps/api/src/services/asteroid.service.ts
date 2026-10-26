@@ -1,4 +1,4 @@
-import { and, between, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, between, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { asteroids, asteroidVeins, asteroidAssignments } from '../lib/db/schema/asteroids.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
@@ -11,11 +11,10 @@ import type {
   AsteroidVein,
   VisibleAsteroid,
 } from '@orions-frontier/shared';
-import { WORLD_CONFIG } from '../lib/world-config.js';
 import {
+  getUserRevealedAsteroidIds,
   getUserScannerCoverages,
   isPointVisible,
-  visibleChunkBounds,
   type ScannerCoverage,
   type VisibilityProjectionStats,
 } from './scanner-visibility.service.js';
@@ -27,18 +26,15 @@ export interface ChunkQueryParams {
   maxChunkY: number;
 }
 
+/** Every asteroid in the view is listed; size, resource and reserve only inside scanner coverage. */
 export const getVisibleChunkAsteroids = async (
   params: ChunkQueryParams,
   coverages: readonly ScannerCoverage[],
   stats?: VisibilityProjectionStats,
-  scannerBypass = false
+  scannerBypass = false,
+  revealedIds: ReadonlySet<string> = new Set()
 ): Promise<VisibleAsteroid[]> => {
   const db = getDb();
-  const bounds = scannerBypass
-    ? [params]
-    : visibleChunkBounds(coverages, params, WORLD_CONFIG.CHUNK_SIZE);
-  if (bounds.length === 0) return [];
-
   const rows = await db
     .select({
       id: asteroids.id,
@@ -59,32 +55,37 @@ export const getVisibleChunkAsteroids = async (
       and(eq(asteroidVeins.asteroidId, asteroids.id), eq(asteroidVeins.veinType, 'primary'))
     )
     .where(
-      or(
-        ...bounds.map((bound) =>
-          and(
-            between(asteroids.chunkX, bound.minChunkX, bound.maxChunkX),
-            between(asteroids.chunkY, bound.minChunkY, bound.maxChunkY)
-          )
-        )
+      and(
+        between(asteroids.chunkX, params.minChunkX, params.maxChunkX),
+        between(asteroids.chunkY, params.minChunkY, params.maxChunkY)
       )
     );
   if (stats) stats.asteroidCandidates = rows.length;
 
-  return rows.flatMap((row) =>
-    scannerBypass || isPointVisible(coverages, row)
-      ? [
-          {
-            id: row.id,
-            x: row.x,
-            y: row.y,
-            chunkX: row.chunkX,
-            chunkY: row.chunkY,
-            size: row.size,
-            primaryResourceKey: row.primaryResourceKey ?? 'carbon',
-            remainingFraction: row.remainingFraction,
-          },
-        ]
-      : []
+  return rows.map((row) =>
+    scannerBypass || revealedIds.has(row.id) || isPointVisible(coverages, row)
+      ? {
+          id: row.id,
+          x: row.x,
+          y: row.y,
+          chunkX: row.chunkX,
+          chunkY: row.chunkY,
+          scanned: true,
+          size: row.size,
+          primaryResourceKey: row.primaryResourceKey ?? 'carbon',
+          remainingFraction: row.remainingFraction,
+        }
+      : {
+          id: row.id,
+          x: row.x,
+          y: row.y,
+          chunkX: row.chunkX,
+          chunkY: row.chunkY,
+          scanned: false,
+          size: null,
+          primaryResourceKey: null,
+          remainingFraction: null,
+        }
   );
 };
 
@@ -95,12 +96,14 @@ export const getAsteroidById = async (
 ): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
-  const [[row], coverages] = await Promise.all([
+  const [[row], coverages, revealedIds] = await Promise.all([
     db.select().from(asteroids).where(eq(asteroids.id, id)).limit(1),
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
+    scannerBypass ? Promise.resolve(new Set<string>()) : getUserRevealedAsteroidIds(userId),
   ]);
 
-  if (!row || (!scannerBypass && !isPointVisible(coverages, row))) return null;
+  if (!row) return null;
+  const scanned = scannerBypass || revealedIds.has(id) || isPointVisible(coverages, row);
 
   const [veins, assignmentRows, travelingTrips] = await Promise.all([
     db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, id)),
@@ -223,10 +226,11 @@ export const getAsteroidById = async (
     y: row.y,
     chunkX: row.chunkX,
     chunkY: row.chunkY,
-    size: row.size,
+    scanned,
+    size: scanned ? row.size : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    veins: veins.map((v): AsteroidVein => ({
+    veins: (scanned ? veins : []).map((v): AsteroidVein => ({
       id: v.id,
       veinType: v.veinType,
       resourceKey: v.resourceKey,

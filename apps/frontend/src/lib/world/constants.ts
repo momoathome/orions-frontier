@@ -48,3 +48,8 @@ export const RESOURCE_TINT: Record<string, number> = {
   kyber_crystal: 0x4b6efb, // glowing deep blue
   astatine: 0x9b30ff, // purple / dark energy
 };
+
+/** Neutral grey for asteroids outside scanner range: composition unknown. */
+export const UNSCANNED_ASTEROID_TINT = 0x9aa3b2;
+/** Uniform radius for unscanned asteroids so the map does not leak their size. */
+export const UNSCANNED_ASTEROID_RADIUS = 24;

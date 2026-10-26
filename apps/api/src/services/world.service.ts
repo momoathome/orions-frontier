@@ -1,4 +1,4 @@
-import { and, between, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, between, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
@@ -18,11 +18,10 @@ import { ATTACK_PROTECTION_DURATION_MS, requireSpacecraft } from '@orions-fronti
 import {
   getUserScannerCoverages,
   isPointVisible,
-  visibleChunkBounds,
   type ScannerCoverage,
   type VisibilityProjectionStats,
 } from './scanner-visibility.service.js';
-import { getStationVisualProfiles } from './station-visual.service.js';
+import { getStationVisualProfiles, starterStationVisualProfile } from './station-visual.service.js';
 
 export interface WorldChunkRange {
   minChunkX: number;
@@ -78,9 +77,6 @@ export async function getVisibleChunkStations(
   combatDiagnostics?: VisibleStationCombatDiagnostics
 ): Promise<VisibleStation[]> {
   const db = getDb();
-  const coverageBounds = scannerBypass
-    ? [range]
-    : visibleChunkBounds(coverages, range, WORLD_CONFIG.CHUNK_SIZE);
   const rows = await db
     .select({
       id: stations.id,
@@ -98,24 +94,16 @@ export async function getVisibleChunkStations(
     .where(
       and(
         between(stations.chunkX, range.minChunkX, range.maxChunkX),
-        between(stations.chunkY, range.minChunkY, range.maxChunkY),
-        or(
-          eq(stations.userId, userId),
-          ...coverageBounds.map((bound) =>
-            and(
-              between(stations.chunkX, bound.minChunkX, bound.maxChunkX),
-              between(stations.chunkY, bound.minChunkY, bound.maxChunkY)
-            )
-          )
-        )
+        between(stations.chunkY, range.minChunkY, range.maxChunkY)
       )
     );
   if (stats) stats.stationCandidates = rows.length;
 
   const visibleRows = rows.flatMap((station) => {
     const isOwn = station.userId === userId;
-    if (!scannerBypass && !isOwn && !isPointVisible(coverages, station)) return [];
+    const scanned = scannerBypass || isOwn || isPointVisible(coverages, station);
     if (
+      scanned &&
       combatDiagnostics &&
       !isOwn &&
       !station.attackProtectionBrokenAt &&
@@ -135,14 +123,19 @@ export async function getVisibleChunkStations(
         ownerType: station.botUserId ? ('bot' as const) : ('player' as const),
         ownerId: station.userId,
         isOwn,
+        scanned,
       },
     ];
   });
-  const visualProfiles = await getStationVisualProfiles(visibleRows.map((station) => station.id));
+  const visualProfiles = await getStationVisualProfiles(
+    visibleRows.filter((station) => station.scanned).map((station) => station.id)
+  );
 
   return visibleRows.map((station) => ({
     ...station,
-    visualProfile: required(visualProfiles.get(station.id), `visual profile ${station.id}`),
+    visualProfile: station.scanned
+      ? required(visualProfiles.get(station.id), `visual profile ${station.id}`)
+      : starterStationVisualProfile(),
   }));
 }
 

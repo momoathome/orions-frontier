@@ -508,6 +508,7 @@ test('warlords without foreign contact prioritize scanner reach', () => {
             ownerType: 'player',
             ownerId: 'opponent-1',
             isOwn: false,
+            scanned: true,
             visualProfile: {
               scaleTier: 1,
               modules: {
@@ -915,6 +916,7 @@ test('raid sends the smallest sufficient single fighter group', async () => {
         ownerType: 'player',
         ownerId: 'opponent-1',
         isOwn: false,
+        scanned: true,
         visualProfile: {
           scaleTier: 1,
           modules: {
@@ -962,6 +964,7 @@ test('conflict opportunities record the authoritative exclusion stage', () => {
     ownerType: 'player' as const,
     ownerId: 'opponent-1',
     isOwn: false,
+    scanned: true,
     visualProfile: {
       scaleTier: 1 as const,
       modules: {

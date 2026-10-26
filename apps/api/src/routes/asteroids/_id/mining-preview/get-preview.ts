@@ -8,6 +8,7 @@ import { stations } from '../../../../lib/db/schema/stations.js';
 import { calculateMiningCycle } from '../../../../lib/mining-cycle.js';
 import { calcDistance } from '../../../../lib/travel.js';
 import {
+  getUserRevealedAsteroidIds,
   getUserScannerCoverages,
   isPointVisible,
 } from '../../../../services/scanner-visibility.service.js';
@@ -36,7 +37,7 @@ export default defineRoute(async (app) => {
       const db = getDb();
       const spacecraft = getSpacecraft(spacecraftKey);
       if (!spacecraft) return reply.status(404).send({ message: 'Spacecraft not found' });
-      const [[row], coverages] = await Promise.all([
+      const [[row], coverages, revealedIds] = await Promise.all([
         db
           .select({
             stationX: stations.x,
@@ -57,9 +58,10 @@ export default defineRoute(async (app) => {
           .where(and(eq(stations.id, stationId), eq(stations.userId, request.user.userId)))
           .limit(1),
         getUserScannerCoverages(request.user.userId),
+        getUserRevealedAsteroidIds(request.user.userId),
       ]);
 
-      if (!row || !isPointVisible(coverages, { x: row.asteroidX, y: row.asteroidY })) {
+      if (!row) {
         return reply.status(404).send({ message: 'Station, miner or asteroid not found' });
       }
       if (spacecraft.speed <= 0 || spacecraft.miningRate <= 0 || spacecraft.cargo <= 0) {
@@ -76,6 +78,9 @@ export default defineRoute(async (app) => {
         .from(asteroidVeins)
         .where(eq(asteroidVeins.asteroidId, asteroidId));
       const remainingAmount = reserve?.amount ?? 0;
+      const scanned =
+        revealedIds.has(asteroidId) ||
+        isPointVisible(coverages, { x: row.asteroidX, y: row.asteroidY });
       const distance = calcDistance(
         { x: row.stationX, y: row.stationY },
         { x: row.asteroidX, y: row.asteroidY }
@@ -85,21 +90,35 @@ export default defineRoute(async (app) => {
       const hasVectorNav = await hasCompletedResearch(db, stationId, 'vector_navigation');
       const effectiveSpeed = hasVectorNav ? spacecraft.speed / 0.9 : spacecraft.speed;
 
-      return {
+      const cycle = calculateMiningCycle({
         distance,
-        speed: spacecraft.speed,
+        speed: effectiveSpeed,
         miningRate: effectiveRate,
         cargoCapacity: effectiveCargo,
+        minerCount,
         remainingAmount,
-        ...calculateMiningCycle({
-          distance,
-          speed: effectiveSpeed,
-          miningRate: effectiveRate,
-          cargoCapacity: effectiveCargo,
-          minerCount,
-          remainingAmount,
-        }),
-      };
+      });
+
+      // Blind mining: timing is known, the reserve is not.
+      return scanned
+        ? {
+            distance,
+            speed: spacecraft.speed,
+            miningRate: effectiveRate,
+            cargoCapacity: effectiveCargo,
+            remainingAmount,
+            ...cycle,
+          }
+        : {
+            distance,
+            speed: spacecraft.speed,
+            miningRate: effectiveRate,
+            cargoCapacity: effectiveCargo,
+            ...cycle,
+            remainingAmount: null,
+            estimatedDepletionHours: null,
+            finalBatchAmount: null,
+          };
     }
   );
 });
