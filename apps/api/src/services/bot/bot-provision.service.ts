@@ -6,6 +6,7 @@ import {
 import { getDb } from '../../lib/db/index.js';
 import { botControllers } from '../../lib/db/schema/bot-controllers.js';
 import { sectors } from '../../lib/db/schema/sectors.js';
+import { spawnSlots } from '../../lib/db/schema/spawn-slots.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { users } from '../../lib/db/schema/users.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
@@ -18,10 +19,12 @@ export async function seedBotsForOccupiedSectors(
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> {
   const db = getDb();
+  // Sectors without generated bot slots (hand-made fixtures) cannot host bots.
   const settlementSectors = await db
-    .select({ id: sectors.id })
+    .selectDistinct({ id: sectors.id })
     .from(sectors)
-    .where(eq(sectors.role, 'settlement'));
+    .innerJoin(spawnSlots, eq(spawnSlots.sectorId, sectors.id))
+    .where(and(eq(sectors.role, 'settlement'), eq(spawnSlots.slotType, 'bot')));
 
   for (const sector of settlementSectors) {
     await seedBotsForSector(sector.id, context);
