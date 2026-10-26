@@ -86,6 +86,7 @@ test('execution contexts reject invalid seeds, times and namespaces', () => {
 });
 
 test('context resolution ignores callback indices and other unrelated values', () => {
+  // @ts-expect-error -- simuliert den Index, den `.map(fn)` als zweites Argument übergibt.
   const context = resolveGameExecutionContext(0);
   assert.equal(typeof context.at, 'function');
   assert.equal(typeof context.nextId, 'function');

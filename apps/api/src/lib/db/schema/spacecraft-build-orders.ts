@@ -13,8 +13,8 @@ export const spacecraftBuildOrders = pgTable(
     endsAt: timestamp('ends_at').notNull(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (table) => ({
-    stationIdIdx: index('spacecraft_build_orders_station_id_idx').on(table.stationId),
-    spacecraftKeyIdx: index('spacecraft_build_orders_spacecraft_key_idx').on(table.spacecraftKey),
-  })
+  (table) => [
+    index('spacecraft_build_orders_station_id_idx').on(table.stationId),
+    index('spacecraft_build_orders_spacecraft_key_idx').on(table.spacecraftKey),
+  ]
 );

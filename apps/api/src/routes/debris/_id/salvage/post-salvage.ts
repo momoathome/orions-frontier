@@ -1,25 +1,25 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
-import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { authenticate } from '../../../../middleware/auth.js';
 import { startSalvage } from '../../../../services/salvage.service.js';
+import { defineRoute, idParams } from '../../../../lib/route.js';
 
 const BodySchema = z.object({
-  stationId: z.string().uuid(),
+  stationId: z.uuid(),
   spacecraftKey: z.string().min(1),
   amount: z.number().int().positive(),
 });
 
-export default (async (app) => {
-  app.post('/', { preHandler: [authenticate] }, async (request, reply) => {
-    const parsed = BodySchema.safeParse(request.body);
-    if (!parsed.success) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid salvage order');
-    const { id } = request.params as { id: string };
-    const mission = await startSalvage({
-      userId: request.user.userId,
-      debrisFieldId: id,
-      ...parsed.data,
-    });
-    return reply.status(201).send(mission);
-  });
-}) satisfies FastifyPluginAsync;
+export default defineRoute(async (app) => {
+  app.post(
+    '/',
+    { onRequest: [authenticate], schema: { params: idParams, body: BodySchema } },
+    async (request, reply) => {
+      const mission = await startSalvage({
+        userId: request.user.userId,
+        debrisFieldId: request.params.id,
+        ...request.body,
+      });
+      return reply.status(201).send(mission);
+    }
+  );
+});

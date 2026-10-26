@@ -37,7 +37,7 @@ test('authenticates clients and sends user events from the API process', async (
   assert.equal(JSON.parse(authMessage.toString()).type, 'authenticated');
 
   const event = once(client, 'message');
-  publishUserEvent(userId, 'mining_tick_completed', { settled: 1 });
+  publishUserEvent(userId, 'transport_tick_completed', { settled: 1 });
   const [eventMessage] = await event;
   assert.deepEqual(JSON.parse(eventMessage.toString()).payload, { settled: 1 });
   client.close();

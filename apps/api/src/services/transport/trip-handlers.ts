@@ -1,13 +1,12 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb } from '../../lib/db/index.js';
+import type { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidAssignments, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import type { ResourceMap } from '@orions-frontier/shared';
 import { claimMiningCargo } from '../mining/mining-claim.service.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
-import { getSpacecraft } from '@orions-frontier/game-config';
+import { requireSpacecraft } from '@orions-frontier/game-config';
 import { creditStationResources } from '../station-resource.service.js';
 import {
   effectiveMiningRate,
@@ -64,16 +63,11 @@ export async function handleMineArrival(
     .limit(1);
 
   if (!assignment) return;
-  const spacecraft = getSpacecraft(assignment.spacecraftKey)!;
+  const spacecraft = requireSpacecraft(assignment.spacecraftKey);
 
   const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
   const activeGroupSize = Math.max(0, groupSize - assignment.recallRequestedAmount);
-  const effectiveCargo = await effectiveCargoCapacity(
-    tx,
-    assignment.stationId,
-    spacecraft.cargo,
-    'miner'
-  );
+  const effectiveCargo = await effectiveCargoCapacity(tx, assignment.stationId, spacecraft.cargo);
   const cargoCapacity = Math.floor(activeGroupSize * effectiveCargo);
   const claim =
     activeGroupSize === 0
@@ -130,7 +124,7 @@ export async function handleMiningReturnArrival(
 ): Promise<MiningDeliveryCompletedEvent | null> {
   let delivery: MiningDeliveryCompletedEvent | null = null;
   if (trip.cargoManifest) {
-    const requested = { ...(trip.cargoManifest as ResourceMap) };
+    const requested = { ...trip.cargoManifest };
     const credited = await creditStationResources(tx, trip.toId, requested);
     await tx
       .update(spacecraftTrips)
@@ -181,7 +175,7 @@ export async function handleMiningReturnArrival(
 
   if (!assignment) return delivery;
   if (delivery) delivery.asteroidId = assignment.asteroidId;
-  const spacecraft = getSpacecraft(assignment.spacecraftKey)!;
+  const spacecraft = requireSpacecraft(assignment.spacecraftKey);
 
   // Serialize the final returns for one asteroid. Without this lock, two groups
   // could both observe the other assignment and leave an exhausted asteroid behind.

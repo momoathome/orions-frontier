@@ -1,4 +1,4 @@
-import type { ResourceMap } from '@orions-frontier/shared';
+import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 
 interface CompletionEventBase {
   eventId: string;
@@ -130,8 +130,7 @@ export function completionEventId(
 
 export function discardedResources(requested: ResourceMap, credited: ResourceMap): ResourceMap {
   const discarded: ResourceMap = {};
-  for (const [resourceKey, requestedAmount] of Object.entries(requested)) {
-    const key = resourceKey as keyof ResourceMap;
+  for (const [key, requestedAmount] of entriesOf(requested)) {
     const amount = Math.max(0, requestedAmount - (credited[key] ?? 0));
     if (amount > 0) discarded[key] = amount;
   }

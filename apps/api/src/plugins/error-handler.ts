@@ -1,10 +1,10 @@
-import type { FastifyError, FastifyReply } from 'fastify';
+import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 
 export function errorHandler(
   this: { log: { error(error: unknown): void } },
   error: FastifyError,
-  _request: unknown,
+  _request: FastifyRequest,
   reply: FastifyReply
 ) {
   if (error instanceof AppError) {
@@ -18,7 +18,7 @@ export function errorHandler(
       error: {
         code: ErrorCode.VALIDATION_ERROR,
         message: 'Validation failed',
-        details: error.validation as unknown[],
+        details: error.validation,
       },
     });
   }

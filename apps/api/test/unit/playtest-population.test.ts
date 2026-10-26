@@ -46,24 +46,20 @@ test('weighted profile selection is reproducible and honors exclusive weights', 
 });
 
 test('profile weights reject negative, non-finite and empty distributions', () => {
-  assert.throws(
-    () => validateProfileWeights({ ...EVEN_PROFILE_WEIGHTS, warlord: -1 }),
-    /non-negative/
-  );
-  assert.throws(
-    () => validateProfileWeights({ ...EVEN_PROFILE_WEIGHTS, pioneer: Number.NaN }),
-    /non-negative/
-  );
-  assert.throws(
-    () =>
-      validateProfileWeights({
-        industrialist: 0,
-        pioneer: 0,
-        technocrat: 0,
-        warlord: 0,
-      }),
-    /positive/
-  );
+  assert.throws(() => {
+    validateProfileWeights({ ...EVEN_PROFILE_WEIGHTS, warlord: -1 });
+  }, /non-negative/);
+  assert.throws(() => {
+    validateProfileWeights({ ...EVEN_PROFILE_WEIGHTS, pioneer: Number.NaN });
+  }, /non-negative/);
+  assert.throws(() => {
+    validateProfileWeights({
+      industrialist: 0,
+      pioneer: 0,
+      technocrat: 0,
+      warlord: 0,
+    });
+  }, /positive/);
 });
 
 test('population registry is stable, defensive and rejects conflicting identities', () => {
@@ -84,12 +80,10 @@ test('population registry is stable, defensive and rejects conflicting identitie
   );
   assert.equal(registry.getByUserId('user-2')?.alias, 'player-002');
 
-  assert.throws(
-    () => registry.register(member({ userId: 'different-user' })),
-    /registry collision/
-  );
-  assert.throws(
-    () => registry.register(member({ alias: 'different-alias' })),
-    /registry collision/
-  );
+  assert.throws(() => {
+    registry.register(member({ userId: 'different-user' }));
+  }, /registry collision/);
+  assert.throws(() => {
+    registry.register(member({ alias: 'different-alias' }));
+  }, /registry collision/);
 });

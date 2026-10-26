@@ -1,3 +1,4 @@
+import type { CombatReport, ResourceMap } from '@orions-frontier/shared';
 import {
   index,
   integer,
@@ -36,16 +37,19 @@ export const combatMissions = pgTable(
     attackerAmount: integer('attacker_amount').notNull(),
     attackerLosses: integer('attacker_losses').notNull().default(0),
     defenderLosses: integer('defender_losses').notNull().default(0),
-    winner: varchar('winner', { length: 16 }),
-    loot: jsonb('loot').$type<Record<string, number>>(),
-    status: varchar('status', { length: 16 }).notNull().default('traveling'),
+    winner: varchar('winner', { length: 16 }).$type<'attacker' | 'defender'>(),
+    loot: jsonb('loot').$type<ResourceMap>(),
+    status: varchar('status', { length: 16 })
+      .$type<CombatReport['status']>()
+      .notNull()
+      .default('traveling'),
     resolvedAt: timestamp('resolved_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (table) => ({
-    outboundUnique: uniqueIndex('combat_missions_outbound_trip_unique').on(table.outboundTripId),
-    returnUnique: uniqueIndex('combat_missions_return_trip_unique').on(table.returnTripId),
-    userIdx: index('combat_missions_user_id_idx').on(table.userId),
-    statusIdx: index('combat_missions_status_idx').on(table.status),
-  })
+  (table) => [
+    uniqueIndex('combat_missions_outbound_trip_unique').on(table.outboundTripId),
+    uniqueIndex('combat_missions_return_trip_unique').on(table.returnTripId),
+    index('combat_missions_user_id_idx').on(table.userId),
+    index('combat_missions_status_idx').on(table.status),
+  ]
 );

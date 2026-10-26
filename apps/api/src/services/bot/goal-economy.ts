@@ -13,9 +13,13 @@ import {
 import { getResearchDefinition, researchDefinitions } from '@orions-frontier/game-config';
 import {
   buildingKeys,
+  entriesOf,
+  isOneOf,
   resourceKeys,
   type BuildingKey,
   type DefenseUpgradeKey,
+  type ResourceKey,
+  type ResourceMap,
 } from '@orions-frontier/shared';
 import { calculateMiningCycle } from '../../lib/mining-cycle.js';
 import { calcDistance, calcTravelHours } from '../../lib/travel.js';
@@ -100,7 +104,10 @@ const hasActiveMining = (station: StationSnapshot): boolean =>
 const hasVisibleAsteroids = (_state: GoalBotState): boolean =>
   _state.visibleAsteroids.some((a) => a.remainingAmount > 0);
 
-type ResourceCost = { resourceKey: string; amount: number };
+interface ResourceCost {
+  resourceKey: ResourceKey;
+  amount: number;
+}
 
 function canAcquireCosts(
   state: GoalBotState,
@@ -109,27 +116,19 @@ function canAcquireCosts(
 ): boolean {
   const canRedirectMiner = pickAvailableMinerKey(station) !== null || hasMinerInBuild(station);
   return costs
-    .filter(
-      (cost) =>
-        (station.resources[cost.resourceKey as keyof typeof station.resources] ?? 0) < cost.amount
-    )
+    .filter((cost) => (station.resources[cost.resourceKey] ?? 0) < cost.amount)
     .every((cost) => {
       if (cost.amount > station.storageCapacity) return false;
       const resourceKey = cost.resourceKey;
       const hasVisibleDeposit = state.visibleAsteroids.some(
-        (asteroid) =>
-          (asteroid.remainingByResource[resourceKey as keyof typeof asteroid.remainingByResource] ??
-            0) > 0
+        (asteroid) => (asteroid.remainingByResource[resourceKey] ?? 0) > 0
       );
       const hasAssignedSupply = station.miningAssignments.some((assignment) => {
         const asteroid = state.visibleAsteroids.find(
           (candidate) => candidate.id === assignment.asteroidId
         );
         return (
-          assignment.assignedAmount > 0 &&
-          (asteroid?.remainingByResource[
-            resourceKey as keyof typeof asteroid.remainingByResource
-          ] ?? 0) > 0
+          assignment.assignedAmount > 0 && (asteroid?.remainingByResource[resourceKey] ?? 0) > 0
         );
       });
       return hasVisibleDeposit && (canRedirectMiner || hasAssignedSupply);
@@ -159,8 +158,7 @@ function assignMinerTowardCosts(
   purpose: string
 ): Extract<GoalResult, { type: 'success' }> | null {
   const missingCosts = costs.filter(
-    (cost) =>
-      (station.resources[cost.resourceKey as keyof typeof station.resources] ?? 0) < cost.amount
+    (cost) => (station.resources[cost.resourceKey] ?? 0) < cost.amount
   );
   if (missingCosts.some((cost) => cost.amount > station.storageCapacity)) return null;
   const missing = new Set(missingCosts.map((cost) => cost.resourceKey));
@@ -168,12 +166,11 @@ function assignMinerTowardCosts(
   const minerKey = pickAvailableMinerKey(station);
   if (!minerKey) return null;
   const usefulAsteroids = state.visibleAsteroids.filter((asteroid) =>
-    Object.entries(asteroid.remainingByResource).some(
+    entriesOf(asteroid.remainingByResource).some(
       ([resourceKey, amount]) =>
         missing.has(resourceKey) &&
         amount > 0 &&
-        (station.resources[resourceKey as keyof typeof station.resources] ?? 0) <
-          station.storageCapacity
+        (station.resources[resourceKey] ?? 0) < station.storageCapacity
     )
   );
   if (usefulAsteroids.length === 0) return null;
@@ -262,13 +259,8 @@ export function prioritizeStationsForStabilization(state: GoalBotState): Station
 }
 
 /** Check if a station can afford a set of costs given its current resources. */
-const canAfford = (
-  station: StationSnapshot,
-  costs: readonly { resourceKey: string; amount: number }[]
-): boolean =>
-  costs.every(
-    (c) => (station.resources[c.resourceKey as keyof typeof station.resources] ?? 0) >= c.amount
-  );
+const canAfford = (station: StationSnapshot, costs: readonly ResourceCost[]): boolean =>
+  costs.every((c) => (station.resources[c.resourceKey] ?? 0) >= c.amount);
 
 const moleCost = () => MINER_COST;
 const titanCost = () => TITAN_COST;
@@ -299,14 +291,14 @@ const hasStorageHeadroom = (state: GoalBotState, station: StationSnapshot): bool
     const asteroid = state.visibleAsteroids.find(
       (candidate) => candidate.id === assignment.asteroidId
     );
-    return asteroid ? Object.keys(asteroid.remainingByResource) : [];
+    return asteroid ? entriesOf(asteroid.remainingByResource).map(([key]) => key) : [];
   });
   const relevantResources =
-    assignedResources.length > 0 ? [...new Set(assignedResources)] : Object.keys(station.resources);
+    assignedResources.length > 0
+      ? [...new Set(assignedResources)]
+      : entriesOf(station.resources).map(([key]) => key);
   return relevantResources.some(
-    (resourceKey) =>
-      (station.resources[resourceKey as keyof typeof station.resources] ?? 0) <
-      station.storageCapacity
+    (resourceKey) => (station.resources[resourceKey] ?? 0) < station.storageCapacity
   );
 };
 
@@ -314,15 +306,11 @@ function asteroidStorageFit(
   station: StationSnapshot,
   asteroid: GoalBotState['visibleAsteroids'][number]
 ) {
-  const resources = Object.entries(asteroid.remainingByResource).filter(([, amount]) => amount > 0);
+  const resources = entriesOf(asteroid.remainingByResource).filter(([, amount]) => amount > 0);
   if (resources.length === 0 || station.storageCapacity <= 0) return 0;
   const total = resources.reduce((sum, [, amount]) => sum + amount, 0);
   const storable = resources.reduce((sum, [resourceKey, amount]) => {
-    const room = Math.max(
-      0,
-      station.storageCapacity -
-        (station.resources[resourceKey as keyof typeof station.resources] ?? 0)
-    );
+    const room = Math.max(0, station.storageCapacity - (station.resources[resourceKey] ?? 0));
     return sum + Math.min(amount, room);
   }, 0);
   return total > 0 ? storable / total : 0;
@@ -353,7 +341,7 @@ export function generateStabilizeCandidate(
 
   return {
     goalType: 'stabilize_station',
-    category: GOAL_CATEGORY['stabilize_station'],
+    category: GOAL_CATEGORY.stabilize_station,
     targetRef: `station:${station.id}`,
     baseNeed,
     opportunity: hasVisibleAsteroids(state) ? 30 : 0,
@@ -383,11 +371,11 @@ export function generateIncreaseIncomeCandidate(
 
   // Calculate progress toward milestones
   const progress = Math.min(1, (totalMoles / 3) * 0.6 + (hasTitan ? 0.4 : 0));
-  let baseNeed = Math.round(60 * (1 - Number(progress)));
+  const baseNeed = Math.round(60 * (1 - progress));
 
   return {
     goalType: 'increase_income',
-    category: GOAL_CATEGORY['increase_income'],
+    category: GOAL_CATEGORY.increase_income,
     targetRef: `station:${station.id}`,
     baseNeed,
     opportunity: hasVisibleAsteroids(state) ? 20 : 0,
@@ -450,7 +438,7 @@ export function generateIncreaseCapacityCandidate(
   });
   const defense = bestDefenseUpgrade(station);
   const defenseCosts = defense
-    ? calculateDefenseUpgradeCost(defense.upgradeKey as DefenseUpgradeKey, defense.targetLevel)
+    ? calculateDefenseUpgradeCost(defense.upgradeKey, defense.targetLevel)
     : [];
   const lacksVisibleDefenseResource =
     defenseCosts.length > 0 &&
@@ -492,14 +480,13 @@ export function generateIncreaseCapacityCandidate(
       (canAfford(station, buildingUpgradeCost(station, candidate.key)) ||
         canAcquireCosts(state, station, buildingUpgradeCost(station, candidate.key)))
   );
-  if (actionable.length === 0) return null;
-
   // Pick the highest-need reachable bottleneck.
-  const best = actionable.sort((a, b) => b.need - a.need || a.key.localeCompare(b.key))[0]!;
+  const best = actionable.sort((a, b) => b.need - a.need || a.key.localeCompare(b.key))[0];
+  if (!best) return null;
 
   return {
     goalType: 'increase_capacity',
-    category: GOAL_CATEGORY['increase_capacity'],
+    category: GOAL_CATEGORY.increase_capacity,
     targetRef: `station:${station.id}:${best.key}`,
     baseNeed: best.need,
     opportunity: 10,
@@ -917,7 +904,7 @@ export async function stepIncreaseCapacity(
       reason: 'No building key in target',
     };
   }
-  if (!(buildingKeys as readonly string[]).includes(buildingKey)) {
+  if (!isOneOf(buildingKeys, buildingKey)) {
     return {
       type: 'blocked',
       detail: 'invalid_building',
@@ -943,7 +930,7 @@ export async function stepIncreaseCapacity(
     };
   }
 
-  const validBuildingKey = buildingKey as BuildingKey;
+  const validBuildingKey = buildingKey;
   const costs = buildingUpgradeCost(station, validBuildingKey);
   if (canAfford(station, costs)) {
     return {
@@ -1078,7 +1065,7 @@ export function generateResearchCandidates(
       ? 1.0
       : def.costs.every(
             (cost) =>
-              (station.resources[cost.resourceKey as keyof typeof station.resources] ?? 0) > 0 ||
+              (station.resources[cost.resourceKey] ?? 0) > 0 ||
               state.visibleAsteroids.some(
                 (asteroid) => (asteroid.remainingByResource[cost.resourceKey] ?? 0) > 0
               )
@@ -1092,7 +1079,7 @@ export function generateResearchCandidates(
     const totalCost = def.costs.reduce((s, c) => s + c.amount, 0);
     candidates.push({
       goalType: 'research_technology',
-      category: GOAL_CATEGORY['research_technology'],
+      category: GOAL_CATEGORY.research_technology,
       targetRef: `tech:${station.id}:${def.key}`,
       baseNeed,
       opportunity: affordRatio >= 1 ? 30 : 10,
@@ -1411,12 +1398,12 @@ export async function generateExploreSectorCandidate(
     sectorY: target.sectorY,
     distance: target.distance,
   }));
-  if (frontiers.length === 0) return null;
+  const nearest = frontiers[0];
+  if (!nearest) return null;
 
   const hasShip = hasAvailableMissionShip(station);
   if (!hasShip && !canPrepareMobileSupportShip(state, station)) return null;
 
-  const nearest = frontiers[0]!;
   // Base need depends on distance — closer is better
   const maxDist = 100_000;
   const contactSearch = seeksMoreForeignContact(state, profile);
@@ -1434,7 +1421,7 @@ export async function generateExploreSectorCandidate(
 
   return {
     goalType: 'explore_sector',
-    category: GOAL_CATEGORY['explore_sector'],
+    category: GOAL_CATEGORY.explore_sector,
     targetRef: `sector:${nearest.sectorX}:${nearest.sectorY}`,
     baseNeed,
     opportunity: 20 + (contactSearch ? 35 : 0) + (resourceSearch ? 25 : 0),
@@ -1467,18 +1454,19 @@ export async function generateEstablishColonyCandidate(
       role: sector.role,
       hasOwnStation: sector.hasOwnStation,
     }));
-  if (known.length === 0) return null;
+  const nearest = known[0];
+  if (!nearest) return null;
 
   // Check if we can afford colonization
-  const canAffordColony = Object.entries(COLONIZATION_COST).every(
-    ([key, amount]) => (station.resources[key as keyof typeof station.resources] ?? 0) >= amount
+  const canAffordColony = entriesOf(COLONIZATION_COST).every(
+    ([key, amount]) => (station.resources[key] ?? 0) >= amount
   );
   if (
     !canAffordColony &&
     !canAcquireCosts(
       state,
       station,
-      Object.entries(COLONIZATION_COST).map(([resourceKey, amount]) => ({
+      entriesOf(COLONIZATION_COST).map(([resourceKey, amount]) => ({
         resourceKey,
         amount,
       }))
@@ -1489,11 +1477,10 @@ export async function generateEstablishColonyCandidate(
   // Check if station has a miner ship to send
   const hasMiner = station.fleets.some((f) => {
     const sc = getSpacecraft(f.spacecraftKey);
-    return sc && sc.role === 'miner' && f.amount - f.lockedAmount > 0;
+    return sc?.role === 'miner' && f.amount - f.lockedAmount > 0;
   });
   if (!hasMiner && !canPrepareMobileSupportShip(state, station, true)) return null;
 
-  const nearest = known[0]!;
   const maxDist = 100_000;
   const contactSearch = seeksMoreForeignContact(state, profile);
   const baseNeed = Math.min(
@@ -1507,7 +1494,7 @@ export async function generateEstablishColonyCandidate(
 
   return {
     goalType: 'establish_colony',
-    category: GOAL_CATEGORY['establish_colony'],
+    category: GOAL_CATEGORY.establish_colony,
     targetRef: `sector:${nearest.sectorX}:${nearest.sectorY}`,
     baseNeed,
     opportunity: (hasMiner ? 20 : 5) + (contactSearch ? 25 : 0),
@@ -1629,11 +1616,11 @@ export async function stepEstablishColony(
   if (supportPreparation) return supportPreparation;
 
   // Check resources
-  const canAffordColony = Object.entries(COLONIZATION_COST).every(
-    ([key, amount]) => (station.resources[key as keyof typeof station.resources] ?? 0) >= amount
+  const canAffordColony = entriesOf(COLONIZATION_COST).every(
+    ([key, amount]) => (station.resources[key] ?? 0) >= amount
   );
   if (!canAffordColony) {
-    const colonyCosts = Object.entries(COLONIZATION_COST).map(([resourceKey, amount]) => ({
+    const colonyCosts = entriesOf(COLONIZATION_COST).map(([resourceKey, amount]) => ({
       resourceKey,
       amount,
     }));
@@ -1670,15 +1657,17 @@ const TARGET_STRIKE_ATTACK = 80;
 /** Current defense score for a station from its defense upgrades. */
 function defenseScore(station: StationSnapshot): number {
   return station.defense.reduce((sum, d) => {
-    const effect = calculateDefenseUpgradeEffect(d.upgradeKey as DefenseUpgradeKey, d.level);
+    const effect = calculateDefenseUpgradeEffect(d.upgradeKey, d.level);
     return sum + effect.reduce((s, e) => s + e.value, 0);
   }, 0);
 }
 
 /** Available defense upgrades that can still be raised. */
-function upgradeableDefenses(station: StationSnapshot): { upgradeKey: string; level: number }[] {
+function upgradeableDefenses(
+  station: StationSnapshot
+): { upgradeKey: DefenseUpgradeKey; level: number }[] {
   return station.defense.filter((d) => {
-    const def = getDefenseUpgrade(d.upgradeKey as DefenseUpgradeKey);
+    const def = getDefenseUpgrade(d.upgradeKey);
     return d.level < def.maxLevel && d.upgradeEndsAt === null;
   });
 }
@@ -1755,22 +1744,24 @@ function unlockedFighters(station: StationSnapshot): { key: string; attack: numb
 function bestDefenseUpgrade(
   station: StationSnapshot,
   state?: GoalBotState
-): { upgradeKey: string; targetLevel: number; gain: number } | null {
+): { upgradeKey: DefenseUpgradeKey; targetLevel: number; gain: number } | null {
   const candidates = upgradeableDefenses(station);
   if (candidates.length === 0) return null;
 
-  let best: { upgradeKey: string; targetLevel: number; gain: number; score: number } | null = null;
+  let best: {
+    upgradeKey: DefenseUpgradeKey;
+    targetLevel: number;
+    gain: number;
+    score: number;
+  } | null = null;
 
   for (const d of candidates) {
     const targetLevel = d.level + 1;
-    const currentEffect = calculateDefenseUpgradeEffect(d.upgradeKey as DefenseUpgradeKey, d.level);
-    const nextEffect = calculateDefenseUpgradeEffect(
-      d.upgradeKey as DefenseUpgradeKey,
-      targetLevel
-    );
+    const currentEffect = calculateDefenseUpgradeEffect(d.upgradeKey, d.level);
+    const nextEffect = calculateDefenseUpgradeEffect(d.upgradeKey, targetLevel);
     const gain =
       nextEffect.reduce((s, e) => s + e.value, 0) - currentEffect.reduce((s, e) => s + e.value, 0);
-    const costs = calculateDefenseUpgradeCost(d.upgradeKey as DefenseUpgradeKey, targetLevel);
+    const costs = calculateDefenseUpgradeCost(d.upgradeKey, targetLevel);
     if (state && !canAfford(station, costs) && !canAcquireCosts(state, station, costs)) continue;
     const totalCost = costs.reduce((s, c) => s + c.amount, 0);
     const costWeight = totalCost > 0 ? gain / totalCost : gain;
@@ -1831,7 +1822,7 @@ export function generateFortifyCandidate(
 
   return {
     goalType: 'fortify_station',
-    category: GOAL_CATEGORY['fortify_station'],
+    category: GOAL_CATEGORY.fortify_station,
     targetRef: `station:${station.id}`,
     baseNeed,
     opportunity: 10,
@@ -1880,7 +1871,7 @@ export async function stepFortifyStation(
     };
   }
 
-  const costs = calculateDefenseUpgradeCost(best.upgradeKey as DefenseUpgradeKey, best.targetLevel);
+  const costs = calculateDefenseUpgradeCost(best.upgradeKey, best.targetLevel);
   if (!canAfford(station, costs)) {
     const supply = assignMinerTowardCosts(
       _state,
@@ -1901,7 +1892,7 @@ export async function stepFortifyStation(
     intent: {
       type: 'upgrade_defense',
       stationId: station.id,
-      upgradeKey: best.upgradeKey as DefenseUpgradeKey,
+      upgradeKey: best.upgradeKey,
     },
     reason: `Upgrading ${best.upgradeKey} to level ${best.targetLevel} (+${best.gain} defense)`,
   };
@@ -1938,7 +1929,7 @@ export function generateBuildStrikeForceCandidate(
 
   return {
     goalType: 'build_strike_force',
-    category: GOAL_CATEGORY['build_strike_force'],
+    category: GOAL_CATEGORY.build_strike_force,
     targetRef: `station:${station.id}`,
     baseNeed,
     opportunity: 15,
@@ -1970,21 +1961,21 @@ export async function stepBuildStrikeForce(
   if (!hasShipyardLevel(station, 2)) {
     // Check if shipyard can be upgraded
     const shipyard = station.buildings.find((b) => b.buildingKey === 'shipyard');
-    if (shipyard && shipyard.upgradeEndsAt === null) {
+    if (shipyard?.upgradeEndsAt === null) {
       if (!canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
         return {
           type: 'saving',
           detail: 'shipyard_cost',
-          reason: `Saving for Shipyard level ${(shipyard?.level ?? 0) + 1}`,
+          reason: `Saving for Shipyard level ${shipyard.level + 1}`,
         };
       }
       return {
         type: 'success',
         intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
-        reason: `Building Shipyard to level ${(shipyard?.level ?? 0) + 1} for fighter unlock`,
+        reason: `Building Shipyard to level ${shipyard.level + 1} for fighter unlock`,
       };
     }
-    if (shipyard?.upgradeEndsAt !== null) {
+    if (shipyard) {
       return {
         type: 'waiting',
         detail: 'shipyard_upgrading',
@@ -2003,21 +1994,21 @@ export async function stepBuildStrikeForce(
   if (crewCapacity <= 0) {
     // Try upgrading hangar
     const hangar = station.buildings.find((b) => b.buildingKey === 'hangar');
-    if (hangar && hangar.upgradeEndsAt === null) {
+    if (hangar?.upgradeEndsAt === null) {
       if (!canAfford(station, buildingUpgradeCost(station, 'hangar'))) {
         return {
           type: 'saving',
           detail: 'hangar_cost',
-          reason: `Saving for Hangar level ${(hangar?.level ?? 0) + 1}`,
+          reason: `Saving for Hangar level ${hangar.level + 1}`,
         };
       }
       return {
         type: 'success',
         intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'hangar' },
-        reason: `Building Hangar to level ${(hangar?.level ?? 0) + 1} for more crew capacity`,
+        reason: `Building Hangar to level ${hangar.level + 1} for more crew capacity`,
       };
     }
-    if (hangar?.upgradeEndsAt !== null) {
+    if (hangar) {
       return {
         type: 'waiting',
         detail: 'hangar_upgrading',
@@ -2038,7 +2029,7 @@ export async function stepBuildStrikeForce(
   for (const f of unlocked) {
     const sc = getSpacecraft(f.key);
     if (!sc) continue;
-    const costs = sc.costs ?? [];
+    const costs = sc.costs;
     if (!canAfford(station, costs)) continue;
     const maxCount = Math.min(
       Math.floor(crewCapacity / sc.crew),
@@ -2192,7 +2183,6 @@ export function isEligibleAttackSource(
 
 /** Check if this station has attacked the given owner recently (cooldown). */
 function hasCooldown(
-  _station: StationSnapshot,
   state: GoalBotState,
   ownerId: string,
   now: Date
@@ -2202,11 +2192,10 @@ function hasCooldown(
       (r.attackerUserId === state.userId || r.defenderUserId === state.userId) &&
       (r.attackerUserId === ownerId || r.defenderUserId === ownerId)
   );
-  if (relevant.length === 0) return { onCooldown: false };
-
   const last = [...relevant].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  )[0]!;
+  )[0];
+  if (!last) return { onCooldown: false };
 
   const elapsed = now.getTime() - new Date(last.createdAt).getTime();
   const isAttacker = last.attackerUserId === state.userId;
@@ -2261,10 +2250,9 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
 
     for (const target of state.visibleStations) {
       if (target.isOwn) continue;
-      if (!target.visualProfile) continue;
       if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;
 
-      const cooldown = hasCooldown(station, state, target.ownerId, now);
+      const cooldown = hasCooldown(state, target.ownerId, now);
       if (cooldown.onCooldown) continue;
 
       const dist = Math.hypot(target.x - station.x, target.y - station.y);
@@ -2283,7 +2271,7 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
 
       const candidate: GoalCandidate = {
         goalType: 'raid',
-        category: GOAL_CATEGORY['raid'],
+        category: GOAL_CATEGORY.raid,
         targetRef: `station:${target.id}`,
         baseNeed: Math.min(scored.score, 100),
         opportunity: scored.breakdown.lootValue,
@@ -2351,7 +2339,7 @@ export function analyzeConflictOpportunities(
       protectedTargets += 1;
       continue;
     }
-    const cooldown = hasCooldown(state.ownStations[0]!, state, target.ownerId, state.now);
+    const cooldown = hasCooldown(state, target.ownerId, state.now);
     if (cooldown.onCooldown) {
       cooldownTargets += 1;
       continue;
@@ -2421,7 +2409,7 @@ export function generateRetaliateCandidates(
       if (!target) continue;
       if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;
 
-      const cooldown = hasCooldown(station, state, ownerId, now);
+      const cooldown = hasCooldown(state, ownerId, now);
       if (cooldown.onCooldown) continue;
 
       const dist = Math.hypot(target.x - station.x, target.y - station.y);
@@ -2439,7 +2427,7 @@ export function generateRetaliateCandidates(
 
       const candidate: GoalCandidate = {
         goalType: 'retaliate',
-        category: GOAL_CATEGORY['retaliate'],
+        category: GOAL_CATEGORY.retaliate,
         targetRef: `user:${ownerId}`,
         baseNeed: Math.min(scored.score + 20, 100),
         opportunity: scored.breakdown.lootValue,
@@ -2470,8 +2458,7 @@ export async function stepRaid(
   targetRef: string,
   profile: BotProfile
 ): Promise<GoalResult> {
-  const parts = targetRef.split(':');
-  const targetStationId = parts[1]!;
+  const [, targetStationId = ''] = targetRef.split(':');
 
   const activeMission = station.combatMissions.find(
     (mission) =>
@@ -2504,7 +2491,7 @@ export async function stepRaid(
     };
   }
 
-  const cooldown = hasCooldown(station, _state, target.ownerId, _state.now);
+  const cooldown = hasCooldown(_state, target.ownerId, _state.now);
   if (cooldown.onCooldown) {
     return {
       type: 'complete',
@@ -2562,8 +2549,7 @@ export async function stepRetaliate(
   targetRef: string,
   profile: BotProfile
 ): Promise<GoalResult> {
-  const parts = targetRef.split(':');
-  const ownerId = parts[1]!;
+  const [, ownerId = ''] = targetRef.split(':');
 
   const target = [..._state.visibleStations]
     .filter(
@@ -2597,7 +2583,7 @@ const COLLECTOR_COST = getSpacecraft(COLLECTOR_KEY)?.costs ?? [];
 const PAYBACK_THRESHOLD = 1.25;
 
 /** Resource preference weights for valuing salvage cargo. */
-export const BOT_RESOURCE_PREFERENCE_WEIGHTS: Record<string, number> = {
+export const BOT_RESOURCE_PREFERENCE_WEIGHTS: Record<ResourceKey, number> = {
   carbon: 1.0,
   titanium: 1.2,
   hydrogenium: 1.5,
@@ -2606,25 +2592,24 @@ export const BOT_RESOURCE_PREFERENCE_WEIGHTS: Record<string, number> = {
 };
 
 /** Estimate the total resource value of a debris field using preference weights. */
-function debrisValue(resources: Record<string, number>): number {
-  return Object.entries(resources).reduce(
-    (sum, [key, amount]) => sum + amount * (BOT_RESOURCE_PREFERENCE_WEIGHTS[key] ?? 0.5),
+function debrisValue(resources: ResourceMap): number {
+  return entriesOf(resources).reduce(
+    (sum, [key, amount]) => sum + amount * BOT_RESOURCE_PREFERENCE_WEIGHTS[key],
     0
   );
 }
 
 function usefulSalvageCargo(
   station: StationSnapshot,
-  resources: Record<string, number>,
+  resources: ResourceMap,
   cargoCapacity: number
-): Record<string, number> {
+): ResourceMap {
   let remainingCargo = cargoCapacity;
-  const cargo: Record<string, number> = {};
+  const cargo: ResourceMap = {};
   for (const resourceKey of resourceKeys) {
     const storageRoom = Math.max(
       0,
-      station.storageCapacity -
-        (station.resources[resourceKey as keyof typeof station.resources] ?? 0)
+      station.storageCapacity - (station.resources[resourceKey] ?? 0)
     );
     const amount = Math.min(resources[resourceKey] ?? 0, storageRoom, remainingCargo);
     if (amount <= 0) continue;
@@ -2637,20 +2622,17 @@ function usefulSalvageCargo(
 
 function usefulSalvageValue(
   station: StationSnapshot,
-  resources: Record<string, number>,
+  resources: ResourceMap,
   cargoCapacity: number
 ): number {
   const cargo = usefulSalvageCargo(station, resources, cargoCapacity);
-  return Object.entries(cargo).reduce((sum, [resourceKey, amount]) => {
+  return entriesOf(cargo).reduce((sum, [resourceKey, amount]) => {
     const fillRatio =
       station.storageCapacity > 0
-        ? (station.resources[resourceKey as keyof typeof station.resources] ?? 0) /
-          station.storageCapacity
+        ? (station.resources[resourceKey] ?? 0) / station.storageCapacity
         : 1;
     const localNeedMultiplier = 1 + Math.max(0, 1 - fillRatio);
-    return (
-      sum + amount * (BOT_RESOURCE_PREFERENCE_WEIGHTS[resourceKey] ?? 0.5) * localNeedMultiplier
-    );
+    return sum + amount * BOT_RESOURCE_PREFERENCE_WEIGHTS[resourceKey] * localNeedMultiplier;
   }, 0);
 }
 
@@ -2744,7 +2726,7 @@ export function generateSalvageCandidates(
     const baseNeed = needsBuild ? 40 : 60;
     candidates.push({
       goalType: 'salvage',
-      category: GOAL_CATEGORY['salvage'],
+      category: GOAL_CATEGORY.salvage,
       targetRef: `debris:${debris.id}`,
       baseNeed,
       opportunity: Math.round(
@@ -2772,8 +2754,7 @@ export async function stepSalvage(
   targetRef: string,
   _profile: BotProfile
 ): Promise<GoalResult> {
-  const parts = targetRef.split(':');
-  const debrisId = parts[1]!;
+  const [, debrisId = ''] = targetRef.split(':');
 
   const activeMission = station.salvageMissions.find(
     (mission) => mission.debrisFieldId === debrisId && mission.status !== 'resolved'
@@ -2808,7 +2789,7 @@ export async function stepSalvage(
       effectiveCargo(station, getSpacecraft(COLLECTOR_KEY)?.cargo ?? 0)
     );
     const buildCostWeighted = COLLECTOR_COST.reduce(
-      (sum, c) => sum + c.amount * (BOT_RESOURCE_PREFERENCE_WEIGHTS[c.resourceKey] ?? 1.0),
+      (sum, c) => sum + c.amount * BOT_RESOURCE_PREFERENCE_WEIGHTS[c.resourceKey],
       0
     );
 

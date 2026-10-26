@@ -11,32 +11,33 @@
     "test:unit": "node --import tsx --test test/unit/*.test.ts",
     "test:integration": "node --import tsx --test --test-concurrency=1 test/integration/*.test.ts",
     "test:behavior": "npm run test:integration",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p test --noEmit",
     "lint": "eslint .",
     "db:migrate": "tsx src/lib/db/migrate.ts",
     "scanner:report": "node --import tsx src/lib/scanner-visibility-report.ts",
     "world:report": "node --import tsx src/lib/world-gen/report.ts"
   },
   "dependencies": {
-    "@fastify/autoload": "^6.3.1",
-    "@fastify/cors": "^11.2.0",
-    "@fastify/helmet": "^13.0.2",
-    "@fastify/jwt": "^10.0.0",
-    "@orions-frontier/game-config": "*",
-    "@orions-frontier/shared": "*",
+    "@fastify/autoload": "^6.5.1",
+    "@fastify/cors": "^11.3.1",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/jwt": "^10.2.5",
+    "@orions-frontier/game-config": "^0.1.0",
+    "@orions-frontier/shared": "^0.1.0",
     "bcrypt": "^6.0.0",
-    "drizzle-orm": "^0.45.2",
-    "fastify": "^5.8.5",
-    "pino": "^10.3.1",
+    "drizzle-orm": "^0.45.4",
+    "fastify": "^5.12.7",
+    "fastify-type-provider-zod": "^7.0.0",
+    "pino": "^10.4.0",
     "postgres": "^3.4.9",
-    "ws": "^8.20.1",
-    "zod": "^4.4.3"
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
-    "@types/node": "^25.8.0",
-    "@types/ws": "^8.18.1",
-    "tsx": "^4.22.0",
+    "@types/node": "^25.9.9",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   }
 }

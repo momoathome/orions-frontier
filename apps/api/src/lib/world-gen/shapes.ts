@@ -1,6 +1,9 @@
 import type { SeededRng } from './rng.js';
 
-export type Point = { x: number; y: number };
+export interface Point {
+  x: number;
+  y: number;
+}
 
 export function sampleCloud(
   cx: number,

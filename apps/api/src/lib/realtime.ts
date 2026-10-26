@@ -1,17 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { WebSocket, WebSocketServer } from 'ws';
-import type { JwtPayload } from '@orions-frontier/shared';
+import { z } from 'zod';
+import type { JwtPayload, RealtimeEvents, RealtimeEventType } from '@orions-frontier/shared';
 
 type RealtimeApp = Pick<FastifyInstance, 'server' | 'jwt'>;
 
-interface ClientMessage {
-  type: string;
-  payload?: Record<string, unknown>;
-}
+const clientMessageSchema = z.object({
+  type: z.string(),
+  payload: z.object({ token: z.string().optional() }).optional(),
+});
 
 interface ServerMessage {
   type: string;
-  payload?: unknown;
+  payload?: object;
   timestamp: number;
 }
 
@@ -22,7 +23,11 @@ function send(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 
-export function publishUserEvent(userId: string, type: string, payload: unknown = {}): void {
+export function publishUserEvent<K extends RealtimeEventType>(
+  userId: string,
+  type: K,
+  payload: RealtimeEvents[K]
+): void {
   const message = { type, payload, timestamp: Date.now() };
   for (const socket of clients.get(userId) ?? []) send(socket, message);
 }
@@ -32,14 +37,19 @@ export function attachRealtimeServer(app: RealtimeApp): WebSocketServer {
 
   server.on('connection', (socket) => {
     let userId: string | null = null;
-    const authTimeout = setTimeout(() => socket.close(4401, 'Authentication timeout'), 10_000);
+    const authTimeout = setTimeout(() => {
+      socket.close(4401, 'Authentication timeout');
+    }, 10_000);
 
     socket.on('message', (raw) => {
       try {
-        const message = JSON.parse(raw.toString()) as ClientMessage;
+        const text = Buffer.concat(
+          Array.isArray(raw) ? raw : [Buffer.isBuffer(raw) ? raw : Buffer.from(raw)]
+        ).toString();
+        const message = clientMessageSchema.parse(JSON.parse(text));
 
         if (!userId) {
-          const token = message.payload?.['token'];
+          const token = message.payload?.token;
           if (message.type !== 'authenticate' || typeof token !== 'string') {
             socket.close(4401, 'Unauthorized');
             return;

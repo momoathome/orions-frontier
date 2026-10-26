@@ -2,8 +2,9 @@ import type { BotDecisionOutcome } from '../../services/bot/bot.service.js';
 import type { WorldTickResult } from '../../services/simulation.service.js';
 import type { ConflictOpportunitySnapshot } from '../../services/bot/goal-economy.js';
 import type { PlaytestCompletionEvent } from './events.js';
-import { PlaytestAliasRegistry } from './aliases.js';
+import type { PlaytestAliasRegistry } from './aliases.js';
 
+type PlaytestDetailValue = string | number | boolean | null;
 export interface NormalizedBotDecision {
   kind: 'bot_decision';
   botAlias: string;
@@ -29,7 +30,7 @@ export interface NormalizedCompletionEvent {
   occurredAt: string;
   userAlias: string;
   stationAlias: string;
-  details: Record<string, unknown>;
+  details: Record<string, PlaytestDetailValue>;
 }
 
 export interface NormalizedStateObservation {
@@ -54,8 +55,8 @@ export interface PlaytestCollectorSummary {
 
 export interface CollectorSnapshot {
   capturedAt: string;
-  bots: Array<{ botAlias: string; progressFingerprint: string }>;
-  stations: Array<{ stationAlias: string; progressFingerprint: string }>;
+  bots: { botAlias: string; progressFingerprint: string }[];
+  stations: { stationAlias: string; progressFingerprint: string }[];
 }
 
 function normalizeGoalTarget(
@@ -106,7 +107,7 @@ function normalizeCompletion(
   event: PlaytestCompletionEvent,
   aliases: PlaytestAliasRegistry
 ): NormalizedCompletionEvent {
-  const details: Record<string, unknown> = {};
+  const details: Record<string, PlaytestDetailValue> = {};
   switch (event.type) {
     case 'mining_delivery_completed':
       Object.assign(details, {

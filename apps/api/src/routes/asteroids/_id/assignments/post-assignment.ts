@@ -1,44 +1,40 @@
-import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { authenticate } from '../../../../middleware/auth.js';
 import { createAsteroidAssignment } from '../../../../services/mining/assignment.service.js';
 import { publishUserEvent } from '../../../../lib/realtime.js';
-import { AppError, ErrorCode } from '@orions-frontier/shared';
+import { defineRoute, idParams } from '../../../../lib/route.js';
 
 // POST /api/asteroids/:id/assignments
 
-export default (async (app) => {
-  app.post('/', { preHandler: [authenticate] }, async (request, reply) => {
-    const { id: asteroidId } = request.params as { id: string };
-    const body = request.body as {
-      stationId?: string;
-      spacecraftKey?: string;
-      assignedAmount?: number;
-    };
+export default defineRoute(async (app) => {
+  app.post(
+    '/',
+    {
+      onRequest: [authenticate],
+      schema: {
+        params: idParams,
+        body: z.object({
+          stationId: z.uuid(),
+          spacecraftKey: z.string().min(1),
+          assignedAmount: z.number().int().min(1).default(1),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const result = await createAsteroidAssignment({
+        userId: request.user.userId,
+        asteroidId: request.params.id,
+        ...request.body,
+      });
 
-    if (!body.stationId || !body.spacecraftKey) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'stationId and spacecraftKey are required');
+      if ('code' in result) {
+        const status = result.code === 'ASTEROID_NOT_FOUND' ? 404 : 400;
+        return reply.status(status).send({ message: result.message });
+      }
+
+      publishUserEvent(request.user.userId, 'mining_tick_completed', {});
+
+      return reply.status(201).send({ assignmentId: result.id });
     }
-
-    const assignedAmount = body.assignedAmount ?? 1;
-    if (!Number.isInteger(assignedAmount) || assignedAmount < 1) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'assignedAmount must be a positive integer');
-    }
-
-    const result = await createAsteroidAssignment({
-      userId: request.user.userId,
-      asteroidId,
-      stationId: body.stationId,
-      spacecraftKey: body.spacecraftKey,
-      assignedAmount,
-    });
-
-    if ('code' in result) {
-      const status = result.code === 'ASTEROID_NOT_FOUND' ? 404 : 400;
-      return reply.status(status).send({ message: result.message });
-    }
-
-    publishUserEvent(request.user.userId, 'mining_tick_completed');
-
-    return reply.status(201).send({ assignmentId: result.id });
-  });
-}) satisfies FastifyPluginAsync;
+  );
+});

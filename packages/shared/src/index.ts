@@ -20,7 +20,7 @@ export class AppError extends Error {
   constructor(
     public readonly code: ErrorCode,
     message: string,
-    public readonly details?: Record<string, unknown>
+    public readonly details?: object
   ) {
     super(message);
     this.name = 'AppError';
@@ -36,17 +36,19 @@ export class AppError extends Error {
   }
 }
 
-export * from './auth';
-export * from './station';
-export * from './station-spacecraft';
-export * from './station-resource';
-export * from './resource';
-export * from './building';
-export * from './defense';
-export * from './asteroid';
-export * from './mining-trip';
-export * from './world';
-export * from './world-mission';
-export * from './combat';
-export * from './debris';
-export * from './research';
+export * from './auth.js';
+export * from './station.js';
+export * from './station-spacecraft.js';
+export * from './station-resource.js';
+export * from './resource.js';
+export * from './building.js';
+export * from './defense.js';
+export * from './asteroid.js';
+export * from './mining-trip.js';
+export * from './world.js';
+export * from './world-mission.js';
+export * from './combat.js';
+export * from './debris.js';
+export * from './research.js';
+export * from './type-guards.js';
+export * from './realtime.js';

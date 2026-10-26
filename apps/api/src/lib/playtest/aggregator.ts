@@ -1,9 +1,9 @@
-import { resourceKeys, type ResourceMap } from '@orions-frontier/shared';
+import { entriesOf, resourceKeys, type ResourceMap } from '@orions-frontier/shared';
 import type { BotDecisionOutcome } from '../../services/bot/bot.service.js';
 import { BOT_RESOURCE_PREFERENCE_WEIGHTS } from '../../services/bot/goal-economy.js';
 import type { WorldTickResult } from '../../services/simulation.service.js';
 import type { PlaytestCompletionEvent } from './events.js';
-import { PlaytestAliasRegistry } from './aliases.js';
+import type { PlaytestAliasRegistry } from './aliases.js';
 import { milestoneKeys, recordMilestone } from './milestones.js';
 import {
   addResources,
@@ -100,9 +100,8 @@ function goal(metrics: BotMetrics, goalType: string): GoalMetrics {
 }
 
 function weighted(resources: ResourceMap): number {
-  return Object.entries(resources).reduce(
-    (sum, [resourceKey, amount]) =>
-      sum + amount * (BOT_RESOURCE_PREFERENCE_WEIGHTS[resourceKey] ?? 0.5),
+  return entriesOf(resources).reduce(
+    (sum, [resourceKey, amount]) => sum + amount * BOT_RESOURCE_PREFERENCE_WEIGHTS[resourceKey],
     0
   );
 }
@@ -235,8 +234,8 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
 
 function normalizeAggregate(aggregate: AggregateMetrics): AggregateMetrics {
   for (const goalMetrics of Object.values(aggregate.goals)) {
-    for (const [key, value] of Object.entries(goalMetrics)) {
-      if (!Number.isFinite(value)) goalMetrics[key as keyof GoalMetrics] = 0;
+    for (const [key, value] of entriesOf(goalMetrics)) {
+      if (!Number.isFinite(value)) goalMetrics[key] = 0;
     }
   }
   aggregate.economy.minedResources = sortedResources(aggregate.economy.minedResources);

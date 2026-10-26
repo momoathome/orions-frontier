@@ -17,11 +17,8 @@ export const stationResearch = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
     completedAt: timestamp('completed_at'),
   },
-  (table) => ({
-    stationTechnologyUnique: unique('station_research_station_technology_unique').on(
-      table.stationId,
-      table.technologyKey
-    ),
-    dueIdx: index('station_research_status_completes_at_idx').on(table.status, table.completesAt),
-  })
+  (table) => [
+    unique('station_research_station_technology_unique').on(table.stationId, table.technologyKey),
+    index('station_research_status_completes_at_idx').on(table.status, table.completesAt),
+  ]
 );

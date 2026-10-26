@@ -14,11 +14,11 @@ export const stationSpacecrafts = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
-  (table) => ({
-    stationDefinitionUnique: unique('station_spacecrafts_station_id_spacecraft_key_unique').on(
+  (table) => [
+    unique('station_spacecrafts_station_id_spacecraft_key_unique').on(
       table.stationId,
       table.spacecraftKey
     ),
-    stationIdIdx: index('station_spacecrafts_station_id_idx').on(table.stationId),
-  })
+    index('station_spacecrafts_station_id_idx').on(table.stationId),
+  ]
 );

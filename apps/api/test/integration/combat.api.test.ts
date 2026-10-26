@@ -98,7 +98,7 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
     payload: { targetStationId: defenderStationId, spacecraftKey: 'merlin', amount: 3 },
   });
   assert.equal(attack.statusCode, 201);
-  const attackId = attack.json().id as string;
+  const attackId = attack.json<{ id: string }>().id;
   await settleCombat(attackId);
 
   const reports = await app.inject({ method: 'GET', url: '/api/me/combats', headers });

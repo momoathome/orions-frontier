@@ -1,12 +1,14 @@
 import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import {
+  required,
   AppError,
+  entriesOf,
   type KnownSector,
   ErrorCode,
   type FrontierTarget,
   type WorldMission,
 } from '@orions-frontier/shared';
-import { COLONIZATION_COST, getSpacecraft } from '@orions-frontier/game-config';
+import { COLONIZATION_COST, getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
 import { asteroids } from '../lib/db/schema/asteroids.js';
 import { sectors } from '../lib/db/schema/sectors.js';
@@ -88,7 +90,7 @@ async function isUnknownFrontierCoordinate(
 
 const fastestAvailable = <T extends { spacecraftKey: string }>(rows: T[], role?: 'miner') =>
   rows
-    .map((row) => ({ ...row, definition: getSpacecraft(row.spacecraftKey)! }))
+    .map((row) => ({ ...row, definition: requireSpacecraft(row.spacecraftKey) }))
     .filter((row) => row.definition.speed > 0 && (!role || row.definition.role === role))
     .sort((a, b) => b.definition.speed - a.definition.speed)[0];
 
@@ -193,7 +195,7 @@ export async function getKnownSectors(userId: string, stationId: string): Promis
         id: sector.id,
         sectorX: sector.sectorX,
         sectorY: sector.sectorY,
-        role: sector.role as KnownSector['role'],
+        role: sector.role,
         hasOwnStation: ownSectorIds.has(sector.id),
         ...center,
         distance,
@@ -324,7 +326,7 @@ export async function startExpedition(
         createdAt: context.now,
       })
       .returning();
-    return created!;
+    return required(created, 'created');
   });
   return missionWithSpacecraftName(mission.id);
 }
@@ -414,7 +416,7 @@ export async function startColonization(
       .from(sectors)
       .where(and(eq(sectors.sectorX, params.sectorX), eq(sectors.sectorY, params.sectorY)))
       .limit(1);
-    if (!targetSector || targetSector.role !== 'frontier') {
+    if (targetSector?.role !== 'frontier') {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target is not a discovered frontier sector');
     }
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'colony:' + targetSector.id}))`);
@@ -447,12 +449,12 @@ export async function startColonization(
     const available = new Map(
       resourceRows.map((resource) => [resource.resourceKey, resource.amount])
     );
-    for (const [resourceKey, amount] of Object.entries(COLONIZATION_COST)) {
+    for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
       if ((available.get(resourceKey) ?? 0) < amount) {
         throw new AppError(ErrorCode.VALIDATION_ERROR, `Insufficient ${resourceKey}`);
       }
     }
-    for (const [resourceKey, amount] of Object.entries(COLONIZATION_COST)) {
+    for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
       await tx
         .update(stationResources)
         .set({ amount: sql`${stationResources.amount} - ${amount}` })
@@ -492,7 +494,7 @@ export async function startColonization(
         createdAt: context.now,
       })
       .returning();
-    return created!;
+    return required(created, 'created');
   });
   return missionWithSpacecraftName(mission.id);
 }
@@ -506,14 +508,14 @@ async function missionWithSpacecraftName(missionId: string): Promise<WorldMissio
   return {
     id: mission.id,
     originStationId: mission.originStationId,
-    missionType: mission.missionType as WorldMission['missionType'],
+    missionType: mission.missionType,
     targetSectorX: mission.targetSectorX,
     targetSectorY: mission.targetSectorY,
     targetX: mission.targetX,
     targetY: mission.targetY,
     colonyName: mission.colonyName,
-    status: mission.status as WorldMission['status'],
-    spacecraftName: getSpacecraft(mission.spacecraftKey)!.name,
+    status: mission.status,
+    spacecraftName: requireSpacecraft(mission.spacecraftKey).name,
     departedAt: mission.departedAt.toISOString(),
     arrivesAt: mission.arrivesAt.toISOString(),
   };
@@ -611,7 +613,7 @@ export async function completeDueWorldMissionsDetailed(
             arrivesAt: returnArrivesAt,
           })
           .where(eq(worldMissions.id, mission.id));
-      } else if (mission.missionType === 'colonization') {
+      } else {
         stage = 'arrived';
         if (mission.targetX === null || mission.targetY === null || !mission.colonyName) {
           throw new Error('Colonization mission is incomplete');
@@ -626,7 +628,7 @@ export async function completeDueWorldMissionsDetailed(
             )
           );
         if (!targetSector) throw new Error('Colonization target sector no longer exists');
-        const [station] = await tx
+        const [inserted] = await tx
           .insert(stations)
           .values({
             id: eventContext.nextId('station'),
@@ -640,10 +642,11 @@ export async function completeDueWorldMissionsDetailed(
             createdAt: eventContext.now,
           })
           .returning({ id: stations.id });
-        colonyStationId = station!.id;
-        await seedStationResources(station!.id, tx, {});
-        await seedStationBuildings(station!.id, tx, eventContext);
-        await seedStationDefenseUpgrades(station!.id, tx, eventContext);
+        const station = required(inserted, 'colony station');
+        colonyStationId = station.id;
+        await seedStationResources(station.id, tx, {});
+        await seedStationBuildings(station.id, tx, eventContext);
+        await seedStationDefenseUpgrades(station.id, tx, eventContext);
         const [moved] = await tx
           .update(stationSpacecrafts)
           .set({
@@ -663,7 +666,7 @@ export async function completeDueWorldMissionsDetailed(
           .insert(stationSpacecrafts)
           .values({
             id: eventContext.nextId('station-spacecraft'),
-            stationId: station!.id,
+            stationId: station.id,
             spacecraftKey: mission.spacecraftKey,
             amount: 1,
             createdAt: eventContext.now,
@@ -677,8 +680,6 @@ export async function completeDueWorldMissionsDetailed(
           .update(worldMissions)
           .set({ status: 'arrived' })
           .where(eq(worldMissions.id, mission.id));
-      } else {
-        throw new Error(`Unknown world mission: ${mission.missionType}`);
       }
       return {
         userId: mission.userId,

@@ -1,3 +1,4 @@
+import type { ResourceKey } from '@orions-frontier/shared';
 import { WORLD_CONFIG } from '../world-config.js';
 import { buildAsteroid, buildStarterAsteroid, pickWeighted } from './asteroid-gen.js';
 import type { SizeWeights } from './asteroid-gen.js';
@@ -10,7 +11,10 @@ import type {
   SectorRole,
 } from './types.js';
 
-type Point = { x: number; y: number };
+interface Point {
+  x: number;
+  y: number;
+}
 
 class SpatialGrid {
   private readonly cells = new Map<string, Point[]>();
@@ -115,8 +119,8 @@ function isOutsideSpawnZones(point: Point, slots: GeneratedSpawnSlot[]): boolean
 
 function addAsteroid(
   point: Point,
-  primaryResource: string,
-  pool: readonly { resource: string; weight: number }[],
+  primaryResource: ResourceKey,
+  pool: readonly { resource: ResourceKey; weight: number }[],
   sizeWeights: SizeWeights,
   rng: SeededRng,
   bounds: ReturnType<typeof sectorBounds>,
@@ -163,7 +167,7 @@ export function generateStarterPocket(
   return result;
 }
 
-export const rareResourceForSector = (sectorX: number, sectorY: number) =>
+export const rareResourceForSector = (sectorX: number, sectorY: number): ResourceKey =>
   Math.abs(sectorX + sectorY) % 2 === 0 ? 'kyber_crystal' : 'astatine';
 
 export function generateSector(

@@ -8,7 +8,7 @@ import {
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { formatBuildTime } from '../lib/spacecraft-utils';
 
-const props = defineProps<{
+const { hangar, ship, stationId } = defineProps<{
   stationId: string;
   ship: StationSpacecraftWithDefinition;
   hangar: { used: number; capacity: number };
@@ -25,7 +25,7 @@ const playerResources = ref<Record<string, number> | null>(null);
 async function fetchPlayerResources() {
   try {
     const response = await apiClient.get<UserResourceSummary>('/me/resources', {
-      params: { stationId: props.stationId },
+      params: { stationId: stationId },
     });
     playerResources.value = response.resources;
   } catch {
@@ -37,25 +37,23 @@ onMounted(() => fetchPlayerResources());
 
 // Reset state when selected ship changes
 watch(
-  () => props.ship,
+  () => ship,
   () => {
     buildError.value = null;
     buildSuccess.value = false;
-    fetchPlayerResources();
+    void fetchPlayerResources();
   }
 );
 
 const maxBuildable = computed(() => {
   const resourceMaximum = Math.min(
-    ...props.ship.definition.costs.map((cost) =>
+    ...ship.definition.costs.map((cost) =>
       cost.amount > 0
         ? Math.floor((playerResources.value?.[cost.resourceKey] ?? 0) / cost.amount)
         : Infinity
     )
   );
-  const crewMaximum = Math.floor(
-    Math.max(0, props.hangar.capacity - props.hangar.used) / props.ship.definition.crew
-  );
+  const crewMaximum = Math.floor(Math.max(0, hangar.capacity - hangar.used) / ship.definition.crew);
   return Math.max(0, Math.min(resourceMaximum, crewMaximum));
 });
 
@@ -64,14 +62,13 @@ const hasValidAmount = computed(
 );
 const exceedsCapacity = computed(
   () =>
-    hasValidAmount.value &&
-    props.hangar.used + props.ship.definition.crew * buildAmount.value > props.hangar.capacity
+    hasValidAmount.value && hangar.used + ship.definition.crew * buildAmount.value > hangar.capacity
 );
 const lacksResources = computed(
   () =>
     playerResources.value !== null &&
     hasValidAmount.value &&
-    props.ship.definition.costs.some(
+    ship.definition.costs.some(
       (cost) => (playerResources.value?.[cost.resourceKey] ?? 0) < cost.amount * buildAmount.value
     )
 );
@@ -84,12 +81,18 @@ const canSubmit = computed(
     !lacksResources.value
 );
 
+const submitClass = computed(() => {
+  if (buildSuccess.value) return 'border-green-500/40 bg-green-500/10 text-green-300';
+  if (!canSubmit.value) return 'border-white/10 bg-white/3 text-white/25 cursor-not-allowed';
+  return 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200';
+});
+
 function setMaxAmount() {
   buildAmount.value = Math.max(1, maxBuildable.value);
 }
 
 function costFor(resourceKey: string): number {
-  return props.ship.definition.costs.find((c) => c.resourceKey === resourceKey)?.amount ?? 0;
+  return ship.definition.costs.find((c) => c.resourceKey === resourceKey)?.amount ?? 0;
 }
 
 async function submitBuild() {
@@ -98,8 +101,8 @@ async function submitBuild() {
   buildError.value = null;
   buildSuccess.value = false;
   try {
-    await apiClient.post(`/stations/${props.stationId}/spacecrafts/build`, {
-      orders: [{ spacecraftKey: props.ship.definition.key, amount: Math.floor(buildAmount.value) }],
+    await apiClient.post(`/stations/${stationId}/spacecrafts/build`, {
+      orders: [{ spacecraftKey: ship.definition.key, amount: Math.floor(buildAmount.value) }],
     });
     buildSuccess.value = true;
     emit('built');
@@ -124,8 +127,9 @@ async function submitBuild() {
       <span class="text-[9px] text-white/20 uppercase tracking-widest">Amount</span>
       <div class="flex items-center gap-1">
         <button
-          @click="buildAmount = Math.max(1, buildAmount - 1)"
+          type="button"
           class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+          @click="buildAmount = Math.max(1, buildAmount - 1)"
         >
           −
         </button>
@@ -134,18 +138,20 @@ async function submitBuild() {
           type="number"
           min="1"
           step="1"
-          @change="buildAmount = Math.max(1, Math.floor(buildAmount || 1))"
           class="w-14 h-7 text-center text-[12px] text-white/80 bg-white/5 border border-white/12 rounded tabular-nums focus:outline-none focus:border-cyan-500/50"
+          @change="buildAmount = Math.max(1, Math.floor(buildAmount || 1))"
         />
         <button
-          @click="buildAmount = buildAmount + 1"
+          type="button"
           class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+          @click="buildAmount = buildAmount + 1"
         >
           +
         </button>
         <button
-          @click="setMaxAmount"
+          type="button"
           class="px-2 h-7 flex items-center justify-center rounded border border-white/10 text-white/35 hover:bg-white/8 hover:text-white/70 transition text-[9px] uppercase tracking-widest"
+          @click="setMaxAmount"
         >
           Max
         </button>
@@ -188,16 +194,11 @@ async function submitBuild() {
         }}
       </span>
       <button
-        @click="submitBuild"
+        type="button"
         :disabled="!canSubmit"
         class="px-6 h-8 rounded border text-[10px] uppercase tracking-[0.2em] font-semibold transition"
-        :class="
-          buildSuccess
-            ? 'border-green-500/40 bg-green-500/10 text-green-300'
-            : !canSubmit
-              ? 'border-white/10 bg-white/3 text-white/25 cursor-not-allowed'
-              : 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200'
-        "
+        :class="submitClass"
+        @click="submitBuild"
       >
         <span v-if="buildSuccess">Queued ✓</span>
         <span v-else-if="buildSubmitting">Submitting…</span>

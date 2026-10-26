@@ -31,6 +31,7 @@ function report(outputDirectory: string): {
     durationHours: 2,
     outputDirectory,
   });
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Teil-Fixture: der Report-Writer prüft nur die angegebenen Felder.
   const metrics = {
     bots: [],
     profiles: [{ profile: 'technocrat', milestonesReached: { firstMining: 1 } }],

@@ -1,5 +1,6 @@
 import { and, between, eq, ne, or, sql } from 'drizzle-orm';
 import {
+  required,
   AppError,
   ErrorCode,
   resourceKeys,
@@ -14,7 +15,7 @@ import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { calcArrivesAt, calcDistance } from '../lib/travel.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
-import { getSpacecraft } from '@orions-frontier/game-config';
+import { getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';
 import {
   getUserScannerCoverages,
   isPointVisible,
@@ -42,7 +43,7 @@ const toMission = (row: typeof salvageMissions.$inferSelect): SalvageMission => 
   stationId: row.stationId,
   debrisFieldId: row.debrisFieldId,
   amount: row.amount,
-  cargo: (row.cargo ?? {}) as ResourceMap,
+  cargo: row.cargo ?? {},
   status: row.status,
   createdAt: row.createdAt.toISOString(),
   resolvedAt: row.resolvedAt?.toISOString() ?? null,
@@ -125,7 +126,7 @@ export async function getVisibleDebris(
             y: row.y,
             chunkX: row.chunkX,
             chunkY: row.chunkY,
-            resources: row.resources as ResourceMap,
+            resources: row.resources,
           },
         ]
       : []
@@ -144,7 +145,7 @@ export async function getDebrisById(id: string, userId: string): Promise<DebrisF
         y: row.y,
         chunkX: row.chunkX,
         chunkY: row.chunkY,
-        resources: row.resources as ResourceMap,
+        resources: row.resources,
       }
     : null;
 }
@@ -205,7 +206,7 @@ export async function startSalvage(
       )
       .limit(1);
     const spacecraft = fleet ? getSpacecraft(fleet.spacecraftKey) : undefined;
-    if (!fleet || !spacecraft || spacecraft.role !== 'salvager' || spacecraft.speed <= 0) {
+    if (!fleet || spacecraft?.role !== 'salvager' || spacecraft.speed <= 0) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Selected spacecraft cannot salvage');
     }
     const [locked] = await tx
@@ -254,12 +255,12 @@ export async function startSalvage(
         stationId: station.id,
         debrisFieldId: debris.id,
         stationSpacecraftId: fleet.id,
-        outboundTripId: trip!.id,
+        outboundTripId: required(trip, 'trip').id,
         amount: params.amount,
         createdAt: context.now,
       })
       .returning();
-    return mission!;
+    return required(mission, 'mission');
   });
   return toMission(created);
 }
@@ -287,7 +288,7 @@ async function resolveSalvageOutbound(
     .from(stations)
     .where(eq(stations.id, mission.stationId));
   if (!fleet || !station) throw new Error('Salvage fleet or station no longer exists');
-  const spacecraft = getSpacecraft(fleet.spacecraftKey)!;
+  const spacecraft = requireSpacecraft(fleet.spacecraftKey);
 
   const debris = mission.debrisFieldId
     ? (
@@ -299,15 +300,10 @@ async function resolveSalvageOutbound(
       )[0]
     : undefined;
   if (!debris) throw new Error('Salvage debris no longer exists');
-  const effectiveCargo = await effectiveCargoCapacity(
-    tx,
-    mission.stationId,
-    spacecraft.cargo,
-    'salvager'
-  );
+  const effectiveCargo = await effectiveCargoCapacity(tx, mission.stationId, spacecraft.cargo);
   const cargo: ResourceMap = {};
   let capacity = Math.floor(effectiveCargo * mission.amount);
-  const remaining = { ...(debris.resources as ResourceMap) };
+  const remaining = { ...debris.resources };
   for (const key of resourceKeys) {
     const amount = Math.min(capacity, remaining[key] ?? 0);
     if (amount <= 0) continue;
@@ -347,7 +343,7 @@ async function resolveSalvageOutbound(
     .returning({ id: spacecraftTrips.id });
   await tx
     .update(salvageMissions)
-    .set({ returnTripId: returnTrip!.id, cargo, status: 'returning' })
+    .set({ returnTripId: required(returnTrip, 'returnTrip').id, cargo, status: 'returning' })
     .where(eq(salvageMissions.id, mission.id));
 }
 

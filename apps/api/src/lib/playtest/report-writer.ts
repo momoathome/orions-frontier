@@ -7,6 +7,7 @@ function rounded(value: number): number {
   return Number.isInteger(value) ? value : Number(value.toFixed(6));
 }
 
+// eslint-disable-next-line no-restricted-syntax -- durchläuft beliebige JSON-Werte rekursiv.
 function canonicalize(value: unknown): unknown {
   if (typeof value === 'number') return rounded(value);
   if (Array.isArray(value)) return value.map(canonicalize);

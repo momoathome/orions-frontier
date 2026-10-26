@@ -4,16 +4,13 @@ import { asteroids, asteroidVeins, asteroidAssignments } from '../lib/db/schema/
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationResearch } from '../lib/db/schema/station-research.js';
 import { stations } from '../lib/db/schema/stations.js';
-import { getSpacecraft } from '@orions-frontier/game-config';
+import { requireSpacecraft } from '@orions-frontier/game-config';
 import type {
   AsteroidDetail,
   AsteroidDetailAssignment,
-  AsteroidSize,
   AsteroidVein,
-  VeinType,
   VisibleAsteroid,
 } from '@orions-frontier/shared';
-import type { ResourceKey } from '@orions-frontier/shared';
 import { WORLD_CONFIG } from '../lib/world-config.js';
 import {
   getUserScannerCoverages,
@@ -78,8 +75,8 @@ export const getVisibleChunkAsteroids = async (
             y: row.y,
             chunkX: row.chunkX,
             chunkY: row.chunkY,
-            size: row.size as AsteroidSize,
-            primaryResourceKey: (row.primaryResourceKey ?? 'carbon') as ResourceKey,
+            size: row.size,
+            primaryResourceKey: row.primaryResourceKey ?? 'carbon',
           },
         ]
       : []
@@ -133,14 +130,16 @@ export const getAsteroidById = async (
 
   const activeTrips = new Map(
     travelingTrips.flatMap((trip) =>
-      trip.assignmentId ? [[trip.assignmentId, trip] as const] : []
+      trip.assignmentId && (trip.purpose === 'mine' || trip.purpose === 'mining_return')
+        ? [[trip.assignmentId, { ...trip, purpose: trip.purpose }] as const]
+        : []
     )
   );
 
   const inTransit: Record<string, number> = {};
   for (const trip of travelingTrips) {
     if (!trip.cargoManifest) continue;
-    for (const [key, amount] of Object.entries(trip.cargoManifest as Record<string, number>)) {
+    for (const [key, amount] of Object.entries(trip.cargoManifest)) {
       inTransit[key] = (inTransit[key] ?? 0) + amount;
     }
   }
@@ -177,7 +176,7 @@ export const getAsteroidById = async (
     completedByStation.set(research.stationId, technologies);
   }
   const assignmentViews = visibleAssignments.map((assignment): AsteroidDetailAssignment => {
-    const spacecraft = getSpacecraft(assignment.spacecraftKey)!;
+    const spacecraft = requireSpacecraft(assignment.spacecraftKey);
     const isOwnAssignment = assignment.ownerUserId === userId;
     const technologies = completedByStation.get(assignment.stationId);
     const miningRate =
@@ -203,7 +202,7 @@ export const getAsteroidById = async (
       activeTrip: activeTrip
         ? {
             id: activeTrip.id,
-            purpose: activeTrip.purpose as 'mine' | 'mining_return',
+            purpose: activeTrip.purpose,
             groupSize: activeTrip.groupSize,
             departedAt: activeTrip.departedAt.toISOString(),
             arrivesAt: activeTrip.arrivesAt.toISOString(),
@@ -219,13 +218,13 @@ export const getAsteroidById = async (
     y: row.y,
     chunkX: row.chunkX,
     chunkY: row.chunkY,
-    size: row.size as AsteroidSize,
+    size: row.size,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     veins: veins.map((v): AsteroidVein => ({
       id: v.id,
-      veinType: v.veinType as VeinType,
-      resourceKey: v.resourceKey as ResourceKey,
+      veinType: v.veinType,
+      resourceKey: v.resourceKey,
       remainingAmount: v.remainingAmount,
     })),
     operationsVisible: mayObserveOperations,

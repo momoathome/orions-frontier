@@ -1,6 +1,6 @@
 import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import { getBuilding } from '@orions-frontier/game-config';
-import { buildingKeys, defenseUpgradeKeys, type BuildingKey } from '@orions-frontier/shared';
+import { required, isOneOf, buildingKeys, defenseUpgradeKeys } from '@orions-frontier/shared';
 import {
   createRealtimeExecutionContext,
   resolveGameExecutionContext,
@@ -112,8 +112,8 @@ async function completeDueBuildings(
 
   for (const building of dueBuildings) {
     try {
-      const maxLevel = (buildingKeys as readonly string[]).includes(building.buildingKey)
-        ? getBuilding(building.buildingKey as BuildingKey).maxLevel
+      const maxLevel = isOneOf(buildingKeys, building.buildingKey)
+        ? getBuilding(building.buildingKey).maxLevel
         : defenseUpgradeMaxLevel(building.buildingKey);
       if (maxLevel === null || building.upgradeEndsAt === null) continue;
       const [completed] = await db
@@ -132,7 +132,7 @@ async function completeDueBuildings(
         .returning({ level: stationBuildings.level });
       if (!completed) continue;
       completedCount += 1;
-      if ((defenseUpgradeKeys as readonly string[]).includes(building.buildingKey)) {
+      if (isOneOf(defenseUpgradeKeys, building.buildingKey)) {
         events.push({
           type: 'defense_completed',
           eventId: completionEventId('defense_completed', building.id, String(completed.level)),
@@ -300,7 +300,10 @@ async function drainDueWork(
     const results = await runCompletionPass(context, includeWorldMissions);
     let passCompleted = 0;
     for (const result of results) {
-      const total = totals.find((candidate) => candidate.phase === result.phase)!;
+      const total = required(
+        totals.find((candidate) => candidate.phase === result.phase),
+        `phase total ${result.phase}`
+      );
       total.completed += result.completed;
       total.failed += result.failed;
       events.push(...result.events);
@@ -344,7 +347,9 @@ export function startSimulationScheduler(intervalMs = 1_000): NodeJS.Timeout {
     if (running) return;
     running = true;
     void runWorldTick(createRealtimeExecutionContext())
-      .catch((error) => logger.error({ error }, 'Simulation tick failed'))
+      .catch((error: unknown) => {
+        logger.error({ error }, 'Simulation tick failed');
+      })
       .finally(() => {
         running = false;
       });

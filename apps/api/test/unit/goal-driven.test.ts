@@ -375,7 +375,7 @@ test('station stabilization uses real assignments and storage headroom', async (
   });
   const result = await stepStabilizeStation(baseState(full), full, 'industrialist');
   assert.equal(result.type, 'success');
-  assert.equal(result.type === 'success' && result.intent.type, 'upgrade_building');
+  assert.equal(result.intent.type, 'upgrade_building');
 });
 
 test('capacity goals exist only for a demonstrated local bottleneck', () => {
@@ -444,7 +444,7 @@ test('capacity goal completes after its concrete bottleneck is resolved', async 
   );
 
   assert.equal(result.type, 'complete');
-  assert.equal(result.type === 'complete' ? result.goalType : null, 'increase_capacity');
+  assert.equal(result.goalType, 'increase_capacity');
 });
 
 test('asteroid selection ignores resources that the station cannot store', () => {
@@ -543,13 +543,8 @@ test('income expansion prepares enough hangar crew for a Titan', async () => {
   const result = await stepIncreaseIncome(baseState(station), station, 'warlord');
 
   assert.equal(result.type, 'success');
-  assert.equal(result.type === 'success' && result.intent.type, 'upgrade_building');
-  assert.equal(
-    result.type === 'success' && result.intent.type === 'upgrade_building'
-      ? result.intent.buildingKey
-      : null,
-    'hangar'
-  );
+  assert.equal(result.intent.type, 'upgrade_building');
+  assert.equal(result.intent.buildingKey, 'hangar');
 });
 
 test('saving goals send an idle miner toward their missing resource', async () => {
@@ -590,13 +585,8 @@ test('saving goals send an idle miner toward their missing resource', async () =
   const result = await stepIncreaseIncome(state, station, 'technocrat');
 
   assert.equal(result.type, 'success');
-  assert.equal(result.type === 'success' && result.intent.type, 'assign_miner');
-  assert.equal(
-    result.type === 'success' && result.intent.type === 'assign_miner'
-      ? result.intent.asteroidId
-      : null,
-    'kyber-field'
-  );
+  assert.equal(result.intent.type, 'assign_miner');
+  assert.equal(result.intent.asteroidId, 'kyber-field');
 });
 
 test('visible resources without a usable miner are not treated as an income path', () => {
@@ -658,13 +648,8 @@ test('colonization prepares a free miner instead of blocking on locked mining sh
   const result = await stepEstablishColony(state, station, 'sector:1:0', 'pioneer');
 
   assert.equal(result.type, 'success');
-  assert.equal(result.type === 'success' && result.intent.type, 'build_spacecraft');
-  assert.equal(
-    result.type === 'success' && result.intent.type === 'build_spacecraft'
-      ? result.intent.spacecraftKey
-      : null,
-    'mole'
-  );
+  assert.equal(result.intent.type, 'build_spacecraft');
+  assert.equal(result.intent.spacecraftKey, 'mole');
 });
 
 test('active expansion keeps its last free support miner out of urgent mining', async () => {
@@ -726,7 +711,7 @@ test('active expansion keeps its last free support miner out of urgent mining', 
     activeGoal
   );
   assert.equal(assignment?.type, 'success');
-  assert.equal(assignment?.type === 'success' && assignment.intent.type, 'assign_miner');
+  assert.equal(assignment.intent.type, 'assign_miner');
 });
 
 test('research does not claim to save when the station has no income', async () => {
@@ -826,18 +811,9 @@ test('urgent miner maintenance acts on an unstable colony first', async () => {
   );
 
   assert.equal(result?.type, 'success');
-  assert.equal(
-    result?.type === 'success' && result.intent.type === 'assign_miner'
-      ? result.intent.stationId
-      : null,
-    'station-colony'
-  );
-  assert.equal(
-    result?.type === 'success' && result.intent.type === 'assign_miner'
-      ? result.intent.spacecraftKey
-      : null,
-    'titan'
-  );
+  assert.equal(result.intent.type, 'assign_miner');
+  assert.equal(result.intent.stationId, 'station-colony');
+  assert.equal(result.intent.spacecraftKey, 'titan');
 });
 
 test('research with active miners gives extraction_algorithms a high score', () => {
@@ -957,12 +933,10 @@ test('raid sends the smallest sufficient single fighter group', async () => {
   const result = await stepRaid(state, station, 'station:target-1', 'warlord');
   assert.equal(result.type, 'success');
   assert.deepEqual(
-    result.type === 'success'
-      ? {
-          spacecraftKey: result.intent.type === 'start_attack' ? result.intent.spacecraftKey : null,
-          amount: result.intent.type === 'start_attack' ? result.intent.amount : null,
-        }
-      : null,
+    {
+      spacecraftKey: result.intent.type === 'start_attack' ? result.intent.spacecraftKey : null,
+      amount: result.intent.type === 'start_attack' ? result.intent.amount : null,
+    },
     { spacecraftKey: 'javelin', amount: 1 }
   );
 });
@@ -1064,13 +1038,8 @@ test('collector construction requires one-trip salvage payback', async () => {
   });
   const result = await stepSalvage(richState, station, 'debris:debris-rich', 'industrialist');
   assert.equal(result.type, 'success');
-  assert.equal(result.type === 'success' && result.intent.type, 'build_spacecraft');
-  assert.equal(
-    result.type === 'success' && result.intent.type === 'build_spacecraft'
-      ? result.intent.spacecraftKey
-      : null,
-    'collector'
-  );
+  assert.equal(result.intent.type, 'build_spacecraft');
+  assert.equal(result.intent.spacecraftKey, 'collector');
 });
 
 test('research with upgrades in progress gives station_grid_optimization a boost', () => {

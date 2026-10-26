@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import {
   getMiningTripPhase,
+  isKeyOf,
   type SpacecraftRole,
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
@@ -159,7 +160,9 @@ export class TripLayer {
 
       const color = miningPhase
         ? PHASE_COLOR[miningPhase]
-        : (PURPOSE_COLOR[trip.purpose as keyof typeof PURPOSE_COLOR] ?? 0xffffff);
+        : isKeyOf(PURPOSE_COLOR, trip.purpose)
+          ? PURPOSE_COLOR[trip.purpose]
+          : 0xffffff;
 
       if (miningPhase) {
         this.drawFormation(x, y, color, trip.groupSize);

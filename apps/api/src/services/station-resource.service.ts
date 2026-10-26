@@ -7,8 +7,10 @@ import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { calculateBuildingEffect } from '@orions-frontier/game-config';
 import {
+  isOneOf,
   AppError,
   ErrorCode,
+  entriesOf,
   resourceKeys,
   type ResourceKey,
   type ResourceMap,
@@ -65,7 +67,7 @@ export const getStationResources = async (
   if (rows.length === 0) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
   return rows.reduce<ResourceMap>((acc, row) => {
-    const key = row.resource.resourceKey as ResourceKey;
+    const key = row.resource.resourceKey;
     acc[key] = row.resource.amount;
     return acc;
   }, {});
@@ -93,9 +95,7 @@ export const creditStationResources = async (
   stationId: string,
   cargo: ResourceMap
 ): Promise<ResourceMap> => {
-  const invalidKey = Object.keys(cargo).find(
-    (key) => !(resourceKeys as readonly string[]).includes(key)
-  );
+  const invalidKey = Object.keys(cargo).find((key) => !isOneOf(resourceKeys, key));
   if (invalidKey) throw new Error(`Unknown resource '${invalidKey}'`);
 
   await tx
@@ -196,8 +196,8 @@ export const getDeliveredResourceRates = async (
   const delivered: ResourceMap = {};
   for (const trip of arrivedTrips) {
     if (!trip.cargoManifest) continue;
-    for (const [key, amount] of Object.entries(trip.cargoManifest)) {
-      delivered[key as ResourceKey] = (delivered[key as ResourceKey] ?? 0) + amount;
+    for (const [key, amount] of entriesOf(trip.cargoManifest)) {
+      delivered[key] = (delivered[key] ?? 0) + amount;
     }
   }
 

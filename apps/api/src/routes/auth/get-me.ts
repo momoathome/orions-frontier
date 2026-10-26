@@ -1,14 +1,14 @@
-import type { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../../middleware/auth.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { findUserById, toAuthenticatedUser } from '../../services/auth.service.js';
+import { defineRoute } from '../../lib/route.js';
 
 /**
  * GET /api/auth/me
  * Returns the currently authenticated user.
  */
-export default (async (app) => {
-  app.get('/me', { preHandler: [authenticate] }, async (request) => {
+export default defineRoute(async (app) => {
+  app.get('/me', { onRequest: [authenticate] }, async (request) => {
     const user = await findUserById(request.user.userId);
 
     if (!user) {
@@ -17,4 +17,4 @@ export default (async (app) => {
 
     return toAuthenticatedUser(user);
   });
-}) satisfies FastifyPluginAsync;
+});

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { and, eq } from 'drizzle-orm';
+import { defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
@@ -88,8 +89,8 @@ test('a completed scanner upgrade increases the station scanner range', async ()
 
 test('defense upgrades are managed outside station buildings', async () => {
   assert.equal(
-    (await getStationBuildings(stationId)).some(
-      (building) => (building.definition.key as string) === 'guardian_cannon'
+    (await getStationBuildings(stationId)).some((building) =>
+      isOneOf(defenseUpgradeKeys, building.definition.key)
     ),
     false
   );
@@ -98,8 +99,8 @@ test('defense upgrades are managed outside station buildings', async () => {
     (upgrade) => upgrade.definition.key === 'guardian_cannon'
   );
   assert.equal(before?.level, 0);
-  assert.deepEqual(before?.effects, [{ type: 'defense_score', value: 0 }]);
-  assert.equal(before?.upgradeDurationSeconds, 120);
+  assert.deepEqual(before.effects, [{ type: 'defense_score', value: 0 }]);
+  assert.equal(before.upgradeDurationSeconds, 120);
 
   await completeDefenseUpgrade('guardian_cannon');
 
@@ -107,7 +108,7 @@ test('defense upgrades are managed outside station buildings', async () => {
     (upgrade) => upgrade.definition.key === 'guardian_cannon'
   );
   assert.equal(after?.level, 1);
-  assert.deepEqual(after?.effects, [{ type: 'defense_score', value: 12 }]);
+  assert.deepEqual(after.effects, [{ type: 'defense_score', value: 12 }]);
 });
 
 async function completeUpgrade(buildingKey: 'hangar' | 'scanner' | 'warehouse'): Promise<void> {

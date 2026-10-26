@@ -11,6 +11,7 @@ import {
 import { stationSpacecrafts } from './station-spacecrafts.js';
 import { asteroidAssignments } from './asteroids.js';
 import { sql } from 'drizzle-orm';
+import type { ResourceMap } from '@orions-frontier/shared';
 
 export const tripPurposeEnum = pgEnum('trip_purpose', [
   'mine',
@@ -26,7 +27,7 @@ export const tripStatusEnum = pgEnum('trip_status', ['traveling', 'arrived', 'ca
 export const tripEndpointTypeEnum = pgEnum('trip_endpoint_type', ['station', 'asteroid', 'debris']);
 
 /** JSON shape stored in cargoManifest: { resourceKey: amount } */
-export type CargoManifest = Record<string, number>;
+export type CargoManifest = ResourceMap;
 
 export const spacecraftTrips = pgTable(
   'spacecraft_trips',
@@ -55,16 +56,14 @@ export const spacecraftTrips = pgTable(
     status: tripStatusEnum('status').notNull().default('traveling'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
-  (table) => ({
-    stationSpacecraftIdIdx: index('spacecraft_trips_station_spacecraft_id_idx').on(
-      table.stationSpacecraftId
-    ),
-    assignmentIdIdx: index('spacecraft_trips_assignment_id_idx').on(table.assignmentId),
-    statusIdx: index('spacecraft_trips_status_idx').on(table.status),
-    activeArrivesAtIdx: index('spacecraft_trips_active_arrives_at_idx')
+  (table) => [
+    index('spacecraft_trips_station_spacecraft_id_idx').on(table.stationSpacecraftId),
+    index('spacecraft_trips_assignment_id_idx').on(table.assignmentId),
+    index('spacecraft_trips_status_idx').on(table.status),
+    index('spacecraft_trips_active_arrives_at_idx')
       .on(table.arrivesAt)
       .where(sql`${table.status} = 'traveling'`),
-    arrivesAtIdx: index('spacecraft_trips_arrives_at_idx').on(table.arrivesAt),
-    toIdIdx: index('spacecraft_trips_to_id_idx').on(table.toId),
-  })
+    index('spacecraft_trips_arrives_at_idx').on(table.arrivesAt),
+    index('spacecraft_trips_to_id_idx').on(table.toId),
+  ]
 );

@@ -1,3 +1,4 @@
+import { required } from '@orions-frontier/shared';
 import type { PlaytestDiagnostic } from './collector.js';
 import type { SoftlockThresholds } from './config.js';
 import type { BotMetrics, PlaytestMetrics } from './metrics.js';
@@ -84,8 +85,8 @@ function spanForReason(
   const matching = diagnostics.filter((decision) => pattern.test(decision.normalizedReason));
   if (matching.length === 0) return null;
   return {
-    start: timeOf(matching[0]!),
-    end: timeOf(matching.at(-1)!),
+    start: timeOf(required(matching[0], 'matching[0]')),
+    end: timeOf(required(matching.at(-1), 'matching.at(-1)')),
     count: matching.length,
   };
 }
@@ -96,36 +97,35 @@ function analyzeBlockedGoal(
   thresholds: SoftlockThresholds
 ): PlaytestWarning | null {
   type BlockedDecision = (typeof diagnostics)[number];
-  const spans: Array<{
+  interface BlockedSpan {
     decisions: BlockedDecision[];
     goalType: string | null;
     targetRef: string | null;
-  }> = [];
-  let current: (typeof spans)[number] | null = null;
+  }
+  const spans: BlockedSpan[] = [];
+  let spanOpen = false;
   for (const decision of diagnostics) {
+    if (decision.resultKind !== 'blocked') {
+      spanOpen = false;
+      continue;
+    }
     const goalType = decision.activeGoalAfter ?? decision.activeGoalBefore;
     const targetRef = decision.activeGoalTargetAfter ?? decision.activeGoalTargetBefore;
-    if (
-      decision.resultKind !== 'blocked' ||
-      !current ||
-      current.goalType !== goalType ||
-      current.targetRef !== targetRef
-    ) {
-      if (current) spans.push(current);
-      current =
-        decision.resultKind === 'blocked' ? { decisions: [decision], goalType, targetRef } : null;
+    const last = spans.at(-1);
+    if (spanOpen && last?.goalType === goalType && last.targetRef === targetRef) {
+      last.decisions.push(decision);
     } else {
-      current.decisions.push(decision);
+      spans.push({ decisions: [decision], goalType, targetRef });
     }
+    spanOpen = true;
   }
-  if (current) spans.push(current);
 
   const blocked = spans
     .filter((span) => span.decisions.length >= 2)
     .map((span) => ({
       ...span,
-      start: timeOf(span.decisions[0]!),
-      end: timeOf(span.decisions.at(-1)!),
+      start: timeOf(required(span.decisions[0], 'span.decisions[0]')),
+      end: timeOf(required(span.decisions.at(-1), 'span.decisions.at(-1)')),
     }))
     .filter((span) => span.end - span.start >= thresholds.blockedGoalMs)
     .sort(
@@ -154,34 +154,39 @@ function analyzeNoProgress(
 ): PlaytestWarning | null {
   const snapshots = snapshotDiagnostics(diagnostics);
   if (snapshots.length < 2) return null;
-  const spans: Array<{
+  const spans: {
     start: number;
     end: number;
     snapshots: number;
     progressFingerprint: string;
-  }> = [];
+  }[] = [];
   let spanStart = 0;
   for (let index = 1; index <= snapshots.length; index += 1) {
     const changed =
       index === snapshots.length ||
-      snapshots[index]!.progressFingerprint !== snapshots[index - 1]!.progressFingerprint;
+      required(snapshots[index], 'snapshots[index]').progressFingerprint !==
+        required(snapshots[index - 1], 'snapshots[index - 1]').progressFingerprint;
     if (changed) {
       spans.push({
-        start: timeOf(snapshots[spanStart]!),
-        end: timeOf(snapshots[index - 1]!),
+        start: timeOf(required(snapshots[spanStart], 'snapshots[spanStart]')),
+        end: timeOf(required(snapshots[index - 1], 'snapshots[index - 1]')),
         snapshots: index - spanStart,
-        progressFingerprint: snapshots[index - 1]!.progressFingerprint,
+        progressFingerprint: required(snapshots[index - 1], 'snapshots[index - 1]')
+          .progressFingerprint,
       });
       spanStart = index;
     }
   }
   const qualifying = spans.filter((span) => span.end - span.start >= thresholds.noProgressMs);
   if (qualifying.length === 0) return null;
-  const first = qualifying[0]!;
-  const longest = [...qualifying].sort(
-    (left, right) => right.end - right.start - (left.end - left.start) || left.start - right.start
-  )[0]!;
-  const current = spans.at(-1)!;
+  const first = required(qualifying[0], 'qualifying[0]');
+  const longest = required(
+    [...qualifying].sort(
+      (left, right) => right.end - right.start - (left.end - left.start) || left.start - right.start
+    )[0],
+    'longest span'
+  );
+  const current = required(spans.at(-1), 'spans.at(-1)');
   const currentDuration = current.end - current.start;
   return warning(
     'no_measurable_progress',
@@ -232,8 +237,7 @@ function analyzeRepeatedAction(
     }
     const previous = run.at(-1);
     const same =
-      previous &&
-      previous.action === diagnostic.action &&
+      previous?.action === diagnostic.action &&
       previous.normalizedReason === diagnostic.normalizedReason &&
       !diagnostic.hasProgress;
     if (!same) {
@@ -251,8 +255,8 @@ function analyzeRepeatedAction(
       return warning(
         'repeated_action_without_progress',
         bot.botAlias,
-        timeOf(run[0]!),
-        timeOf(run.at(-1)!),
+        timeOf(required(run[0], 'run[0]')),
+        timeOf(required(run.at(-1), 'run.at(-1)')),
         {
           action: diagnostic.action,
           normalizedReason: diagnostic.normalizedReason,
@@ -276,8 +280,8 @@ function analyzeGoalChurn(
       decision.activeGoalAfter !== null &&
       decision.activeGoalBefore !== decision.activeGoalAfter
   );
-  for (let startIndex = 0; startIndex < switches.length; startIndex += 1) {
-    const start = timeOf(switches[startIndex]!);
+  for (const switchDecision of switches) {
+    const start = timeOf(switchDecision);
     const withinHour = switches.filter((decision) => {
       const time = timeOf(decision);
       return time >= start && time <= start + 3_600_000;
@@ -287,7 +291,7 @@ function analyzeGoalChurn(
         'goal_churn',
         bot.botAlias,
         start,
-        timeOf(withinHour.at(-1)!),
+        timeOf(required(withinHour.at(-1), 'withinHour.at(-1)')),
         { switches: withinHour.length, windowMs: 3_600_000 },
         'Goal switching exceeded the configured hourly threshold.'
       );

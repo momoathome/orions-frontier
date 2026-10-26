@@ -1,9 +1,17 @@
+import type { RealtimeEvents, RealtimeEventType } from '@orions-frontier/shared';
+
+type ClientMessage = { type: 'authenticate'; payload: { token: string } } | { type: 'ping' };
+interface ServerMessage {
+  type: string;
+  payload?: object;
+}
+
 export class WebSocketClient {
   private ws: WebSocket | null = null;
   private token: string | null = null;
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;
-  private messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
+  private messageHandlers = new Map<string, Set<(payload: object) => void>>();
   private pingInterval: number | null = null;
 
   constructor(private url: string) {}
@@ -19,21 +27,27 @@ export class WebSocketClient {
       this.ws = new WebSocket(this.url);
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
-        this.send({ type: 'authenticate', payload: { token: this.token } });
+        if (this.token) this.send({ type: 'authenticate', payload: { token: this.token } });
       };
       this.ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data as string) as { type: string; payload?: unknown };
+          if (typeof event.data !== 'string') return;
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- eigener Server, Format siehe apps/api/src/lib/realtime.ts.
+          const message = JSON.parse(event.data) as ServerMessage;
           if (message.type === 'authenticated') {
             this.startPing();
           } else if (message.type !== 'pong') {
-            this.messageHandlers.get(message.type)?.forEach((handler) => handler(message.payload));
+            this.messageHandlers.get(message.type)?.forEach((handler) => {
+              handler(message.payload ?? {});
+            });
           }
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error);
         }
       };
-      this.ws.onerror = (error) => console.error('WebSocket error:', error);
+      this.ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
       this.ws.onclose = (event) => {
         this.stopPing();
         if (event.code !== 4401) this.reconnect();
@@ -44,16 +58,26 @@ export class WebSocketClient {
     }
   }
 
-  on(type: string, callback: (payload: unknown) => void): () => void {
+  on<K extends RealtimeEventType>(
+    type: K,
+    callback: (payload: RealtimeEvents[K]) => void
+  ): () => void {
     const handlers = this.messageHandlers.get(type) ?? new Set();
-    handlers.add(callback);
+
+    const handler = (payload: object) => {
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Server und Client teilen `RealtimeEvents`; die Zuordnung type→payload garantiert publishUserEvent.
+      callback(payload as RealtimeEvents[K]);
+    };
+    handlers.add(handler);
     this.messageHandlers.set(type, handlers);
-    return () => handlers.delete(callback);
+    return () => handlers.delete(handler);
   }
 
   private startPing() {
     this.stopPing();
-    this.pingInterval = window.setInterval(() => this.send({ type: 'ping' }), 30_000);
+    this.pingInterval = window.setInterval(() => {
+      this.send({ type: 'ping' });
+    }, 30_000);
   }
 
   private stopPing() {
@@ -70,7 +94,7 @@ export class WebSocketClient {
     }, 1_000 * this.reconnectAttempts);
   }
 
-  send(message: unknown) {
+  send(message: ClientMessage) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(message));
   }
 

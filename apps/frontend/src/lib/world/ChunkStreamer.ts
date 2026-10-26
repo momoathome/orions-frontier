@@ -24,12 +24,12 @@ export function chunkKey(cx: number, cy: number): ChunkKey {
   return `${cx}:${cy}`;
 }
 
-type SubRange = {
+interface SubRange {
   minCX: number;
   maxCX: number;
   minCY: number;
   maxCY: number;
-};
+}
 
 export class ChunkStreamer {
   /** All currently loaded chunk data */
@@ -45,7 +45,9 @@ export class ChunkStreamer {
   /** Debounced update — call on every camera move */
   scheduleUpdate(camera: Camera) {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => this._update(camera), CHUNK_DEBOUNCE_MS);
+    this.debounceTimer = setTimeout(() => {
+      this._update(camera);
+    }, CHUNK_DEBOUNCE_MS);
   }
 
   /** Immediate update — call on first mount */
@@ -78,7 +80,7 @@ export class ChunkStreamer {
 
     // Unload chunks that have moved beyond the keep margin
     for (const key of this.loadedChunks.keys()) {
-      const [cx, cy] = key.split(':').map(Number) as [number, number];
+      const [cx = 0, cy = 0] = key.split(':').map(Number);
       if (
         cx < keepRange.minChunkX ||
         cx > keepRange.maxChunkX ||
@@ -94,7 +96,7 @@ export class ChunkStreamer {
     // then fetch only those that contain un-loaded chunks.
     for (const sub of this._splitRange(loadRange)) {
       if (this._hasNewChunks(sub)) {
-        this._fetchChunks(sub);
+        void this._fetchChunks(sub);
       }
     }
   }

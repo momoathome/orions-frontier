@@ -13,8 +13,8 @@ import {
   rareResourceForSector,
 } from '../../src/lib/world-gen/sector-gen.js';
 
-const isRareResource = (resourceKey: string): boolean =>
-  gameResources[resourceKey as ResourceKey]?.rarity === 'rare';
+const isRareResource = (resourceKey: ResourceKey): boolean =>
+  gameResources[resourceKey].rarity === 'rare';
 
 test('generates one finite resource budget distributed across all veins', () => {
   const asteroid = buildAsteroid(
@@ -129,7 +129,7 @@ test('initial rare fields do not contain massive primary deposits', () => {
 
 test('massive asteroids keep rare resources out of primary and secondary veins', () => {
   const massiveOnly = { small: 0, medium: 0, large: 0, massive: 1 };
-  const pool = [
+  const pool: { resource: ResourceKey; weight: number }[] = [
     { resource: 'carbon', weight: 1 },
     { resource: 'titanium', weight: 1 },
     { resource: 'hydrogenium', weight: 1 },

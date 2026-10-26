@@ -5,7 +5,7 @@ import type { AsteroidDetail } from '@orions-frontier/shared';
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { resourceColor, resourceName } from '../lib/mining-utils';
 
-const props = defineProps<{
+const { asteroidId, miners, show, stationId } = defineProps<{
   show: boolean;
   miners: StationSpacecraftWithDefinition[];
   asteroid: AsteroidDetail;
@@ -42,10 +42,10 @@ interface MiningPreview {
 const preview = ref<MiningPreview | null>(null);
 
 watch(
-  () => props.show,
+  () => show,
   (val) => {
     if (val) {
-      selectedSpacecraftKey.value = props.miners[0]?.definition.key ?? '';
+      selectedSpacecraftKey.value = miners[0]?.definition.key ?? '';
       assignAmount.value = 1;
       assignError.value = null;
       assigning.value = false;
@@ -56,12 +56,12 @@ watch(
 );
 
 const selectedMiner = computed(
-  () => props.miners.find((m) => m.definition.key === selectedSpacecraftKey.value) ?? null
+  () => miners.find((m) => m.definition.key === selectedSpacecraftKey.value) ?? null
 );
 
 let previewRequest = 0;
 watch(
-  [() => props.show, selectedSpacecraftKey, assignAmount],
+  [() => show, selectedSpacecraftKey, assignAmount],
   async ([show, spacecraftKey, minerCount]) => {
     const requestId = ++previewRequest;
     preview.value = null;
@@ -70,13 +70,16 @@ watch(
 
     previewLoading.value = true;
     try {
-      const response = await apiClient.get(`/asteroids/${props.asteroidId}/mining-preview`, {
-        params: {
-          stationId: props.stationId,
-          spacecraftKey,
-          minerCount,
-        },
-      });
+      const response = await apiClient.get<MiningPreview>(
+        `/asteroids/${asteroidId}/mining-preview`,
+        {
+          params: {
+            stationId: stationId,
+            spacecraftKey,
+            minerCount,
+          },
+        }
+      );
       if (requestId === previewRequest) preview.value = response;
     } catch (error) {
       if (requestId === previewRequest) {
@@ -114,8 +117,8 @@ async function submit() {
   assigning.value = true;
   assignError.value = null;
   try {
-    await apiClient.post(`/asteroids/${props.asteroidId}/assignments`, {
-      stationId: props.stationId,
+    await apiClient.post(`/asteroids/${asteroidId}/assignments`, {
+      stationId: stationId,
       spacecraftKey: selectedSpacecraftKey.value,
       assignedAmount: assignAmount.value,
     });
@@ -146,7 +149,11 @@ async function submit() {
         <!-- Header -->
         <div class="flex items-center justify-between">
           <span class="text-[12px] text-white/65 uppercase tracking-wider">Assign Miner</span>
-          <button @click="emit('close')" class="text-white/45 hover:text-white/80 text-[14px]">
+          <button
+            type="button"
+            class="text-white/45 hover:text-white/80 text-[14px]"
+            @click="emit('close')"
+          >
             ✕
           </button>
         </div>
@@ -174,8 +181,9 @@ async function submit() {
             <label class="text-[10px] text-white/45 uppercase tracking-wide">Amount</label>
             <div class="flex items-center gap-1 w-full">
               <button
-                @click="assignAmount = Math.max(1, assignAmount - 1)"
+                type="button"
                 class="w-8 h-8 flex items-center justify-center rounded border border-white/10 text-white/60 hover:bg-white/8 hover:text-white/90 transition text-[14px]"
+                @click="assignAmount = Math.max(1, assignAmount - 1)"
               >
                 −
               </button>
@@ -185,18 +193,20 @@ async function submit() {
                 min="1"
                 step="1"
                 :max="selectedMiner ? selectedMiner.amount - selectedMiner.lockedAmount : 1"
-                @change="assignAmount = Math.max(1, Math.floor(assignAmount || 1))"
                 class="flex-1 h-8 text-center text-[13px] text-white/85 bg-white/5 border border-white/12 rounded tabular-nums focus:outline-none focus:border-cyan-500/50"
+                @change="assignAmount = Math.max(1, Math.floor(assignAmount || 1))"
               />
               <button
-                @click="assignAmount = assignAmount + 1"
+                type="button"
                 class="w-8 h-8 flex items-center justify-center rounded border border-white/10 text-white/60 hover:bg-white/8 hover:text-white/90 transition text-[14px]"
+                @click="assignAmount = assignAmount + 1"
               >
                 +
               </button>
               <button
-                @click="setMaxAmount()"
+                type="button"
                 class="px-3 h-8 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition text-[10px] uppercase tracking-wider"
+                @click="setMaxAmount()"
               >
                 Max
               </button>
@@ -274,9 +284,10 @@ async function submit() {
           <div v-if="assignError" class="text-[11px] text-red-400/85">{{ assignError }}</div>
 
           <button
-            @click="submit"
+            type="button"
             :disabled="assigning || !selectedSpacecraftKey"
             class="h-8 rounded text-[11px] uppercase tracking-wider bg-cyan-400/10 text-cyan-300/90 border border-cyan-400/30 hover:bg-cyan-400/15 hover:text-cyan-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            @click="submit"
           >
             {{ assigning ? 'Assigning…' : 'Assign' }}
           </button>

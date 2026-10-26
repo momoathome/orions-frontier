@@ -174,9 +174,9 @@ test('station defense score can repel an attack without defending spacecraft', a
     (combatReport) => combatReport.id === started.id
   );
   assert.equal(report?.status, 'resolved');
-  assert.equal(report?.winner, 'defender');
-  assert.equal(report?.attackerLosses, 3);
-  assert.equal(report?.defenderLosses, 0);
+  assert.equal(report.winner, 'defender');
+  assert.equal(report.attackerLosses, 3);
+  assert.equal(report.defenderLosses, 0);
   assert.deepEqual(await getFleet(attackerStationId, 'merlin'), { amount: 0, lockedAmount: 0 });
 });
 

@@ -1,4 +1,9 @@
-import type { ResourceMap, VisibleStation } from '@orions-frontier/shared';
+import type {
+  BuildingKey,
+  DefenseUpgradeKey,
+  ResourceMap,
+  VisibleStation,
+} from '@orions-frontier/shared';
 import type { CombatReport } from '@orions-frontier/shared';
 
 /** Per-station snapshot for the goal-driven bot strategy. */
@@ -13,8 +18,8 @@ export interface StationSnapshot {
   createdAt: Date;
   storageCapacity: number;
   resources: ResourceMap;
-  buildings: { buildingKey: string; level: number; upgradeEndsAt: Date | null }[];
-  defense: { upgradeKey: string; level: number; upgradeEndsAt: Date | null }[];
+  buildings: { buildingKey: BuildingKey; level: number; upgradeEndsAt: Date | null }[];
+  defense: { upgradeKey: DefenseUpgradeKey; level: number; upgradeEndsAt: Date | null }[];
   fleets: { spacecraftKey: string; amount: number; lockedAmount: number }[];
   builds: { spacecraftKey: string; amount: number }[];
   research: { technologyKey: string; status: string; completesAt: Date | null }[];

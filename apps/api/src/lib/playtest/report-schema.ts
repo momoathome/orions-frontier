@@ -8,7 +8,7 @@ import type { PlaytestMetrics } from './metrics.js';
 import type { PlaytestWarning } from './softlock-analyzer.js';
 import type { PlaytestCollectorSummary } from './collector.js';
 
-const finiteNumber = z.number().finite();
+const finiteNumber = z.number();
 const stringNumberRecord = z.record(z.string(), finiteNumber);
 const findingSchema = z.object({
   code: z.string().min(1),
@@ -27,6 +27,7 @@ const warningSchema = z.object({
 });
 
 function validatePublicValue(
+  // eslint-disable-next-line no-restricted-syntax -- durchläuft beliebige JSON-Werte rekursiv.
   value: unknown,
   context: z.RefinementCtx,
   path: PropertyKey[] = []
@@ -47,7 +48,9 @@ function validatePublicValue(
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((entry, index) => validatePublicValue(entry, context, [...path, index]));
+    value.forEach((entry, index) => {
+      validatePublicValue(entry, context, [...path, index]);
+    });
     return;
   }
   if (value && typeof value === 'object') {
@@ -89,11 +92,11 @@ export const playtestReportSchema = z
       })
     ),
     metrics: z.object({
-      bots: z.array(z.object({ botAlias: z.string() }).passthrough()),
-      profiles: z.array(z.object({ profile: z.string() }).passthrough()),
-      run: z.object({ bots: finiteNumber.nonnegative() }).passthrough(),
-      stations: z.array(z.object({ stationAlias: z.string() }).passthrough()),
-      world: z.object({ stations: finiteNumber.nonnegative() }).passthrough(),
+      bots: z.array(z.object({ botAlias: z.string() }).loose()),
+      profiles: z.array(z.object({ profile: z.string() }).loose()),
+      run: z.object({ bots: finiteNumber.nonnegative() }).loose(),
+      stations: z.array(z.object({ stationAlias: z.string() }).loose()),
+      world: z.object({ stations: finiteNumber.nonnegative() }).loose(),
       finalSnapshotAt: z.string().nullable(),
     }),
     invariantFindings: z.array(findingSchema),
@@ -115,7 +118,9 @@ export const playtestReportSchema = z
       maximumControlledPopulation: z.number().int().nonnegative(),
     }),
   })
-  .superRefine((report, context) => validatePublicValue(report, context));
+  .superRefine((report, context) => {
+    validatePublicValue(report, context);
+  });
 
 export interface PublicPlaytestConfig {
   seed: string;
@@ -140,13 +145,13 @@ export interface PlaytestReport {
   virtualEnd: string;
   worldChecksum: string;
   strategy: { name: string; version: string };
-  population: Array<{
+  population: {
     alias: string;
     populationKind: 'resident_bot' | 'synthetic_player';
     profile: string;
     joinedAt: string;
     initialStationAlias: string;
-  }>;
+  }[];
   metrics: PlaytestMetrics;
   invariantFindings: PlaytestInvariantFinding[];
   warnings: PlaytestWarning[];

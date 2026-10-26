@@ -27,8 +27,11 @@ export const botControllers = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     strategy: varchar('strategy', { length: 32 }).notNull().default('goal_v1'),
     strategyVersion: varchar('strategy_version', { length: 32 }).notNull().default('1'),
-    profile: varchar('profile', { length: 16 }).notNull().default('industrialist'),
-    activeGoalType: varchar('active_goal_type', { length: 32 }),
+    profile: varchar('profile', { length: 16 })
+      .$type<BotProfile>()
+      .notNull()
+      .default('industrialist'),
+    activeGoalType: varchar('active_goal_type', { length: 32 }).$type<GoalType>(),
     activeGoalTarget: varchar('active_goal_target', { length: 128 }),
     goalStartedAt: timestamp('goal_started_at'),
     lastProgressAt: timestamp('last_progress_at'),
@@ -38,7 +41,5 @@ export const botControllers = pgTable(
     lastReason: varchar('last_reason', { length: 255 }),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
-  (table) => ({
-    nextDecisionAtIdx: index('bot_controllers_next_decision_at_idx').on(table.nextDecisionAt),
-  })
+  (table) => [index('bot_controllers_next_decision_at_idx').on(table.nextDecisionAt)]
 );

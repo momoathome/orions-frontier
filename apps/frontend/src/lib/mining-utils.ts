@@ -1,5 +1,5 @@
 import { resources } from '@orions-frontier/game-config';
-import type { ResourceKey } from '@orions-frontier/shared';
+import { isOneOf, resourceKeys } from '@orions-frontier/shared';
 
 const RESOURCE_COLORS: Record<string, string> = {
   carbon: '#778899',
@@ -14,5 +14,5 @@ export function resourceColor(key: string | null): string {
 }
 
 export function resourceName(key: string): string {
-  return resources[key as ResourceKey]?.name ?? key.toUpperCase();
+  return isOneOf(resourceKeys, key) ? resources[key].name : key.toUpperCase();
 }

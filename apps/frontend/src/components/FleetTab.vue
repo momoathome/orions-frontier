@@ -2,12 +2,16 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { wsClient } from '../lib/ws-client';
 import { apiClient } from '../lib/api-client';
-import type { StationSpacecraftWithDefinition, SpacecraftRole } from '@orions-frontier/shared';
-import { roleTheme, formatBuildTime } from '../lib/spacecraft-utils';
+import type {
+  StationSpacecraftsResponse,
+  StationSpacecraftWithDefinition,
+  SpacecraftRole,
+} from '@orions-frontier/shared';
+import { roleTheme, formatBuildTime, hideBrokenImage } from '../lib/spacecraft-utils';
 import BuildForm from './BuildForm.vue';
 import type { BuildOrder } from '../lib/spacecraft-utils';
 
-const props = defineProps<{ stationId: string }>();
+const { stationId } = defineProps<{ stationId: string }>();
 const emit = defineEmits<{ queueCount: [count: number] }>();
 
 const fleet = ref<StationSpacecraftWithDefinition[]>([]);
@@ -17,9 +21,48 @@ const roleFilter = ref<SpacecraftRole | 'all'>('all');
 const activeShip = ref<StationSpacecraftWithDefinition | null>(null);
 const hangar = ref({ used: 0, capacity: 0 });
 
-const uniqueRoles = computed(
-  () => [...new Set(fleet.value.map((e) => e.definition.role))] as SpacecraftRole[]
+const uniqueRoles = computed(() => [...new Set(fleet.value.map((e) => e.definition.role))]);
+
+const ROLE_GLOW: Record<SpacecraftRole, string> = {
+  fighter: 'rgb(239 68 68 / 0.08)',
+  miner: 'rgb(245 158 11 / 0.08)',
+  salvager: 'rgb(167 139 250 / 0.08)',
+};
+
+const activeShipGlow = computed(() =>
+  activeShip.value
+    ? {
+        background: `radial-gradient(ellipse at 75% 35%, ${ROLE_GLOW[activeShip.value.definition.role]} 0%, transparent 65%)`,
+      }
+    : {}
 );
+
+const activeShipStats = computed(() => {
+  if (!activeShip.value) return [];
+  const { definition } = activeShip.value;
+  return [
+    {
+      label: 'Attack',
+      value: definition.attack,
+      max: fleetMaxStats.value.attack,
+      show: definition.attack > 0 || definition.role === 'fighter',
+    },
+    { label: 'Defense', value: definition.defense, max: fleetMaxStats.value.defense, show: true },
+    { label: 'Speed', value: definition.speed, max: fleetMaxStats.value.speed, show: true },
+    {
+      label: 'Cargo',
+      value: definition.cargo,
+      max: fleetMaxStats.value.cargo,
+      show: definition.cargo > 0,
+    },
+    {
+      label: 'Mining',
+      value: definition.miningRate,
+      max: fleetMaxStats.value.miningRate,
+      show: definition.miningRate > 0,
+    },
+  ].filter((stat) => stat.show);
+});
 
 const filteredFleet = computed(() =>
   roleFilter.value === 'all'
@@ -72,17 +115,17 @@ async function loadFleet(force = false) {
   if (!force) fleetLoading.value = true;
   fleetError.value = null;
   try {
-    const response = await apiClient.get(`/stations/${props.stationId}/spacecrafts`);
+    const response = await apiClient.get<StationSpacecraftsResponse>(
+      `/stations/${stationId}/spacecrafts`
+    );
     fleet.value = response.spacecrafts;
     hangar.value = response.hangar;
-    if (!activeShip.value && fleet.value.length > 0) {
-      activeShip.value = fleet.value[0]!;
-    } else if (activeShip.value) {
-      const refreshed = fleet.value.find(
-        (e) => e.definition.key === activeShip.value!.definition.key
-      );
-      if (refreshed) activeShip.value = refreshed;
-    }
+    const activeKey = activeShip.value?.definition.key;
+    activeShip.value =
+      fleet.value.find((e) => e.definition.key === activeKey) ??
+      activeShip.value ??
+      fleet.value[0] ??
+      null;
   } catch {
     fleetError.value = 'Failed to load fleet data';
   } finally {
@@ -95,7 +138,9 @@ const now = ref(Date.now());
 const nowInterval = setInterval(() => {
   now.value = Date.now();
 }, 1000);
-onUnmounted(() => clearInterval(nowInterval));
+onUnmounted(() => {
+  clearInterval(nowInterval);
+});
 
 const visibleOrders = computed(() =>
   allBuildOrders.value.filter((o) => new Date(o.endsAt).getTime() > now.value)
@@ -109,19 +154,23 @@ function timeUntil(isoStr: string): string {
   return formatBuildTime(Math.ceil(ms / 1000));
 }
 
-watch(activeOrdersCount, (count) => emit('queueCount', count), { immediate: true });
+watch(
+  activeOrdersCount,
+  (count) => {
+    emit('queueCount', count);
+  },
+  { immediate: true }
+);
 
-loadFleet();
+void loadFleet();
 
 const unsubscribeBuild = wsClient.on('spacecraft_build_completed', (payload) => {
-  const p = payload as { stationId?: string };
-  if (p?.stationId === props.stationId) loadFleet(true);
+  if (payload.stationId === stationId) void loadFleet(true);
 });
-const unsubscribeMining = wsClient.on('mining_tick_completed', () => loadFleet(true));
-const unsubscribeTransport = wsClient.on('transport_tick_completed', () => loadFleet(true));
+const unsubscribeMining = wsClient.on('mining_tick_completed', () => void loadFleet(true));
+const unsubscribeTransport = wsClient.on('transport_tick_completed', () => void loadFleet(true));
 const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) => {
-  const event = payload as { stationId?: string; buildingKey?: string };
-  if (event.stationId === props.stationId && event.buildingKey === 'hangar') loadFleet(true);
+  if (payload.stationId === stationId && payload.buildingKey === 'hangar') void loadFleet(true);
 });
 
 onUnmounted(() => {
@@ -163,59 +212,47 @@ onUnmounted(() => {
         Hangar crew {{ hangar.used }}/{{ hangar.capacity }}
       </span>
       <button
-        @click="roleFilter = 'all'"
+        type="button"
         class="px-2.5 h-5 rounded text-[9px] uppercase tracking-[0.2em] transition"
         :class="
           roleFilter === 'all'
             ? 'bg-white/10 text-white/65 border border-white/15'
             : 'text-white/25 hover:text-white/50'
         "
+        @click="roleFilter = 'all'"
       >
         All
       </button>
       <button
         v-for="role in uniqueRoles"
         :key="role"
-        @click="roleFilter = role"
+        type="button"
         class="px-2.5 h-5 rounded text-[9px] uppercase tracking-[0.2em] transition border"
         :class="
           roleFilter === role
             ? [roleTheme(role).badge, roleTheme(role).badgeText]
             : 'border-transparent text-white/25 hover:text-white/50'
         "
+        @click="roleFilter = role"
       >
         {{ role }}
       </button>
     </div>
 
     <!-- Main: 2-column split -->
-    <div
-      class="flex-1 grid grid-cols-[200px_1fr] overflow-hidden relative"
-      :style="
-        activeShip
-          ? {
-              background: `radial-gradient(ellipse at 75% 35%, ${
-                activeShip.definition.role === 'fighter'
-                  ? 'rgb(239 68 68 / 0.08)'
-                  : activeShip.definition.role === 'miner'
-                    ? 'rgb(245 158 11 / 0.08)'
-                    : 'rgb(167 139 250 / 0.08)'
-              } 0%, transparent 65%)`,
-            }
-          : {}
-      "
-    >
+    <div class="flex-1 grid grid-cols-[200px_1fr] overflow-hidden relative" :style="activeShipGlow">
       <div class="border-r border-white/5 overflow-y-auto flex flex-col gap-px p-2">
         <button
           v-for="entry in filteredFleet"
           :key="entry.definition.key"
-          @click="activeShip = entry"
+          type="button"
           class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded text-left transition-all border"
           :class="
             activeShip?.definition.key === entry.definition.key
               ? 'bg-white/7 border-white/12'
               : 'border-transparent hover:bg-white/3 hover:border-white/6'
           "
+          @click="activeShip = entry"
         >
           <div
             class="w-0.5 self-stretch rounded-full shrink-0 opacity-70"
@@ -229,7 +266,7 @@ onUnmounted(() => {
               :alt="entry.definition.name"
               class="w-full h-full object-contain relative z-10 transition-opacity"
               :class="entry.amount > 0 ? 'opacity-70' : 'opacity-25'"
-              @error="(e) => ((e.target as HTMLImageElement).style.display = 'none')"
+              @error="hideBrokenImage"
             />
           </div>
           <div class="flex-1 min-w-0 flex flex-col gap-1">
@@ -248,14 +285,13 @@ onUnmounted(() => {
             <div class="flex items-center gap-1.5">
               <div class="flex-1 h-px bg-white/8 rounded-full overflow-hidden">
                 <div
-                  class="h-full rounded-full transition-all"
+                  class="h-full rounded-full transition-all opacity-65"
                   :class="roleTheme(entry.definition.role).topBar"
                   :style="{
                     width:
                       entry.amount > 0
-                        ? ((entry.amount - entry.lockedAmount) / entry.amount) * 100 + '%'
+                        ? `${((entry.amount - entry.lockedAmount) / entry.amount) * 100}%`
                         : '0%',
-                    opacity: '0.65',
                   }"
                 />
               </div>
@@ -334,15 +370,15 @@ onUnmounted(() => {
               class="mt-2 h-0.5 bg-white/5 rounded-full absolute bottom-0 left-0 w-full overflow-hidden"
             >
               <div
-                class="h-full transition-all"
+                class="h-full transition-all opacity-50"
                 :class="roleTheme(activeShip.definition.role).topBar"
                 :style="{
                   width:
                     activeShip.amount > 0
-                      ? ((activeShip.amount - activeShip.lockedAmount) / activeShip.amount) * 100 +
-                        '%'
+                      ? `${
+                          ((activeShip.amount - activeShip.lockedAmount) / activeShip.amount) * 100
+                        }%`
                       : '0%',
-                  opacity: '0.5',
                 }"
               />
             </div>
@@ -354,43 +390,7 @@ onUnmounted(() => {
           <!-- Stats: 2-col compact grid -->
           <div class="p-4 border-r border-white/5 overflow-y-auto">
             <div class="pt-3 grid grid-cols-2 gap-x-5 gap-y-2.5">
-              <div
-                v-for="stat in [
-                  {
-                    label: 'Attack',
-                    value: activeShip.definition.attack,
-                    max: fleetMaxStats.attack,
-                    show:
-                      activeShip.definition.attack > 0 || activeShip.definition.role === 'fighter',
-                  },
-                  {
-                    label: 'Defense',
-                    value: activeShip.definition.defense,
-                    max: fleetMaxStats.defense,
-                    show: true,
-                  },
-                  {
-                    label: 'Speed',
-                    value: activeShip.definition.speed,
-                    max: fleetMaxStats.speed,
-                    show: true,
-                  },
-                  {
-                    label: 'Cargo',
-                    value: activeShip.definition.cargo,
-                    max: fleetMaxStats.cargo,
-                    show: activeShip.definition.cargo > 0,
-                  },
-                  {
-                    label: 'Mining',
-                    value: activeShip.definition.miningRate,
-                    max: fleetMaxStats.miningRate,
-                    show: activeShip.definition.miningRate > 0,
-                  },
-                ].filter((s) => s.show)"
-                :key="stat.label"
-                class="flex flex-col gap-0.5"
-              >
+              <div v-for="stat in activeShipStats" :key="stat.label" class="flex flex-col gap-0.5">
                 <div class="flex items-center justify-between">
                   <span class="text-[8px] text-white/25 uppercase tracking-widest">{{
                     stat.label
@@ -412,7 +412,7 @@ onUnmounted(() => {
                       stat.value > 0 ? roleTheme(activeShip.definition.role).topBar : 'bg-white/10'
                     "
                     :style="{
-                      width: statPct(stat.value, stat.max) + '%',
+                      width: `${statPct(stat.value, stat.max)}%`,
                       opacity: stat.value > 0 ? '0.6' : '0.2',
                     }"
                   />

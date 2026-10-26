@@ -1,5 +1,6 @@
+import { required } from '@orions-frontier/shared';
 import { and, eq } from 'drizzle-orm';
-import { getDb } from '../lib/db/index.js';
+import type { getDb } from '../lib/db/index.js';
 import { asteroids, asteroidVeins } from '../lib/db/schema/asteroids.js';
 import { sectors } from '../lib/db/schema/sectors.js';
 import { spawnSlots } from '../lib/db/schema/spawn-slots.js';
@@ -35,7 +36,7 @@ export async function insertGeneratedAsteroids(
     await db.insert(asteroids).values(asteroidRows);
 
     const veins = asteroidRows.flatMap((asteroid, index) =>
-      batch[index]!.veins.map((vein) => ({
+      required(batch[index], 'batch[index]').veins.map((vein) => ({
         id: context.nextId('asteroid-vein'),
         asteroidId: asteroid.id,
         veinType: vein.veinType,
@@ -76,7 +77,7 @@ export async function ensureSector(
       .where(and(eq(sectors.sectorX, sectorX), eq(sectors.sectorY, sectorY)))
       .limit(1);
     if (!existing) throw new Error('Sector creation raced without a persisted winner');
-    return { id: existing.id, created: false, role: existing.role as SectorRole };
+    return { id: existing.id, created: false, role: existing.role };
   }
 
   await insertGeneratedAsteroids(db, created.id, generated.asteroids, context);

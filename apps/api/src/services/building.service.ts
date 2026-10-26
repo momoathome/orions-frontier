@@ -13,7 +13,7 @@ import {
   SHIPYARD_UNLOCKS,
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
-import { AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
+import { isOneOf, AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
 import { applyGridOptimization } from './research-effects.js';
 import { hasCompletedResearch } from './research.service.js';
 import {
@@ -61,9 +61,9 @@ export const getStationBuildings = async (
   const now = context.now;
 
   return rows
-    .filter((building) => (buildingKeys as readonly string[]).includes(building.buildingKey))
-    .map((building) => {
-      const key = building.buildingKey as BuildingKey;
+    .flatMap((building) => {
+      const key = building.buildingKey;
+      if (!isOneOf(buildingKeys, key)) return [];
       const definition = getBuilding(key);
       const level = building.level;
       const upgradeEndsAt = building.upgradeEndsAt;

@@ -207,13 +207,13 @@ test('virtual mining uses deterministic IDs and arrival-based follow-up legs', a
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.assignmentId, assignment.id));
   assert.equal(outbound?.id, expected.nextId('trip'));
-  assert.equal(outbound?.departedAt.toISOString(), context.now.toISOString());
-  assert.equal(outbound?.createdAt.toISOString(), context.now.toISOString());
+  assert.equal(outbound.departedAt.toISOString(), context.now.toISOString());
+  assert.equal(outbound.createdAt.toISOString(), context.now.toISOString());
 
   assert.equal(
     await settleTripArrival(
-      outbound!,
-      context.at(new Date(outbound!.arrivesAt.getTime() + 24 * 3_600_000))
+      outbound,
+      context.at(new Date(outbound.arrivesAt.getTime() + 24 * 3_600_000))
     ),
     true
   );
@@ -228,12 +228,12 @@ test('virtual mining uses deterministic IDs and arrival-based follow-up legs', a
     );
   assert.equal(returnTrip?.id, expected.nextId('trip'));
   assert.equal(
-    returnTrip?.departedAt.toISOString(),
-    new Date(outbound!.arrivesAt.getTime() + 6_000).toISOString()
+    returnTrip.departedAt.toISOString(),
+    new Date(outbound.arrivesAt.getTime() + 6_000).toISOString()
   );
-  assert.equal(returnTrip?.createdAt.toISOString(), returnTrip?.departedAt.toISOString());
+  assert.equal(returnTrip.createdAt.toISOString(), returnTrip.departedAt.toISOString());
 
-  assert.equal(await settleTripArrival(returnTrip!, context.at(returnTrip!.arrivesAt)), true);
+  assert.equal(await settleTripArrival(returnTrip, context.at(returnTrip.arrivesAt)), true);
   assert.equal(
     (
       await getDb()
@@ -276,8 +276,8 @@ test('virtual expedition and colonization preserve mission causality', async () 
     .from(worldMissions)
     .where(eq(worldMissions.id, expedition.id));
   assert.equal(returning?.status, 'returning');
-  assert.equal(returning?.departedAt.toISOString(), expedition.arrivesAt);
-  await completeDueWorldMissions(expeditionContext.at(returning!.arrivesAt));
+  assert.equal(returning.departedAt.toISOString(), expedition.arrivesAt);
+  await completeDueWorldMissions(expeditionContext.at(returning.arrivesAt));
   assert.equal(
     (
       await getDb()
@@ -318,7 +318,7 @@ test('virtual expedition and colonization preserve mission causality', async () 
     .from(stations)
     .where(and(eq(stations.userId, ownerId), eq(stations.name, 'Virtual Colony')));
   assert.equal(colony?.id, expectedColony.nextId('station'));
-  assert.equal(colony?.createdAt.toISOString(), colonization.arrivesAt);
+  assert.equal(colony.createdAt.toISOString(), colonization.arrivesAt);
 });
 
 test('virtual combat and salvage complete through deterministic arrival chains', async () => {
@@ -350,10 +350,10 @@ test('virtual combat and salvage complete through deterministic arrival chains',
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, startedCombat!.outboundTripId));
   assert.equal(combatOutbound?.id, expectedCombatOutboundId);
-  assert.equal(combatOutbound?.departedAt.toISOString(), combatContext.now.toISOString());
+  assert.equal(combatOutbound.departedAt.toISOString(), combatContext.now.toISOString());
   await settleTripArrival(
-    combatOutbound!,
-    combatContext.at(new Date(combatOutbound!.arrivesAt.getTime() + 24 * 3_600_000))
+    combatOutbound,
+    combatContext.at(new Date(combatOutbound.arrivesAt.getTime() + 24 * 3_600_000))
   );
 
   const [resolvedCombat] = await getDb()
@@ -361,7 +361,7 @@ test('virtual combat and salvage complete through deterministic arrival chains',
     .from(combatMissions)
     .where(eq(combatMissions.id, combat.id));
   assert.equal(resolvedCombat?.winner, 'attacker');
-  assert.equal(resolvedCombat?.status, 'returning');
+  assert.equal(resolvedCombat.status, 'returning');
   const expectedDebrisId = expectedCombat.nextId('debris');
   const expectedCombatReturnId = expectedCombat.nextId('trip');
   const [debris] = await getDb()
@@ -372,10 +372,10 @@ test('virtual combat and salvage complete through deterministic arrival chains',
   const [combatReturn] = await getDb()
     .select()
     .from(spacecraftTrips)
-    .where(eq(spacecraftTrips.id, resolvedCombat!.returnTripId!));
+    .where(eq(spacecraftTrips.id, resolvedCombat.returnTripId!));
   assert.equal(combatReturn?.id, expectedCombatReturnId);
-  assert.equal(combatReturn?.departedAt.toISOString(), combatOutbound?.arrivesAt.toISOString());
-  await settleTripArrival(combatReturn!, combatContext.at(combatReturn!.arrivesAt));
+  assert.equal(combatReturn.departedAt.toISOString(), combatOutbound.arrivesAt.toISOString());
+  await settleTripArrival(combatReturn, combatContext.at(combatReturn.arrivesAt));
 
   const salvageContext = createSeededExecutionContext({
     now: new Date('2042-01-05T00:00:00.000Z'),
@@ -389,7 +389,7 @@ test('virtual combat and salvage complete through deterministic arrival chains',
     {
       userId: ownerId,
       stationId: ownerStationId,
-      debrisFieldId: debris!.id,
+      debrisFieldId: debris.id,
       spacecraftKey: 'collector',
       amount: 1,
     },
@@ -407,8 +407,8 @@ test('virtual combat and salvage complete through deterministic arrival chains',
     .where(eq(spacecraftTrips.id, startedSalvage!.outboundTripId));
   assert.equal(salvageOutbound?.id, expectedSalvageOutboundId);
   await settleTripArrival(
-    salvageOutbound!,
-    salvageContext.at(new Date(salvageOutbound!.arrivesAt.getTime() + 24 * 3_600_000))
+    salvageOutbound,
+    salvageContext.at(new Date(salvageOutbound.arrivesAt.getTime() + 24 * 3_600_000))
   );
   const [returningSalvage] = await getDb()
     .select()
@@ -418,8 +418,8 @@ test('virtual combat and salvage complete through deterministic arrival chains',
     .select()
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, returningSalvage!.returnTripId!));
-  assert.equal(salvageReturn?.departedAt.toISOString(), salvageOutbound?.arrivesAt.toISOString());
-  await settleTripArrival(salvageReturn!, salvageContext.at(salvageReturn!.arrivesAt));
+  assert.equal(salvageReturn?.departedAt.toISOString(), salvageOutbound.arrivesAt.toISOString());
+  await settleTripArrival(salvageReturn, salvageContext.at(salvageReturn.arrivesAt));
   assert.equal(
     (
       await getDb()

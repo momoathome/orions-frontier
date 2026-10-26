@@ -21,13 +21,10 @@ export async function effectiveMiningRate(
 export async function effectiveCargoCapacity(
   db: QueryDb,
   stationId: string,
-  baseCargo: number,
-  role: 'miner' | 'salvager'
+  baseCargo: number
 ): Promise<number> {
-  if (role === 'miner' || role === 'salvager') {
-    if (await hasCompletedResearch(db, stationId, MODULAR_CARGO_FRAMES)) {
-      return baseCargo * 1.1;
-    }
+  if (await hasCompletedResearch(db, stationId, MODULAR_CARGO_FRAMES)) {
+    return baseCargo * 1.1;
   }
   return baseCargo;
 }

@@ -92,6 +92,7 @@ function analyzeWarnings(candidate: BotMetrics, diagnostics: PlaytestDiagnostic[
   const metrics: PlaytestMetrics = {
     bots: [candidate],
     profiles: [],
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Fixture: die Softlock-Analyse liest keine Laufmetriken.
     run: {} as PlaytestMetrics['run'],
     stations: [],
     world: {
@@ -116,11 +117,11 @@ function analyzeWarnings(candidate: BotMetrics, diagnostics: PlaytestDiagnostic[
 }
 
 test('every softlock detector has a positive evidence-backed path', () => {
-  const cases: Array<{
+  const cases: {
     code: PlaytestWarningCode;
     candidate: BotMetrics;
     diagnostics: PlaytestDiagnostic[];
-  }> = [
+  }[] = [
     {
       code: 'long_blocked_goal',
       candidate: bot(),

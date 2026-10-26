@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue';
 import { wsClient } from '../lib/ws-client';
+import { hideBrokenImage } from '../lib/spacecraft-utils';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import type {
   StationBuildingWithDefinition,
@@ -8,7 +9,7 @@ import type {
   UserResourceSummary,
 } from '@orions-frontier/shared';
 
-const props = defineProps<{ stationId: string }>();
+const { stationId } = defineProps<{ stationId: string }>();
 const emit = defineEmits<{ queueCount: [count: number] }>();
 
 const buildings = ref<StationBuildingWithDefinition[]>([]);
@@ -26,9 +27,16 @@ const now = ref(Date.now());
 const nowInterval = setInterval(() => {
   now.value = Date.now();
 }, 1000);
-onUnmounted(() => clearInterval(nowInterval));
+onUnmounted(() => {
+  clearInterval(nowInterval);
+});
 
-type EffectTheme = { topBar: string; badge: string; badgeText: string; level: string };
+interface EffectTheme {
+  topBar: string;
+  badge: string;
+  badgeText: string;
+  level: string;
+}
 
 const effectThemes: Record<BuildingEffectType, EffectTheme> = {
   station_progression: {
@@ -96,8 +104,8 @@ const effectTypeLabels: Record<BuildingEffectType, string> = {
   research_capacity: 'Research',
 };
 
-function formatEffect(type: string, value: number): { label: string; display: string } {
-  switch (type as BuildingEffectType) {
+function formatEffect(type: BuildingEffectType, value: number): { label: string; display: string } {
+  switch (type) {
     case 'station_progression':
       return { label: 'Station Score', display: `+${value}` };
     case 'hangar_capacity':
@@ -114,8 +122,6 @@ function formatEffect(type: string, value: number): { label: string; display: st
       return { label: 'Scan Range', display: `${value.toLocaleString()} units` };
     case 'research_capacity':
       return { label: 'Research capacity', display: `${value}` };
-    default:
-      return { label: type.replace(/_/g, ' '), display: `${value}` };
   }
 }
 
@@ -141,9 +147,10 @@ function upgradeProgress(building: StationBuildingWithDefinition): number {
 
 // Merged current + next effect rows for the detail panel
 const zippedEffects = computed(() => {
-  if (!activeBuilding.value) return [];
-  return activeBuilding.value.effects.map((cur) => {
-    const next = activeBuilding.value!.nextLevelEffects?.find((n) => n.type === cur.type) ?? null;
+  const building = activeBuilding.value;
+  if (!building) return [];
+  return building.effects.map((cur) => {
+    const next = building.nextLevelEffects?.find((n) => n.type === cur.type) ?? null;
     return { type: cur.type, current: cur.value, next: next?.value ?? null };
   });
 });
@@ -154,9 +161,11 @@ async function loadBuildings(force = false) {
   buildingsError.value = null;
   try {
     const [response, resourceResponse] = await Promise.all([
-      apiClient.get(`/stations/${props.stationId}/buildings`),
+      apiClient.get<{ buildings: StationBuildingWithDefinition[] }>(
+        `/stations/${stationId}/buildings`
+      ),
       apiClient.get<UserResourceSummary>('/me/resources', {
-        params: { stationId: props.stationId },
+        params: { stationId: stationId },
       }),
     ]);
     buildings.value = response.buildings;
@@ -167,14 +176,12 @@ async function loadBuildings(force = false) {
         upgradeDetectedAt.set(b.definition.key, Date.now());
       }
     }
-    if (!activeBuilding.value && buildings.value.length > 0) {
-      activeBuilding.value = buildings.value[0]!;
-    } else if (activeBuilding.value) {
-      const refreshed = buildings.value.find(
-        (b) => b.definition.key === activeBuilding.value!.definition.key
-      );
-      if (refreshed) activeBuilding.value = refreshed;
-    }
+    const activeKey = activeBuilding.value?.definition.key;
+    activeBuilding.value =
+      buildings.value.find((b) => b.definition.key === activeKey) ??
+      activeBuilding.value ??
+      buildings.value[0] ??
+      null;
   } catch {
     buildingsError.value = 'Failed to load buildings';
   } finally {
@@ -196,9 +203,7 @@ async function startUpgrade(building: StationBuildingWithDefinition) {
   if (upgrading.value || building.isUpgrading || !hasSufficientResources(building)) return;
   upgrading.value = building.definition.key;
   try {
-    await apiClient.post(
-      `/stations/${props.stationId}/buildings/${building.definition.key}/upgrade`
-    );
+    await apiClient.post(`/stations/${stationId}/buildings/${building.definition.key}/upgrade`);
     await loadBuildings(true);
   } catch (error) {
     buildingsError.value = apiErrorMessage(error, 'Upgrade failed');
@@ -210,17 +215,17 @@ async function startUpgrade(building: StationBuildingWithDefinition) {
   }
 }
 
-loadBuildings();
+void loadBuildings();
 
 const unsubscribe = wsClient.on('building_upgrade_completed', (payload) => {
-  const p = payload as { stationId?: string; buildingKey?: string };
-  if (p?.stationId === props.stationId) {
-    if (p.buildingKey) upgradeDetectedAt.delete(p.buildingKey);
-    loadBuildings(true);
-  }
+  if (payload.stationId !== stationId) return;
+  upgradeDetectedAt.delete(payload.buildingKey);
+  void loadBuildings(true);
 });
 
-onUnmounted(() => unsubscribe());
+onUnmounted(() => {
+  unsubscribe();
+});
 </script>
 
 <template>
@@ -255,13 +260,13 @@ onUnmounted(() => unsubscribe());
         <div
           v-for="b in buildings"
           :key="b.definition.key"
-          @click="activeBuilding = b"
           class="flex flex-col items-center gap-1 pt-1.5 pb-2 px-1 rounded cursor-pointer border transition-all"
           :class="
             activeBuilding?.definition.key === b.definition.key
               ? 'bg-white/8 border-white/20'
               : 'border-white/5 hover:bg-white/4 hover:border-white/12'
           "
+          @click="activeBuilding = b"
         >
           <div
             class="w-full h-0.5 rounded-full"
@@ -276,7 +281,7 @@ onUnmounted(() => unsubscribe());
               :src="b.definition.image"
               :alt="b.definition.name"
               class="w-full h-full object-contain opacity-65 relative z-10"
-              @error="(e) => ((e.target as HTMLImageElement).style.display = 'none')"
+              @error="hideBrokenImage"
             />
           </div>
           <span class="text-[8px] text-white/40 text-center leading-tight w-full truncate px-0.5">
@@ -407,7 +412,7 @@ onUnmounted(() => unsubscribe());
                 class="text-[9px]"
                 :class="activeBuilding.level >= Number(lvl) ? 'text-green-300/70' : 'text-white/40'"
               >
-                {{ (keys as string[]).join(', ') }}
+                {{ keys.join(', ') }}
               </span>
             </div>
           </div>
@@ -435,28 +440,29 @@ onUnmounted(() => unsubscribe());
       <!-- Action button -->
       <div class="shrink-0 w-36 flex flex-col justify-end pb-1">
         <button
-          @click="startUpgrade(activeBuilding)"
+          type="button"
           :disabled="
             activeBuilding.isUpgrading ||
             activeBuilding.level >= activeBuilding.definition.maxLevel ||
             !hasSufficientResources(activeBuilding) ||
-            !!upgrading
+            Boolean(upgrading)
           "
           class="w-full py-2.5 rounded border text-[10px] uppercase tracking-[0.2em] font-semibold transition"
           :class="
             activeBuilding.isUpgrading ||
             activeBuilding.level >= activeBuilding.definition.maxLevel ||
             !hasSufficientResources(activeBuilding) ||
-            !!upgrading
+            Boolean(upgrading)
               ? 'border-amber-500/25 bg-amber-500/8 text-amber-400/50 cursor-not-allowed'
               : 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200'
           "
+          @click="startUpgrade(activeBuilding)"
         >
           <span v-if="activeBuilding.level >= activeBuilding.definition.maxLevel">Max Level</span>
           <span v-else-if="activeBuilding.isUpgrading">Upgrading…</span>
           <span v-else-if="upgrading === activeBuilding.definition.key">Starting…</span>
-          <span v-else-if="!hasSufficientResources(activeBuilding)"> Insufficient resources </span>
-          <span v-else>Upgrade</span>
+          <span v-else-if="hasSufficientResources(activeBuilding)">Upgrade</span>
+          <span v-else> Insufficient resources </span>
         </button>
       </div>
     </div>

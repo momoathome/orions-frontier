@@ -14,7 +14,7 @@ import {
   resolveGameExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
-import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
+import type { BotProfile, GoalType } from '../../lib/db/schema/bot-controllers.js';
 import { analyzeConflictOpportunities, type ConflictOpportunitySnapshot } from './goal-economy.js';
 
 const logger = rootLogger.child({ name: 'bots' });
@@ -116,7 +116,7 @@ async function handleGoalV1(
     };
   }
 
-  const profile = controller.profile as import('../../lib/db/schema/bot-controllers.js').BotProfile;
+  const profile = controller.profile;
   if (profile === 'warlord') {
     observeConflictOpportunity?.(analyzeConflictOpportunities(state, profile));
   }
@@ -135,7 +135,7 @@ async function handleGoalV1(
   };
 
   const applyStep = async (
-    goalType: string,
+    goalType: GoalType,
     targetRef: string,
     step: GoalResult,
     isNewGoal: boolean,
@@ -412,13 +412,13 @@ export async function runBotDecisionTick(
     }
 
     // Update action/reason (and lastProgressAt if this was a successful action)
-    const updates: Record<string, unknown> = {
+    const updates: Partial<typeof botControllers.$inferInsert> = {
       lastAction: action,
       lastReason: reason.slice(0, 255),
       updatedAt: now,
     };
     if (hasProgress) {
-      updates['lastProgressAt'] = now;
+      updates.lastProgressAt = now;
     }
     const [updated] = await db
       .update(botControllers)
@@ -432,7 +432,7 @@ export async function runBotDecisionTick(
       botUserId: bot.userId,
       decidedAt: now,
       strategy: claimed.strategy,
-      profile: claimed.profile as BotProfile,
+      profile: claimed.profile,
       activeGoalBefore: claimed.activeGoalType,
       activeGoalTargetBefore: claimed.activeGoalTarget,
       activeGoalAfter: updated?.activeGoalType ?? null,
