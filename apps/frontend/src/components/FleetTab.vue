@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { wsClient } from '../lib/ws-client';
+import { debounced } from '../lib/debounce';
 import { apiClient } from '../lib/api-client';
 import type {
   StationSpacecraftsResponse,
@@ -167,13 +168,15 @@ void loadFleet();
 const unsubscribeBuild = wsClient.on('spacecraft_build_completed', (payload) => {
   if (payload.stationId === stationId) void loadFleet(true);
 });
-const unsubscribeMining = wsClient.on('mining_tick_completed', () => void loadFleet(true));
-const unsubscribeTransport = wsClient.on('transport_tick_completed', () => void loadFleet(true));
+const reloadFleet = debounced(() => loadFleet(true), 500);
+const unsubscribeMining = wsClient.on('mining_tick_completed', reloadFleet);
+const unsubscribeTransport = wsClient.on('transport_tick_completed', reloadFleet);
 const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) => {
   if (payload.stationId === stationId && payload.buildingKey === 'hangar') void loadFleet(true);
 });
 
 onUnmounted(() => {
+  reloadFleet.cancel();
   unsubscribeBuild();
   unsubscribeMining();
   unsubscribeTransport();

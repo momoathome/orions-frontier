@@ -7,6 +7,7 @@ import AsteroidPanel from '../components/AsteroidPanel.vue';
 import DebrisPanel from '../components/DebrisPanel.vue';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
+import { debounced } from '../lib/debounce';
 import { useAuthStore } from '../stores/auth.js';
 import { WorldRenderer } from '../lib/world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from '../lib/world/WorldRenderer.js';
@@ -158,10 +159,13 @@ async function refreshMiningState(): Promise<void> {
   await loadAssignments();
   await loadTrips();
 }
+// Trips settle one event each; reload once per burst instead of once per trip.
+const scheduleMiningRefresh = debounced(refreshMiningState, 500);
+const scheduleChunkRefresh = debounced(() => renderer?.refreshVisibleChunks(), 1000);
 
 function closeAsteroidPanel() {
   deselect();
-  void loadAssignments();
+  scheduleMiningRefresh();
 }
 
 const worldEl = useTemplateRef<HTMLDivElement>('worldRef');
@@ -241,12 +245,10 @@ onMounted(async () => {
 
   // A settled trip can change both the visible phase and the assignment.
   unsubTransportTick = wsClient.on('transport_tick_completed', () => {
-    renderer?.refreshVisibleChunks();
-    void refreshMiningState();
+    scheduleChunkRefresh();
+    scheduleMiningRefresh();
   });
-  unsubMiningTick = wsClient.on('mining_tick_completed', () => {
-    void refreshMiningState();
-  });
+  unsubMiningTick = wsClient.on('mining_tick_completed', scheduleMiningRefresh);
   unsubBuildingUpgrade = wsClient.on('building_upgrade_completed', () => {
     void loadUserStation().then(() => {
       renderer?.setScannerStations(ownStations);
@@ -267,6 +269,8 @@ watch(selectedEntity, (entity) => {
 });
 
 onUnmounted(() => {
+  scheduleMiningRefresh.cancel();
+  scheduleChunkRefresh.cancel();
   unsubTransportTick?.();
   unsubMiningTick?.();
   unsubBuildingUpgrade?.();
@@ -410,7 +414,7 @@ watch(canBypassScanner, (allowed) => {
         :station-id="stationId"
         :scanner-bypass="scannerBypass"
         @close="closeAsteroidPanel"
-        @refresh="loadAssignments"
+        @refresh="scheduleMiningRefresh"
       />
     </transition>
 

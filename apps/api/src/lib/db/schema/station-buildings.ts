@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, uuid, integer, timestamp, index, unique, varchar } from 'drizzle-orm/pg-core';
 import { stations } from './stations.js';
 
@@ -16,6 +17,10 @@ export const stationBuildings = pgTable(
   },
   (table) => [
     index('station_buildings_station_id_idx').on(table.stationId),
+    // The simulation polls due upgrades every second; only running upgrades belong in this index.
+    index('station_buildings_upgrade_ends_at_idx')
+      .on(table.upgradeEndsAt)
+      .where(sql`${table.upgradeEndsAt} IS NOT NULL`),
     unique('station_buildings_station_id_building_key_unique').on(
       table.stationId,
       table.buildingKey

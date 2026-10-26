@@ -65,6 +65,9 @@ async function completeDueTransports(
   let completed = 0;
   let failed = 0;
   const events: PlaytestCompletionEvent[] = [];
+  // One notification per user per pass; clients reload once instead of once per trip.
+  const settledByUser = new Map<string, number>();
+  const notify = (id: string) => settledByUser.set(id, (settledByUser.get(id) ?? 0) + 1);
 
   for (const { trip, userId } of dueTrips) {
     try {
@@ -72,21 +75,22 @@ async function completeDueTransports(
       if (arrival.settled) {
         completed += 1;
         events.push(...arrival.events);
-        publishUserEvent(userId, 'transport_tick_completed', { settled: 1 });
+        notify(userId);
         if (trip.purpose === 'combat' && trip.toType === 'station') {
           const [defender] = await db
             .select({ userId: stations.userId })
             .from(stations)
             .where(eq(stations.id, trip.toId));
-          if (defender && defender.userId !== userId) {
-            publishUserEvent(defender.userId, 'transport_tick_completed', { settled: 1 });
-          }
+          if (defender && defender.userId !== userId) notify(defender.userId);
         }
       }
     } catch (error) {
       failed += 1;
       logger.error({ tripId: trip.id, err: error }, 'Failed to settle due trip');
     }
+  }
+  for (const [userId, settled] of settledByUser) {
+    publishUserEvent(userId, 'transport_tick_completed', { settled });
   }
   return { phase: 'transports', completed, failed, events };
 }

@@ -18,6 +18,7 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
+import type { MiningDeliveryCompletedEvent } from '../../src/lib/playtest/events.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.service.js';
 import { runWorldTick } from '../../src/services/simulation.service.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
@@ -129,7 +130,11 @@ test('one world tick drains every due travel leg before deciding each bot once',
   );
   assert.ok(result.passes >= 2);
   assert.ok((result.phases.find((phase) => phase.phase === 'transports')?.completed ?? 0) >= 2);
-  const delivery = result.events.find((event) => event.type === 'mining_delivery_completed');
+  // The shared dev database may hold other due trips; only this station's delivery is asserted.
+  const delivery = result.events.find(
+    (event): event is MiningDeliveryCompletedEvent =>
+      event.type === 'mining_delivery_completed' && event.stationId === stationId
+  );
   assert.ok(delivery);
   assert.deepEqual(delivery.requested, { carbon: 1 });
   assert.deepEqual(delivery.credited, { carbon: 1 });

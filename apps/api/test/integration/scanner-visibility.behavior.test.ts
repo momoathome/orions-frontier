@@ -346,6 +346,19 @@ test('foreign movement is a route-free contact while the owner keeps its full tr
   assert.equal(ownTrip.toX, -2_500);
 });
 
+test('a trip crossing the view stays visible although both endpoints lie outside it', async () => {
+  const crossingRange = { minChunkX: -1, maxChunkX: 0, minChunkY: -1, maxChunkY: 0 };
+  const farRange = { minChunkX: 40, maxChunkX: 41, minChunkY: 40, maxChunkY: 41 };
+  assert.equal(
+    (await getVisibleWorldMovements(crossingRange, targetId, now)).some(({ id }) => id === tripId),
+    true
+  );
+  assert.equal(
+    (await getVisibleWorldMovements(farRange, targetId, now)).some(({ id }) => id === tripId),
+    false
+  );
+});
+
 test('dev scanner bypass projects the requested chunks without scanner coverage', async () => {
   const [visibleAsteroids, visibleStations, visibleDebris, hiddenMovement, hiddenAsteroid] =
     await Promise.all([

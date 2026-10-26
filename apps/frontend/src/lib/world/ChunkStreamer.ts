@@ -57,24 +57,27 @@ export class ChunkStreamer {
     this._update(camera);
   }
 
-  /** Discard cached world data and fetch the currently visible chunks again. */
+  /** Fetch the visible chunks again; loaded chunks stay drawn until their replacement arrives. */
   refresh(camera: Camera) {
-    for (const key of this.loadedChunks.keys()) this.onChunkUnloaded?.(key);
-    this.loadedChunks.clear();
-    this.immediateUpdate(camera);
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = null;
+    this._update(camera, true);
   }
 
   setScannerBypass(enabled: boolean, camera: Camera) {
     if (this.scannerBypass === enabled) return;
     this.scannerBypass = enabled;
-    this.refresh(camera);
+    // Drop everything so no chunk keeps data from the other visibility mode.
+    for (const key of this.loadedChunks.keys()) this.onChunkUnloaded?.(key);
+    this.loadedChunks.clear();
+    this.immediateUpdate(camera);
   }
 
   destroy() {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
   }
 
-  private _update(camera: Camera) {
+  private _update(camera: Camera, reloadAll = false) {
     const loadRange = camera.getVisibleChunkRange(CHUNK_LOAD_MARGIN);
     const keepRange = camera.getVisibleChunkRange(CHUNK_LOAD_MARGIN + CHUNK_UNLOAD_MARGIN);
 
@@ -95,7 +98,7 @@ export class ChunkStreamer {
     // Split the load range into sub-requests that fit within the API limit,
     // then fetch only those that contain un-loaded chunks.
     for (const sub of this._splitRange(loadRange)) {
-      if (this._hasNewChunks(sub)) {
+      if (reloadAll || this._hasNewChunks(sub)) {
         void this._fetchChunks(sub);
       }
     }

@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref } from 'vue';
 import type { LogbookEntry, LogbookEntryType } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
+import { debounced } from '../lib/debounce';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const entries = ref<LogbookEntry[]>([]);
@@ -47,15 +48,7 @@ async function load(): Promise<void> {
   }
 }
 
-// Completion events arrive in bursts; one reload after the burst is enough.
-let reloadTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleLoad(): void {
-  if (reloadTimer) clearTimeout(reloadTimer);
-  reloadTimer = setTimeout(() => {
-    reloadTimer = null;
-    void load();
-  }, 500);
-}
+const scheduleLoad = debounced(load, 500);
 
 void load();
 const unsubscribers = [
@@ -66,7 +59,7 @@ const unsubscribers = [
   wsClient.on('transport_tick_completed', scheduleLoad),
 ];
 onUnmounted(() => {
-  if (reloadTimer) clearTimeout(reloadTimer);
+  scheduleLoad.cancel();
   for (const unsubscribe of unsubscribers) unsubscribe();
 });
 </script>

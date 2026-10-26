@@ -118,7 +118,7 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         @queue-count="fleetQueueCount = $event"
       />
       <LogisticsTab
-        v-show="selectedSection === 'logistics'"
+        v-if="selectedSection === 'logistics'"
         :station-id="stationId"
         class="flex-1 overflow-hidden flex flex-col"
       />
