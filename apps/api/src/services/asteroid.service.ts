@@ -1,4 +1,4 @@
-import { and, between, eq, inArray, or } from 'drizzle-orm';
+import { and, between, eq, inArray, or, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { asteroids, asteroidVeins, asteroidAssignments } from '../lib/db/schema/asteroids.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
@@ -48,6 +48,10 @@ export const getVisibleChunkAsteroids = async (
       chunkY: asteroids.chunkY,
       size: asteroids.size,
       primaryResourceKey: asteroidVeins.resourceKey,
+      remainingFraction: sql<number>`(
+        SELECT LEAST(1, COALESCE(SUM(v.remaining_amount)::float / NULLIF(SUM(v.initial_amount), 0), 1))
+        FROM asteroid_veins v WHERE v.asteroid_id = ${asteroids.id}
+      )`,
     })
     .from(asteroids)
     .leftJoin(
@@ -77,6 +81,7 @@ export const getVisibleChunkAsteroids = async (
             chunkY: row.chunkY,
             size: row.size,
             primaryResourceKey: row.primaryResourceKey ?? 'carbon',
+            remainingFraction: row.remainingFraction,
           },
         ]
       : []
@@ -226,6 +231,7 @@ export const getAsteroidById = async (
       veinType: v.veinType,
       resourceKey: v.resourceKey,
       remainingAmount: v.remainingAmount,
+      initialAmount: v.initialAmount,
     })),
     operationsVisible: mayObserveOperations,
     assignments: assignmentViews,

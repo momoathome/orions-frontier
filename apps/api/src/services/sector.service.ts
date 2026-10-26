@@ -42,6 +42,7 @@ export async function insertGeneratedAsteroids(
         veinType: vein.veinType,
         resourceKey: vein.resourceKey,
         remainingAmount: vein.remainingAmount,
+        initialAmount: vein.remainingAmount,
         createdAt: context.now,
       }))
     );
