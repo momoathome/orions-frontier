@@ -7,6 +7,7 @@ import FrontierTab from './FrontierTab.vue';
 import ResearchTab from './ResearchTab.vue';
 import DefenseTab from './DefenseTab.vue';
 import LogbookTab from './LogbookTab.vue';
+import RankingTab from './RankingTab.vue';
 
 const { stationId, stationName } = defineProps<{
   stationId: string;
@@ -22,6 +23,7 @@ const SECTIONS = [
   'frontier',
   'defense',
   'logbook',
+  'ranking',
 ] as const;
 type Section = (typeof SECTIONS)[number];
 
@@ -142,6 +144,7 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
         :station-id="stationId"
         class="flex-1 overflow-hidden"
       />
+      <RankingTab v-if="selectedSection === 'ranking'" class="flex-1 overflow-hidden" />
     </div>
   </div>
 </template>

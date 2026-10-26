@@ -29,6 +29,23 @@ export interface VisibleStation {
   visualProfile: StationVisualProfile;
 }
 
+/** One row of the server-wide ranking (GET /api/world/ranking); public data only. */
+export interface RankingEntry {
+  rank: number;
+  userId: string;
+  username: string;
+  ownerType: 'player' | 'bot';
+  stationCount: number;
+  score: number;
+}
+
+export interface Ranking {
+  top: RankingEntry[];
+  /** The requesting player's own row; null until they found a station. */
+  me: RankingEntry | null;
+  totalPlayers: number;
+}
+
 export type WorldTripPurpose =
   | 'mine'
   | 'mining_return'
