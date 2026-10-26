@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { GoalCandidate } from '../../src/services/bot/goal-driven-v1.js';
-import { scoreCandidate, selectGoal } from '../../src/services/bot/goal-driven-v1.js';
+import {
+  activeGoalCommitment,
+  adaptCategoryWeights,
+  CATEGORY_WEIGHTS,
+  categoryWeightsFor,
+  scoreCandidate,
+  selectGoal,
+} from '../../src/services/bot/goal-driven-v1.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1068,4 +1075,55 @@ test('started research is excluded from candidates', () => {
   const candidates = generateResearchCandidates(baseState(station), station);
   const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
   assert.equal(extraction, undefined, 'started research should be excluded');
+});
+
+// ---------------------------------------------------------------------------
+// Adaptive category weights
+// ---------------------------------------------------------------------------
+
+test('a prolonged saving goal loses weight until a research goal takes over', () => {
+  const saving = cand({ goalType: 'increase_capacity', targetRef: 'station:a', commitment: 25 });
+  const research = cand({
+    goalType: 'research_technology',
+    targetRef: 'tech:x',
+    category: 'research',
+  });
+  const active = { goalType: saving.goalType, targetRef: saving.targetRef };
+  let weights = categoryWeightsFor('industrialist', null);
+  assert.equal(
+    selectGoal([saving, research], 'industrialist', active, weights).selected?.goalType,
+    saving.goalType
+  );
+
+  let intervals = 0;
+  while (
+    selectGoal([saving, research], 'industrialist', active, weights).selected?.goalType ===
+    saving.goalType
+  ) {
+    weights = adaptCategoryWeights(weights, 'industrialist', [
+      { goalType: 'increase_capacity', signal: 'saving' },
+    ]);
+    intervals += 1;
+    saving.commitment = activeGoalCommitment(intervals * 60_000);
+    assert.ok(intervals < 60, 'saving pressure must eventually allow a switch');
+  }
+  assert.ok(intervals > 5, 'hysteresis still protects the goal for several intervals');
+  assert.ok(weights.economy >= 0.4);
+});
+
+test('outcomes shift weights and they revert toward the profile start weights', () => {
+  const base = CATEGORY_WEIGHTS.pioneer;
+  const completed = adaptCategoryWeights(base, 'pioneer', [
+    { goalType: 'research_technology', signal: 'complete' },
+  ]);
+  assert.ok(completed.research > base.research);
+  const released = adaptCategoryWeights(base, 'pioneer', [
+    { goalType: 'raid', signal: 'released' },
+  ]);
+  assert.ok(released.conflict < base.conflict);
+
+  let drifted = { ...base, research: 2 };
+  for (let i = 0; i < 200; i += 1) drifted = adaptCategoryWeights(drifted, 'pioneer', []);
+  assert.ok(Math.abs(drifted.research - base.research) < 0.05);
+  assert.deepEqual(categoryWeightsFor('pioneer', { research: Number.NaN }), base);
 });

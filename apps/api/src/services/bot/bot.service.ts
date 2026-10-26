@@ -14,8 +14,15 @@ import {
   resolveGameExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
-import type { BotProfile, GoalType } from '../../lib/db/schema/bot-controllers.js';
+import { goalTypes, type BotProfile, type GoalType } from '../../lib/db/schema/bot-controllers.js';
+import { isOneOf } from '@orions-frontier/shared';
 import { analyzeConflictOpportunities, type ConflictOpportunitySnapshot } from './goal-economy.js';
+import {
+  activeGoalCommitment,
+  adaptCategoryWeights,
+  categoryWeightsFor,
+  type WeightSignal,
+} from './goal-driven-v1.js';
 
 const logger = rootLogger.child({ name: 'bots' });
 const DECISION_INTERVAL_MS = 60_000;
@@ -67,6 +74,24 @@ function decisionResultKind(action: string, hasProgress: boolean): BotDecisionRe
   return 'idle';
 }
 
+/** Derives learning signals from one decision's before/after goal state. */
+function weightSignals(
+  before: GoalType | null,
+  after: GoalType | null,
+  completedGoalType: string | null,
+  resultKind: BotDecisionResultKind
+): { goalType: GoalType; signal: WeightSignal }[] {
+  const signals: { goalType: GoalType; signal: WeightSignal }[] = [];
+  if (completedGoalType && isOneOf(goalTypes, completedGoalType)) {
+    signals.push({ goalType: completedGoalType, signal: 'complete' });
+  }
+  if (before && !after && resultKind === 'blocked') {
+    signals.push({ goalType: before, signal: 'released' });
+  }
+  if (after && resultKind === 'saving') signals.push({ goalType: after, signal: 'saving' });
+  return signals;
+}
+
 /** Stable bot-dependent offset in [0, 15000) ms based on userId hash. */
 function botOffsetMs(userId: string): number {
   let hash = 0x811c9dc5;
@@ -102,6 +127,7 @@ async function handleGoalV1(
       goalStartedAt: botControllers.goalStartedAt,
       lastProgressAt: botControllers.lastProgressAt,
       blockedCount: botControllers.blockedCount,
+      categoryWeights: botControllers.categoryWeights,
     })
     .from(botControllers)
     .where(eq(botControllers.userId, userId))
@@ -117,6 +143,7 @@ async function handleGoalV1(
   }
 
   const profile = controller.profile;
+  const weights = categoryWeightsFor(profile, controller.categoryWeights);
   if (profile === 'warlord') {
     observeConflictOpportunity?.(analyzeConflictOpportunities(state, profile));
   }
@@ -284,15 +311,29 @@ async function handleGoalV1(
       await clearGoal();
       completedGoalType = controller.activeGoalType;
     } else {
-      // Apply hysteresis only when the active goal is still a generated candidate. A running
-      // mission may temporarily disappear from generators and must stay bound.
-      if (activeStep.type !== 'waiting' && activeStep.type !== 'blocked') {
-        const selection = await selectGoalForState(state, profile, {
-          goalType: controller.activeGoalType,
-          targetRef: controller.activeGoalTarget,
-        });
+      // Apply hysteresis while the active goal is still a generated candidate. A running mission
+      // may disappear from generators; it stays bound until its commitment has faded, then the
+      // mission runs on in the world while the bot pursues something else.
+      if (activeStep.type !== 'blocked') {
+        // Progress made for an earlier goal does not count toward this one.
+        const commitment = activeGoalCommitment(
+          now.getTime() -
+            Math.max(
+              controller.lastProgressAt?.getTime() ?? 0,
+              controller.goalStartedAt?.getTime() ?? now.getTime()
+            )
+        );
+        const selection = await selectGoalForState(
+          state,
+          profile,
+          { goalType: controller.activeGoalType, targetRef: controller.activeGoalTarget },
+          weights,
+          commitment
+        );
+        const mayLeave =
+          selection.activeCandidateFound || (activeStep.type === 'waiting' && commitment === 0);
         if (
-          selection.activeCandidateFound &&
+          mayLeave &&
           selection.selected &&
           (selection.selected.goalType !== controller.activeGoalType ||
             selection.selected.targetRef !== controller.activeGoalTarget)
@@ -323,7 +364,7 @@ async function handleGoalV1(
   }
 
   // 3. Select and persist a new goal, including saving or waiting first steps.
-  const selection = await selectGoalForState(state, profile, null);
+  const selection = await selectGoalForState(state, profile, null, weights);
 
   if (!selection.selected) {
     return {
@@ -380,6 +421,7 @@ export async function runBotDecisionTick(
         profile: botControllers.profile,
         activeGoalType: botControllers.activeGoalType,
         activeGoalTarget: botControllers.activeGoalTarget,
+        categoryWeights: botControllers.categoryWeights,
       });
     if (!claimed) continue;
 
@@ -428,6 +470,24 @@ export async function runBotDecisionTick(
         activeGoalType: botControllers.activeGoalType,
         activeGoalTarget: botControllers.activeGoalTarget,
       });
+    const resultKind = decisionResultKind(action, hasProgress);
+    if (claimed.strategy === 'goal_v1') {
+      await db
+        .update(botControllers)
+        .set({
+          categoryWeights: adaptCategoryWeights(
+            categoryWeightsFor(claimed.profile, claimed.categoryWeights),
+            claimed.profile,
+            weightSignals(
+              claimed.activeGoalType,
+              updated?.activeGoalType ?? null,
+              completedGoalType,
+              resultKind
+            )
+          ),
+        })
+        .where(eq(botControllers.userId, bot.userId));
+    }
     outcomes.push({
       botUserId: bot.userId,
       decidedAt: now,
@@ -439,7 +499,7 @@ export async function runBotDecisionTick(
       activeGoalTargetAfter: updated?.activeGoalTarget ?? null,
       completedGoalType,
       action,
-      resultKind: decisionResultKind(action, hasProgress),
+      resultKind,
       reason,
       normalizedReason: normalizeBotDecisionReason(reason),
       hasProgress,

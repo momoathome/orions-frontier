@@ -20,6 +20,7 @@ import { defenseUpgradeMaxLevel } from './defense.service.js';
 import { completeDueResearchDetailed } from './research.service.js';
 import { settleTripArrivalDetailed } from './transport/trip-arrivals.service.js';
 import { completeDueWorldMissionsDetailed } from './world-mission.service.js';
+import { recordLogbookEvents } from './logbook.service.js';
 
 const logger = rootLogger.child({ name: 'simulation' });
 const MAX_DRAIN_PASSES = 10_000;
@@ -298,6 +299,7 @@ async function drainDueWork(
 
   for (let pass = 1; pass <= MAX_DRAIN_PASSES; pass += 1) {
     const results = await runCompletionPass(context, includeWorldMissions);
+    await recordLogbookEvents(results.flatMap((result) => result.events));
     let passCompleted = 0;
     for (const result of results) {
       const total = required(

@@ -5,6 +5,7 @@ import { runWorldTick, startSimulationScheduler } from './services/simulation.se
 import { seedAsteroidWorld, seedDevUser } from './lib/seed.js';
 import { seedBotsForOccupiedSectors } from './services/bot/bot-provision.service.js';
 import { runMigrations } from './lib/db/migrate.js';
+import { parseEnv } from './lib/env.js';
 
 export const start = async () => {
   try {
@@ -12,12 +13,10 @@ export const start = async () => {
   } catch {
     // Docker and production environments inject variables directly.
   }
-  process.env['NODE_ENV'] ??= 'production';
 
   try {
-    for (const key of ['DATABASE_URL', 'JWT_SECRET']) {
-      if (!process.env[key]) throw new Error(`${key} is not defined`);
-    }
+    const env = parseEnv();
+    process.env['NODE_ENV'] = env.NODE_ENV;
 
     // Initialize database
     await initDb();
@@ -30,7 +29,7 @@ export const start = async () => {
     await seedAsteroidWorld();
     logger.info('Asteroid world seeded');
 
-    if (process.env['NODE_ENV'] === 'development') {
+    if (env.NODE_ENV === 'development') {
       await seedDevUser();
       logger.info('Dev user seeded');
     }
@@ -48,11 +47,8 @@ export const start = async () => {
     });
 
     // Start server
-    const port = Number(process.env['API_PORT']) || 3000;
-    const host = process.env['API_HOST'] || '0.0.0.0';
-
-    await fastify.listen({ port, host });
-    fastify.log.info(`🚀 API server is running on http://${host}:${port}`);
+    await fastify.listen({ port: env.API_PORT, host: env.API_HOST });
+    fastify.log.info(`🚀 API server is running on http://${env.API_HOST}:${env.API_PORT}`);
   } catch (err) {
     logger.error(err);
     process.exit(1);

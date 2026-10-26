@@ -460,7 +460,20 @@ test('a newly selected saving goal remains persisted', async () => {
       remainingAmount: 1_000,
     },
   ]);
+  // The only miner is already working a deposit, so missing costs have a procurement path.
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
+  await db.insert(stationSpacecrafts).values({
+    stationId: localStationId,
+    spacecraftKey: 'mole',
+    amount: 1,
+    lockedAmount: 1,
+  });
+  await db.insert(asteroidAssignments).values({
+    asteroidId: localAsteroidId,
+    stationId: localStationId,
+    spacecraftKey: 'mole',
+    assignedAmount: 1,
+  });
   await db
     .update(stationResources)
     .set({ amount: 0 })

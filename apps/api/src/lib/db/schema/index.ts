@@ -13,3 +13,4 @@ export * from './world-missions.js';
 export * from './combat-missions.js';
 export * from './debris-fields.js';
 export * from './station-research.js';
+export * from './logbook-entries.js';

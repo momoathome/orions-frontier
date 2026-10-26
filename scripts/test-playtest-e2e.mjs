@@ -26,7 +26,7 @@ function reportFromOutput(output, marker) {
   return JSON.parse(readFileSync(hostPath, 'utf8'));
 }
 
-function run(seed, durationHours, environment = {}, expectSuccess = true) {
+function run(seed, durationHours, environment = {}, expectSuccess = true, extraArgs = []) {
   const result = spawnSync(
     process.execPath,
     [
@@ -36,6 +36,7 @@ function run(seed, durationHours, environment = {}, expectSuccess = true) {
       '--duration-hours',
       String(durationHours),
       ...commonArgs,
+      ...extraArgs,
     ],
     {
       cwd: process.cwd(),
@@ -109,6 +110,47 @@ assert.ok(
 assert.ok(smoke.operations.realDurationMs > 0);
 assert.ok(smoke.operations.ticksPerSecond > 0);
 
+// One run per mechanic with only that profile joining proves bots reach it through the normal economy.
+const profiles = ['industrialist', 'pioneer', 'technocrat', 'warlord'];
+const scenarios = [
+  {
+    name: 'research',
+    profile: 'technocrat',
+    events: ['research_completed'],
+    milestone: 'firstResearch',
+  },
+  {
+    name: 'build',
+    profile: 'industrialist',
+    events: ['building_completed', 'spacecraft_completed'],
+    milestone: 'stableInitialStation',
+  },
+  {
+    name: 'exploration',
+    profile: 'pioneer',
+    events: ['world_mission_completed'],
+    milestone: 'firstExpedition',
+  },
+].map((scenario) => {
+  const weights = profiles.flatMap((profile) => [
+    `--profile-${profile}`,
+    profile === scenario.profile ? '1' : '0',
+  ]);
+  const report = run(`e2e-scenario-${scenario.name}`, 6, {}, true, weights).report;
+  assert.equal(report.status, 'success');
+  for (const event of scenario.events) {
+    assert.ok(
+      (report.collector.eventCounts[event] ?? 0) > 0,
+      `${scenario.name}: ${event} expected`
+    );
+  }
+  assert.ok(
+    (report.metrics.run.milestonesReached[scenario.milestone] ?? 0) > 0,
+    `${scenario.name}: ${scenario.milestone} expected`
+  );
+  return report;
+});
+
 const repeatA = run('e2e-repeatable', 0.25).report;
 const repeatB = run('e2e-repeatable', 0.25).report;
 assert.deepEqual(normalized(repeatB), normalized(repeatA));
@@ -129,7 +171,7 @@ const failed = run(
 assert.equal(failed.status, 'failed');
 assert.ok(failed.invariantFindings.some((finding) => finding.code === 'negative_resource'));
 
-for (const report of [smoke, repeatA, repeatB, different, warning, failed]) {
+for (const report of [smoke, ...scenarios, repeatA, repeatB, different, warning, failed]) {
   const serialized = JSON.stringify(report);
   assert.doesNotMatch(
     serialized,

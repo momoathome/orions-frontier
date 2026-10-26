@@ -1,4 +1,4 @@
-import { index, integer, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { index, integer, jsonb, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
 export const botProfiles = ['industrialist', 'pioneer', 'technocrat', 'warlord'] as const;
@@ -36,6 +36,8 @@ export const botControllers = pgTable(
     goalStartedAt: timestamp('goal_started_at'),
     lastProgressAt: timestamp('last_progress_at'),
     blockedCount: integer('blocked_count').notNull().default(0),
+    /** Learned goal-category weights; null means the profile's start weights. */
+    categoryWeights: jsonb('category_weights').$type<Record<string, number>>(),
     nextDecisionAt: timestamp('next_decision_at').notNull().defaultNow(),
     lastAction: varchar('last_action', { length: 64 }),
     lastReason: varchar('last_reason', { length: 255 }),

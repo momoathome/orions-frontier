@@ -1,10 +1,7 @@
 import { z } from 'zod';
-import { and, eq } from 'drizzle-orm';
 import { authenticate } from '../../../middleware/auth.js';
-import { getDb } from '../../../lib/db/index.js';
-import { stations } from '../../../lib/db/schema/stations.js';
+import { ownStation } from '../../../services/station.service.js';
 import { buildSpacecrafts } from '../../../services/spacecraft.service.js';
-import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 const BodySchema = z.object({
@@ -24,18 +21,9 @@ export default defineRoute(async (app) => {
     async (request, reply) => {
       const { stationId } = request.params;
 
-      const db = getDb();
-      const [station] = await db
-        .select({ id: stations.id })
-        .from(stations)
-        .where(and(eq(stations.id, stationId), eq(stations.userId, request.user.userId)))
-        .limit(1);
+      const ownedStationId = await ownStation(request.user.userId, stationId);
 
-      if (!station) {
-        throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-      }
-
-      await buildSpacecrafts(station.id, request.user.userId, request.body.orders);
+      await buildSpacecrafts(ownedStationId, request.user.userId, request.body.orders);
 
       return reply.status(202).send();
     }

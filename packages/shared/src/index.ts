@@ -52,3 +52,4 @@ export * from './debris.js';
 export * from './research.js';
 export * from './type-guards.js';
 export * from './realtime.js';
+export * from './logbook.js';

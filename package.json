@@ -13,6 +13,7 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "docker compose up --build",
     "build:packages": "tsc -b packages/shared packages/game-config",
     "build": "npm run build:packages && npm run build --workspace @orions-frontier/api && npm run build --workspace @orions-frontier/frontend",
