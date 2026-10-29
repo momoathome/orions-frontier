@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, or } from 'drizzle-orm';
+import { and, desc, eq, gte, ne, or } from 'drizzle-orm';
 import { required } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../lib/db/index.js';
 import { combatMissions } from '../lib/db/schema/combat-missions.js';
@@ -78,4 +78,11 @@ export async function resolveCombatMissionByTrip(
     .where(eq(column, tripId))
     .returning();
   return mission;
+}
+
+export function listUnresolvedCombatMissionsByUser(db: QueryDb, userId: string) {
+  return db
+    .select()
+    .from(combatMissions)
+    .where(and(eq(combatMissions.userId, userId), ne(combatMissions.status, 'resolved')));
 }

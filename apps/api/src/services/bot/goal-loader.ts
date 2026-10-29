@@ -1,18 +1,24 @@
-import { and, asc, between, count, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
-import { asteroidAssignments } from '../../lib/db/schema/asteroids.js';
-import { combatMissions } from '../../lib/db/schema/combat-missions.js';
-import { debrisFields, salvageMissions } from '../../lib/db/schema/debris-fields.js';
-import { sectors } from '../../lib/db/schema/sectors.js';
-import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationResearch } from '../../lib/db/schema/station-research.js';
-import { stationResources } from '../../lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { worldMissions } from '../../lib/db/schema/world-missions.js';
+import {
+  listAsteroidAssignmentsByStations,
+  listAsteroidVeinsInChunks,
+} from '../../repositories/asteroids.js';
+import { listUnresolvedCombatMissionsByUser } from '../../repositories/combat-missions.js';
+import {
+  listDebrisFieldsInChunks,
+  listUnresolvedSalvageMissionsByUser,
+} from '../../repositories/debris-fields.js';
+import { listBuildOrdersByStations } from '../../repositories/spacecraft-build-orders.js';
+import { listTravelingTripsByStations } from '../../repositories/spacecraft-trips.js';
+import { listStationBuildingsByStations } from '../../repositories/station-buildings.js';
+import { listStationResearchByStations } from '../../repositories/station-research.js';
+import { listStationResourcesByStations } from '../../repositories/station-resources.js';
+import { listStationSpacecraftsByStations } from '../../repositories/station-spacecrafts.js';
+import { listActiveStationsWithSectorByUser } from '../../repositories/stations.js';
+import {
+  countArrivedExpeditionsByUser,
+  listMovingWorldMissionsByStations,
+} from '../../repositories/world-missions.js';
 import { buildingKeys, defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import type { ResourceMap } from '@orions-frontier/shared';
 import { calculateBuildingEffect } from '@orions-frontier/game-config';
@@ -27,24 +33,7 @@ export async function loadGoalBotState(
   now = new Date()
 ): Promise<GoalBotState | null> {
   const db = getDb();
-  const ownStationRows = await db
-    .select({
-      id: stations.id,
-      userId: stations.userId,
-      name: stations.name,
-      sectorId: stations.sectorId,
-      x: stations.x,
-      y: stations.y,
-      chunkX: stations.chunkX,
-      chunkY: stations.chunkY,
-      createdAt: stations.createdAt,
-      sectorX: sectors.sectorX,
-      sectorY: sectors.sectorY,
-    })
-    .from(stations)
-    .innerJoin(sectors, eq(stations.sectorId, sectors.id))
-    .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt)))
-    .orderBy(asc(stations.id));
+  const ownStationRows = await listActiveStationsWithSectorByUser(db, userId);
   if (ownStationRows.length === 0) return null;
 
   // Build per-station snapshots
@@ -60,61 +49,19 @@ export async function loadGoalBotState(
     allMissions,
     allCombatMissions,
     allSalvageMissions,
-    completedExpeditionRows,
+    completedExpeditions,
   ] = await Promise.all([
-    db.select().from(stationResources).where(inArray(stationResources.stationId, stationIds)),
-    db.select().from(stationBuildings).where(inArray(stationBuildings.stationId, stationIds)),
-    db.select().from(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds)),
-    db
-      .select()
-      .from(spacecraftBuildOrders)
-      .where(inArray(spacecraftBuildOrders.stationId, stationIds)),
-    db.select().from(stationResearch).where(inArray(stationResearch.stationId, stationIds)),
-    db.select().from(asteroidAssignments).where(inArray(asteroidAssignments.stationId, stationIds)),
-    db
-      .select({
-        id: spacecraftTrips.id,
-        stationId: stationSpacecrafts.stationId,
-        purpose: spacecraftTrips.purpose,
-        status: spacecraftTrips.status,
-        arrivesAt: spacecraftTrips.arrivesAt,
-        toId: spacecraftTrips.toId,
-      })
-      .from(spacecraftTrips)
-      .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
-      .where(
-        and(
-          inArray(stationSpacecrafts.stationId, stationIds),
-          eq(spacecraftTrips.status, 'traveling')
-        )
-      ),
-    db
-      .select()
-      .from(worldMissions)
-      .where(
-        and(
-          inArray(worldMissions.originStationId, stationIds),
-          inArray(worldMissions.status, ['traveling', 'returning'])
-        )
-      ),
-    db
-      .select()
-      .from(combatMissions)
-      .where(and(eq(combatMissions.userId, userId), ne(combatMissions.status, 'resolved'))),
-    db
-      .select()
-      .from(salvageMissions)
-      .where(and(eq(salvageMissions.userId, userId), ne(salvageMissions.status, 'resolved'))),
-    db
-      .select({ count: count() })
-      .from(worldMissions)
-      .where(
-        and(
-          eq(worldMissions.userId, userId),
-          eq(worldMissions.missionType, 'expedition'),
-          eq(worldMissions.status, 'arrived')
-        )
-      ),
+    listStationResourcesByStations(db, stationIds),
+    listStationBuildingsByStations(db, stationIds),
+    listStationSpacecraftsByStations(db, stationIds),
+    listBuildOrdersByStations(db, stationIds),
+    listStationResearchByStations(db, stationIds),
+    listAsteroidAssignmentsByStations(db, stationIds),
+    listTravelingTripsByStations(db, stationIds),
+    listMovingWorldMissionsByStations(db, stationIds),
+    listUnresolvedCombatMissionsByUser(db, userId),
+    listUnresolvedSalvageMissionsByUser(db, userId),
+    countArrivedExpeditionsByUser(db, userId),
   ]);
 
   const groupByStation = <T extends { stationId: string }>(
@@ -251,43 +198,8 @@ export async function loadGoalBotState(
   );
   const conflictDiagnostics = { now, protectedOwnerIds: new Set<string>() };
   const [asteroidRows, debrisRows, viewStations, combatReports] = await Promise.all([
-    coverageBounds.length > 0
-      ? db
-          .select({
-            id: asteroids.id,
-            x: asteroids.x,
-            y: asteroids.y,
-            resourceKey: asteroidVeins.resourceKey,
-            remainingAmount: asteroidVeins.remainingAmount,
-          })
-          .from(asteroids)
-          .innerJoin(asteroidVeins, eq(asteroidVeins.asteroidId, asteroids.id))
-          .where(
-            or(
-              ...coverageBounds.map((bound) =>
-                and(
-                  between(asteroids.chunkX, bound.minChunkX, bound.maxChunkX),
-                  between(asteroids.chunkY, bound.minChunkY, bound.maxChunkY)
-                )
-              )
-            )
-          )
-      : Promise.resolve([]),
-    coverageBounds.length > 0
-      ? db
-          .select()
-          .from(debrisFields)
-          .where(
-            or(
-              ...coverageBounds.map((bound) =>
-                and(
-                  between(debrisFields.chunkX, bound.minChunkX, bound.maxChunkX),
-                  between(debrisFields.chunkY, bound.minChunkY, bound.maxChunkY)
-                )
-              )
-            )
-          )
-      : Promise.resolve([]),
+    coverageBounds.length > 0 ? listAsteroidVeinsInChunks(db, coverageBounds) : Promise.resolve([]),
+    coverageBounds.length > 0 ? listDebrisFieldsInChunks(db, coverageBounds) : Promise.resolve([]),
     coverageBounds.length > 0
       ? getVisibleChunkStations(allBounds, userId, coverages, undefined, false, conflictDiagnostics)
       : Promise.resolve([]),
@@ -331,7 +243,7 @@ export async function loadGoalBotState(
   return {
     userId,
     now,
-    completedExpeditions: completedExpeditionRows[0]?.count ?? 0,
+    completedExpeditions,
     ownStations,
     visibleAsteroids: [...visibleAsteroidsMap.values()],
     visibleStations,

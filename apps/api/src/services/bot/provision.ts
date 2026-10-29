@@ -1,14 +1,12 @@
-import { and, eq, ne } from 'drizzle-orm';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
-import { botControllers } from '../../lib/db/schema/bot-controllers.js';
-import { sectors } from '../../lib/db/schema/sectors.js';
-import { spawnSlots } from '../../lib/db/schema/spawn-slots.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { users } from '../../lib/db/schema/users.js';
+import { insertBotControllerIfAbsent } from '../../repositories/bot-controllers.js';
+import { findSettlementSector, listBotSettlementSectorIds } from '../../repositories/sectors.js';
+import { hasHumanStationInSector, listBotUserIdsInSector } from '../../repositories/stations.js';
+import { findUserByEmail, insertUserIfAbsent } from '../../repositories/users.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { createStation } from '../station/index.js';
 import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION, profileForKey } from './profiles.js';
@@ -20,11 +18,7 @@ export async function seedBotsForOccupiedSectors(
 ): Promise<void> {
   const db = getDb();
   // Sectors without generated bot slots (hand-made fixtures) cannot host bots.
-  const settlementSectors = await db
-    .selectDistinct({ id: sectors.id })
-    .from(sectors)
-    .innerJoin(spawnSlots, eq(spawnSlots.sectorId, sectors.id))
-    .where(and(eq(sectors.role, 'settlement'), eq(spawnSlots.slotType, 'bot')));
+  const settlementSectors = await listBotSettlementSectorIds(db);
 
   for (const sector of settlementSectors) {
     await seedBotsForSector(sector.id, context);
@@ -36,73 +30,47 @@ export async function seedBotsForSector(
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> {
   const db = getDb();
-  const [sector] = await db
-    .select({ id: sectors.id, sectorX: sectors.sectorX, sectorY: sectors.sectorY })
-    .from(sectors)
-    .where(and(eq(sectors.id, sectorId), eq(sectors.role, 'settlement')))
-    .limit(1);
+  const sector = await findSettlementSector(db, sectorId);
   if (!sector) return;
 
-  const [human] = await db
-    .select({ id: stations.id })
-    .from(stations)
-    .innerJoin(users, eq(stations.userId, users.id))
-    .where(and(eq(stations.sectorId, sector.id), ne(users.role, 'bot')))
-    .limit(1);
-  if (!human) return;
+  if (!(await hasHumanStationInSector(db, sector.id))) return;
 
-  const existingBots = await db
-    .select({ userId: users.id })
-    .from(stations)
-    .innerJoin(users, eq(stations.userId, users.id))
-    .where(and(eq(stations.sectorId, sector.id), eq(users.role, 'bot')));
+  const existingBots = await listBotUserIdsInSector(db, sector.id);
   for (const bot of existingBots) {
-    await db
-      .insert(botControllers)
-      .values({
-        userId: bot.userId,
-        strategy: GOAL_BOT_STRATEGY,
-        strategyVersion: GOAL_BOT_STRATEGY_VERSION,
-        profile: profileForKey(bot.userId),
-        nextDecisionAt: context.now,
-        updatedAt: context.now,
-      })
-      .onConflictDoNothing({ target: botControllers.userId });
+    await insertBotControllerIfAbsent(db, {
+      userId: bot.userId,
+      strategy: GOAL_BOT_STRATEGY,
+      strategyVersion: GOAL_BOT_STRATEGY_VERSION,
+      profile: profileForKey(bot.userId),
+      nextDecisionAt: context.now,
+      updatedAt: context.now,
+    });
   }
 
   for (let index = 1; index <= WORLD_CONFIG.SECTOR.BOTS_PER_SETTLEMENT; index += 1) {
     const key = `${coordinateKey(sector.sectorX)}-${coordinateKey(sector.sectorY)}-${index}`;
     const username = `orion-bot-${key}`;
     const email = `${username}@system.invalid`;
-    const [createdUser] = await db
-      .insert(users)
-      .values({
-        id: context.nextId('user'),
-        username,
-        email,
-        passwordHash: `disabled:${context.nextId('disabled-password')}`,
-        role: 'bot',
-        createdAt: context.now,
-        updatedAt: context.now,
-      })
-      .onConflictDoNothing()
-      .returning({ id: users.id });
-    const [user] = createdUser
-      ? [createdUser]
-      : await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    const createdUser = await insertUserIfAbsent(db, {
+      id: context.nextId('user'),
+      username,
+      email,
+      passwordHash: `disabled:${context.nextId('disabled-password')}`,
+      role: 'bot',
+      createdAt: context.now,
+      updatedAt: context.now,
+    });
+    const user = createdUser ?? (await findUserByEmail(db, email));
     if (!user) continue;
 
-    await db
-      .insert(botControllers)
-      .values({
-        userId: user.id,
-        strategy: GOAL_BOT_STRATEGY,
-        strategyVersion: GOAL_BOT_STRATEGY_VERSION,
-        profile: profileForKey(key),
-        nextDecisionAt: context.now,
-        updatedAt: context.now,
-      })
-      .onConflictDoNothing({ target: botControllers.userId });
+    await insertBotControllerIfAbsent(db, {
+      userId: user.id,
+      strategy: GOAL_BOT_STRATEGY,
+      strategyVersion: GOAL_BOT_STRATEGY_VERSION,
+      profile: profileForKey(key),
+      nextDecisionAt: context.now,
+      updatedAt: context.now,
+    });
 
     await createStation(
       user.id,

@@ -4,7 +4,7 @@ import { calculateColonizationCost, getSpacecraft } from '@orions-frontier/game-
 import type { GoalBotState, GoalResult, StationSnapshot } from './goal-state.js';
 import { selectGoal } from './goal-driven-v1.js';
 import type { CategoryWeights, GoalCandidate } from './goal-driven-v1.js';
-import { goalTypes } from '../../lib/db/schema/bot-controllers.js';
+import { goalTypes } from '../../repositories/bot-controllers.js';
 import {
   generateRaidCandidates,
   generateRetaliateCandidates,

@@ -1,4 +1,4 @@
-import { and, between, eq, sql } from 'drizzle-orm';
+import { and, between, eq, inArray, or, sql } from 'drizzle-orm';
 import { required } from '@orions-frontier/shared';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { asteroidAssignments, asteroids, asteroidVeins } from '../lib/db/schema/asteroids.js';
@@ -269,4 +269,35 @@ export async function hasAsteroidAssignments(db: QueryDb, asteroidId: string) {
 
 export async function deleteAsteroid(tx: Tx, id: string) {
   await tx.delete(asteroids).where(eq(asteroids.id, id));
+}
+
+export function listAsteroidAssignmentsByStations(db: QueryDb, stationIds: string[]) {
+  return db
+    .select()
+    .from(asteroidAssignments)
+    .where(inArray(asteroidAssignments.stationId, stationIds));
+}
+
+/** One row per vein of every asteroid in any of the chunk ranges. */
+export function listAsteroidVeinsInChunks(db: QueryDb, bounds: readonly ChunkBounds[]) {
+  return db
+    .select({
+      id: asteroids.id,
+      x: asteroids.x,
+      y: asteroids.y,
+      resourceKey: asteroidVeins.resourceKey,
+      remainingAmount: asteroidVeins.remainingAmount,
+    })
+    .from(asteroids)
+    .innerJoin(asteroidVeins, eq(asteroidVeins.asteroidId, asteroids.id))
+    .where(
+      or(
+        ...bounds.map((bound) =>
+          and(
+            between(asteroids.chunkX, bound.minChunkX, bound.maxChunkX),
+            between(asteroids.chunkY, bound.minChunkY, bound.maxChunkY)
+          )
+        )
+      )
+    );
 }

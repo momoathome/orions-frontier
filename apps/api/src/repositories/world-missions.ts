@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { required, type WorldMissionType } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../lib/db/index.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
@@ -151,4 +151,30 @@ export async function findDueWorldMissionForUpdate(tx: Tx, id: string, now: Date
     )
     .for('update');
   return mission;
+}
+
+export function listMovingWorldMissionsByStations(db: QueryDb, originStationIds: string[]) {
+  return db
+    .select()
+    .from(worldMissions)
+    .where(
+      and(
+        inArray(worldMissions.originStationId, originStationIds),
+        inArray(worldMissions.status, ['traveling', 'returning'])
+      )
+    );
+}
+
+export async function countArrivedExpeditionsByUser(db: QueryDb, userId: string) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(worldMissions)
+    .where(
+      and(
+        eq(worldMissions.userId, userId),
+        eq(worldMissions.missionType, 'expedition'),
+        eq(worldMissions.status, 'arrived')
+      )
+    );
+  return row?.count ?? 0;
 }

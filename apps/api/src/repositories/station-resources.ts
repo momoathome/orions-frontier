@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { ResourceKey } from '@orions-frontier/shared';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
@@ -85,4 +85,8 @@ export async function setStationResourceAmount(
 
 export async function deleteStationResources(tx: Tx, stationId: string) {
   await tx.delete(stationResources).where(eq(stationResources.stationId, stationId));
+}
+
+export function listStationResourcesByStations(db: QueryDb, stationIds: string[]) {
+  return db.select().from(stationResources).where(inArray(stationResources.stationId, stationIds));
 }
