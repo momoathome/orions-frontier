@@ -1,4 +1,3 @@
-import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import { getBuilding } from '@orions-frontier/game-config';
 import { required, isOneOf, buildingKeys, defenseUpgradeKeys } from '@orions-frontier/shared';
 import {
@@ -7,11 +6,17 @@ import {
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
-import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import {
+  claimDueBuildOrder,
+  listDueBuildOrders,
+} from '../../repositories/spacecraft-build-orders.js';
+import { listDueTripsWithOwner } from '../../repositories/spacecraft-trips.js';
+import {
+  completeBuildingUpgrade,
+  listDueBuildingUpgrades,
+} from '../../repositories/station-buildings.js';
+import { addBuiltSpacecraft } from '../../repositories/station-spacecrafts.js';
+import { findStation } from '../../repositories/stations.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import { completionEventId, type PlaytestCompletionEvent } from '../../lib/completion-events.js';
@@ -53,15 +58,7 @@ async function completeDueTransports(
   context: GameExecutionContext
 ): Promise<SimulationPhasePassResult> {
   const db = getDb();
-  const dueTrips = await db
-    .select({ trip: spacecraftTrips, userId: stations.userId })
-    .from(spacecraftTrips)
-    .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
-    .innerJoin(stations, eq(stationSpacecrafts.stationId, stations.id))
-    .where(
-      and(eq(spacecraftTrips.status, 'traveling'), lte(spacecraftTrips.arrivesAt, context.now))
-    )
-    .orderBy(asc(spacecraftTrips.arrivesAt), asc(spacecraftTrips.id));
+  const dueTrips = await listDueTripsWithOwner(db, context.now);
   let completed = 0;
   let failed = 0;
   const events: PlaytestCompletionEvent[] = [];
@@ -77,10 +74,7 @@ async function completeDueTransports(
         events.push(...arrival.events);
         notify(userId);
         if (trip.purpose === 'combat' && trip.toType === 'station') {
-          const [defender] = await db
-            .select({ userId: stations.userId })
-            .from(stations)
-            .where(eq(stations.id, trip.toId));
+          const defender = await findStation(db, trip.toId);
           if (defender && defender.userId !== userId) notify(defender.userId);
         }
       }
@@ -99,18 +93,7 @@ async function completeDueBuildings(
   context: GameExecutionContext
 ): Promise<SimulationPhasePassResult> {
   const db = getDb();
-  const dueBuildings = await db
-    .select({
-      id: stationBuildings.id,
-      stationId: stationBuildings.stationId,
-      userId: stations.userId,
-      buildingKey: stationBuildings.buildingKey,
-      upgradeEndsAt: stationBuildings.upgradeEndsAt,
-    })
-    .from(stationBuildings)
-    .innerJoin(stations, eq(stationBuildings.stationId, stations.id))
-    .where(lte(stationBuildings.upgradeEndsAt, context.now))
-    .orderBy(asc(stationBuildings.upgradeEndsAt), asc(stationBuildings.id));
+  const dueBuildings = await listDueBuildingUpgrades(db, context.now);
   let completedCount = 0;
   let failed = 0;
   const events: PlaytestCompletionEvent[] = [];
@@ -121,20 +104,13 @@ async function completeDueBuildings(
         ? getBuilding(building.buildingKey).maxLevel
         : defenseUpgradeMaxLevel(building.buildingKey);
       if (maxLevel === null || building.upgradeEndsAt === null) continue;
-      const [completed] = await db
-        .update(stationBuildings)
-        .set({
-          level: sql`least(${stationBuildings.level} + 1, ${maxLevel})`,
-          upgradeEndsAt: null,
-          updatedAt: building.upgradeEndsAt,
-        })
-        .where(
-          and(
-            eq(stationBuildings.id, building.id),
-            lte(stationBuildings.upgradeEndsAt, context.now)
-          )
-        )
-        .returning({ level: stationBuildings.level });
+      const completed = await completeBuildingUpgrade(
+        db,
+        building.id,
+        maxLevel,
+        building.upgradeEndsAt,
+        context.now
+      );
       if (!completed) continue;
       completedCount += 1;
       if (isOneOf(defenseUpgradeKeys, building.buildingKey)) {
@@ -180,19 +156,7 @@ async function completeDueSpacecraft(
   context: GameExecutionContext
 ): Promise<SimulationPhasePassResult> {
   const db = getDb();
-  const dueBuildOrders = await db
-    .select({
-      id: spacecraftBuildOrders.id,
-      stationId: spacecraftBuildOrders.stationId,
-      spacecraftKey: spacecraftBuildOrders.spacecraftKey,
-      amount: spacecraftBuildOrders.amount,
-      endsAt: spacecraftBuildOrders.endsAt,
-      userId: stations.userId,
-    })
-    .from(spacecraftBuildOrders)
-    .innerJoin(stations, eq(spacecraftBuildOrders.stationId, stations.id))
-    .where(lte(spacecraftBuildOrders.endsAt, context.now))
-    .orderBy(asc(spacecraftBuildOrders.endsAt), asc(spacecraftBuildOrders.id));
+  const dueBuildOrders = await listDueBuildOrders(db, context.now);
   let completedCount = 0;
   let failed = 0;
   const events: PlaytestCompletionEvent[] = [];
@@ -200,29 +164,15 @@ async function completeDueSpacecraft(
   for (const order of dueBuildOrders) {
     try {
       const completed = await db.transaction(async (tx) => {
-        const [claimed] = await tx
-          .delete(spacecraftBuildOrders)
-          .where(
-            and(
-              eq(spacecraftBuildOrders.id, order.id),
-              lte(spacecraftBuildOrders.endsAt, context.now)
-            )
-          )
-          .returning({ id: spacecraftBuildOrders.id });
-        if (!claimed) return false;
+        if (!(await claimDueBuildOrder(tx, order.id, context.now))) return false;
 
-        await tx
-          .update(stationSpacecrafts)
-          .set({
-            amount: sql`${stationSpacecrafts.amount} + ${order.amount}`,
-            updatedAt: order.endsAt,
-          })
-          .where(
-            and(
-              eq(stationSpacecrafts.stationId, order.stationId),
-              eq(stationSpacecrafts.spacecraftKey, order.spacecraftKey)
-            )
-          );
+        await addBuiltSpacecraft(
+          tx,
+          order.stationId,
+          order.spacecraftKey,
+          order.amount,
+          order.endsAt
+        );
         return true;
       });
 

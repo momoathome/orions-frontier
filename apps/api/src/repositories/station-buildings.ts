@@ -1,6 +1,7 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
+import { stations } from '../lib/db/schema/stations.js';
 
 export type StationBuildingRow = typeof stationBuildings.$inferSelect;
 
@@ -88,4 +89,40 @@ export async function findBuildingLevel(db: QueryDb, stationId: string, building
 
 export function listStationBuildingsByStations(db: QueryDb, stationIds: string[]) {
   return db.select().from(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
+}
+
+/** Upgrades due by `now`, oldest first, with the station owner. */
+export function listDueBuildingUpgrades(db: QueryDb, now: Date) {
+  return db
+    .select({
+      id: stationBuildings.id,
+      stationId: stationBuildings.stationId,
+      userId: stations.userId,
+      buildingKey: stationBuildings.buildingKey,
+      upgradeEndsAt: stationBuildings.upgradeEndsAt,
+    })
+    .from(stationBuildings)
+    .innerJoin(stations, eq(stationBuildings.stationId, stations.id))
+    .where(lte(stationBuildings.upgradeEndsAt, now))
+    .orderBy(asc(stationBuildings.upgradeEndsAt), asc(stationBuildings.id));
+}
+
+/** Raises the level up to `maxLevel` if the upgrade is still due; undefined if it no longer is. */
+export async function completeBuildingUpgrade(
+  db: QueryDb,
+  id: string,
+  maxLevel: number,
+  completedAt: Date,
+  now: Date
+) {
+  const [completed] = await db
+    .update(stationBuildings)
+    .set({
+      level: sql`least(${stationBuildings.level} + 1, ${maxLevel})`,
+      upgradeEndsAt: null,
+      updatedAt: completedAt,
+    })
+    .where(and(eq(stationBuildings.id, id), lte(stationBuildings.upgradeEndsAt, now)))
+    .returning({ level: stationBuildings.level });
+  return completed;
 }

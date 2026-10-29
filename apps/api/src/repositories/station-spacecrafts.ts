@@ -260,3 +260,25 @@ export function listStationSpacecraftsByStations(db: QueryDb, stationIds: string
     .from(stationSpacecrafts)
     .where(inArray(stationSpacecrafts.stationId, stationIds));
 }
+
+/** Adds finished ships to the station's existing fleet row for that spacecraft. */
+export async function addBuiltSpacecraft(
+  tx: Tx,
+  stationId: string,
+  spacecraftKey: string,
+  amount: number,
+  updatedAt: Date
+) {
+  await tx
+    .update(stationSpacecrafts)
+    .set({
+      amount: sql`${stationSpacecrafts.amount} + ${amount}`,
+      updatedAt,
+    })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, stationId),
+        eq(stationSpacecrafts.spacecraftKey, spacecraftKey)
+      )
+    );
+}

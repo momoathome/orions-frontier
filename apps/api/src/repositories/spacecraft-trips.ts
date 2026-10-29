@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { required, type ResourceMap } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../lib/db/index.js';
 import { asteroidAssignments } from '../lib/db/schema/asteroids.js';
@@ -179,4 +179,15 @@ export function listTravelingTripsByStations(db: QueryDb, stationIds: string[]) 
         eq(spacecraftTrips.status, 'traveling')
       )
     );
+}
+
+/** Traveling trips due by `now`, oldest first, with the owner of the fleet. */
+export function listDueTripsWithOwner(db: QueryDb, now: Date) {
+  return db
+    .select({ trip: spacecraftTrips, userId: stations.userId })
+    .from(spacecraftTrips)
+    .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
+    .innerJoin(stations, eq(stationSpacecrafts.stationId, stations.id))
+    .where(and(eq(spacecraftTrips.status, 'traveling'), lte(spacecraftTrips.arrivesAt, now)))
+    .orderBy(asc(spacecraftTrips.arrivesAt), asc(spacecraftTrips.id));
 }
