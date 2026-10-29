@@ -1,5 +1,6 @@
 import { and, between, eq, sql } from 'drizzle-orm';
-import type { getDb, QueryDb } from '../lib/db/index.js';
+import { required } from '@orions-frontier/shared';
+import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { asteroidAssignments, asteroids, asteroidVeins } from '../lib/db/schema/asteroids.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -28,6 +29,11 @@ export async function insertAsteroidVeins(
 
 export async function findAsteroid(db: QueryDb, id: string) {
   const [row] = await db.select().from(asteroids).where(eq(asteroids.id, id)).limit(1);
+  return row;
+}
+
+export async function findAsteroidForUpdate(tx: Tx, id: string) {
+  const [row] = await tx.select().from(asteroids).where(eq(asteroids.id, id)).for('update');
   return row;
 }
 
@@ -62,6 +68,113 @@ export function listAsteroidSummariesInChunks(db: QueryDb, bounds: ChunkBounds) 
 
 export function listAsteroidVeins(db: QueryDb, asteroidId: string) {
   return db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, asteroidId));
+}
+
+/** Locks the asteroid's veins oldest first, so concurrent claims cannot deadlock. */
+export function listAsteroidVeinsForUpdate(tx: Tx, asteroidId: string) {
+  return tx
+    .select({
+      id: asteroidVeins.id,
+      resourceKey: asteroidVeins.resourceKey,
+      remainingAmount: asteroidVeins.remainingAmount,
+    })
+    .from(asteroidVeins)
+    .where(eq(asteroidVeins.asteroidId, asteroidId))
+    .orderBy(asteroidVeins.createdAt, asteroidVeins.id)
+    .for('update');
+}
+
+export async function updateAsteroidVeinRemaining(tx: Tx, id: string, remainingAmount: number) {
+  await tx.update(asteroidVeins).set({ remainingAmount }).where(eq(asteroidVeins.id, id));
+}
+
+/** Total reserve left in the asteroid's veins; 0 if it has none. */
+export async function sumAsteroidRemainingAmount(db: QueryDb, asteroidId: string) {
+  const [reserve] = await db
+    .select({ amount: sql<number>`coalesce(sum(${asteroidVeins.remainingAmount}), 0)::int` })
+    .from(asteroidVeins)
+    .where(eq(asteroidVeins.asteroidId, asteroidId));
+  return reserve?.amount ?? 0;
+}
+
+/** Returns the new assignment's id. */
+export async function insertAsteroidAssignment(
+  tx: Tx,
+  values: typeof asteroidAssignments.$inferInsert
+) {
+  const [assignment] = await tx
+    .insert(asteroidAssignments)
+    .values(values)
+    .returning({ id: asteroidAssignments.id });
+  return required(assignment, 'assignment').id;
+}
+
+/**
+ * Adds `amount` ships to the recall request of the user's assignment; false if it is not
+ * theirs or fewer than that are still unrecalled. Atomic under concurrency.
+ */
+export async function addAssignmentRecallRequest(
+  db: QueryDb,
+  params: {
+    assignmentId: string;
+    asteroidId: string;
+    userId: string;
+    amount: number;
+    requestedAt: Date;
+  }
+) {
+  const { amount } = params;
+  const result = await db
+    .update(asteroidAssignments)
+    .set({
+      recallRequestedAt: params.requestedAt,
+      recallRequestedAmount: sql`${asteroidAssignments.recallRequestedAmount} + ${amount}`,
+    })
+    .from(stations)
+    .where(
+      and(
+        eq(asteroidAssignments.id, params.assignmentId),
+        eq(asteroidAssignments.asteroidId, params.asteroidId),
+        eq(asteroidAssignments.stationId, stations.id),
+        eq(stations.userId, params.userId),
+        sql`${asteroidAssignments.assignedAmount} - ${asteroidAssignments.recallRequestedAmount} >= ${amount}`
+      )
+    )
+    .returning({ id: asteroidAssignments.id });
+  return result.length > 0;
+}
+
+/** The station's assignments with asteroid position, size, primary resource and reserve left. */
+export function listStationAssignmentsWithAsteroid(db: QueryDb, stationId: string) {
+  return db
+    .select({
+      id: asteroidAssignments.id,
+      asteroidId: asteroidAssignments.asteroidId,
+      spacecraftKey: asteroidAssignments.spacecraftKey,
+      assignedAmount: asteroidAssignments.assignedAmount,
+      assignedAt: asteroidAssignments.assignedAt,
+      status: asteroidAssignments.status,
+      recallRequestedAt: asteroidAssignments.recallRequestedAt,
+      recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
+      asteroidX: asteroids.x,
+      asteroidY: asteroids.y,
+      asteroidSize: asteroids.size,
+      asteroidPrimaryResourceKey: asteroidVeins.resourceKey,
+      asteroidRemainingAmount: sql<number>`(
+        SELECT COALESCE(SUM(v.remaining_amount), 0)::int
+        FROM asteroid_veins v WHERE v.asteroid_id = ${asteroids.id}
+      )`,
+    })
+    .from(asteroidAssignments)
+    .innerJoin(asteroids, eq(asteroids.id, asteroidAssignments.asteroidId))
+    .leftJoin(
+      asteroidVeins,
+      and(
+        eq(asteroidVeins.asteroidId, asteroidAssignments.asteroidId),
+        eq(asteroidVeins.veinType, 'primary')
+      )
+    )
+    .where(eq(asteroidAssignments.stationId, stationId));
 }
 
 /** Assignments on one asteroid with the user owning each assigned station. */

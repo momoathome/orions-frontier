@@ -1,7 +1,9 @@
 import { and, between, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
+import { asteroids } from '../lib/db/schema/asteroids.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
+import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { users } from '../lib/db/schema/users.js';
 import type { ChunkBounds } from './asteroids.js';
@@ -152,4 +154,37 @@ export function listStationsInChunks(db: QueryDb, bounds: ChunkBounds) {
         isNull(stations.destroyedAt)
       )
     );
+}
+
+/**
+ * Positions of the user's standing station and the asteroid, with the station's free ships of
+ * that type; undefined if any of the three is missing.
+ */
+export async function findMiningRoute(
+  db: QueryDb,
+  params: { stationId: string; userId: string; spacecraftKey: string; asteroidId: string }
+) {
+  const { stationId, userId, spacecraftKey, asteroidId } = params;
+  const [row] = await db
+    .select({
+      stationX: stations.x,
+      stationY: stations.y,
+      asteroidX: asteroids.x,
+      asteroidY: asteroids.y,
+      available: sql<number>`${stationSpacecrafts.amount} - ${stationSpacecrafts.lockedAmount}`,
+    })
+    .from(stations)
+    .innerJoin(
+      stationSpacecrafts,
+      and(
+        eq(stationSpacecrafts.stationId, stations.id),
+        eq(stationSpacecrafts.spacecraftKey, spacecraftKey)
+      )
+    )
+    .innerJoin(asteroids, eq(asteroids.id, asteroidId))
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    )
+    .limit(1);
+  return row;
 }
