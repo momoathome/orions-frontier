@@ -1,43 +1,70 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import type { ResearchState, StationResearch, UserResourceSummary } from '@orions-frontier/shared';
+import {
+  getCostShortfall,
+  type ResearchState,
+  type StationResearch,
+} from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { formatBuildTime, formatCountdown, formatShortfall } from '../lib/format';
+import { useOverviewStore } from '../stores/overview.js';
+import CostList from './CostList.vue';
 
 const { stationId } = defineProps<{ stationId: string }>();
+const overview = useOverviewStore();
 const state = ref<ResearchState | null>(null);
 const error = ref<string | null>(null);
 const starting = ref<string | null>(null);
-const now = ref(Date.now());
-const playerResources = ref<Record<string, number> | null>(null);
+const now = computed(() => overview.state.now);
+const stock = computed(() => overview.state.details[stationId]?.resources ?? null);
 
 async function load(): Promise<void> {
   try {
-    const [researchResponse, resourceResponse] = await Promise.all([
-      apiClient.get<ResearchState>(`/stations/${stationId}/research`),
-      apiClient.get<UserResourceSummary>('/me/resources', {
-        params: { stationId: stationId },
-      }),
-    ]);
-    state.value = researchResponse;
-    playerResources.value = resourceResponse.resources;
+    state.value = await apiClient.get<ResearchState>(`/stations/${stationId}/research`);
     error.value = null;
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Research could not be loaded');
   }
 }
 
+const availablePoints = computed(() => (state.value?.capacity ?? 0) - (state.value?.used ?? 0));
+
+// Same card shape as BuildingsTab, in research green.
+const cards = computed(() =>
+  (state.value?.technologies ?? []).map((technology) => {
+    const shortfall = getCostShortfall(
+      technology.costs,
+      stock.value?.resources ?? {},
+      stock.value?.rates ?? {}
+    );
+    const endsAt = technology.completesAt ? Date.parse(technology.completesAt) : null;
+    const durationMs = technology.duration * 1_000;
+    const hasCapacity = availablePoints.value >= technology.points;
+    const canStart =
+      technology.status === 'available' && hasCapacity && shortfall.missing.length === 0;
+    return {
+      technology,
+      canStart,
+      endsAt,
+      accent: canStart ? 'border-green-400/30' : '',
+      progress:
+        endsAt && durationMs > 0
+          ? Math.min(100, Math.max(0, 100 - ((endsAt - now.value) / durationMs) * 100))
+          : 0,
+      buildTime: formatBuildTime(technology.duration),
+      blocker: hasCapacity
+        ? formatShortfall(shortfall)
+        : `Needs ${technology.points} free research points, ${availablePoints.value} left`,
+    };
+  })
+);
+
 async function start(technology: StationResearch): Promise<void> {
-  if (
-    availablePoints.value < technology.points ||
-    !hasSufficientResources(technology) ||
-    starting.value !== null
-  ) {
-    return;
-  }
+  if (starting.value !== null) return;
   starting.value = technology.key;
   try {
     await apiClient.post(`/stations/${stationId}/research/${technology.key}`);
-    await load();
+    await Promise.all([load(), overview.refreshStation(stationId)]);
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Research could not be started');
   } finally {
@@ -45,28 +72,8 @@ async function start(technology: StationResearch): Promise<void> {
   }
 }
 
-const availablePoints = computed(() => (state.value?.capacity ?? 0) - (state.value?.used ?? 0));
-const hasSufficientResources = (technology: StationResearch): boolean =>
-  playerResources.value !== null &&
-  technology.costs.every((cost) => (playerResources.value?.[cost.resourceKey] ?? 0) >= cost.amount);
-const startLabel = (technology: StationResearch): string => {
-  if (starting.value === technology.key) return 'Starting…';
-  if (availablePoints.value < technology.points) return 'No capacity';
-  if (!hasSufficientResources(technology)) return 'Insufficient resources';
-  return 'Research';
-};
-const remaining = (technology: StationResearch): string => {
-  if (!technology.completesAt) return '';
-  const seconds = Math.max(
-    0,
-    Math.ceil((new Date(technology.completesAt).getTime() - now.value) / 1000)
-  );
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-};
-
 void load();
 const interval = setInterval(() => {
-  now.value = Date.now();
   if (state.value?.technologies.some((technology) => technology.status === 'researching')) {
     void load();
   }
@@ -77,48 +84,85 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col gap-3 overflow-y-auto p-4 font-mono text-[10px]">
-    <div class="flex items-center justify-between border-b border-white/5 pb-3">
-      <span class="uppercase tracking-[0.3em] text-green-300/60">Laboratory research</span>
-      <span class="text-white/45">Points {{ state?.used ?? 0 }}/{{ state?.capacity ?? 0 }}</span>
-    </div>
-    <p v-if="error" class="text-rose-300/70">{{ error }}</p>
-    <div
-      v-for="technology in state?.technologies ?? []"
-      :key="technology.key"
-      class="grid grid-cols-[1fr_auto] gap-5 rounded border border-white/7 bg-white/[0.02] p-3"
-    >
-      <div class="flex flex-col gap-2">
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-white/85">{{ technology.name }}</span>
-          <span class="uppercase tracking-widest text-green-300/50">{{ technology.status }}</span>
-        </div>
-        <p class="text-white/35">{{ technology.description }}</p>
-        <div class="flex gap-4 text-white/45">
-          <span>{{ technology.points }} research points</span>
-          <span>{{ technology.duration }}s</span>
-          <span v-for="cost in technology.costs" :key="cost.resourceKey">
-            {{ cost.amount }} {{ cost.resourceKey }}
-          </span>
-        </div>
-      </div>
-      <button
-        v-if="technology.status === 'available'"
-        type="button"
-        :disabled="
-          starting !== null ||
-          availablePoints < technology.points ||
-          !hasSufficientResources(technology)
-        "
-        class="self-end rounded border border-green-400/30 px-4 py-2 uppercase tracking-widest text-green-200 disabled:opacity-30"
-        @click="start(technology)"
-      >
-        {{ startLabel(technology) }}
-      </button>
-      <span v-else-if="technology.status === 'researching'" class="self-end text-amber-300">
-        {{ remaining(technology) }}
+  <div class="flex flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5 text-sm">
+    <div class="ui-card flex-row items-center justify-between border-green-400/15 bg-green-500/5">
+      <span class="ui-label text-green-300/70">Research points</span>
+      <span class="ui-num text-[22px] font-semibold text-green-200">
+        {{ state?.used ?? 0
+        }}<span class="text-sm font-normal text-ui-dim"> / {{ state?.capacity ?? 0 }}</span>
       </span>
-      <span v-else class="self-end text-green-300">Active</span>
     </div>
+    <p v-if="error" class="rounded-md border border-[#6b2f2c] bg-[#2a1214] px-3 py-2 text-ui-red">
+      {{ error }}
+    </p>
+    <p v-if="!state && !error" class="animate-pulse text-ui-muted">Loading research…</p>
+
+    <article v-for="card in cards" :key="card.technology.key" class="ui-card" :class="card.accent">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-base font-semibold text-ui-bright">{{ card.technology.name }}</h3>
+        <span
+          v-if="card.technology.status === 'researching'"
+          class="rounded bg-[#2a200b] px-2 py-0.5 text-xs text-ui-amber"
+          >Researching</span
+        >
+        <span
+          v-else-if="card.technology.status === 'completed'"
+          class="rounded bg-green-500/10 px-2 py-0.5 text-xs text-green-300"
+          >Active</span
+        >
+        <span
+          v-else-if="card.canStart"
+          class="rounded bg-green-500/10 px-2 py-0.5 text-xs text-green-200"
+          >Available</span
+        >
+        <span v-else class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted">Saving</span>
+      </div>
+
+      <p class="text-[13px] text-ui-muted">{{ card.technology.description }}</p>
+
+      <div class="flex items-baseline gap-2 text-[13px] text-ui-soft">
+        <span>Research points</span>
+        <span class="ui-num text-green-200">{{ card.technology.points }}</span>
+      </div>
+
+      <div
+        v-if="card.technology.status === 'researching' && card.endsAt"
+        class="flex flex-col gap-1.5"
+      >
+        <div class="ui-bar">
+          <div
+            class="h-full rounded-full bg-ui-amber transition-[width] duration-1000 ease-linear"
+            :style="{ width: `${card.progress}%` }"
+          />
+        </div>
+        <span class="text-[13px] text-ui-soft">
+          Done in
+          <strong class="ui-num text-ui-amber">{{ formatCountdown(card.endsAt, now) }}</strong>
+        </span>
+      </div>
+
+      <template v-else-if="card.technology.status === 'available'">
+        <div class="flex items-center justify-between gap-3">
+          <CostList
+            :costs="card.technology.costs"
+            :stock="stock?.resources"
+            :duration="card.buildTime"
+          />
+          <button
+            type="button"
+            class="ui-btn"
+            :class="{
+              'border-green-400/30 bg-green-500/10 text-green-200 hover:bg-green-500/20':
+                card.canStart,
+            }"
+            :disabled="!card.canStart || starting !== null"
+            @click="start(card.technology)"
+          >
+            {{ starting === card.technology.key ? 'Starting…' : 'Research' }}
+          </button>
+        </div>
+        <span v-if="card.blocker" class="text-xs text-ui-amber">{{ card.blocker }}</span>
+      </template>
+    </article>
   </div>
 </template>

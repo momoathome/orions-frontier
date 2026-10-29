@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import type { CombatReport, StationDefenseUpgradeWithDefinition } from '@orions-frontier/shared';
+import {
+  getCostShortfall,
+  type CombatReport,
+  type StationDefenseUpgradeWithDefinition,
+} from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
+import { formatBuildTime, formatCountdown, formatShortfall } from '../lib/format';
+import { useOverviewStore } from '../stores/overview.js';
+import CostList from './CostList.vue';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const reports = ref<CombatReport[]>([]);
@@ -10,11 +17,9 @@ const upgrades = ref<StationDefenseUpgradeWithDefinition[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const upgrading = ref<string | null>(null);
-const now = ref(Date.now());
-
-const nowInterval = setInterval(() => {
-  now.value = Date.now();
-}, 1000);
+const overview = useOverviewStore();
+const now = computed(() => overview.state.now);
+const stock = computed(() => overview.state.details[stationId]?.resources ?? null);
 
 const relevantReports = computed(() =>
   reports.value.filter(
@@ -29,9 +34,7 @@ const incomingAttacks = computed(() =>
 );
 
 function arrivesIn(report: CombatReport): string {
-  return formatDuration(
-    Math.max(0, Math.ceil((new Date(report.arrivesAt).getTime() - now.value) / 1000))
-  );
+  return formatCountdown(Date.parse(report.arrivesAt), now.value);
 }
 
 function reportSummary(report: CombatReport): string {
@@ -53,28 +56,41 @@ const defenseScore = computed(() =>
   )
 );
 
-function defenseEffectValue(upgrade: StationDefenseUpgradeWithDefinition): number {
-  // Verteidigungs-Upgrades haben laut Typ nur `defense_score`-Effekte.
-  return upgrade.effects[0]?.value ?? 0;
-}
-
-function nextDefenseEffectValue(upgrade: StationDefenseUpgradeWithDefinition): number | null {
-  return upgrade.nextLevelEffects?.[0]?.value ?? null;
-}
-
-function formatDuration(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
-
-function upgradeTimeRemaining(upgrade: StationDefenseUpgradeWithDefinition): string | null {
-  if (!upgrade.upgradeEndsAt) return null;
-  const seconds = Math.ceil((new Date(upgrade.upgradeEndsAt).getTime() - now.value) / 1000);
-  return seconds > 0 ? formatDuration(seconds) : null;
-}
+// Same card shape as BuildingsTab so both tabs read alike.
+const cards = computed(() =>
+  upgrades.value.map((upgrade) => {
+    const shortfall = getCostShortfall(
+      upgrade.upgradeCosts,
+      stock.value?.resources ?? {},
+      stock.value?.rates ?? {}
+    );
+    const maxed = upgrade.level >= upgrade.definition.maxLevel;
+    const endsAt = upgrade.upgradeEndsAt ? Date.parse(upgrade.upgradeEndsAt) : null;
+    const upgradingNow = upgrade.isUpgrading && endsAt !== null && endsAt > now.value;
+    const affordable = !maxed && shortfall.missing.length === 0;
+    const durationMs = (upgrade.upgradeDurationSeconds ?? 0) * 1_000;
+    return {
+      upgrade,
+      maxed,
+      affordable,
+      upgradingNow,
+      accent: upgradingNow ? 'border-[#5a4317]' : affordable ? 'border-rose-400/35' : '',
+      endsAt,
+      progress:
+        endsAt && durationMs > 0
+          ? Math.min(100, Math.max(0, 100 - ((endsAt - now.value) / durationMs) * 100))
+          : 0,
+      buildTime:
+        upgrade.upgradeDurationSeconds === null
+          ? null
+          : formatBuildTime(upgrade.upgradeDurationSeconds),
+      // Defense upgrades only carry `defense_score` effects.
+      score: upgrade.effects[0]?.value ?? 0,
+      nextScore: upgrade.nextLevelEffects?.[0]?.value ?? null,
+      missing: formatShortfall(shortfall),
+    };
+  })
+);
 
 async function load(): Promise<void> {
   try {
@@ -99,7 +115,7 @@ async function startUpgrade(upgrade: StationDefenseUpgradeWithDefinition): Promi
   upgrading.value = upgrade.definition.key;
   try {
     await apiClient.post(`/stations/${stationId}/defense/${upgrade.definition.key}/upgrade`);
-    await load();
+    await Promise.all([load(), overview.refreshStation(stationId)]);
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Defense upgrade failed');
   } finally {
@@ -113,141 +129,125 @@ const unsubscribeIncoming = wsClient.on('incoming_attack', () => void load());
 onUnmounted(() => {
   unsubscribeIncoming();
   clearInterval(interval);
-  clearInterval(nowInterval);
 });
 </script>
 
 <template>
-  <div class="grid h-full grid-cols-[220px_1fr] overflow-hidden font-mono text-[10px]">
-    <div class="border-r border-white/5 p-4">
-      <p class="mb-3 uppercase tracking-[0.3em] text-rose-300/50">Station defense</p>
-      <div class="mb-4 rounded border border-rose-400/15 bg-rose-500/5 p-3">
-        <p class="text-[9px] uppercase tracking-[0.25em] text-white/25">Defense Score</p>
-        <p class="mt-1 text-2xl font-semibold tabular-nums text-rose-200">
-          {{ defenseScore }}
-        </p>
-      </div>
-      <div class="space-y-2">
-        <div
-          v-for="upgrade in upgrades"
-          :key="upgrade.definition.key"
-          class="flex items-center justify-between border-b border-white/5 pb-2"
-        >
-          <span class="text-white/45">{{ upgrade.definition.name }}</span>
-          <span class="text-rose-200/80 tabular-nums">Lv.{{ upgrade.level }}</span>
-        </div>
-      </div>
+  <div class="flex flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5 text-sm">
+    <div class="ui-card flex-row items-center justify-between border-rose-400/15 bg-rose-500/5">
+      <span class="ui-label text-rose-300/70">Defense score</span>
+      <span class="ui-num text-[22px] font-semibold text-rose-200">{{ defenseScore }}</span>
     </div>
-    <div class="overflow-y-auto p-4">
-      <p class="mb-3 uppercase tracking-[0.3em] text-white/25">Defense upgrades</p>
-      <p v-if="error" class="mb-3 text-rose-300/70">{{ error }}</p>
-      <p v-if="loading" class="text-white/25">Loading…</p>
-      <div v-else class="mb-5 grid grid-cols-2 gap-2">
-        <div
-          v-for="upgrade in upgrades"
-          :key="upgrade.definition.key"
-          class="rounded border border-white/7 p-3"
+    <p v-if="error" class="rounded-md border border-[#6b2f2c] bg-[#2a1214] px-3 py-2 text-ui-red">
+      {{ error }}
+    </p>
+
+    <template v-if="incomingAttacks.length > 0">
+      <h3 class="ui-label mt-2">Incoming attacks</h3>
+      <div
+        v-for="report in incomingAttacks"
+        :key="report.id"
+        class="flex justify-between gap-3 rounded-lg border border-[#6b2f2c] bg-[#2a1214] px-3 py-2.5 text-ui-red"
+      >
+        <span>Hostile fleet inbound · composition unknown</span>
+        <span class="ui-num font-semibold">{{ arrivesIn(report) }}</span>
+      </div>
+    </template>
+
+    <h3 class="ui-label mt-2">Upgrades</h3>
+    <p v-if="loading" class="animate-pulse text-ui-muted">Loading defense…</p>
+    <article
+      v-for="card in cards"
+      :key="card.upgrade.definition.key"
+      class="ui-card"
+      :class="card.accent"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-baseline gap-2">
+          <h4 class="text-base font-semibold text-ui-bright">
+            {{ card.upgrade.definition.name }}
+          </h4>
+          <span class="ui-num text-[13px] text-ui-muted">Lv. {{ card.upgrade.level }}</span>
+        </div>
+        <span
+          v-if="card.upgradingNow"
+          class="rounded bg-[#2a200b] px-2 py-0.5 text-xs text-ui-amber"
+          >Upgrading</span
         >
-          <div class="mb-2 flex items-start justify-between gap-3">
-            <div>
-              <p class="text-[11px] font-semibold tracking-wide text-white/70">
-                {{ upgrade.definition.name }}
-              </p>
-              <p class="mt-1 text-white/25">{{ upgrade.definition.description }}</p>
-            </div>
-            <span class="text-rose-200/80 tabular-nums">Lv.{{ upgrade.level }}</span>
-          </div>
-          <div class="mb-2 flex items-center gap-2 text-[10px]">
-            <span class="text-white/25">Score</span>
-            <span class="text-rose-200 tabular-nums">+{{ defenseEffectValue(upgrade) }}</span>
-            <template v-if="nextDefenseEffectValue(upgrade) !== null">
-              <span class="text-white/20">→</span>
-              <span class="text-green-300/80 tabular-nums">
-                +{{ nextDefenseEffectValue(upgrade) }}
-              </span>
-            </template>
-          </div>
-          <div class="mb-3 flex flex-wrap gap-2">
-            <span
-              v-for="cost in upgrade.upgradeCosts"
-              :key="cost.resourceKey"
-              class="text-white/45 tabular-nums"
-            >
-              {{ cost.resourceKey }} {{ cost.amount.toLocaleString() }}
-            </span>
-          </div>
+        <span v-else-if="card.maxed" class="rounded bg-ui-line px-2 py-0.5 text-xs text-ui-muted"
+          >Max level</span
+        >
+        <span
+          v-else-if="card.affordable"
+          class="rounded bg-rose-500/10 px-2 py-0.5 text-xs text-rose-200"
+          >Affordable</span
+        >
+        <span v-else class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted">Saving</span>
+      </div>
+
+      <p class="text-[13px] text-ui-muted">{{ card.upgrade.definition.description }}</p>
+
+      <div class="flex items-baseline gap-2 text-[13px] text-ui-soft">
+        <span>Defense score</span>
+        <span class="ui-num text-rose-200">+{{ card.score }}</span>
+        <template v-if="card.nextScore !== null && !card.maxed">
+          <span class="text-ui-dim">→</span>
+          <span class="ui-num font-semibold text-ui-green">+{{ card.nextScore }}</span>
+        </template>
+      </div>
+
+      <div v-if="card.upgradingNow && card.endsAt" class="flex flex-col gap-1.5">
+        <div class="ui-bar">
           <div
-            v-if="upgrade.isUpgrading"
-            class="mb-3 flex items-center justify-between border-t border-white/5 pt-2"
-          >
-            <span class="uppercase tracking-[0.18em] text-white/25">Ready in</span>
-            <span class="tabular-nums text-amber-300">
-              {{ upgradeTimeRemaining(upgrade) ?? 'Completing…' }}
-            </span>
-          </div>
-          <div
-            v-else-if="upgrade.upgradeDurationSeconds !== null"
-            class="mb-3 flex items-center justify-between border-t border-white/5 pt-2"
-          >
-            <span class="uppercase tracking-[0.18em] text-white/25">Build time</span>
-            <span class="tabular-nums text-white/50">
-              {{ formatDuration(upgrade.upgradeDurationSeconds) }}
-            </span>
-          </div>
+            class="h-full rounded-full bg-ui-amber transition-[width] duration-1000 ease-linear"
+            :style="{ width: `${card.progress}%` }"
+          />
+        </div>
+        <span class="text-[13px] text-ui-soft">
+          Lv. {{ card.upgrade.level + 1 }} done in
+          <strong class="ui-num text-ui-amber">{{ formatCountdown(card.endsAt, now) }}</strong>
+        </span>
+      </div>
+
+      <template v-else-if="!card.maxed">
+        <div class="flex items-center justify-between gap-3">
+          <CostList
+            :costs="card.upgrade.upgradeCosts"
+            :stock="stock?.resources"
+            :duration="card.buildTime"
+          />
           <button
             type="button"
-            class="rounded border px-3 py-1.5 text-[9px] uppercase tracking-[0.2em] transition"
-            :disabled="
-              upgrade.isUpgrading ||
-              upgrade.level >= upgrade.definition.maxLevel ||
-              Boolean(upgrading)
-            "
-            :class="
-              upgrade.isUpgrading ||
-              upgrade.level >= upgrade.definition.maxLevel ||
-              Boolean(upgrading)
-                ? 'border-amber-500/25 bg-amber-500/8 text-amber-400/50'
-                : 'border-rose-400/35 bg-rose-500/8 text-rose-200 hover:bg-rose-500/16'
-            "
-            @click="startUpgrade(upgrade)"
+            class="ui-btn"
+            :class="{
+              'border-rose-400/35 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20':
+                card.affordable,
+            }"
+            :disabled="!card.affordable || upgrading !== null"
+            @click="startUpgrade(card.upgrade)"
           >
-            <span v-if="upgrade.level >= upgrade.definition.maxLevel">Max Level</span>
-            <span v-else-if="upgrade.isUpgrading">Upgrading…</span>
-            <span v-else-if="upgrading === upgrade.definition.key">Starting…</span>
-            <span v-else>Upgrade</span>
+            {{ upgrading === card.upgrade.definition.key ? 'Starting…' : 'Upgrade' }}
           </button>
         </div>
-      </div>
-
-      <template v-if="incomingAttacks.length > 0">
-        <p class="mb-3 uppercase tracking-[0.3em] text-red-300/70">Incoming attacks</p>
-        <div
-          v-for="report in incomingAttacks"
-          :key="report.id"
-          class="mb-2 flex justify-between rounded border border-red-400/30 bg-red-500/8 p-3"
-        >
-          <span class="text-red-200/80">Hostile fleet inbound · composition unknown</span>
-          <span class="tabular-nums text-red-200">{{ arrivesIn(report) }}</span>
-        </div>
+        <span v-if="card.missing" class="text-xs text-ui-amber">{{ card.missing }}</span>
       </template>
+    </article>
 
-      <p class="mb-3 uppercase tracking-[0.3em] text-white/25">Combat reports</p>
-      <p v-if="!loading && relevantReports.length === 0" class="text-white/20">
-        No combat recorded.
-      </p>
-      <div
-        v-for="report in relevantReports"
-        :key="report.id"
-        class="mb-2 grid grid-cols-[110px_1fr_auto] gap-4 rounded border border-white/7 p-3"
-      >
-        <span class="uppercase text-white/45">
+    <h3 class="ui-label mt-2">Combat reports</h3>
+    <p v-if="!loading && relevantReports.length === 0" class="text-ui-soft">No combat recorded.</p>
+    <article v-for="report in relevantReports" :key="report.id" class="ui-card gap-1">
+      <div class="flex items-baseline justify-between gap-2">
+        <span class="font-semibold text-ui-bright">
           {{ report.attackerStationId === stationId ? 'Attack' : 'Defense' }}
         </span>
-        <span class="text-white/45">{{ reportSummary(report) }}</span>
-        <span :class="report.winner === 'attacker' ? 'text-amber-300' : 'text-green-300'">
+        <span
+          class="text-xs"
+          :class="report.winner === 'attacker' ? 'text-ui-amber' : 'text-ui-green'"
+        >
           {{ report.status === 'resolved' ? report.winner : report.status }}
         </span>
       </div>
-    </div>
+      <span class="text-[13px] text-ui-soft">{{ reportSummary(report) }}</span>
+    </article>
   </div>
 </template>

@@ -1,10 +1,31 @@
 @import 'tailwindcss';
 
+/* Game UI palette and fonts, see docs/ui-principles.md (R1, R8). */
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-ui-bg: #060a12;
+  --color-ui-panel: #0a101c;
+  --color-ui-card: #0f1828;
+  --color-ui-line: #1a2638;
+  --color-ui-line-strong: #23344c;
+  --color-ui-text: #dbe5f0;
+  --color-ui-soft: #b7c6d6;
+  --color-ui-bright: #eef4fa;
+  --color-ui-muted: #93a6bc;
+  --color-ui-dim: #6f849c;
+  --color-ui-cyan: #5fd6e6;
+  --color-ui-amber: #f2bd55;
+  --color-ui-orange: #f08a4b;
+  --color-ui-blue: #4aa8ff;
+  --color-ui-green: #4fd18b;
+  --color-ui-red: #f29a9a;
+  --color-ui-purple: #c27cff;
+}
+
 @layer base {
   :root {
-    font-family:
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
-      'Helvetica Neue', sans-serif;
+    font-family: var(--font-sans);
     line-height: 1.5;
     font-weight: 400;
 
@@ -30,5 +51,41 @@
     width: 100%;
     margin: 0 auto;
     text-align: center;
+  }
+}
+
+@layer components {
+  .ui-label {
+    @apply text-xs uppercase tracking-[0.08em] text-ui-muted;
+  }
+  .ui-num {
+    @apply font-mono tabular-nums;
+  }
+  .ui-card {
+    @apply flex flex-col gap-2.5 rounded-lg border border-ui-line bg-ui-card p-3.5;
+  }
+  .ui-btn {
+    @apply inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-ui-line-strong bg-transparent px-4 text-sm font-semibold text-ui-muted transition hover:border-ui-muted hover:text-ui-text disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .ui-btn-primary {
+    @apply border-[#2b8a99] bg-[#10333c] text-[#9ae8f2] hover:border-ui-cyan hover:bg-[#144450] hover:text-ui-bright;
+  }
+  .ui-btn-danger {
+    @apply border-[#6b2f2c] text-ui-red hover:border-ui-red hover:text-ui-red;
+  }
+  .ui-btn-icon {
+    @apply h-9 w-9 px-0;
+  }
+  .ui-input {
+    @apply h-10 rounded-md border border-ui-line-strong bg-ui-card px-3 text-sm text-ui-text focus:border-ui-cyan focus:outline-none;
+  }
+  .ui-tab {
+    @apply h-[34px] rounded-md border border-ui-line px-3 text-[13px] text-ui-soft transition hover:border-ui-line-strong hover:text-ui-bright;
+  }
+  .ui-tab-active {
+    @apply border-[#2b8a99] bg-[#10333c] font-semibold text-[#9ae8f2];
+  }
+  .ui-bar {
+    @apply h-1.5 overflow-hidden rounded-full bg-ui-line;
   }
 }

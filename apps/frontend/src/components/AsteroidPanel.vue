@@ -14,6 +14,8 @@ import {
 import AssignMinersForm from './AssignMinersForm.vue';
 import RecallMinersForm, { type AssignmentGroup } from './RecallMinersForm.vue';
 import { resourceColor, resourceName } from '../lib/mining-utils';
+import UiModal from './UiModal.vue';
+import { useOverviewStore } from '../stores/overview.js';
 
 const { asteroidId, scannerBypass, stationId } = defineProps<{
   asteroidId: string;
@@ -67,7 +69,10 @@ onUnmounted(() => {
   window.clearInterval(clock);
 });
 
-// Assigning and recalling happen inline in the operation column instead of in modals.
+const overview = useOverviewStore();
+const idleMiners = computed(() => (stationId ? overview.stationFleet(stationId).idleMiners : 0));
+
+// Assigning and recalling open as modals over the panel.
 const action = ref<'assign' | 'recall' | null>(null);
 watch(
   () => asteroidId,
@@ -214,6 +219,11 @@ function groupRoundTripHours(group: OperationGroup): number {
   return assignment ? (cycle(assignment)?.roundTripHours ?? 0) : 0;
 }
 
+/** Width of one phase in the flight · mining · return bar, as share of the round trip. */
+function phaseShare(hours: number, group: OperationGroup): string {
+  return `${(hours / groupRoundTripHours(group)) * 100}%`;
+}
+
 function groupLoad(group: OperationGroup): number {
   return referenceAssignment(group)?.spacecraftCargo ?? 0;
 }
@@ -322,360 +332,307 @@ const nextEvent = computed(() => {
 });
 
 const SIZE_LABELS: Record<string, string> = {
-  small: 'SMALL',
-  medium: 'MEDIUM',
-  large: 'LARGE',
-  massive: 'MASSIVE',
+  small: 'Small',
+  medium: 'Medium',
+  large: 'Large',
+  massive: 'Massive',
 };
 
 const VEIN_TYPE_LABELS: Record<string, string> = {
-  primary: 'PRIMARY',
-  secondary: 'SECONDARY',
-  trace: 'TRACE',
+  primary: 'Primary',
+  secondary: 'Secondary',
+  trace: 'Trace',
 };
 
 const primaryVein = computed<AsteroidVein | undefined>(() =>
   asteroid.value?.veins.find((v) => v.veinType === 'primary')
 );
-const panelAccentColor = computed(() =>
-  primaryVein.value ? resourceColor(primaryVein.value.resourceKey) : '#00c8ff'
-);
-
 const headerTitle = computed(() => {
-  if (primaryVein.value) return resourceName(primaryVein.value.resourceKey).toUpperCase();
-  return asteroid.value?.scanned === false ? 'UNSCANNED' : '—';
+  if (primaryVein.value) return resourceName(primaryVein.value.resourceKey);
+  return asteroid.value?.scanned === false ? 'Unscanned' : 'Asteroid';
 });
 
 function formatCoord(n: number) {
   return n.toFixed(1);
 }
+
+const PHASES = [
+  { key: 'OUTBOUND', label: 'outbound', style: 'bg-[#0d2238] text-ui-blue' },
+  { key: 'MINING', label: 'mining', style: 'bg-[#2a200b] text-ui-amber' },
+  { key: 'RETURNING', label: 'returning', style: 'bg-[#2b170c] text-ui-orange' },
+  { key: 'WAITING', label: 'waiting', style: 'bg-ui-line text-ui-muted' },
+] as const;
 </script>
 
 <template>
-  <div
-    class="absolute bottom-0 left-0 w-full min-h-[260px] cursor-default z-20 flex flex-col font-mono select-none"
+  <aside
+    class="flex h-full w-[400px] shrink-0 flex-col border-l border-ui-line bg-ui-panel text-left text-sm text-ui-text"
+    aria-label="Asteroid details"
   >
-    <!-- Panel background -->
-    <div
-      class="absolute inset-0 bg-[#060c1b]/97 backdrop-blur-xl border-t-2"
-      :style="`border-color:${panelAccentColor}55`"
-    />
-    <div class="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-cyan-400/30 z-10" />
-    <div class="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-cyan-400/30 z-10" />
-
-    <div class="relative z-20 flex flex-col h-full">
-      <!-- Header -->
-      <div class="flex items-center justify-between px-5 h-12 border-b border-white/8 shrink-0">
-        <div class="flex items-center gap-3">
+    <div class="flex items-start justify-between gap-3 border-b border-ui-line px-[18px] py-4">
+      <div class="flex min-w-0 flex-col gap-1">
+        <span class="ui-label">
+          Asteroid<template v-if="asteroid">
+            · {{ asteroid.size ? (SIZE_LABELS[asteroid.size] ?? asteroid.size) : 'Unknown size' }}
+          </template>
+        </span>
+        <h2 class="flex items-center gap-2 text-xl font-semibold text-ui-bright">
           <span
-            class="w-2 h-2 rounded-full ring-1 ring-white/10 shrink-0"
-            :style="
-              primaryVein
-                ? `background:${resourceColor(primaryVein.resourceKey)}`
-                : 'background:#555'
-            "
+            class="h-3 w-3 shrink-0 rounded-full"
+            :style="{ background: primaryVein ? resourceColor(primaryVein.resourceKey) : '#555' }"
           />
-          <span class="text-[10px] text-white/45 uppercase tracking-[0.2em]">Asteroid</span>
-          <span class="text-[15px] font-semibold tracking-wider text-white/90">
-            {{ headerTitle }}
-          </span>
-          <span v-if="asteroid" class="text-[10px] text-white/40 tracking-wider uppercase">
-            {{ asteroid.size ? (SIZE_LABELS[asteroid.size] ?? asteroid.size) : 'Unknown size' }}
-          </span>
-          <span v-if="asteroid" class="text-[10px] text-white/30 tracking-wider">
-            #{{ asteroid.id.slice(0, 6) }}
-          </span>
-        </div>
-        <div class="flex items-center gap-5">
-          <div v-if="asteroid?.scanned" class="flex items-baseline gap-2">
-            <span class="text-[10px] text-white/40 uppercase tracking-[0.16em]">Reserve</span>
-            <span class="text-[16px] font-semibold text-white/85 tabular-nums">
-              {{ totalRemaining.toLocaleString('de-DE') }}
+          {{ headerTitle }}
+        </h2>
+      </div>
+      <button
+        type="button"
+        class="ui-btn ui-btn-icon"
+        aria-label="Close panel"
+        @click="emit('close')"
+      >
+        ✕
+      </button>
+    </div>
+
+    <div v-if="loading" class="flex flex-1 items-center justify-center text-ui-muted">
+      <span class="animate-pulse">Scanning…</span>
+    </div>
+    <div v-else-if="error" class="flex flex-1 items-center justify-center text-ui-red">
+      {{ error }}
+    </div>
+
+    <div v-else-if="asteroid" class="flex flex-1 flex-col gap-5 overflow-y-auto px-[18px] py-4">
+      <!-- Reserve -->
+      <section class="flex flex-col gap-2">
+        <h3 class="ui-label">Reserve</h3>
+        <template v-if="asteroid.scanned">
+          <div class="flex items-baseline justify-between gap-3">
+            <span class="ui-num text-[22px] font-semibold text-ui-bright">
+              {{ totalRemaining.toLocaleString('en-US') }}
+              <span class="text-sm font-normal text-ui-dim"
+                >/ {{ totalInitial.toLocaleString('en-US') }}</span
+              >
             </span>
-            <span class="text-[11px] text-white/40 tabular-nums">
-              / {{ totalInitial.toLocaleString('de-DE') }} ·
+            <span class="text-[13px] text-ui-soft">
               {{ remainingPercent(totalRemaining, totalInitial) }}% left
             </span>
           </div>
-          <button
-            type="button"
-            class="w-8 h-8 flex items-center justify-center rounded text-white/55 hover:text-white/90 hover:bg-white/6 transition text-[14px]"
-            @click="emit('close')"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      <!-- Loading / Error -->
-      <div v-if="loading" class="flex-1 flex items-center justify-center">
-        <span class="text-[11px] text-white/45 tracking-wider animate-pulse uppercase"
-          >Scanning…</span
-        >
-      </div>
-      <div v-else-if="error" class="flex-1 flex items-center justify-center">
-        <span class="text-[11px] text-red-400/80 tracking-wide">{{ error }}</span>
-      </div>
-
-      <!-- Body -->
-      <div
-        v-else-if="asteroid"
-        class="flex-1 grid gap-5 px-5 py-4 overflow-hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"
-      >
-        <!-- Resources -->
-        <div class="flex flex-col gap-3 min-w-0 overflow-y-auto pr-1">
-          <span class="text-[10px] text-white/45 uppercase tracking-[0.18em]">Resources</span>
-          <div v-if="!asteroid.scanned" class="text-[12px] leading-relaxed text-white/45">
-            Outside scanner range. Composition and reserve are unknown until your miners return
-            their first cargo — or upgrade the scanner to bring it into range.
-          </div>
-          <div v-else-if="asteroid.veins.length === 0" class="text-[12px] text-white/40">
-            No veins detected
-          </div>
           <div
-            class="flex flex-1 flex-col"
-            :class="asteroid.veins.length === 1 ? 'justify-center' : 'justify-start'"
+            class="ui-bar"
+            role="meter"
+            :aria-valuenow="remainingPercent(totalRemaining, totalInitial)"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-label="Reserve left"
           >
             <div
+              class="h-full rounded-full transition-[width] duration-700"
+              :style="{
+                width: `${remainingPercent(totalRemaining, totalInitial)}%`,
+                background: primaryVein ? resourceColor(primaryVein.resourceKey) : '#5fd6e6',
+              }"
+            />
+          </div>
+          <span v-if="estimatedDepletionHours > 0" class="text-[13px] text-ui-soft">
+            Depleted in
+            <strong class="ui-num font-semibold text-ui-amber">{{
+              formatDuration(estimatedDepletionHours)
+            }}</strong>
+            at the current rate
+          </span>
+          <ul v-if="asteroid.veins.length > 1" class="mt-1 flex flex-col gap-1.5">
+            <li
               v-for="vein in asteroid.veins"
               :key="vein.id"
-              class="flex items-center gap-3 py-3 border-b border-white/7 last:border-0"
+              class="flex items-center justify-between gap-3 text-[13px]"
             >
-              <div
-                class="w-1 self-stretch rounded-full shrink-0"
-                :style="`background:${resourceColor(vein.resourceKey)}`"
-              />
-              <div class="flex flex-col gap-1.5 min-w-0 flex-1">
-                <div class="flex items-center justify-between gap-4 min-w-0">
-                  <div class="flex items-baseline gap-3 min-w-0">
-                    <span
-                      class="text-[14px] font-medium"
-                      :style="`color:${resourceColor(vein.resourceKey)}`"
-                    >
-                      {{ resourceName(vein.resourceKey) }}
-                    </span>
-                    <span
-                      class="text-[10px] text-white/40 uppercase tracking-[0.14em] whitespace-nowrap"
-                    >
-                      {{ VEIN_TYPE_LABELS[vein.veinType] }}
-                    </span>
-                  </div>
-                  <div class="flex items-baseline gap-2 shrink-0">
-                    <span class="text-[17px] text-white/85 tabular-nums font-semibold">
-                      {{ vein.remainingAmount.toLocaleString('de-DE') }}
-                    </span>
-                    <span class="text-[10px] text-white/40 uppercase tracking-wide">
-                      / {{ vein.initialAmount.toLocaleString('de-DE') }}
-                    </span>
-                  </div>
-                </div>
-                <div
-                  class="h-1 rounded-full bg-white/8 overflow-hidden"
-                  role="meter"
-                  :aria-valuenow="remainingPercent(vein.remainingAmount, vein.initialAmount)"
-                  aria-valuemin="0"
-                  aria-valuemax="100"
-                  :aria-label="`${resourceName(vein.resourceKey)} reserve left`"
+              <span class="flex items-center gap-2">
+                <span
+                  class="h-2 w-2 rounded-full"
+                  :style="{ background: resourceColor(vein.resourceKey) }"
+                />
+                <span class="text-ui-text">{{ resourceName(vein.resourceKey) }}</span>
+                <span class="text-xs text-ui-dim">{{ VEIN_TYPE_LABELS[vein.veinType] }}</span>
+              </span>
+              <span class="ui-num text-ui-soft">{{
+                vein.remainingAmount.toLocaleString('en-US')
+              }}</span>
+            </li>
+          </ul>
+          <p v-if="asteroid.veins.length === 0" class="text-ui-soft">No veins detected.</p>
+        </template>
+        <p v-else class="text-ui-soft">
+          Outside scanner range. Composition and reserve stay unknown until your miners return their
+          first cargo, or until a scanner upgrade brings it into range.
+        </p>
+      </section>
+
+      <template v-if="asteroid.operationsVisible && asteroid.assignments.length > 0">
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="ui-card gap-1">
+            <span class="text-xs text-ui-muted">Next delivery</span>
+            <template v-if="nextDelivery">
+              <span class="ui-num text-lg font-semibold text-ui-bright">{{
+                formatCountdown(Date.parse(nextDelivery.arrivesAt))
+              }}</span>
+              <span class="text-xs text-ui-orange">{{ formatCargo(nextDelivery) }}</span>
+            </template>
+            <span v-else class="text-[13px] text-ui-soft">Cargo not loaded yet</span>
+          </div>
+          <div class="ui-card gap-1">
+            <span class="text-xs text-ui-muted">Delivered</span>
+            <span class="ui-num text-lg font-semibold text-ui-cyan"
+              >~{{ totalDeliveryPerHour.toFixed(0) }}/h</span
+            >
+            <span class="text-xs text-ui-muted"
+              >{{ totalMiningPowerRaw.toFixed(0) }}/h extraction</span
+            >
+          </div>
+        </div>
+
+        <section class="flex flex-col gap-2">
+          <h3 class="ui-label">Assigned miners · {{ activeMinerCount }}</h3>
+          <article v-for="group in operationGroups" :key="group.key" class="ui-card">
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="font-semibold text-ui-bright">
+                {{ group.activeAmount }}× {{ group.spacecraftName }}
+              </span>
+              <span v-if="!group.isOwn" class="text-xs text-ui-dim">other station</span>
+              <span v-else-if="group.recallRequestedAmount" class="text-xs text-ui-amber">
+                {{ group.recallRequestedAmount }} recalled
+              </span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <template v-for="phase in PHASES" :key="phase.key">
+                <span
+                  v-if="phaseCount(group, phase.key) > 0"
+                  class="ui-num rounded px-2 py-0.5 text-xs"
+                  :class="phase.style"
+                  >{{ phaseCount(group, phase.key) }} {{ phase.label }}</span
                 >
-                  <div
-                    class="h-full rounded-full transition-[width] duration-700"
-                    :style="`width:${remainingPercent(vein.remainingAmount, vein.initialAmount)}%;background:${resourceColor(vein.resourceKey)}`"
-                  />
-                </div>
-              </div>
+              </template>
             </div>
-          </div>
-        </div>
-
-        <!-- Mining operation -->
-        <div class="flex flex-col gap-3 border-l border-white/8 pl-5 overflow-y-auto">
-          <AssignMinersForm
-            v-if="action === 'assign' && stationId"
-            :asteroid-id="asteroidId"
-            :station-id="stationId"
-            @cancel="action = null"
-            @done="onActionDone"
-          />
-          <RecallMinersForm
-            v-else-if="action === 'recall'"
-            :own-groups="ownGroups"
-            :asteroid-id="asteroidId"
-            @cancel="action = null"
-            @done="onActionDone"
-          />
-          <span v-else class="text-[10px] text-white/45 uppercase tracking-[0.18em]">
-            Mining operation
-          </span>
-
-          <template v-if="!action && asteroid.operationsVisible && asteroid.assignments.length > 0">
-            <div class="flex items-baseline justify-between gap-3 text-[11px]">
-              <span class="text-white/55">
-                {{ activeMinerCount }} {{ activeMinerCount === 1 ? 'miner' : 'miners' }} ·
-                {{ totalMiningPowerRaw.toFixed(0) }}/h extraction
-              </span>
-              <span class="text-cyan-300/80 tabular-nums font-semibold">
-                ~{{ totalDeliveryPerHour.toFixed(0) }}/h delivered
-              </span>
+            <div
+              v-if="groupRoundTripHours(group) > 0"
+              class="flex h-1.5 overflow-hidden rounded-full bg-ui-line"
+              aria-hidden="true"
+            >
+              <span
+                class="bg-ui-blue"
+                :style="{ width: phaseShare(groupFlightHours(group), group) }"
+              />
+              <span
+                class="bg-ui-amber"
+                :style="{ width: phaseShare(groupMiningHours(group), group) }"
+              />
+              <span
+                class="bg-ui-orange"
+                :style="{ width: phaseShare(groupFlightHours(group), group) }"
+              />
             </div>
-
-            <div class="flex flex-col gap-2">
-              <div
-                v-for="group in operationGroups"
-                :key="group.key"
-                class="rounded border border-white/8 bg-white/2.5 px-3 py-2"
-              >
-                <div class="flex items-center justify-between gap-3 mb-2">
-                  <span class="text-[12px] text-white/75 font-medium">
-                    {{ group.activeAmount }}× {{ group.spacecraftName }}
-                    <span
-                      v-if="group.recallRequestedAmount"
-                      class="text-[10px] text-amber-300/70 font-normal"
-                    >
-                      · {{ group.recallRequestedAmount }} recalled
-                    </span>
-                  </span>
-                  <div class="flex items-center justify-end gap-2 text-[10px] tabular-nums">
-                    <span
-                      v-if="phaseCount(group, 'OUTBOUND') > 0"
-                      class="rounded-sm bg-sky-300/8 px-2 py-0.5 font-semibold tracking-wide text-sky-300/85"
-                    >
-                      {{ phaseCount(group, 'OUTBOUND') }} OUTBOUND
-                    </span>
-                    <span
-                      v-if="phaseCount(group, 'MINING') > 0"
-                      class="rounded-sm bg-amber-300/8 px-2 py-0.5 font-semibold tracking-wide text-amber-300/85"
-                    >
-                      {{ phaseCount(group, 'MINING') }} MINING
-                    </span>
-                    <span
-                      v-if="phaseCount(group, 'RETURNING') > 0"
-                      class="rounded-sm bg-orange-300/8 px-2 py-0.5 font-semibold tracking-wide text-orange-300/85"
-                    >
-                      {{ phaseCount(group, 'RETURNING') }} RETURNING
-                    </span>
-                    <span
-                      v-if="phaseCount(group, 'WAITING') > 0"
-                      class="font-semibold tracking-wide text-white/45"
-                    >
-                      {{ phaseCount(group, 'WAITING') }} WAITING
-                    </span>
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-4 gap-4 text-[10px] tabular-nums">
-                  <div class="flex flex-col gap-0.5">
-                    <span class="text-white/35">Flight</span>
-                    <span class="text-white/70">{{ formatDuration(groupFlightHours(group)) }}</span>
-                  </div>
-                  <div class="flex flex-col gap-0.5">
-                    <span class="text-white/35">Mining</span>
-                    <span class="text-white/70">{{ formatDuration(groupMiningHours(group)) }}</span>
-                  </div>
-                  <div class="flex flex-col gap-0.5">
-                    <span class="text-white/35">Round trip</span>
-                    <span class="text-white/70">{{
-                      formatDuration(groupRoundTripHours(group))
-                    }}</span>
-                  </div>
-                  <div class="flex flex-col gap-0.5">
-                    <span class="text-white/35">Load each</span>
-                    <span class="text-white/70">{{ groupLoad(group) }}</span>
-                  </div>
-                </div>
+            <dl class="grid grid-cols-4 gap-2 text-xs text-ui-muted">
+              <div class="flex flex-col gap-0.5">
+                <dt>Flight</dt>
+                <dd class="ui-num text-[13px] text-ui-text">
+                  {{ formatDuration(groupFlightHours(group)) }}
+                </dd>
               </div>
-            </div>
-
-            <div class="grid grid-cols-3 gap-3 mt-auto">
-              <div class="rounded border border-white/8 bg-white/2.5 px-3 py-2">
-                <span class="block text-[10px] text-white/40 mb-1">Next event</span>
-                <div v-if="nextEvent" class="flex items-baseline justify-between gap-3">
-                  <span class="text-[11px] text-white/65">
-                    {{ nextEvent.description }} · {{ nextEvent.assignment.spacecraftName }}
-                  </span>
-                  <span class="text-[12px] text-white/80 tabular-nums font-semibold">
-                    {{ formatCountdown(nextEvent.deadline) }}
-                  </span>
-                </div>
-                <span v-else class="text-[11px] text-white/40">Awaiting next trip</span>
+              <div class="flex flex-col gap-0.5">
+                <dt>Mining</dt>
+                <dd class="ui-num text-[13px] text-ui-text">
+                  {{ formatDuration(groupMiningHours(group)) }}
+                </dd>
               </div>
-              <div class="rounded border border-orange-300/12 bg-orange-300/[0.035] px-3 py-2">
-                <span class="block text-[10px] text-white/40 mb-1">Next delivery</span>
-                <div v-if="nextDelivery" class="flex items-baseline justify-between gap-3">
-                  <span class="text-[12px] text-orange-200/80">
-                    {{ formatCargo(nextDelivery) }}
-                  </span>
-                  <span class="text-[12px] text-white/80 tabular-nums font-semibold">
-                    {{ formatCountdown(Date.parse(nextDelivery.arrivesAt)) }}
-                  </span>
-                </div>
-                <span v-else class="text-[11px] text-white/40">Cargo not loaded yet</span>
+              <div class="flex flex-col gap-0.5">
+                <dt>Round trip</dt>
+                <dd class="ui-num text-[13px] text-ui-text">
+                  {{ formatDuration(groupRoundTripHours(group)) }}
+                </dd>
               </div>
-              <div class="rounded border border-white/8 bg-white/2.5 px-3 py-2">
-                <span class="block text-[10px] text-white/40 mb-1">Estimated depletion</span>
-                <span class="text-[12px] text-amber-200/75 tabular-nums font-semibold">
-                  {{ asteroid.scanned ? formatDuration(estimatedDepletionHours) : 'Unknown' }}
-                </span>
+              <div class="flex flex-col gap-0.5">
+                <dt>Load each</dt>
+                <dd class="ui-num text-[13px] text-ui-text">{{ groupLoad(group) }}</dd>
               </div>
-            </div>
-          </template>
+            </dl>
+          </article>
+          <p v-if="nextEvent" class="text-[13px] text-ui-soft">
+            Next: {{ nextEvent.description }} ({{ nextEvent.assignment.spacecraftName }}) in
+            <strong class="ui-num text-ui-bright">{{ formatCountdown(nextEvent.deadline) }}</strong>
+          </p>
+        </section>
+      </template>
 
-          <div
-            v-else-if="!action"
-            class="flex flex-1 flex-col items-center justify-center text-center px-8"
-          >
-            <span class="text-[11px] text-white/55 uppercase tracking-[0.14em]">
-              No local mining telemetry
-            </span>
-            <p class="mt-2 max-w-sm text-[12px] leading-relaxed text-white/40">
-              Assign miners to monitor flight times, deliveries and depletion for this asteroid.
-            </p>
-          </div>
-        </div>
-      </div>
+      <section
+        v-else
+        class="flex flex-col gap-1 rounded-lg border border-dashed border-ui-line-strong p-3.5"
+      >
+        <span class="font-semibold text-ui-bright">No miners here yet</span>
+        <span class="text-[13px] text-ui-soft">
+          Assign miners to see flight times, deliveries and depletion for this asteroid.
+        </span>
+      </section>
 
-      <!-- Footer -->
-      <div class="flex items-center gap-3 px-5 py-3 shrink-0 border-t border-white/7">
-        <button
-          v-if="stationId"
-          type="button"
-          class="px-4 h-8 rounded text-[11px] uppercase tracking-[0.12em] text-cyan-300 border border-cyan-400/45 hover:bg-cyan-400/12 hover:border-cyan-400/70 transition font-semibold"
-          :class="action === 'assign' ? 'bg-cyan-400/12 border-cyan-400/70' : ''"
-          :aria-pressed="action === 'assign'"
-          @click="toggleAction('assign')"
-        >
-          ⊕ {{ ownGroups.length > 0 ? 'Assign More' : 'Assign Miner' }}
-        </button>
-        <button
-          v-else
-          type="button"
-          disabled
-          class="px-4 h-8 rounded text-[11px] uppercase tracking-[0.12em] text-white/30 border border-white/10 cursor-not-allowed"
-        >
-          ⊕ Assign Miner
-        </button>
-        <button
-          v-if="ownGroups.length > 0"
-          type="button"
-          class="px-4 h-8 rounded text-[11px] uppercase tracking-[0.12em] text-red-300 border border-red-400/40 hover:bg-red-400/12 hover:border-red-400/65 transition font-semibold"
-          :class="action === 'recall' ? 'bg-red-400/12 border-red-400/65' : ''"
-          :aria-pressed="action === 'recall'"
-          @click="toggleAction('recall')"
-        >
-          ↩ Recall
-        </button>
+      <section
+        v-if="idleMiners > 0 && asteroid.scanned && totalRemaining > 0"
+        class="flex flex-col gap-1 rounded-lg border border-dashed border-[#2b8a99] p-3.5"
+      >
+        <span class="font-semibold text-ui-cyan">More output possible</span>
+        <span class="text-[13px] text-ui-soft">
+          {{ idleMiners }} {{ idleMiners === 1 ? 'miner is' : 'miners are' }} idle at
+          {{ stationId ? overview.stationName(stationId) : 'your station' }}.
+        </span>
+      </section>
 
-        <!-- Location compact -->
-        <div
-          v-if="asteroid"
-          class="ml-auto flex items-center gap-2 text-[10px] text-white/35 tabular-nums uppercase tracking-wide"
-        >
-          <span>X&nbsp;{{ formatCoord(asteroid.x) }}</span>
-          <span class="text-white/10">·</span>
-          <span>Y&nbsp;{{ formatCoord(asteroid.y) }}</span>
-          <span class="text-white/10">·</span>
-          <span class="text-white/15">{{ asteroid.chunkX }}:{{ asteroid.chunkY }}</span>
-        </div>
-      </div>
+      <span class="ui-num mt-auto text-xs text-ui-dim">
+        X {{ formatCoord(asteroid.x) }} · Y {{ formatCoord(asteroid.y) }} · Chunk
+        {{ asteroid.chunkX }}:{{ asteroid.chunkY }}
+      </span>
     </div>
-  </div>
+
+    <div class="flex gap-2 border-t border-ui-line px-[18px] py-4">
+      <button
+        type="button"
+        class="ui-btn ui-btn-primary flex-1"
+        :disabled="!stationId"
+        @click="toggleAction('assign')"
+      >
+        {{ ownGroups.length > 0 ? 'Assign more miners' : 'Assign miners' }}
+      </button>
+      <button
+        v-if="ownGroups.length > 0"
+        type="button"
+        class="ui-btn ui-btn-danger"
+        @click="toggleAction('recall')"
+      >
+        Recall
+      </button>
+    </div>
+
+    <UiModal
+      v-if="action === 'assign' && stationId"
+      :title="`Assign miners to ${headerTitle}`"
+      eyebrow="Mining"
+      @close="action = null"
+    >
+      <AssignMinersForm
+        :asteroid-id="asteroidId"
+        :station-id="stationId"
+        @cancel="action = null"
+        @done="onActionDone"
+      />
+    </UiModal>
+    <UiModal
+      v-if="action === 'recall'"
+      :title="`Recall miners from ${headerTitle}`"
+      eyebrow="Mining"
+      @close="action = null"
+    >
+      <RecallMinersForm
+        :own-groups="ownGroups"
+        :asteroid-id="asteroidId"
+        @cancel="action = null"
+        @done="onActionDone"
+      />
+    </UiModal>
+  </aside>
 </template>
