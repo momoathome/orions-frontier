@@ -62,13 +62,13 @@ export function formatBuildingEffect(
 ): { label: string; display: string } {
   switch (type) {
     case 'construction_speed':
-      return { label: 'Build speed', display: `-${value}% time` };
+      return { label: 'Upgrade time', display: value > 0 ? `-${value}%` : '0%' };
     case 'hangar_capacity':
-      return { label: 'Crew places', display: `${value}` };
+      return { label: 'Crew slots', display: `${value}` };
     case 'spacecraft_unlock':
       return { label: 'Spacecraft', display: `Tier ${value}` };
     case 'spacecraft_production_bonus':
-      return { label: 'Build Speed', display: `+${value}%` };
+      return { label: 'Ship build speed', display: `+${value}%` };
     case 'storage_capacity':
       return { label: 'Capacity', display: value.toLocaleString('en-US') };
     case 'protected_storage':

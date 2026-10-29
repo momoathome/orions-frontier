@@ -82,8 +82,8 @@ async function submit() {
           <span class="text-xs text-ui-muted">Miner type</span>
           <select v-model="selectedAssignmentId" class="ui-input">
             <option v-for="group in ownGroups" :key="group.ids[0]" :value="group.ids[0]">
-              {{ group.spacecraftName }} · {{ group.totalAmount - group.recallRequestedAmount }}
-              active
+              {{ group.spacecraftName }} ({{ group.totalAmount - group.recallRequestedAmount }}
+              active)
             </option>
           </select>
         </label>

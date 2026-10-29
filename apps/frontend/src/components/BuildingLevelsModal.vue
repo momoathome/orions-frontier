@@ -113,7 +113,7 @@ watch(
             <tr>
               <th class="w-14 px-2 py-1 font-normal">Lv.</th>
               <th class="px-2 py-1 font-normal">Effect</th>
-              <th class="px-2 py-1 font-normal">Upgrade cost · time</th>
+              <th class="px-2 py-1 font-normal">Upgrade cost and time</th>
             </tr>
           </thead>
           <tbody>

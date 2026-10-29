@@ -149,13 +149,13 @@ async function submit() {
         <span class="text-xs text-ui-muted">Spacecraft</span>
         <select v-model="selectedSpacecraftKey" class="ui-input">
           <option v-for="m in miners" :key="m.definition.key" :value="m.definition.key">
-            {{ m.definition.name }} · {{ m.amount - m.lockedAmount }} idle
+            {{ m.definition.name }} ({{ m.amount - m.lockedAmount }} idle)
           </option>
         </select>
       </label>
 
       <div class="flex flex-col gap-1.5">
-        <span class="text-xs text-ui-muted">Amount · {{ availableAmount }} available</span>
+        <span class="text-xs text-ui-muted">Amount ({{ availableAmount }} available)</span>
         <div class="flex items-center gap-2">
           <button
             type="button"

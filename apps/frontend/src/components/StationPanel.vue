@@ -65,7 +65,7 @@ const hangar = computed(() => overview.state.details[stationId]?.fleet?.hangar ?
           </dd>
         </div>
         <div class="flex flex-col gap-0.5">
-          <dt>Hangar</dt>
+          <dt>Crew slots</dt>
           <dd class="ui-num text-[15px] text-ui-bright">
             {{ hangar ? `${hangar.used} / ${hangar.capacity}` : '—' }}
           </dd>
@@ -74,7 +74,7 @@ const hangar = computed(() => overview.state.details[stationId]?.fleet?.hangar ?
           <dt>Queue</dt>
           <dd class="ui-num text-[15px]" :class="queue.count > 0 ? 'text-ui-amber' : 'text-ui-dim'">
             <template v-if="queue.count > 0 && queue.nextEndsAt">
-              {{ queue.count }} · {{ formatCountdown(queue.nextEndsAt, overview.state.now) }}
+              {{ queue.count }} ({{ formatCountdown(queue.nextEndsAt, overview.state.now) }})
             </template>
             <template v-else>Idle</template>
           </dd>

@@ -39,13 +39,13 @@ function arrivesIn(report: CombatReport): string {
 
 function reportSummary(report: CombatReport): string {
   if (report.winner === null) return 'Target already destroyed, fleet turned back';
-  const sent = report.attackerAmount === null ? '' : `${report.attackerAmount} sent · `;
+  const sent = report.attackerAmount === null ? '' : `${report.attackerAmount} sent, `;
   const integrity = report.stationDestroyed
-    ? ' · station destroyed'
+    ? ', station destroyed'
     : report.integrityDamage > 0
-      ? ` · integrity −${report.integrityDamage} to ${report.defenderIntegrity}`
+      ? `, integrity −${report.integrityDamage} to ${report.defenderIntegrity}`
       : '';
-  return `${sent}${report.attackerLosses} attacker losses · ${report.defenderLosses} defender losses${integrity}`;
+  return `${sent}${report.attackerLosses} attacker losses, ${report.defenderLosses} defender losses${integrity}`;
 }
 
 const defenseScore = computed(() =>
@@ -168,7 +168,7 @@ onUnmounted(() => {
         :key="report.id"
         class="flex justify-between gap-3 rounded-lg border border-[#6b2f2c] bg-[#2a1214] px-3 py-2.5 text-ui-red"
       >
-        <span>Hostile fleet inbound · composition unknown</span>
+        <span>Hostile fleet inbound, composition unknown</span>
         <span class="ui-num font-semibold">{{ arrivesIn(report) }}</span>
       </div>
     </template>

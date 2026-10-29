@@ -28,7 +28,7 @@ const colonizationCostLabel = computed(() =>
     calculateColonizationCost(sectors.value.filter((sector) => sector.hasOwnStation).length)
   )
     .map(([resourceKey, amount]) => `${amount.toLocaleString()} ${resources[resourceKey].name}`)
-    .join(' · ')
+    .join(', ')
 );
 
 const formatDuration = (hours: number | null) => {

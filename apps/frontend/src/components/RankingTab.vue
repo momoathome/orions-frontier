@@ -25,7 +25,7 @@ async function load(): Promise<void> {
 }
 
 const breakdownTitle = (influence: InfluenceBreakdown): string =>
-  `Buildings ${influence.buildings} · Research ${influence.research} · Defense ${influence.defense} · Fleet ${influence.fleet}`;
+  `Buildings ${influence.buildings}, Research ${influence.research}, Defense ${influence.defense}, Fleet ${influence.fleet}`;
 
 const scheduleLoad = debounced(load, 500);
 
@@ -47,7 +47,7 @@ onUnmounted(() => {
     <p v-if="error" class="mb-2 text-ui-red">{{ error }}</p>
     <template v-if="ranking">
       <div class="mb-3 flex items-baseline justify-between text-ui-muted">
-        <span class="text-xs uppercase tracking-[0.08em]">Server ranking · Influence</span>
+        <span class="text-xs uppercase tracking-[0.08em]">Server ranking by influence</span>
         <span v-if="ranking.me" class="tabular-nums">
           Your rank <span class="text-ui-cyan">#{{ ranking.me.rank }}</span> of
           {{ ranking.totalPlayers }}

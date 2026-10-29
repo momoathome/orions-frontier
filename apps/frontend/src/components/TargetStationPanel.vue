@@ -74,7 +74,7 @@ async function attack() {
   >
     <div class="flex items-start justify-between gap-3 border-b border-ui-line px-[18px] py-4">
       <div class="flex min-w-0 flex-col gap-1">
-        <span class="ui-label">Target station · {{ station.ownerType }}</span>
+        <span class="ui-label">Target station ({{ station.ownerType }})</span>
         <h2 class="truncate text-xl font-semibold text-ui-bright">{{ station.name }}</h2>
       </div>
       <button
@@ -119,7 +119,7 @@ async function attack() {
             <span class="flex flex-col">
               <span class="text-ui-bright">{{ fighter.definition.name }}</span>
               <span class="text-xs text-ui-muted">
-                {{ fighter.definition.role }} · {{ fighter.amount - fighter.lockedAmount }} ready
+                {{ fighter.definition.role }} ({{ fighter.amount - fighter.lockedAmount }} ready)
               </span>
             </span>
             <input

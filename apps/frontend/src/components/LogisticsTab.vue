@@ -63,7 +63,7 @@ const formatRate = (perHour: number) =>
     <div v-if="income" class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-[18px] py-4">
       <!-- What the station earns, and how long its storage keeps up. -->
       <section class="flex flex-col gap-2" aria-label="Income">
-        <h3 class="ui-label">Income · expected</h3>
+        <h3 class="ui-label">Expected income</h3>
         <ul class="flex flex-col gap-3">
           <li v-for="row in rows" :key="row.key" class="flex flex-col gap-1.5">
             <div class="flex items-center gap-2">
@@ -90,7 +90,7 @@ const formatRate = (perHour: number) =>
               <span class="ui-num text-ui-muted">
                 {{ formatAmount(row.stock) }} / {{ formatAmount(row.capacity) }}
                 <span v-if="row.inTransit > 0" class="text-ui-orange">
-                  · +{{ formatAmount(row.inTransit) }} en route</span
+                  (+{{ formatAmount(row.inTransit) }} en route)</span
                 >
               </span>
               <span v-if="row.full" class="font-semibold text-ui-red">Storage full</span>
@@ -123,7 +123,7 @@ const formatRate = (perHour: number) =>
             <div class="flex min-w-0 flex-col gap-1">
               <CostList :costs="arrival.cargo" aria-label="Cargo" />
               <span class="truncate text-xs text-ui-dim">
-                {{ arrival.ships }} · {{ shortId(arrival.asteroidId) }}
+                {{ arrival.ships }} from {{ shortId(arrival.asteroidId) }}
               </span>
             </div>
           </li>
@@ -137,7 +137,7 @@ const formatRate = (perHour: number) =>
       <section class="flex flex-col gap-2" aria-label="Sources">
         <div class="flex items-center justify-between gap-2">
           <h3 class="ui-label">
-            Sources · {{ workingMiners }} {{ workingMiners === 1 ? 'miner' : 'miners' }}
+            Sources ({{ workingMiners }} {{ workingMiners === 1 ? 'miner' : 'miners' }})
           </h3>
           <span
             v-if="idleMiners > 0"
@@ -185,11 +185,10 @@ const formatRate = (perHour: number) =>
             </li>
           </ul>
           <span class="text-xs text-ui-muted">
-            {{ source.miners }} {{ source.miners === 1 ? 'miner' : 'miners' }} · ~{{
+            {{ source.miners }} {{ source.miners === 1 ? 'miner' : 'miners' }}, ~{{
               formatRate(source.miners > 0 ? source.perHour / source.miners : 0)
-            }}/h each
-            <template v-if="source.depletionHours !== null">
-              ·
+            }}/h each<template v-if="source.depletionHours !== null"
+              >,
               <span :class="source.depletionHours < 24 ? 'text-ui-amber' : ''"
                 >depleted in {{ formatWait(source.depletionHours) }}</span
               >

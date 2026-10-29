@@ -166,7 +166,7 @@ async function submitBuild() {
           Crew <span class="ui-num text-ui-bright">{{ crewNeeded }}</span>
         </span>
         <span class="text-ui-muted">
-          Hangar
+          Crew slots
           <span class="ui-num" :class="exceedsCapacity ? 'text-ui-red' : 'text-ui-bright'"
             >{{ hangar.used + crewNeeded }} / {{ hangar.capacity }}</span
           >

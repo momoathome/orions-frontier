@@ -214,7 +214,7 @@ function groupRoundTripHours(group: OperationGroup): number {
   return assignment ? (cycle(assignment)?.roundTripHours ?? 0) : 0;
 }
 
-/** Width of one phase in the flight · mining · return bar, as share of the round trip. */
+/** Width of one phase in the flight/mining/return bar, as share of the round trip. */
 function phaseShare(hours: number, group: OperationGroup): string {
   return `${(hours / groupRoundTripHours(group)) * 100}%`;
 }
@@ -379,7 +379,7 @@ const PHASES = [
       <div class="flex min-w-0 flex-col gap-1">
         <span class="ui-label">
           Asteroid<template v-if="asteroid">
-            · {{ asteroid.size ? (SIZE_LABELS[asteroid.size] ?? asteroid.size) : 'Unknown size' }}
+            ({{ asteroid.size ? (SIZE_LABELS[asteroid.size] ?? asteroid.size) : 'Unknown size' }})
           </template>
         </span>
         <h2 class="flex items-center gap-2 text-xl font-semibold text-ui-bright">
@@ -510,7 +510,7 @@ const PHASES = [
         </div>
 
         <section class="flex flex-col gap-2">
-          <h3 class="ui-label">Assigned miners · {{ activeMinerCount }}</h3>
+          <h3 class="ui-label">Assigned miners ({{ activeMinerCount }})</h3>
           <article v-for="group in operationGroups" :key="group.key" class="ui-card">
             <div class="flex items-baseline justify-between gap-2">
               <span class="font-semibold text-ui-bright">
@@ -603,7 +603,7 @@ const PHASES = [
       </section>
 
       <span class="ui-num mt-auto text-xs text-ui-dim">
-        X {{ formatCoord(asteroid.x) }} · Y {{ formatCoord(asteroid.y) }} · Chunk
+        X {{ formatCoord(asteroid.x) }}, Y {{ formatCoord(asteroid.y) }}, chunk
         {{ asteroid.chunkX }}:{{ asteroid.chunkY }}
       </span>
     </div>

@@ -55,7 +55,7 @@ const OPERATION_DOT: Record<Operation['kind'], string> = {
 function queueLabel(stationId: string): string {
   const queue = overview.stationQueue(stationId);
   if (queue.count === 0) return 'Idle';
-  return `${queue.count} · ${formatCountdown(queue.nextEndsAt ?? now.value, now.value)}`;
+  return `${queue.count} (${formatCountdown(queue.nextEndsAt ?? now.value, now.value)})`;
 }
 </script>
 
@@ -89,7 +89,7 @@ function queueLabel(stationId: string): string {
 
     <section class="flex flex-col gap-2">
       <h2 class="ui-label">
-        {{ multiStation ? `Stations · ${overview.state.stations.length}` : 'Station' }}
+        {{ multiStation ? `Stations (${overview.state.stations.length})` : 'Station' }}
       </h2>
       <template v-for="station in stations" :key="station.id">
         <!-- The active station gets the full card, others one compact row. -->
@@ -113,7 +113,6 @@ function queueLabel(stationId: string): string {
               <dt>Fleet</dt>
               <dd class="ui-num text-sm text-ui-text">
                 {{ overview.stationFleet(station.id).total }}
-                <span class="text-ui-dim">· {{ overview.stationFleet(station.id).idle }} idle</span>
               </dd>
             </div>
             <div class="flex flex-col gap-0.5">
@@ -166,7 +165,7 @@ function queueLabel(stationId: string): string {
     </section>
 
     <section class="flex flex-col gap-1">
-      <h2 class="ui-label mb-1">Operations · by completion</h2>
+      <h2 class="ui-label mb-1">Operations by completion</h2>
       <p v-if="overview.operations.length === 0" class="text-[13px] text-ui-dim">
         Nothing running. Assign miners or start an upgrade.
       </p>
@@ -204,7 +203,7 @@ function queueLabel(stationId: string): string {
           <span class="text-xs text-ui-dim">
             {{ formatAgo(Date.parse(entry.occurredAt), now) }}
             <template v-if="multiStation && entry.stationId">
-              · {{ overview.stationName(entry.stationId) }}
+              at {{ overview.stationName(entry.stationId) }}
             </template>
           </span>
         </li>
