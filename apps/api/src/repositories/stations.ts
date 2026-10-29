@@ -1,6 +1,8 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { QueryDb } from '../lib/db/index.js';
+import { botControllers } from '../lib/db/schema/bot-controllers.js';
 import { stations } from '../lib/db/schema/stations.js';
+import { users } from '../lib/db/schema/users.js';
 
 export type StationRow = typeof stations.$inferSelect;
 
@@ -26,4 +28,19 @@ export function listStationOwners(db: QueryDb, ids: string[]) {
     .select({ id: stations.id, userId: stations.userId })
     .from(stations)
     .where(inArray(stations.id, ids));
+}
+
+/** Every station that still stands, with its owner and whether a bot controls them. */
+export function listActiveStationOwners(db: QueryDb) {
+  return db
+    .select({
+      stationId: stations.id,
+      userId: users.id,
+      username: users.username,
+      botUserId: botControllers.userId,
+    })
+    .from(stations)
+    .innerJoin(users, eq(users.id, stations.userId))
+    .leftJoin(botControllers, eq(botControllers.userId, users.id))
+    .where(isNull(stations.destroyedAt));
 }

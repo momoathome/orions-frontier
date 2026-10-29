@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { QueryDb, Tx } from '../lib/db/index.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 
@@ -52,4 +52,15 @@ export async function releaseSpacecraft(tx: Tx, id: string, amount: number) {
     .update(stationSpacecrafts)
     .set({ lockedAmount: sql`${stationSpacecrafts.lockedAmount} - ${amount}` })
     .where(eq(stationSpacecrafts.id, id));
+}
+
+export function listSpacecraftAmountsByStations(db: QueryDb, stationIds: string[]) {
+  return db
+    .select({
+      stationId: stationSpacecrafts.stationId,
+      spacecraftKey: stationSpacecrafts.spacecraftKey,
+      amount: stationSpacecrafts.amount,
+    })
+    .from(stationSpacecrafts)
+    .where(inArray(stationSpacecrafts.stationId, stationIds));
 }
