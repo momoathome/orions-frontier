@@ -1,7 +1,8 @@
-import { and, between, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, between, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { asteroids } from '../lib/db/schema/asteroids.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
+import { sectors } from '../lib/db/schema/sectors.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -223,4 +224,68 @@ export function listOtherActiveStationPositionsByUser(
         isNull(stations.destroyedAt)
       )
     );
+}
+
+/** The user's standing station with its sector coordinates. */
+export async function findOwnedStationWithSector(db: QueryDb, stationId: string, userId: string) {
+  const [row] = await db
+    .select({
+      id: stations.id,
+      x: stations.x,
+      y: stations.y,
+      sectorX: sectors.sectorX,
+      sectorY: sectors.sectorY,
+    })
+    .from(stations)
+    .innerJoin(sectors, eq(stations.sectorId, sectors.id))
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    )
+    .limit(1);
+  return row;
+}
+
+/** Locks the user's standing station, with its sector coordinates. */
+export async function findOwnedStationWithSectorForUpdate(
+  tx: Tx,
+  stationId: string,
+  userId: string
+) {
+  const [row] = await tx
+    .select({
+      id: stations.id,
+      x: stations.x,
+      y: stations.y,
+      sectorX: sectors.sectorX,
+      sectorY: sectors.sectorY,
+    })
+    .from(stations)
+    .innerJoin(sectors, eq(stations.sectorId, sectors.id))
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    )
+    .for('update');
+  return row;
+}
+
+export function listActiveStationSectorIdsByUser(db: QueryDb, userId: string) {
+  return db
+    .select({ sectorId: stations.sectorId })
+    .from(stations)
+    .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt)));
+}
+
+export async function countActiveStationsByUser(db: QueryDb, userId: string) {
+  const [{ owned } = { owned: 0 }] = await db
+    .select({ owned: count() })
+    .from(stations)
+    .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt)));
+  return owned;
+}
+
+export function listActiveStationPositionsInSector(db: QueryDb, sectorId: string) {
+  return db
+    .select({ x: stations.x, y: stations.y })
+    .from(stations)
+    .where(and(eq(stations.sectorId, sectorId), isNull(stations.destroyedAt)));
 }

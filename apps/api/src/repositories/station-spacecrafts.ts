@@ -187,3 +187,59 @@ export async function clearStationSpacecrafts(tx: Tx, stationId: string, updated
     .set({ amount: 0, lockedAmount: 0, updatedAt })
     .where(eq(stationSpacecrafts.stationId, stationId));
 }
+
+/** Fleet rows of the station with at least one free ship. */
+export function listAvailableStationSpacecrafts(db: QueryDb, stationId: string) {
+  return db
+    .select({
+      stationSpacecraftId: stationSpacecrafts.id,
+      spacecraftKey: stationSpacecrafts.spacecraftKey,
+    })
+    .from(stationSpacecrafts)
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, stationId),
+        sql`${stationSpacecrafts.amount} > ${stationSpacecrafts.lockedAmount}`
+      )
+    );
+}
+
+/** Takes one locked ship out of the fleet; false if the row has none. */
+export async function takeLockedSpacecraft(tx: Tx, id: string) {
+  const [moved] = await tx
+    .update(stationSpacecrafts)
+    .set({
+      amount: sql`${stationSpacecrafts.amount} - 1`,
+      lockedAmount: sql`${stationSpacecrafts.lockedAmount} - 1`,
+    })
+    .where(
+      and(
+        eq(stationSpacecrafts.id, id),
+        sql`${stationSpacecrafts.amount} >= 1`,
+        sql`${stationSpacecrafts.lockedAmount} >= 1`
+      )
+    )
+    .returning({ id: stationSpacecrafts.id });
+  return moved !== undefined;
+}
+
+/** Adds docked ships, creating the fleet row if needed. */
+export async function addDockedSpacecraft(
+  tx: Tx,
+  values: {
+    id: string;
+    stationId: string;
+    spacecraftKey: string;
+    amount: number;
+    createdAt: Date;
+    updatedAt: Date;
+  }
+) {
+  await tx
+    .insert(stationSpacecrafts)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [stationSpacecrafts.stationId, stationSpacecrafts.spacecraftKey],
+      set: { amount: sql`${stationSpacecrafts.amount} + ${values.amount}` },
+    });
+}
