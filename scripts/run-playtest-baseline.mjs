@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import process from 'node:process';
 
 const defaults = {
-  config: 'configs/playtest/baseline-24h.json',
+  config: 'configs/playtest/baseline-72h.json',
   seeds: ['baseline-alpha', 'baseline-beta', 'baseline-gamma'],
 };
 
