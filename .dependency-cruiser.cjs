@@ -68,7 +68,7 @@ module.exports = {
     },
     {
       name: 'services-query-via-repositories',
-      severity: 'warn',
+      severity: 'error',
       comment:
         'Services fragen die Datenbank nur über Repositories ab; Schema und drizzle-orm nur als Typ.',
       from: { path: '^apps/api/src/services/' },
