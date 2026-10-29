@@ -1,4 +1,3 @@
-import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
   required,
   isOneOf,
@@ -18,13 +17,36 @@ import {
   ATTACK_PROTECTION_DURATION_MS,
 } from '@orions-frontier/game-config';
 import { getDb, type Tx } from '../../lib/db/index.js';
-import { combatMissions } from '../../lib/db/schema/combat-missions.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationResources } from '../../lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { users } from '../../lib/db/schema/users.js';
+import {
+  findReturningCombatMissionForUpdate,
+  findTravelingCombatMissionForUpdate,
+  insertCombatMission,
+  listCombatMissionsByUser,
+  updateCombatMission,
+  type CombatMissionRow,
+} from '../../repositories/combat-missions.js';
+import { insertTrip, updateTripCargo, type TripRow } from '../../repositories/spacecraft-trips.js';
+import { findBuildingLevel, listBuildingLevels } from '../../repositories/station-buildings.js';
+import {
+  deductStationResource,
+  listStationResourcesInKeyOrderForUpdate,
+} from '../../repositories/station-resources.js';
+import {
+  listStationSpacecraftIdsByKeys,
+  listStationSpacecraftsForUpdate,
+  releaseSpacecraft,
+  removeLockedSpacecraft,
+  removeSpacecraft,
+  reserveSpacecraft,
+} from '../../repositories/station-spacecrafts.js';
+import {
+  findActiveStation,
+  findOwnedStationForUpdate,
+  findStation,
+  findStationForUpdate,
+  updateStation,
+} from '../../repositories/stations.js';
+import { findUserForUpdate, updateUser } from '../../repositories/users.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { createDebrisFromLosses } from './salvage.js';
 import { destroyStation } from './destruction.js';
@@ -42,10 +64,10 @@ import {
   type PlaytestCompletionEvent,
 } from '../../lib/completion-events.js';
 
-type Trip = typeof spacecraftTrips.$inferSelect;
+type Trip = TripRow;
 
 const toReport = (
-  row: typeof combatMissions.$inferSelect,
+  row: CombatMissionRow,
   defenderUserId: string,
   arrivesAt: Date,
   viewerUserId: string
@@ -113,23 +135,9 @@ export async function startAttack(params: {
   const context = resolveGameExecutionContext(params.context ?? params.now);
   const db = getDb();
   const mission = await db.transaction(async (tx) => {
-    const [attacker] = await tx
-      .select({ id: stations.id, userId: stations.userId, x: stations.x, y: stations.y })
-      .from(stations)
-      .where(
-        and(
-          eq(stations.id, params.stationId),
-          eq(stations.userId, params.userId),
-          isNull(stations.destroyedAt)
-        )
-      )
-      .for('update');
+    const attacker = await findOwnedStationForUpdate(tx, params.stationId, params.userId);
     if (!attacker) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-    const [defender] = await tx
-      .select({ id: stations.id, userId: stations.userId, x: stations.x, y: stations.y })
-      .from(stations)
-      .where(and(eq(stations.id, params.targetStationId), isNull(stations.destroyedAt)))
-      .limit(1);
+    const defender = await findActiveStation(tx, params.targetStationId);
     if (!defender || defender.userId === params.userId) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid attack target');
     }
@@ -143,18 +151,8 @@ export async function startAttack(params: {
     const defenderUserId = defender.userId;
     const sortedIds = [params.userId, defenderUserId].sort();
     const [userA, userB] = await Promise.all([
-      tx
-        .select()
-        .from(users)
-        .where(eq(users.id, required(sortedIds[0], 'sortedIds[0]')))
-        .for('update')
-        .then((rows) => rows[0]),
-      tx
-        .select()
-        .from(users)
-        .where(eq(users.id, required(sortedIds[1], 'sortedIds[1]')))
-        .for('update')
-        .then((rows) => rows[0]),
+      findUserForUpdate(tx, required(sortedIds[0], 'sortedIds[0]')),
+      findUserForUpdate(tx, required(sortedIds[1], 'sortedIds[1]')),
     ]);
     const attUser = sortedIds[0] === params.userId ? userA : userB;
     const defUser = sortedIds[0] === defenderUserId ? userA : userB;
@@ -166,34 +164,16 @@ export async function startAttack(params: {
       }
     }
 
-    const rows = await tx
-      .select({ id: stationSpacecrafts.id, spacecraftKey: stationSpacecrafts.spacecraftKey })
-      .from(stationSpacecrafts)
-      .where(
-        and(
-          eq(stationSpacecrafts.stationId, attacker.id),
-          inArray(
-            stationSpacecrafts.spacecraftKey,
-            groups.map(([key]) => key)
-          )
-        )
-      );
+    const rows = await listStationSpacecraftIdsByKeys(
+      tx,
+      attacker.id,
+      groups.map(([key]) => key)
+    );
     const rowIdByKey = new Map(rows.map((row) => [row.spacecraftKey, row.id]));
     // All groups lock in one transaction, in key order; one short group aborts the whole attack.
     for (const [key, amount] of groups) {
       const rowId = rowIdByKey.get(key);
-      const [locked] = rowId
-        ? await tx
-            .update(stationSpacecrafts)
-            .set({ lockedAmount: sql`${stationSpacecrafts.lockedAmount} + ${amount}` })
-            .where(
-              and(
-                eq(stationSpacecrafts.id, rowId),
-                sql`${stationSpacecrafts.amount} - ${stationSpacecrafts.lockedAmount} >= ${amount}`
-              )
-            )
-            .returning({ id: stationSpacecrafts.id })
-        : [];
+      const locked = rowId ? await reserveSpacecraft(tx, rowId, amount) : false;
       if (!locked) {
         throw new AppError(ErrorCode.VALIDATION_ERROR, 'Not enough spacecraft available');
       }
@@ -201,10 +181,7 @@ export async function startAttack(params: {
 
     // Mark attacker's protection as broken if still active
     if (attUser && !attUser.attackProtectionBrokenAt) {
-      await tx
-        .update(users)
-        .set({ attackProtectionBrokenAt: now })
-        .where(eq(users.id, params.userId));
+      await updateUser(tx, params.userId, { attackProtectionBrokenAt: now });
     }
 
     const departedAt = context.now;
@@ -214,40 +191,34 @@ export async function startAttack(params: {
       requireSpacecraft(slowest[0]).speed
     );
     const arrivesAt = await applyVectorNavigation(tx, attacker.id, baseArrivesAt, departedAt);
-    const [trip] = await tx
-      .insert(spacecraftTrips)
-      .values({
-        id: context.nextId('trip'),
-        stationSpacecraftId: required(rowIdByKey.get(slowest[0]), 'slowest group'),
-        groupSize: totalAmount,
-        fromType: 'station',
-        fromId: attacker.id,
-        fromX: attacker.x,
-        fromY: attacker.y,
-        toType: 'station',
-        toId: defender.id,
-        toX: defender.x,
-        toY: defender.y,
-        departedAt,
-        arrivesAt,
-        purpose: 'combat',
-        createdAt: context.now,
-      })
-      .returning({ id: spacecraftTrips.id });
-    const [created] = await tx
-      .insert(combatMissions)
-      .values({
-        id: context.nextId('combat-mission'),
-        userId: params.userId,
-        attackerStationId: attacker.id,
-        defenderStationId: defender.id,
-        outboundTripId: required(trip, 'trip').id,
-        attackerFleet: Object.fromEntries(groups),
-        attackerAmount: totalAmount,
-        createdAt: context.now,
-      })
-      .returning();
-    return { mission: required(created, 'created'), defenderUserId: defender.userId, arrivesAt };
+    const tripId = await insertTrip(tx, {
+      id: context.nextId('trip'),
+      stationSpacecraftId: required(rowIdByKey.get(slowest[0]), 'slowest group'),
+      groupSize: totalAmount,
+      fromType: 'station',
+      fromId: attacker.id,
+      fromX: attacker.x,
+      fromY: attacker.y,
+      toType: 'station',
+      toId: defender.id,
+      toX: defender.x,
+      toY: defender.y,
+      departedAt,
+      arrivesAt,
+      purpose: 'combat',
+      createdAt: context.now,
+    });
+    const created = await insertCombatMission(tx, {
+      id: context.nextId('combat-mission'),
+      userId: params.userId,
+      attackerStationId: attacker.id,
+      defenderStationId: defender.id,
+      outboundTripId: tripId,
+      attackerFleet: Object.fromEntries(groups),
+      attackerAmount: totalAmount,
+      createdAt: context.now,
+    });
+    return { mission: created, defenderUserId: defender.userId, arrivesAt };
   });
   publishUserEvent(mission.defenderUserId, 'incoming_attack', {
     missionId: mission.mission.id,
@@ -261,46 +232,18 @@ export async function getUserCombatReports(
   userId: string,
   options: { since?: Date } = {}
 ): Promise<CombatReport[]> {
-  const rows = await getDb()
-    .select({
-      mission: combatMissions,
-      defenderUserId: stations.userId,
-      arrivesAt: spacecraftTrips.arrivesAt,
-    })
-    .from(combatMissions)
-    .innerJoin(stations, eq(combatMissions.defenderStationId, stations.id))
-    .innerJoin(spacecraftTrips, eq(combatMissions.outboundTripId, spacecraftTrips.id))
-    .where(
-      and(
-        or(eq(combatMissions.userId, userId), eq(stations.userId, userId)),
-        options.since ? gte(combatMissions.createdAt, options.since) : undefined
-      )
-    )
-    .orderBy(desc(combatMissions.createdAt));
+  const rows = await listCombatMissionsByUser(getDb(), userId, options.since);
   return rows.map(({ mission, defenderUserId, arrivesAt }) =>
     toReport(mission, defenderUserId, arrivesAt, userId)
   );
 }
 
 async function buildingLevel(tx: Tx, stationId: string, buildingKey: string): Promise<number> {
-  const [building] = await tx
-    .select({ level: stationBuildings.level })
-    .from(stationBuildings)
-    .where(
-      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, buildingKey))
-    )
-    .limit(1);
-  return building?.level ?? 0;
+  return (await findBuildingLevel(tx, stationId, buildingKey)) ?? 0;
 }
 
 async function stationDefenseScore(tx: Tx, stationId: string): Promise<number> {
-  const rows = await tx
-    .select({
-      buildingKey: stationBuildings.buildingKey,
-      level: stationBuildings.level,
-    })
-    .from(stationBuildings)
-    .where(eq(stationBuildings.stationId, stationId));
+  const rows = await listBuildingLevels(tx, stationId);
 
   const levels: Partial<Record<DefenseUpgradeKey, number>> = {};
   for (const row of rows) {
@@ -314,18 +257,7 @@ async function stationDefenseScore(tx: Tx, stationId: string): Promise<number> {
 /** Attacking groups with their station fleet rows, slowest first. */
 async function attackerGroups(tx: Tx, stationId: string, fleet: Record<string, number>) {
   const keys = Object.keys(fleet);
-  const rows =
-    keys.length === 0
-      ? []
-      : await tx
-          .select({ id: stationSpacecrafts.id, spacecraftKey: stationSpacecrafts.spacecraftKey })
-          .from(stationSpacecrafts)
-          .where(
-            and(
-              eq(stationSpacecrafts.stationId, stationId),
-              inArray(stationSpacecrafts.spacecraftKey, keys)
-            )
-          );
+  const rows = keys.length === 0 ? [] : await listStationSpacecraftIdsByKeys(tx, stationId, keys);
   return rows
     .map((row) => ({
       rowId: row.id,
@@ -342,19 +274,11 @@ async function resolveOutboundCombat(
   trip: Trip,
   context: GameExecutionContext
 ): Promise<PlaytestCompletionEvent[]> {
-  const [mission] = await tx
-    .select()
-    .from(combatMissions)
-    .where(and(eq(combatMissions.outboundTripId, trip.id), eq(combatMissions.status, 'traveling')))
-    .for('update');
+  const mission = await findTravelingCombatMissionForUpdate(tx, trip.id);
   if (!mission) return [];
 
   // The station lock serializes simultaneous waves, so integrity and destruction apply once.
-  const [defenderStation] = await tx
-    .select()
-    .from(stations)
-    .where(eq(stations.id, mission.defenderStationId))
-    .for('update');
+  const defenderStation = await findStationForUpdate(tx, mission.defenderStationId);
   if (!defenderStation) throw new Error('Combat station no longer exists');
 
   const groups = await attackerGroups(tx, mission.attackerStationId, mission.attackerFleet);
@@ -371,16 +295,7 @@ async function resolveOutboundCombat(
 
   // A wave that arrives at a destroyed station finds nothing to fight and turns around.
   if (!defenderStation.destroyedAt) {
-    const defenderRows = await tx
-      .select({
-        id: stationSpacecrafts.id,
-        spacecraftKey: stationSpacecrafts.spacecraftKey,
-        amount: stationSpacecrafts.amount,
-        lockedAmount: stationSpacecrafts.lockedAmount,
-      })
-      .from(stationSpacecrafts)
-      .where(eq(stationSpacecrafts.stationId, mission.defenderStationId))
-      .for('update');
+    const defenderRows = await listStationSpacecraftsForUpdate(tx, mission.defenderStationId);
     const defenderFleets = defenderRows
       .map((fleet) => ({ ...fleet, defense: requireSpacecraft(fleet.spacecraftKey).defense }))
       .sort((a, b) => a.defense - b.defense || a.id.localeCompare(b.id));
@@ -408,13 +323,7 @@ async function resolveOutboundCombat(
       attackerLosses += losses;
       survivors.set(group.key, group.amount - losses);
       destroyed.set(group.key, losses);
-      await tx
-        .update(stationSpacecrafts)
-        .set({
-          amount: sql`${stationSpacecrafts.amount} - ${losses}`,
-          lockedAmount: sql`${stationSpacecrafts.lockedAmount} - ${losses}`,
-        })
-        .where(eq(stationSpacecrafts.id, group.rowId));
+      await removeLockedSpacecraft(tx, group.rowId, losses);
     }
     const survivorTotal = [...survivors.values()].reduce((sum, amount) => sum + amount, 0);
 
@@ -428,12 +337,7 @@ async function resolveOutboundCombat(
       defenderLosses += losses;
       destroyed.set(fleet.spacecraftKey, (destroyed.get(fleet.spacecraftKey) ?? 0) + losses);
       remainingDamage -= losses * Math.max(1, fleet.defense);
-      await tx
-        .update(stationSpacecrafts)
-        .set({
-          amount: sql`${stationSpacecrafts.amount} - ${losses}`,
-        })
-        .where(eq(stationSpacecrafts.id, fleet.id));
+      await removeSpacecraft(tx, fleet.id, losses);
     }
 
     winner = survivorTotal > 0 && attackerPower > defenderPower ? 'attacker' : 'defender';
@@ -447,12 +351,10 @@ async function resolveOutboundCombat(
         calculateBuildingEffect('warehouse', warehouseLevel).find(
           (effect) => effect.type === 'protected_storage'
         )?.value ?? 0;
-      const resources = await tx
-        .select()
-        .from(stationResources)
-        .where(eq(stationResources.stationId, mission.defenderStationId))
-        .orderBy(asc(stationResources.resourceKey))
-        .for('update');
+      const resources = await listStationResourcesInKeyOrderForUpdate(
+        tx,
+        mission.defenderStationId
+      );
       for (const resource of resources) {
         if (cargoLeft <= 0) break;
         const available = Math.max(0, resource.amount - protectedAmount);
@@ -460,15 +362,7 @@ async function resolveOutboundCombat(
         if (amount <= 0) continue;
         loot[resource.resourceKey] = amount;
         cargoLeft -= amount;
-        await tx
-          .update(stationResources)
-          .set({ amount: sql`${stationResources.amount} - ${amount}` })
-          .where(
-            and(
-              eq(stationResources.stationId, mission.defenderStationId),
-              eq(stationResources.resourceKey, resource.resourceKey)
-            )
-          );
+        await deductStationResource(tx, mission.defenderStationId, resource.resourceKey, amount);
       }
     }
 
@@ -483,10 +377,10 @@ async function resolveOutboundCombat(
     integrityDamage = winner === 'attacker' ? integrityWaveDamage(survivingBombers) : 0;
     defenderIntegrity = Math.max(0, integrityBefore - integrityDamage);
     if (integrityDamage > 0) {
-      await tx
-        .update(stations)
-        .set({ integrity: defenderIntegrity, integrityUpdatedAt: trip.arrivesAt })
-        .where(eq(stations.id, defenderStation.id));
+      await updateStation(tx, defenderStation.id, {
+        integrity: defenderIntegrity,
+        integrityUpdatedAt: trip.arrivesAt,
+      });
     }
     if (defenderIntegrity === 0) {
       stationDestroyed = true;
@@ -573,17 +467,15 @@ async function resolveOutboundCombat(
   };
   const returning = groups.find((group) => (survivors.get(group.key) ?? 0) > 0);
   if (!returning) {
-    await tx
-      .update(combatMissions)
-      .set({ ...outcome, status: 'resolved', resolvedAt: trip.arrivesAt })
-      .where(eq(combatMissions.id, mission.id));
+    await updateCombatMission(tx, mission.id, {
+      ...outcome,
+      status: 'resolved',
+      resolvedAt: trip.arrivesAt,
+    });
     return events;
   }
 
-  const [attackerStation] = await tx
-    .select({ x: stations.x, y: stations.y })
-    .from(stations)
-    .where(eq(stations.id, mission.attackerStationId));
+  const attackerStation = await findStation(tx, mission.attackerStationId);
   if (!attackerStation) throw new Error('Combat station no longer exists');
   const departedAt = trip.arrivesAt;
   const baseArrivesAt = calcArrivesAt(
@@ -597,61 +489,42 @@ async function resolveOutboundCombat(
     baseArrivesAt,
     departedAt
   );
-  const [returnTrip] = await tx
-    .insert(spacecraftTrips)
-    .values({
-      id: context.nextId('trip'),
-      stationSpacecraftId: returning.rowId,
-      groupSize: survivorCount,
-      fromType: 'station',
-      fromId: mission.defenderStationId,
-      fromX: defenderStation.x,
-      fromY: defenderStation.y,
-      toType: 'station',
-      toId: mission.attackerStationId,
-      toX: attackerStation.x,
-      toY: attackerStation.y,
-      departedAt,
-      arrivesAt,
-      purpose: 'combat_return',
-      cargoManifest: loot,
-      createdAt: departedAt,
-    })
-    .returning({ id: spacecraftTrips.id });
-  await tx
-    .update(combatMissions)
-    .set({ ...outcome, returnTripId: required(returnTrip, 'returnTrip').id, status: 'returning' })
-    .where(eq(combatMissions.id, mission.id));
+  const returnTripId = await insertTrip(tx, {
+    id: context.nextId('trip'),
+    stationSpacecraftId: returning.rowId,
+    groupSize: survivorCount,
+    fromType: 'station',
+    fromId: mission.defenderStationId,
+    fromX: defenderStation.x,
+    fromY: defenderStation.y,
+    toType: 'station',
+    toId: mission.attackerStationId,
+    toX: attackerStation.x,
+    toY: attackerStation.y,
+    departedAt,
+    arrivesAt,
+    purpose: 'combat_return',
+    cargoManifest: loot,
+    createdAt: departedAt,
+  });
+  await updateCombatMission(tx, mission.id, { ...outcome, returnTripId, status: 'returning' });
   return events;
 }
 
 async function resolveCombatReturn(tx: Tx, trip: Trip): Promise<PlaytestCompletionEvent[]> {
-  const [mission] = await tx
-    .select()
-    .from(combatMissions)
-    .where(and(eq(combatMissions.returnTripId, trip.id), eq(combatMissions.status, 'returning')))
-    .for('update');
+  const mission = await findReturningCombatMissionForUpdate(tx, trip.id);
   if (!mission) return [];
   const requested = { ...trip.cargoManifest };
   const credited = await creditStationResources(tx, mission.attackerStationId, requested);
-  await tx
-    .update(spacecraftTrips)
-    .set({ cargoManifest: credited })
-    .where(eq(spacecraftTrips.id, trip.id));
+  await updateTripCargo(tx, trip.id, credited);
   for (const group of await attackerGroups(
     tx,
     mission.attackerStationId,
     mission.attackerSurvivors ?? {}
   )) {
-    await tx
-      .update(stationSpacecrafts)
-      .set({ lockedAmount: sql`${stationSpacecrafts.lockedAmount} - ${group.amount}` })
-      .where(eq(stationSpacecrafts.id, group.rowId));
+    await releaseSpacecraft(tx, group.rowId, group.amount);
   }
-  await tx
-    .update(combatMissions)
-    .set({ status: 'resolved', resolvedAt: trip.arrivesAt })
-    .where(eq(combatMissions.id, mission.id));
+  await updateCombatMission(tx, mission.id, { status: 'resolved', resolvedAt: trip.arrivesAt });
   return [
     {
       type: 'loot_delivered',

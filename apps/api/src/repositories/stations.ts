@@ -18,6 +18,24 @@ export async function findStation(db: QueryDb, id: string) {
   return row;
 }
 
+/** The station, unless it was destroyed. */
+export async function findActiveStation(db: QueryDb, id: string) {
+  const [row] = await db
+    .select()
+    .from(stations)
+    .where(and(eq(stations.id, id), isNull(stations.destroyedAt)))
+    .limit(1);
+  return row;
+}
+
+export async function updateStation(
+  tx: Tx,
+  id: string,
+  values: Partial<typeof stations.$inferInsert>
+) {
+  await tx.update(stations).set(values).where(eq(stations.id, id));
+}
+
 /** The user's station, unless it was destroyed. */
 export async function findOwnedStation(db: QueryDb, stationId: string, userId: string) {
   const [row] = await db
