@@ -1,4 +1,4 @@
-import { and, between, eq, inArray, sql } from 'drizzle-orm';
+import { and, between, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
@@ -15,7 +15,12 @@ import {
   type VisibleWorldMovement,
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
-import { ATTACK_PROTECTION_DURATION_MS, requireSpacecraft } from '@orions-frontier/game-config';
+import {
+  ATTACK_PROTECTION_DURATION_MS,
+  coarseIntegrity,
+  currentIntegrity,
+  requireSpacecraft,
+} from '@orions-frontier/game-config';
 import {
   getUserScannerCoverages,
   isPointVisible,
@@ -87,7 +92,10 @@ export async function getVisibleChunkStations(
       y: stations.y,
       botUserId: botControllers.userId,
       ownerCreatedAt: users.createdAt,
+      protectedUntil: users.protectedUntil,
       attackProtectionBrokenAt: users.attackProtectionBrokenAt,
+      integrity: stations.integrity,
+      integrityUpdatedAt: stations.integrityUpdatedAt,
     })
     .from(stations)
     .innerJoin(users, eq(users.id, stations.userId))
@@ -95,9 +103,11 @@ export async function getVisibleChunkStations(
     .where(
       and(
         between(stations.chunkX, range.minChunkX, range.maxChunkX),
-        between(stations.chunkY, range.minChunkY, range.maxChunkY)
+        between(stations.chunkY, range.minChunkY, range.maxChunkY),
+        isNull(stations.destroyedAt)
       )
     );
+  const now = combatDiagnostics?.now ?? new Date();
   if (stats) stats.stationCandidates = rows.length;
 
   const visibleRows = rows.flatMap((station) => {
@@ -109,7 +119,10 @@ export async function getVisibleChunkStations(
       !isOwn &&
       !station.attackProtectionBrokenAt &&
       combatDiagnostics.now.getTime() <
-        station.ownerCreatedAt.getTime() + ATTACK_PROTECTION_DURATION_MS
+        Math.max(
+          station.ownerCreatedAt.getTime() + ATTACK_PROTECTION_DURATION_MS,
+          station.protectedUntil?.getTime() ?? 0
+        )
     ) {
       combatDiagnostics.protectedOwnerIds.add(station.userId);
     }
@@ -125,6 +138,11 @@ export async function getVisibleChunkStations(
         ownerId: station.userId,
         isOwn,
         scanned,
+        integrity: scanned
+          ? (isOwn ? (value: number) => value : coarseIntegrity)(
+              currentIntegrity(station.integrity, station.integrityUpdatedAt, now)
+            )
+          : null,
       },
     ];
   });
@@ -175,7 +193,7 @@ const isInsideWorldBounds = (
   point.y >= bounds.minY &&
   point.y < bounds.maxY;
 
-const MILITARY_TRIP_PURPOSES = new Set<WorldTripPurpose>(['combat', 'combat_return']);
+const MILITARY_TRIP_PURPOSES = new Set<WorldTripPurpose>(['combat', 'combat_return', 'relocate']);
 
 export async function getVisibleWorldMovements(
   range: WorldChunkRange,

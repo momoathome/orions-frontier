@@ -26,6 +26,7 @@ const uniqueRoles = computed(() => [...new Set(fleet.value.map((e) => e.definiti
 
 const ROLE_GLOW: Record<SpacecraftRole, string> = {
   fighter: 'rgb(239 68 68 / 0.08)',
+  bomber: 'rgb(249 115 22 / 0.08)',
   miner: 'rgb(245 158 11 / 0.08)',
   salvager: 'rgb(167 139 250 / 0.08)',
 };

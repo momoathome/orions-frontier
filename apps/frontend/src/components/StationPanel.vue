@@ -9,9 +9,10 @@ import DefenseTab from './DefenseTab.vue';
 import LogbookTab from './LogbookTab.vue';
 import RankingTab from './RankingTab.vue';
 
-const { stationId, stationName } = defineProps<{
+const { stationId, stationName, integrity } = defineProps<{
   stationId: string;
   stationName?: string;
+  integrity?: number;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -58,6 +59,14 @@ const totalQueue = computed(() => buildingsQueueCount.value + fleetQueueCount.va
             </span>
           </div>
           <div class="hidden md:flex items-center gap-4 text-[10px]">
+            <div v-if="integrity !== undefined" class="flex items-center gap-1.5">
+              <span class="text-white/25">Integrity</span>
+              <span
+                class="tabular-nums"
+                :class="integrity < 100 ? 'text-rose-300' : 'text-white/50'"
+                >{{ integrity }}%</span
+              >
+            </div>
             <div class="flex items-center gap-1.5">
               <span
                 class="w-1 h-1 rounded-full bg-amber-400/70"

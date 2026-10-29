@@ -16,6 +16,13 @@ export const roleThemes: Record<SpacecraftRole, RoleTheme> = {
     statValue: 'text-rose-200',
     amount: 'text-rose-300',
   },
+  bomber: {
+    topBar: 'bg-orange-600',
+    badge: 'bg-orange-600/15 border-orange-600/30',
+    badgeText: 'text-orange-300',
+    statValue: 'text-orange-200',
+    amount: 'text-orange-300',
+  },
   miner: {
     topBar: 'bg-amber-500',
     badge: 'bg-amber-500/15 border-amber-500/30',

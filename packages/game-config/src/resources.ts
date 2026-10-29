@@ -33,11 +33,22 @@ export const resources: Record<ResourceKey, ResourceDefinition> = {
   },
 };
 
+/** Cost of the first colony; every further station multiplies it by 1.5. */
 export const COLONIZATION_COST = {
-  carbon: 1_500,
-  titanium: 1_500,
-  hydrogenium: 750,
+  carbon: 8_000,
+  titanium: 8_000,
+  hydrogenium: 3_000,
 } as const satisfies Partial<Record<ResourceKey, number>>;
+
+/** Colonization cost for a player who already owns `stationCount` stations. */
+export const calculateColonizationCost = (stationCount: number) => {
+  const factor = 1.5 ** Math.max(0, stationCount - 1);
+  return {
+    carbon: Math.round(COLONIZATION_COST.carbon * factor),
+    titanium: Math.round(COLONIZATION_COST.titanium * factor),
+    hydrogenium: Math.round(COLONIZATION_COST.hydrogenium * factor),
+  } satisfies Partial<Record<ResourceKey, number>>;
+};
 
 /** Duration in milliseconds before a new account loses its attack protection. */
 export const ATTACK_PROTECTION_DURATION_MS = 24 * 60 * 60 * 1_000;

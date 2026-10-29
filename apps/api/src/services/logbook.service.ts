@@ -90,17 +90,29 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
         ),
       ];
     case 'combat_resolved': {
+      if (event.winner === 'none') {
+        return [entry(event, event.type, 'Attack target was already destroyed, fleet turned back')];
+      }
       const won = event.winner === 'attacker';
       const losses = `losses: ${event.attackerLosses} attacker, ${event.defenderLosses} defender`;
+      const integrity = event.stationDestroyed
+        ? ' Station destroyed.'
+        : event.integrityDamage > 0
+          ? ` Integrity -${event.integrityDamage} to ${event.defenderIntegrity}.`
+          : '';
       const entries = [
-        entry(event, event.type, `Attack ${won ? 'succeeded' : 'repelled'} (${losses})`),
+        entry(
+          event,
+          event.type,
+          `Attack ${won ? 'succeeded' : 'repelled'} (${losses}).${integrity}`
+        ),
       ];
       if (defenderUserId && defenderUserId !== event.userId) {
         entries.push(
           entry(
             event,
             'combat_defended',
-            `Station attacked, ${won ? 'defense broken' : 'attack repelled'} (${losses})`,
+            `Station attacked, ${won ? 'defense broken' : 'attack repelled'} (${losses}).${integrity}`,
             defenderUserId,
             event.defenderStationId
           )

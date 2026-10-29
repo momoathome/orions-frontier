@@ -157,8 +157,7 @@ test('station defense score can repel an attack without defending spacecraft', a
     userId: attackerUserId,
     stationId: attackerStationId,
     targetStationId: defenderStationId,
-    spacecraftKey: 'merlin',
-    amount: 3,
+    fleet: { merlin: 3 },
   });
   const [mission] = await getDb()
     .select()
@@ -254,8 +253,7 @@ test('attack on a young protected account is rejected', async () => {
       userId: attackerUserId,
       stationId: attackerStationId,
       targetStationId: youngStation.id,
-      spacecraftKey: 'merlin',
-      amount: 1,
+      fleet: { merlin: 1 },
       now,
     }),
     /protected from attacks/
@@ -294,8 +292,7 @@ test('attack on an account older than 24 hours is allowed', async () => {
     userId: attackerUserId,
     stationId: attackerStationId,
     targetStationId: oldStation.id,
-    spacecraftKey: 'merlin',
-    amount: 3,
+    fleet: { merlin: 3 },
     now,
   });
   assert.equal(started.winner, null); // still traveling
@@ -387,8 +384,7 @@ test('attack protection is broken after the first own attack', async () => {
       userId: attackerUserId,
       stationId: attackerStationId,
       targetStationId: youngStation.id,
-      spacecraftKey: 'merlin',
-      amount: 1,
+      fleet: { merlin: 1 },
       now,
     }),
     /protected from attacks/
@@ -399,8 +395,7 @@ test('attack protection is broken after the first own attack', async () => {
     userId: youngDefender.id,
     stationId: youngStation.id,
     targetStationId: oldStation.id,
-    spacecraftKey: 'javelin',
-    amount: 1,
+    fleet: { javelin: 1 },
     now,
   });
 
@@ -409,8 +404,7 @@ test('attack protection is broken after the first own attack', async () => {
     userId: attackerUserId,
     stationId: attackerStationId,
     targetStationId: youngStation.id,
-    spacecraftKey: 'merlin',
-    amount: 1,
+    fleet: { merlin: 1 },
     now,
   });
 
@@ -446,8 +440,7 @@ async function resolveAttack() {
     userId: attackerUserId,
     stationId: attackerStationId,
     targetStationId: defenderStationId,
-    spacecraftKey: 'merlin',
-    amount: 3,
+    fleet: { merlin: 3 },
   });
   const [mission] = await getDb()
     .select()

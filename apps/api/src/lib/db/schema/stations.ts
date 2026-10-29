@@ -17,6 +17,11 @@ export const stations = pgTable(
     y: integer('y').notNull(),
     chunkX: integer('chunk_x').notNull().default(0),
     chunkY: integer('chunk_y').notNull().default(0),
+    /** Stored integrity; regeneration since integrityUpdatedAt is computed on read. */
+    integrity: integer('integrity').notNull().default(100),
+    integrityUpdatedAt: timestamp('integrity_updated_at').notNull().defaultNow(),
+    /** Set once when integrity reaches 0; the row stays for reports and logbook. */
+    destroyedAt: timestamp('destroyed_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => [

@@ -240,7 +240,7 @@ export const SHIPYARD_UNLOCKS: Record<number, string[]> = {
   4: ['javelin', 'sentinel'],
   5: ['titan'],
   6: ['reclaimer'],
-  7: ['ares'],
+  7: ['ares', 'hammer'],
   8: ['nova'],
   10: ['horus'],
   12: ['reaper'],

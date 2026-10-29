@@ -1,4 +1,4 @@
-import { and, between, eq, ne, or, sql } from 'drizzle-orm';
+import { and, between, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import {
   required,
   AppError,
@@ -53,7 +53,9 @@ export async function createDebrisFromLosses(
   tx: Tx,
   stationId: string,
   losses: Map<string, number>,
-  context: GameExecutionContext
+  context: GameExecutionContext,
+  /** Further remains, e.g. the storage and investment of a destroyed station. */
+  extra: ResourceMap = {}
 ): Promise<{ id: string; resources: ResourceMap } | null> {
   const [station] = await tx
     .select({ sectorId: stations.sectorId, x: stations.x, y: stations.y })
@@ -61,7 +63,7 @@ export async function createDebrisFromLosses(
     .where(eq(stations.id, stationId));
   if (!station) throw new Error('Combat station no longer exists');
 
-  const resources: ResourceMap = {};
+  const resources: ResourceMap = { ...extra };
   for (const [spacecraftKey, amount] of losses) {
     for (const cost of getSpacecraft(spacecraftKey)?.costs ?? []) {
       const recovered = Math.floor(cost.amount * amount * 0.3);
@@ -175,7 +177,13 @@ export async function startSalvage(
     const [station] = await tx
       .select({ id: stations.id, x: stations.x, y: stations.y })
       .from(stations)
-      .where(and(eq(stations.id, params.stationId), eq(stations.userId, params.userId)))
+      .where(
+        and(
+          eq(stations.id, params.stationId),
+          eq(stations.userId, params.userId),
+          isNull(stations.destroyedAt)
+        )
+      )
       .limit(1);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 

@@ -65,6 +65,9 @@ export interface CombatResolvedEvent extends CompletionEventBase {
   winner: string;
   attackerLosses: number;
   defenderLosses: number;
+  integrityDamage: number;
+  defenderIntegrity: number | null;
+  stationDestroyed: boolean;
   targetVisibilityVerified: boolean;
 }
 

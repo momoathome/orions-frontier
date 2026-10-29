@@ -17,6 +17,7 @@ test('hangar capacity and spacecraft crew requirements match the balancing contr
     javelin: 4,
     sentinel: 5,
     ares: 15,
+    hammer: 12,
     nova: 20,
     horus: 60,
     reaper: 120,

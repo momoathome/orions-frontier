@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb } from '../../../../lib/db/index.js';
 import { authenticate } from '../../../../middleware/auth.js';
@@ -55,7 +55,13 @@ export default defineRoute(async (app) => {
             )
           )
           .innerJoin(asteroids, eq(asteroids.id, asteroidId))
-          .where(and(eq(stations.id, stationId), eq(stations.userId, request.user.userId)))
+          .where(
+            and(
+              eq(stations.id, stationId),
+              eq(stations.userId, request.user.userId),
+              isNull(stations.destroyedAt)
+            )
+          )
           .limit(1),
         getUserScannerCoverages(request.user.userId),
         getUserRevealedAsteroidIds(request.user.userId),

@@ -1,5 +1,5 @@
 import { required } from '@orions-frontier/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidVeins, asteroidAssignments } from '../../lib/db/schema/asteroids.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
@@ -54,7 +54,9 @@ export const createAsteroidAssignment = async (
     db
       .select({ id: stations.id, x: stations.x, y: stations.y })
       .from(stations)
-      .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
+      .where(
+        and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+      )
       .limit(1),
     db
       .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })

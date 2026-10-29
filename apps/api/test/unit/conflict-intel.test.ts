@@ -25,6 +25,7 @@ const makeReport = (overrides: Partial<CombatReport> & { id: string }): CombatRe
   defenderStationId: 'd-station',
   attackerUserId: attackerId,
   defenderUserId: defenderId,
+  attackerFleet: { merlin: 5 },
   attackerAmount: 5,
   attackerLosses: 2,
   defenderLosses: 1,
@@ -33,6 +34,10 @@ const makeReport = (overrides: Partial<CombatReport> & { id: string }): CombatRe
   status: 'resolved',
   createdAt: new Date().toISOString(),
   resolvedAt: new Date().toISOString(),
+  arrivesAt: new Date().toISOString(),
+  integrityDamage: 0,
+  defenderIntegrity: null,
+  stationDestroyed: false,
   ...overrides,
 });
 

@@ -509,6 +509,7 @@ test('warlords without foreign contact prioritize scanner reach', () => {
             ownerId: 'opponent-1',
             isOwn: false,
             scanned: true,
+            integrity: null,
             visualProfile: {
               scaleTier: 1,
               modules: {
@@ -897,11 +898,12 @@ test('research with fighters gives combat_analytics a non-zero score', () => {
   assert.ok(combat.baseNeed > 10, 'combat_analytics should have non-zero baseNeed with fighters');
 });
 
-test('raid sends the smallest sufficient single fighter group', async () => {
+test('raid sends the smallest sufficient fighter group with every docked bomber', async () => {
   const station = baseStation({
     fleets: [
       { spacecraftKey: 'merlin', amount: 10, lockedAmount: 0 },
       { spacecraftKey: 'javelin', amount: 1, lockedAmount: 0 },
+      { spacecraftKey: 'hammer', amount: 3, lockedAmount: 1 },
     ],
   });
   const state = baseState(station, {
@@ -917,6 +919,7 @@ test('raid sends the smallest sufficient single fighter group', async () => {
         ownerId: 'opponent-1',
         isOwn: false,
         scanned: true,
+        integrity: null,
         visualProfile: {
           scaleTier: 1,
           modules: {
@@ -941,13 +944,10 @@ test('raid sends the smallest sufficient single fighter group', async () => {
 
   const result = await stepRaid(state, station, 'station:target-1', 'warlord');
   assert.equal(result.type, 'success');
-  assert.deepEqual(
-    {
-      spacecraftKey: result.intent.type === 'start_attack' ? result.intent.spacecraftKey : null,
-      amount: result.intent.type === 'start_attack' ? result.intent.amount : null,
-    },
-    { spacecraftKey: 'javelin', amount: 1 }
-  );
+  assert.deepEqual(result.intent.type === 'start_attack' ? result.intent.fleet : null, {
+    javelin: 1,
+    hammer: 2,
+  });
 });
 
 test('conflict opportunities record the authoritative exclusion stage', () => {
@@ -965,6 +965,7 @@ test('conflict opportunities record the authoritative exclusion stage', () => {
     ownerId: 'opponent-1',
     isOwn: false,
     scanned: true,
+    integrity: null,
     visualProfile: {
       scaleTier: 1 as const,
       modules: {

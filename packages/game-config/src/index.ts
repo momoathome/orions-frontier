@@ -1,4 +1,15 @@
-export { COLONIZATION_COST, ATTACK_PROTECTION_DURATION_MS, resources } from './resources.js';
+export {
+  COLONIZATION_COST,
+  ATTACK_PROTECTION_DURATION_MS,
+  calculateColonizationCost,
+  resources,
+} from './resources.js';
+export {
+  currentIntegrity,
+  integrityWaveDamage,
+  coarseIntegrity,
+  MAX_STATION_INTEGRITY,
+} from './integrity.js';
 export { getSpacecraft, requireSpacecraft, spacecrafts } from './spacecrafts.js';
 export type { SpacecraftSeedDefinition } from './spacecrafts.js';
 export {

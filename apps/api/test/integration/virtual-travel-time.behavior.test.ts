@@ -352,8 +352,7 @@ test('virtual combat and salvage complete through deterministic arrival chains',
     userId: ownerId,
     stationId: ownerStationId,
     targetStationId,
-    spacecraftKey: 'merlin',
-    amount: 1,
+    fleet: { merlin: 1 },
     context: combatContext,
   });
   const expectedCombatOutboundId = expectedCombat.nextId('trip');

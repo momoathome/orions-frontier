@@ -5,8 +5,7 @@ import { defineRoute, stationParams } from '../../../../lib/route.js';
 
 const BodySchema = z.object({
   targetStationId: z.uuid(),
-  spacecraftKey: z.string().min(1),
-  amount: z.number().int().positive(),
+  fleet: z.record(z.string().min(1), z.number().int().positive()),
 });
 
 export default defineRoute(async (app) => {

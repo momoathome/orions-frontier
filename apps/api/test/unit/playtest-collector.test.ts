@@ -92,6 +92,9 @@ function completionEvents(): PlaytestCompletionEvent[] {
       winner: 'attacker',
       attackerLosses: 1,
       defenderLosses: 2,
+      integrityDamage: 0,
+      defenderIntegrity: null,
+      stationDestroyed: false,
       targetVisibilityVerified: true,
     },
     {

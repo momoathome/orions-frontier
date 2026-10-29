@@ -13,4 +13,6 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   attackProtectionBrokenAt: timestamp('attack_protection_broken_at'),
+  /** Renewed protection after a restart; the first 24h are counted from createdAt. */
+  protectedUntil: timestamp('protected_until'),
 });

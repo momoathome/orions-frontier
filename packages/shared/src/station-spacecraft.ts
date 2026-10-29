@@ -1,6 +1,6 @@
 import type { ResourceKey } from './resource.js';
 
-export type SpacecraftRole = 'fighter' | 'miner' | 'salvager';
+export type SpacecraftRole = 'fighter' | 'bomber' | 'miner' | 'salvager';
 
 export interface SpacecraftDefinition {
   key: string;

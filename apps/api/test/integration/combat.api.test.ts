@@ -87,7 +87,7 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
     method: 'POST',
     url: `/api/stations/${attackerStationId}/attacks`,
     headers,
-    payload: { targetStationId: defenderStationId, spacecraftKey: 'merlin', amount: 0 },
+    payload: { targetStationId: defenderStationId, fleet: { merlin: 0 } },
   });
   assert.equal(invalid.statusCode, 400);
 
@@ -95,7 +95,7 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
     method: 'POST',
     url: `/api/stations/${attackerStationId}/attacks`,
     headers,
-    payload: { targetStationId: defenderStationId, spacecraftKey: 'merlin', amount: 3 },
+    payload: { targetStationId: defenderStationId, fleet: { merlin: 3 } },
   });
   assert.equal(attack.statusCode, 201);
   const attackId = attack.json<{ id: string }>().id;
