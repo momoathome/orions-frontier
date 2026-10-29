@@ -1,4 +1,3 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
   calculateDefenseUpgradeBuildTime,
   calculateDefenseUpgradeCost,
@@ -17,9 +16,19 @@ import {
 } from '@orions-frontier/shared';
 import { getDb } from '../../lib/db/index.js';
 import { publishUserEvent } from '../../lib/realtime.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationResources } from '../../lib/db/schema/station-resources.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import {
+  findStationBuildingByKeyForUpdate,
+  insertStationBuildingIfMissing,
+  insertStationBuildingsIfMissing,
+  listBuildingLevels,
+  listStationBuildings,
+  updateStationBuilding,
+} from '../../repositories/station-buildings.js';
+import {
+  deductStationResource,
+  listStationResources,
+} from '../../repositories/station-resources.js';
+import { findOwnedStationForUpdate } from '../../repositories/stations.js';
 import { applyGridOptimization, hasCompletedResearch } from '../research/index.js';
 import {
   createRealtimeExecutionContext,
@@ -33,19 +42,17 @@ export const seedStationDefenseUpgrades = async (
   db: SeedDb = getDb(),
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> => {
-  await db
-    .insert(stationBuildings)
-    .values(
-      defenseUpgrades.map((upgrade) => ({
-        id: context.nextId('station-defense'),
-        stationId,
-        buildingKey: upgrade.key,
-        level: upgrade.startingLevel,
-        createdAt: context.now,
-        updatedAt: context.now,
-      }))
-    )
-    .onConflictDoNothing();
+  await insertStationBuildingsIfMissing(
+    db,
+    defenseUpgrades.map((upgrade) => ({
+      id: context.nextId('station-defense'),
+      stationId,
+      buildingKey: upgrade.key,
+      level: upgrade.startingLevel,
+      createdAt: context.now,
+      updatedAt: context.now,
+    }))
+  );
 };
 
 export const defenseUpgradeMaxLevel = (key: string): number | null =>
@@ -69,10 +76,7 @@ export const getStationDefenseUpgrades = async (
   stationId: string,
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<StationDefenseUpgradeWithDefinition[]> => {
-  const rows = await getDb()
-    .select()
-    .from(stationBuildings)
-    .where(eq(stationBuildings.stationId, stationId));
+  const rows = await listStationBuildings(getDb(), stationId);
   const byKey = new Map(rows.map((row) => [row.buildingKey, row]));
   const now = context.now;
 
@@ -99,10 +103,7 @@ export const getStationDefenseUpgrades = async (
 };
 
 export async function getStationDefenseScore(stationId: string): Promise<number> {
-  const rows = await getDb()
-    .select({ buildingKey: stationBuildings.buildingKey, level: stationBuildings.level })
-    .from(stationBuildings)
-    .where(eq(stationBuildings.stationId, stationId));
+  const rows = await listBuildingLevels(getDb(), stationId);
   const levels: Partial<Record<DefenseUpgradeKey, number>> = {};
   for (const row of rows) {
     if (isOneOf(defenseUpgradeKeys, row.buildingKey)) {
@@ -122,42 +123,20 @@ export const startDefenseUpgrade = async (
   const def = getDefenseUpgrade(upgradeKey);
 
   const resourceMap = await db.transaction(async (tx) => {
-    const [station] = await tx
-      .select({ id: stations.id })
-      .from(stations)
-      .where(
-        and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
-      )
-      .for('update');
+    const station = await findOwnedStationForUpdate(tx, stationId, userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-    const [upgrade] = await tx
-      .insert(stationBuildings)
-      .values({
-        id: context.nextId('station-defense'),
-        stationId,
-        buildingKey: upgradeKey,
-        level: def.startingLevel,
-        createdAt: context.now,
-        updatedAt: context.now,
-      })
-      .onConflictDoNothing()
-      .returning();
+    const upgrade = await insertStationBuildingIfMissing(tx, {
+      id: context.nextId('station-defense'),
+      stationId,
+      buildingKey: upgradeKey,
+      level: def.startingLevel,
+      createdAt: context.now,
+      updatedAt: context.now,
+    });
 
-    const [stationUpgrade] =
-      upgrade === undefined
-        ? await tx
-            .select()
-            .from(stationBuildings)
-            .where(
-              and(
-                eq(stationBuildings.stationId, stationId),
-                eq(stationBuildings.buildingKey, upgradeKey)
-              )
-            )
-            .limit(1)
-            .for('update')
-        : [upgrade];
+    const stationUpgrade =
+      upgrade ?? (await findStationBuildingByKeyForUpdate(tx, stationId, upgradeKey));
 
     if (!stationUpgrade) throw new AppError(ErrorCode.NOT_FOUND, 'Defense upgrade not found');
     if (stationUpgrade.upgradeEndsAt) {
@@ -169,10 +148,7 @@ export const startDefenseUpgrade = async (
 
     const targetLevel = stationUpgrade.level + 1;
     const costs = calculateDefenseUpgradeCost(upgradeKey, targetLevel);
-    const resourceRows = await tx
-      .select()
-      .from(stationResources)
-      .where(eq(stationResources.stationId, stationId));
+    const resourceRows = await listStationResources(tx, stationId);
     const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
 
     for (const cost of costs) {
@@ -191,25 +167,14 @@ export const startDefenseUpgrade = async (
     const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
     const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt, context.now);
     for (const cost of costs) {
-      await tx
-        .update(stationResources)
-        .set({ amount: sql`${stationResources.amount} - ${cost.amount}` })
-        .where(
-          and(
-            eq(stationResources.stationId, stationId),
-            eq(stationResources.resourceKey, cost.resourceKey)
-          )
-        );
+      await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
       currentResources.set(
         cost.resourceKey,
         (currentResources.get(cost.resourceKey) ?? 0) - cost.amount
       );
     }
 
-    await tx
-      .update(stationBuildings)
-      .set({ upgradeEndsAt, updatedAt: context.now })
-      .where(eq(stationBuildings.id, stationUpgrade.id));
+    await updateStationBuilding(tx, stationUpgrade.id, { upgradeEndsAt, updatedAt: context.now });
 
     return currentResources;
   });

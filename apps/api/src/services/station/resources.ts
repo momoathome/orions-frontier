@@ -1,10 +1,15 @@
-import { and, eq, gte, inArray, isNull } from 'drizzle-orm';
 import { getDb, type Tx } from '../../lib/db/index.js';
-import { stationResources } from '../../lib/db/schema/station-resources.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
+import {
+  insertStationResource,
+  insertStationResources,
+  listOwnedStationResources,
+  listStationResourcesInKeyOrderForUpdate,
+  setStationResourceAmount,
+} from '../../repositories/station-resources.js';
+import { findBuildingLevel } from '../../repositories/station-buildings.js';
+import { findOwnedStation, findStationForUpdate } from '../../repositories/stations.js';
+import { listMiningDeliveriesSince } from '../../repositories/spacecraft-trips.js';
+import { listStationSpacecraftIds } from '../../repositories/station-spacecrafts.js';
 import { calculateBuildingEffect } from '@orions-frontier/game-config';
 import {
   isOneOf,
@@ -50,7 +55,7 @@ export const seedStationResources = async (
     amount: amounts[resourceKey] ?? 0,
   }));
 
-  await db.insert(stationResources).values(rows);
+  await insertStationResources(db, rows);
 };
 
 export const getStationResources = async (
@@ -58,13 +63,7 @@ export const getStationResources = async (
   stationId: string
 ): Promise<ResourceMap> => {
   const db = getDb();
-  const rows = await db
-    .select({ resource: stationResources })
-    .from(stationResources)
-    .innerJoin(stations, eq(stationResources.stationId, stations.id))
-    .where(
-      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
-    );
+  const rows = await listOwnedStationResources(db, stationId, userId);
   if (rows.length === 0) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
   return rows.reduce<ResourceMap>((acc, row) => {
@@ -75,15 +74,9 @@ export const getStationResources = async (
 };
 
 export const getStationStorageCapacity = async (stationId: string): Promise<number> => {
-  const [warehouse] = await getDb()
-    .select({ level: stationBuildings.level })
-    .from(stationBuildings)
-    .where(
-      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'warehouse'))
-    )
-    .limit(1);
+  const warehouseLevel = await findBuildingLevel(getDb(), stationId, 'warehouse');
 
-  return storageCapacity(warehouse?.level ?? 0);
+  return storageCapacity(warehouseLevel ?? 0);
 };
 
 /**
@@ -99,26 +92,11 @@ export const creditStationResources = async (
   const invalidKey = Object.keys(cargo).find((key) => !isOneOf(resourceKeys, key));
   if (invalidKey) throw new Error(`Unknown resource '${invalidKey}'`);
 
-  await tx
-    .select({ id: stations.id })
-    .from(stations)
-    .where(eq(stations.id, stationId))
-    .for('update');
+  await findStationForUpdate(tx, stationId);
 
-  const [warehouse] = await tx
-    .select({ level: stationBuildings.level })
-    .from(stationBuildings)
-    .where(
-      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'warehouse'))
-    )
-    .limit(1);
-  const capacity = storageCapacity(warehouse?.level ?? 0);
-  const rows = await tx
-    .select()
-    .from(stationResources)
-    .where(eq(stationResources.stationId, stationId))
-    .orderBy(stationResources.resourceKey)
-    .for('update');
+  const warehouseLevel = await findBuildingLevel(tx, stationId, 'warehouse');
+  const capacity = storageCapacity(warehouseLevel ?? 0);
+  const rows = await listStationResourcesInKeyOrderForUpdate(tx, stationId);
   const amounts = new Map(rows.map((row) => [row.resourceKey, row.amount]));
   const credited: ResourceMap = {};
 
@@ -129,20 +107,9 @@ export const creditStationResources = async (
     const accepted = Math.min(requested, Math.max(0, capacity - current));
     if (accepted <= 0) continue;
 
-    const [updated] = await tx
-      .update(stationResources)
-      .set({ amount: current + accepted })
-      .where(
-        and(
-          eq(stationResources.stationId, stationId),
-          eq(stationResources.resourceKey, resourceKey)
-        )
-      )
-      .returning({ resourceKey: stationResources.resourceKey });
+    const updated = await setStationResourceAmount(tx, stationId, resourceKey, current + accepted);
     if (!updated) {
-      await tx
-        .insert(stationResources)
-        .values({ stationId, resourceKey, amount: current + accepted });
+      await insertStationResource(tx, { stationId, resourceKey, amount: current + accepted });
     }
     amounts.set(resourceKey, current + accepted);
     credited[resourceKey] = accepted;
@@ -159,18 +126,10 @@ export const getDeliveredResourceRates = async (
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<ResourceMap> => {
   const db = getDb();
-  const [station] = await db
-    .select({ id: stations.id })
-    .from(stations)
-    .where(
-      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
-    );
+  const station = await findOwnedStation(db, stationId, userId);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-  const ssRows = await db
-    .select({ id: stationSpacecrafts.id })
-    .from(stationSpacecrafts)
-    .where(eq(stationSpacecrafts.stationId, stationId));
+  const ssRows = await listStationSpacecraftIds(db, stationId);
 
   if (ssRows.length === 0) return {};
 
@@ -178,21 +137,7 @@ export const getDeliveredResourceRates = async (
 
   // Look at all arrived trips heading TO station in the last hour
   const oneHourAgo = new Date(context.now.getTime() - 3_600_000);
-  const arrivedTrips = await db
-    .select({
-      cargoManifest: spacecraftTrips.cargoManifest,
-      arrivesAt: spacecraftTrips.arrivesAt,
-    })
-    .from(spacecraftTrips)
-    .where(
-      and(
-        inArray(spacecraftTrips.stationSpacecraftId, ssIds),
-        eq(spacecraftTrips.status, 'arrived'),
-        eq(spacecraftTrips.purpose, 'mining_return'),
-        eq(spacecraftTrips.toType, 'station'),
-        gte(spacecraftTrips.arrivesAt, oneHourAgo)
-      )
-    );
+  const arrivedTrips = await listMiningDeliveriesSince(db, ssIds, oneHourAgo);
 
   // Sum up all delivered resources and express as /h
   // (all trips are within the 1-hour window, so sum = effective rate)

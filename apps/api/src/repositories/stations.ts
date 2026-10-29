@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
@@ -76,4 +76,51 @@ export function listScannerStationsByUser(db: SelectDb, userId: string) {
       and(eq(stationBuildings.stationId, stations.id), eq(stationBuildings.buildingKey, 'scanner'))
     )
     .where(eq(stations.userId, userId));
+}
+
+export async function findStationForUpdate(tx: Tx, id: string) {
+  const [row] = await tx.select().from(stations).where(eq(stations.id, id)).for('update');
+  return row;
+}
+
+/** The user's stations that were not destroyed. */
+export function listActiveStationsByUser(db: QueryDb, userId: string) {
+  return db
+    .select()
+    .from(stations)
+    .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt)));
+}
+
+/** One row per station the user ever founded, destroyed ones included. */
+export function listStationDestroyedAtByUser(db: QueryDb, userId: string) {
+  return db
+    .select({ destroyedAt: stations.destroyedAt })
+    .from(stations)
+    .where(eq(stations.userId, userId));
+}
+
+/** The user's station in that sector, unless it was destroyed. */
+export async function findOwnedStationInSector(db: QueryDb, userId: string, sectorId: string) {
+  const [row] = await db
+    .select()
+    .from(stations)
+    .where(
+      and(
+        eq(stations.userId, userId),
+        eq(stations.sectorId, sectorId),
+        isNull(stations.destroyedAt)
+      )
+    )
+    .limit(1);
+  return row;
+}
+
+/** Serializes station founding for the rest of the transaction. */
+export async function lockStationCreation(tx: Tx) {
+  await tx.execute(sql`select pg_advisory_xact_lock(1869772101)`);
+}
+
+export async function insertStation(tx: Tx, values: typeof stations.$inferInsert) {
+  const [row] = await tx.insert(stations).values(values).returning();
+  return row;
 }

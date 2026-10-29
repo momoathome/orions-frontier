@@ -1,9 +1,16 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
 import { publishUserEvent } from '../../lib/realtime.js';
 import { getDb } from '../../lib/db/index.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationResources } from '../../lib/db/schema/station-resources.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import {
+  findStationBuildingByKeyForUpdate,
+  insertStationBuildingsIfMissing,
+  listStationBuildings,
+  updateStationBuilding,
+} from '../../repositories/station-buildings.js';
+import {
+  deductStationResource,
+  listStationResources,
+} from '../../repositories/station-resources.js';
+import { findOwnedStationForUpdate } from '../../repositories/stations.js';
 import {
   calculateBuildingUpgradeCost,
   calculateBuildingBuildTime,
@@ -29,19 +36,17 @@ export const seedStationBuildings = async (
   db: SeedDb = getDb(),
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> => {
-  await db
-    .insert(stationBuildings)
-    .values(
-      buildings.map((building) => ({
-        id: context.nextId('station-building'),
-        stationId,
-        buildingKey: building.key,
-        level: 1,
-        createdAt: context.now,
-        updatedAt: context.now,
-      }))
-    )
-    .onConflictDoNothing();
+  await insertStationBuildingsIfMissing(
+    db,
+    buildings.map((building) => ({
+      id: context.nextId('station-building'),
+      stationId,
+      buildingKey: building.key,
+      level: 1,
+      createdAt: context.now,
+      updatedAt: context.now,
+    }))
+  );
 };
 
 // Get all buildings for a station (with computed effects / costs)
@@ -52,10 +57,7 @@ export const getStationBuildings = async (
 ): Promise<StationBuildingWithDefinition[]> => {
   const db = getDb();
 
-  const rows = await db
-    .select()
-    .from(stationBuildings)
-    .where(eq(stationBuildings.stationId, stationId));
+  const rows = await listStationBuildings(db, stationId);
 
   const now = context.now;
 
@@ -96,26 +98,10 @@ export const startBuildingUpgrade = async (
   const def = getBuilding(buildingKey);
 
   const resourceMap = await db.transaction(async (tx) => {
-    const [station] = await tx
-      .select({ id: stations.id })
-      .from(stations)
-      .where(
-        and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
-      )
-      .for('update');
+    const station = await findOwnedStationForUpdate(tx, stationId, userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-    const [stationBuilding] = await tx
-      .select()
-      .from(stationBuildings)
-      .where(
-        and(
-          eq(stationBuildings.stationId, stationId),
-          eq(stationBuildings.buildingKey, buildingKey)
-        )
-      )
-      .limit(1)
-      .for('update');
+    const stationBuilding = await findStationBuildingByKeyForUpdate(tx, stationId, buildingKey);
 
     if (!stationBuilding) {
       throw new AppError(ErrorCode.NOT_FOUND, 'Station building not found');
@@ -129,10 +115,7 @@ export const startBuildingUpgrade = async (
 
     const targetLevel = stationBuilding.level + 1;
     const costs = calculateBuildingUpgradeCost(buildingKey, targetLevel);
-    const resourceRows = await tx
-      .select()
-      .from(stationResources)
-      .where(eq(stationResources.stationId, stationId));
+    const resourceRows = await listStationResources(tx, stationId);
     const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
 
     for (const cost of costs) {
@@ -150,25 +133,14 @@ export const startBuildingUpgrade = async (
     const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
     const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt, context.now);
     for (const cost of costs) {
-      await tx
-        .update(stationResources)
-        .set({ amount: sql`${stationResources.amount} - ${cost.amount}` })
-        .where(
-          and(
-            eq(stationResources.stationId, stationId),
-            eq(stationResources.resourceKey, cost.resourceKey)
-          )
-        );
+      await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
       currentResources.set(
         cost.resourceKey,
         (currentResources.get(cost.resourceKey) ?? 0) - cost.amount
       );
     }
 
-    await tx
-      .update(stationBuildings)
-      .set({ upgradeEndsAt, updatedAt: context.now })
-      .where(eq(stationBuildings.id, stationBuilding.id));
+    await updateStationBuilding(tx, stationBuilding.id, { upgradeEndsAt, updatedAt: context.now });
 
     return currentResources;
   });
