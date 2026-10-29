@@ -5,7 +5,7 @@ import { getRanking } from '../../../services/ranking.service.js';
 
 /**
  * GET /api/world/ranking
- * Server-wide ranking by Station Score, plus the requesting player's own rank.
+ * Server-wide ranking by Influence, plus the requesting player's own rank.
  */
 export default defineRoute(async (app) => {
   app.get(

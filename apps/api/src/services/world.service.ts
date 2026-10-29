@@ -13,6 +13,7 @@ import {
   ErrorCode,
   type VisibleStation,
   type VisibleWorldMovement,
+  type WorldTripPurpose,
 } from '@orions-frontier/shared';
 import { ATTACK_PROTECTION_DURATION_MS, requireSpacecraft } from '@orions-frontier/game-config';
 import {
@@ -174,6 +175,8 @@ const isInsideWorldBounds = (
   point.y >= bounds.minY &&
   point.y < bounds.maxY;
 
+const MILITARY_TRIP_PURPOSES = new Set<WorldTripPurpose>(['combat', 'combat_return']);
+
 export async function getVisibleWorldMovements(
   range: WorldChunkRange,
   userId: string,
@@ -194,6 +197,7 @@ export async function getVisibleWorldMovements(
         arrivesAt: spacecraftTrips.arrivesAt,
         purpose: spacecraftTrips.purpose,
         groupSize: spacecraftTrips.groupSize,
+        createdAt: spacecraftTrips.createdAt,
         spacecraftKey: stationSpacecrafts.spacecraftKey,
         userId: stations.userId,
         botUserId: botControllers.userId,
@@ -241,17 +245,18 @@ export async function getVisibleWorldMovements(
     if (!isInsideWorldBounds(position, bounds)) return [];
     const spacecraft = requireSpacecraft(trip.spacecraftKey);
     if (trip.userId !== userId) {
-      return scannerBypass || isPointVisible(coverages, position)
-        ? [
-            {
-              kind: 'radar_contact',
-              id: trip.id,
-              ...position,
-              observedAt: now.toISOString(),
-              signature: spacecraft.role,
-            },
-          ]
-        : [];
+      const scanned = scannerBypass || isPointVisible(coverages, position);
+      // Civil traffic outside the scanner is a bare blip; military traffic stays dark.
+      if (!scanned && MILITARY_TRIP_PURPOSES.has(trip.purpose)) return [];
+      return [
+        {
+          kind: 'radar_contact',
+          id: trip.id,
+          ...position,
+          observedAt: now.toISOString(),
+          signature: scanned ? spacecraft.role : null,
+        },
+      ];
     }
     return [
       {
@@ -265,6 +270,7 @@ export async function getVisibleWorldMovements(
         arrivesAt: trip.arrivesAt.toISOString(),
         purpose: trip.purpose,
         groupSize: trip.groupSize,
+        ...(trip.purpose === 'mining_return' && { miningStartedAt: trip.createdAt.toISOString() }),
         ownerType: trip.botUserId ? 'bot' : 'player',
         spacecraft: { name: spacecraft.name, image: spacecraft.image, role: spacecraft.role },
       },

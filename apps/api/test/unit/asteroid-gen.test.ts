@@ -151,7 +151,7 @@ test('massive asteroids keep rare resources out of primary and secondary veins',
   }
 });
 
-test('starter miners make frequent trips and deplete small asteroids quickly', () => {
+test('starter miners make substantial trips and deplete small asteroids within hours', () => {
   const mole = spacecrafts.find((spacecraft) => spacecraft.key === 'mole')!;
   const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
   const pockets = sector.spawnSlots.flatMap((slot) =>
@@ -180,10 +180,10 @@ test('starter miners make frequent trips and deplete small asteroids quickly', (
 
   assert.ok(Math.min(...travelMinutes) >= 1.5);
   assert.ok(Math.max(...travelMinutes) <= 4.2);
-  assert.ok(Math.min(...roundTripMinutes) >= 8);
-  assert.ok(Math.max(...roundTripMinutes) <= 13.5);
-  assert.ok(Math.min(...smallDepletionHours) >= 0.75);
-  assert.ok(Math.max(...smallDepletionHours) <= 2.25);
+  assert.ok(Math.min(...roundTripMinutes) >= 12);
+  assert.ok(Math.max(...roundTripMinutes) <= 19);
+  assert.ok(Math.min(...smallDepletionHours) >= 2);
+  assert.ok(Math.max(...smallDepletionHours) <= 4.5);
 
   const totalReserve = [...sector.asteroids, ...pockets.map(({ asteroid }) => asteroid)].reduce(
     (sum, asteroid) =>
@@ -201,6 +201,19 @@ test('starter miners make frequent trips and deplete small asteroids quickly', (
   const fullSectorRunwayDays =
     totalReserve / (WORLD_CONFIG.SECTOR.STATION_CAPACITY * 3 * referenceDeliveryPerHour * 24);
 
+  // Each new station's starter pocket keeps its three starting Moles busy for about a day.
+  const pocketReserves = sector.spawnSlots.map((slot) =>
+    generateStarterPocket(slot, sector.seed).reduce(
+      (sum, asteroid) =>
+        sum + asteroid.veins.reduce((veinSum, vein) => veinSum + vein.remainingAmount, 0),
+      0
+    )
+  );
+  const starterRunwayHours = pocketReserves.map(
+    (reserve) => reserve / (3 * referenceDeliveryPerHour)
+  );
   assert.ok(fullSectorRunwayDays >= 3);
-  assert.ok(fullSectorRunwayDays <= 6);
+  assert.ok(fullSectorRunwayDays <= 9);
+  assert.ok(Math.min(...starterRunwayHours) >= 24);
+  assert.ok(Math.max(...starterRunwayHours) <= 72);
 });

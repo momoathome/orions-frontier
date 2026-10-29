@@ -122,9 +122,6 @@ export const createAsteroidAssignment = async (
 
     if (!locked) return { kind: 'insufficient_spacecraft' } as const;
 
-    const baseArrivesAt = calcArrivesAt(departedAt, distance, scraft.speed);
-    const arrivesAt = await applyVectorNavigation(tx, stationId, baseArrivesAt, departedAt);
-
     const [assignment] = await tx
       .insert(asteroidAssignments)
       .values({
@@ -137,34 +134,30 @@ export const createAsteroidAssignment = async (
         status: 'traveling_to_asteroid',
       })
       .returning({ id: asteroidAssignments.id });
+    const assignmentId = required(assignment, 'assignment').id;
 
-    const [trip] = await tx
-      .insert(spacecraftTrips)
-      .values({
-        id: context.nextId('trip'),
-        stationSpacecraftId: stationScraft.id,
-        assignmentId: required(assignment, 'assignment').id,
-        groupSize: assignedAmount,
-        fromType: 'station',
-        fromId: stationId,
-        fromX: station.x,
-        fromY: station.y,
-        toType: 'asteroid',
-        toId: asteroidId,
-        toX: asteroid.x,
-        toY: asteroid.y,
-        departedAt,
-        arrivesAt,
-        purpose: 'mine',
-        createdAt: context.now,
-      })
-      .returning({ id: spacecraftTrips.id, arrivesAt: spacecraftTrips.arrivesAt });
+    // The whole group launches together and fans out around the asteroid on the map.
+    const baseArrivesAt = calcArrivesAt(departedAt, distance, scraft.speed);
+    await tx.insert(spacecraftTrips).values({
+      id: context.nextId('trip'),
+      stationSpacecraftId: stationScraft.id,
+      assignmentId,
+      groupSize: assignedAmount,
+      fromType: 'station',
+      fromId: stationId,
+      fromX: station.x,
+      fromY: station.y,
+      toType: 'asteroid',
+      toId: asteroidId,
+      toX: asteroid.x,
+      toY: asteroid.y,
+      departedAt,
+      arrivesAt: await applyVectorNavigation(tx, stationId, baseArrivesAt, departedAt),
+      purpose: 'mine',
+      createdAt: context.now,
+    });
 
-    return {
-      kind: 'created',
-      assignmentId: required(assignment, 'assignment').id,
-      trip: required(trip, 'trip'),
-    } as const;
+    return { kind: 'created', assignmentId } as const;
   });
 
   if (created.kind === 'asteroid_missing') {

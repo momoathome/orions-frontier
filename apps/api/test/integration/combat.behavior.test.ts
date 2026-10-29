@@ -93,7 +93,7 @@ afterEach(async () => {
 after(closeDb);
 
 test('combat resolves attacker and defender losses', async () => {
-  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 5 });
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 9 });
   assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 20, used: 6 });
 
   const report = await resolveAttack();
@@ -109,14 +109,14 @@ test('combat resolves attacker and defender losses', async () => {
   ]);
   assert.deepEqual(attackerFleet, { amount: 2, lockedAmount: 0 });
   assert.deepEqual(defenderFleet, { amount: 0, lockedAmount: 0 });
-  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 4 });
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 8 });
   assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 20, used: 0 });
 });
 
 test('combat and salvage returns discard cargo above warehouse capacity', async () => {
-  await setCarbon(attackerStationId, 1_490);
+  await setCarbon(attackerStationId, 4_990);
   await resolveAttack();
-  assert.equal(await getCarbon(attackerStationId), 1_500);
+  assert.equal(await getCarbon(attackerStationId), 5_000);
 
   const [field] = await getDb()
     .select()
@@ -128,9 +128,9 @@ test('combat and salvage returns discard cargo above warehouse capacity', async 
     spacecraftKey: 'collector',
     amount: 1,
   });
-  await setCarbon(attackerStationId, 1_490);
+  await setCarbon(attackerStationId, 4_990);
   await resolveSalvage(field.id);
-  assert.equal(await getCarbon(attackerStationId), 1_500);
+  assert.equal(await getCarbon(attackerStationId), 5_000);
 });
 
 test('station defense score can repel an attack without defending spacecraft', async () => {

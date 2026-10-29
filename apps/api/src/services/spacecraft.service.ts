@@ -90,7 +90,8 @@ export const getStationSpacecrafts = async (
 
 // Seed initial spacecrafts for a newly created station
 
-const INITIAL_SPACECRAFTS: { key: string; amount: number }[] = [{ key: 'mole', amount: 1 }];
+// Three Moles: each delivery covers a meaningful share of the next early upgrade.
+const INITIAL_SPACECRAFTS: { key: string; amount: number }[] = [{ key: 'mole', amount: 3 }];
 
 type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
 

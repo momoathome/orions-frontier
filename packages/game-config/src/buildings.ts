@@ -208,7 +208,8 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
 
     case 'warehouse':
       return [
-        { type: 'storage_capacity', value: 1000 + level * 500 },
+        // Grows with upgrade costs so the next upgrade always fits and storage lasts overnight.
+        { type: 'storage_capacity', value: Math.round((5000 * 1.3 ** (level - 1)) / 100) * 100 },
         { type: 'protected_storage', value: level * 100 },
       ];
 

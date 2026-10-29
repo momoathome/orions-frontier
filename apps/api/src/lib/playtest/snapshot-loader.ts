@@ -6,7 +6,11 @@ import {
   defenseUpgradeKeys,
   type ResourceMap,
 } from '@orions-frontier/shared';
-import { calculateBuildingEffect } from '@orions-frontier/game-config';
+import {
+  calculateBuildingEffect,
+  calculateInfluence,
+  type InfluenceInput,
+} from '@orions-frontier/game-config';
 import { getDb } from '../db/index.js';
 import { asteroids, asteroidVeins } from '../db/schema/asteroids.js';
 import { botControllers, type BotProfile } from '../db/schema/bot-controllers.js';
@@ -61,6 +65,7 @@ export interface PlaytestBotSnapshot {
   spacecraftUnits: number;
   lockedSpacecraftUnits: number;
   completedResearch: number;
+  influence: number;
   activeWork: number;
   activeGoal: string | null;
   lastAction: string | null;
@@ -211,7 +216,11 @@ export async function loadPlaytestSnapshot(
       .from(stationSpacecrafts)
       .where(inArray(stationSpacecrafts.stationId, stationIds)),
     db
-      .select({ stationId: stationResearch.stationId, status: stationResearch.status })
+      .select({
+        stationId: stationResearch.stationId,
+        technologyKey: stationResearch.technologyKey,
+        status: stationResearch.status,
+      })
       .from(stationResearch)
       .where(inArray(stationResearch.stationId, stationIds)),
     db
@@ -294,7 +303,23 @@ export async function loadPlaytestSnapshot(
       spacecraft.lockedAmount
     );
   }
+  const influenceInputs = new Map<string, InfluenceInput>(
+    stationIds.map((id) => [id, { levels: [], completedResearch: [], spacecrafts: [] }])
+  );
+  for (const building of buildingRows) {
+    influenceInputs
+      .get(building.stationId)
+      ?.levels.push({ key: building.buildingKey, level: building.level });
+  }
+  for (const spacecraft of spacecraftRows) {
+    influenceInputs
+      .get(spacecraft.stationId)
+      ?.spacecrafts.push({ key: spacecraft.spacecraftKey, amount: spacecraft.amount });
+  }
   for (const research of researchRows) {
+    if (research.status === 'completed') {
+      influenceInputs.get(research.stationId)?.completedResearch.push(research.technologyKey);
+    }
     incrementStation(
       byStation,
       research.stationId,
@@ -371,6 +396,15 @@ export async function loadPlaytestSnapshot(
           0
         ),
         completedResearch: owned.reduce((sum, station) => sum + station.completedResearch, 0),
+        influence: calculateInfluence({
+          levels: ownedStations.flatMap((station) => influenceInputs.get(station.id)?.levels ?? []),
+          completedResearch: ownedStations.flatMap(
+            (station) => influenceInputs.get(station.id)?.completedResearch ?? []
+          ),
+          spacecrafts: ownedStations.flatMap(
+            (station) => influenceInputs.get(station.id)?.spacecrafts ?? []
+          ),
+        }).total,
         activeWork,
         activeGoal: primary.activeGoal,
         lastAction: primary.lastAction,

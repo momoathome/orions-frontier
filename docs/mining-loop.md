@@ -159,12 +159,12 @@ Rundlaufzeit    = Abbauzeit + 2 × Flugzeit
 Lieferleistung  = Ladungsmenge / Rundlaufzeit
 ```
 
-Für eine Mole mit `600/h` Abbaurate und `50` Einheiten Frachtraum beträgt die reine Abbauzeit
-5 Minuten:
+Für eine Mole mit `600/h` Abbaurate und `100` Einheiten Frachtraum beträgt die reine Abbauzeit
+10 Minuten:
 
-- 2 Minuten Flug pro Strecke: 9 Minuten Rundlauf, ungefähr `333/h` Lieferleistung;
-- 4 Minuten Flug pro Strecke: 13 Minuten Rundlauf, ungefähr `231/h` Lieferleistung;
-- 10 Minuten Flug pro Strecke: 25 Minuten Rundlauf, `120/h` Lieferleistung.
+- 2 Minuten Flug pro Strecke: 14 Minuten Rundlauf, ungefähr `429/h` Lieferleistung;
+- 4 Minuten Flug pro Strecke: 18 Minuten Rundlauf, ungefähr `333/h` Lieferleistung;
+- 10 Minuten Flug pro Strecke: 30 Minuten Rundlauf, `200/h` Lieferleistung.
 
 Bei der letzten Teilmenge wird mit der tatsächlichen Ladungsmenge gerechnet. Für mehrere gleiche
 Miner kann die Vorschau näherungsweise linear rechnen, solange genügend Vorrat verbleibt:
@@ -221,10 +221,10 @@ bereits geplantes Ausbaulevel vorgebaut.
 
 ## Aktuelle Balancing-Baseline
 
-- Ein kleiner Starterasteroid hält mit einer Mole ungefähr 3-6 Stunden, mit drei Mole noch
-  ungefähr 1-2 Stunden.
-- Eine neue Station beginnt mit einer Mole (`600/h`, 50 Frachtraum, Geschwindigkeit 80).
-- Starterziele ergeben damit ungefähr 9-13 Minuten bis zur ersten vollen Lieferung.
+- Ein kleiner Starterasteroid hält mit drei Mole ungefähr 2-4,5 Stunden.
+- Eine neue Station beginnt mit drei Mole (`600/h`, 100 Frachtraum, Geschwindigkeit 80).
+- Starterziele ergeben damit ungefähr 13-18 Minuten Rundlauf; eine Lieferung deckt einen
+  spürbaren Teil des nächsten frühen Upgrades (siehe `docs/design-compass.md`).
 - Core-Level 1 bietet zehn Hangarplätze. Der Spieler kann seine erste Miningflotte ausbauen, muss
   vor größeren zivilen und militärischen Flotten aber in den Core investieren.
 

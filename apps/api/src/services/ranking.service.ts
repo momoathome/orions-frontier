@@ -1,55 +1,98 @@
-import { eq } from 'drizzle-orm';
-import { calculateBuildingEffect } from '@orions-frontier/game-config';
+import { and, eq, inArray } from 'drizzle-orm';
+import { calculateInfluence, type InfluenceInput } from '@orions-frontier/game-config';
 import type { Ranking, RankingEntry } from '@orions-frontier/shared';
 import { getDb } from '../lib/db/index.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
+import { stationResearch } from '../lib/db/schema/station-research.js';
+import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { users } from '../lib/db/schema/users.js';
 
-const stationScore = (coreLevel: number): number =>
-  calculateBuildingEffect('core', coreLevel).find((effect) => effect.type === 'station_progression')
-    ?.value ?? 0;
-
-/** Server-wide ranking by the summed Station Score of every station a player owns. */
+/** Server-wide ranking by the Influence of every station and ship a player owns. */
 export async function getRanking(userId: string, limit: number): Promise<Ranking> {
-  // ponytail: scores every station per request; cache or materialize once player counts grow.
-  const rows = await getDb()
+  const db = getDb();
+  // ponytail: loads every station's levels and fleet per request; cache or materialize once player counts grow.
+  const owners = await db
     .select({
+      stationId: stations.id,
       userId: users.id,
       username: users.username,
       botUserId: botControllers.userId,
-      coreLevel: stationBuildings.level,
     })
     .from(stations)
     .innerJoin(users, eq(users.id, stations.userId))
-    .innerJoin(stationBuildings, eq(stationBuildings.stationId, stations.id))
-    .leftJoin(botControllers, eq(botControllers.userId, users.id))
-    .where(eq(stationBuildings.buildingKey, 'core'));
+    .leftJoin(botControllers, eq(botControllers.userId, users.id));
+  const stationIds = owners.map((owner) => owner.stationId);
+  const [levelRows, researchRows, spacecraftRows] =
+    stationIds.length === 0
+      ? [[], [], []]
+      : await Promise.all([
+          db
+            .select({
+              stationId: stationBuildings.stationId,
+              key: stationBuildings.buildingKey,
+              level: stationBuildings.level,
+            })
+            .from(stationBuildings)
+            .where(inArray(stationBuildings.stationId, stationIds)),
+          db
+            .select({ stationId: stationResearch.stationId, key: stationResearch.technologyKey })
+            .from(stationResearch)
+            .where(
+              and(
+                inArray(stationResearch.stationId, stationIds),
+                eq(stationResearch.status, 'completed')
+              )
+            ),
+          db
+            .select({
+              stationId: stationSpacecrafts.stationId,
+              key: stationSpacecrafts.spacecraftKey,
+              amount: stationSpacecrafts.amount,
+            })
+            .from(stationSpacecrafts)
+            .where(inArray(stationSpacecrafts.stationId, stationIds)),
+        ]);
 
-  const byUser = new Map<string, Omit<RankingEntry, 'rank'>>();
-  for (const row of rows) {
-    const entry = byUser.get(row.userId) ?? {
-      userId: row.userId,
-      username: row.username,
-      ownerType: row.botUserId ? ('bot' as const) : ('player' as const),
+  const ownerByStation = new Map(owners.map((owner) => [owner.stationId, owner.userId]));
+  const inputs = new Map<string, InfluenceInput>();
+  const entries = new Map<string, Omit<RankingEntry, 'rank' | 'influence'>>();
+  for (const owner of owners) {
+    const entry = entries.get(owner.userId) ?? {
+      userId: owner.userId,
+      username: owner.username,
+      ownerType: owner.botUserId ? ('bot' as const) : ('player' as const),
       stationCount: 0,
-      score: 0,
     };
     entry.stationCount += 1;
-    entry.score += stationScore(row.coreLevel);
-    byUser.set(row.userId, entry);
+    entries.set(owner.userId, entry);
+    if (!inputs.has(owner.userId)) {
+      inputs.set(owner.userId, { levels: [], completedResearch: [], spacecrafts: [] });
+    }
   }
+  const inputFor = (stationId: string) => {
+    const owner = ownerByStation.get(stationId);
+    return owner ? inputs.get(owner) : undefined;
+  };
+  for (const row of levelRows) inputFor(row.stationId)?.levels.push(row);
+  for (const row of researchRows) inputFor(row.stationId)?.completedResearch.push(row.key);
+  for (const row of spacecraftRows) inputFor(row.stationId)?.spacecrafts.push(row);
 
-  const sorted = [...byUser.values()].sort(
-    (a, b) => b.score - a.score || a.username.localeCompare(b.username)
-  );
-  // Equal scores share a rank (1, 2, 2, 4).
+  const sorted = [...entries.values()]
+    .map((entry) => ({
+      ...entry,
+      influence: calculateInfluence(
+        inputs.get(entry.userId) ?? { levels: [], completedResearch: [], spacecrafts: [] }
+      ),
+    }))
+    .sort((a, b) => b.influence.total - a.influence.total || a.username.localeCompare(b.username));
+  // Equal Influence shares a rank (1, 2, 2, 4).
   let rank = 0;
-  let previousScore = Number.NaN;
+  let previousTotal = Number.NaN;
   const ranked = sorted.map((entry, index): RankingEntry => {
-    if (entry.score !== previousScore) rank = index + 1;
-    previousScore = entry.score;
+    if (entry.influence.total !== previousTotal) rank = index + 1;
+    previousTotal = entry.influence.total;
     return { rank, ...entry };
   });
 

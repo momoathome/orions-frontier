@@ -64,19 +64,19 @@ afterEach(async () => {
 after(closeDb);
 
 test('a completed hangar upgrade increases the effective hangar capacity', async () => {
-  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 2 });
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 6 });
 
   await completeUpgrade('hangar');
 
-  assert.deepEqual(await getStationHangar(stationId), { capacity: 30, used: 2 });
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 30, used: 6 });
 });
 
 test('a completed warehouse upgrade increases per-resource storage capacity', async () => {
-  assert.equal(await getStationStorageCapacity(stationId), 1_500);
+  assert.equal(await getStationStorageCapacity(stationId), 5_000);
 
   await completeUpgrade('warehouse');
 
-  assert.equal(await getStationStorageCapacity(stationId), 2_000);
+  assert.equal(await getStationStorageCapacity(stationId), 6_500);
 });
 
 test('a completed scanner upgrade increases the station scanner range', async () => {

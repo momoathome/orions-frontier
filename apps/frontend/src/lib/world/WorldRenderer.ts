@@ -208,7 +208,7 @@ export class WorldRenderer {
     this.screenContainer.addChild(this.stationRingLabel);
 
     // Trip layer — animated ship markers, above assignment rings
-    this.tripLayer = new TripLayer();
+    this.tripLayer = new TripLayer((x, y) => this.asteroidLayer.hitTest(x, y, 1)?.r ?? null);
     this.tripLayer.setScannerCircles(
       scannerStations.map((entry) => ({ ...entry, range: entry.scannerRange }))
     );

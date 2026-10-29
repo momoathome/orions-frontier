@@ -29,6 +29,15 @@ export interface VisibleStation {
   visualProfile: StationVisualProfile;
 }
 
+/** Influence points per investment category; `total` is their sum. */
+export interface InfluenceBreakdown {
+  buildings: number;
+  research: number;
+  defense: number;
+  fleet: number;
+  total: number;
+}
+
 /** One row of the server-wide ranking (GET /api/world/ranking); public data only. */
 export interface RankingEntry {
   rank: number;
@@ -36,7 +45,7 @@ export interface RankingEntry {
   username: string;
   ownerType: 'player' | 'bot';
   stationCount: number;
-  score: number;
+  influence: InfluenceBreakdown;
 }
 
 export interface Ranking {
@@ -67,6 +76,8 @@ export interface OwnWorldTrip {
   arrivesAt: string;
   purpose: WorldTripPurpose;
   groupSize: number;
+  /** Start of the mining phase; only set on mining_return trips. */
+  miningStartedAt?: string;
   ownerType: 'player' | 'bot';
   spacecraft: {
     name: string;
@@ -85,7 +96,8 @@ export interface RadarContact {
   velocityX: number;
   /** World units per second. */
   velocityY: number;
-  signature: SpacecraftRole;
+  /** Null outside scanner coverage: an anonymous civil contact. */
+  signature: SpacecraftRole | null;
 }
 
 export type VisibleWorldMovement = OwnWorldTrip | RadarContact;

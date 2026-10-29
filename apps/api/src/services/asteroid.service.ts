@@ -136,12 +136,16 @@ export const getAsteroidById = async (
       .where(and(eq(asteroidAssignments.asteroidId, id), eq(spacecraftTrips.status, 'traveling'))),
   ]);
 
+  // Miners fly individually; each assignment shows its next arrival.
   const activeTrips = new Map(
-    travelingTrips.flatMap((trip) =>
-      trip.assignmentId && (trip.purpose === 'mine' || trip.purpose === 'mining_return')
-        ? [[trip.assignmentId, { ...trip, purpose: trip.purpose }] as const]
-        : []
-    )
+    travelingTrips
+      .slice()
+      .sort((a, b) => b.arrivesAt.getTime() - a.arrivesAt.getTime())
+      .flatMap((trip) =>
+        trip.assignmentId && (trip.purpose === 'mine' || trip.purpose === 'mining_return')
+          ? [[trip.assignmentId, { ...trip, purpose: trip.purpose }] as const]
+          : []
+      )
   );
 
   const inTransit: Record<string, number> = {};

@@ -5,6 +5,7 @@ import {
   type SpacecraftRole,
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
+import { ASTEROID_DEFAULT_RADIUS } from './constants.js';
 
 // TripLayer
 // Renders in-flight spacecraft as animated dots moving along their trip path.
@@ -25,6 +26,7 @@ export interface ActiveTrip {
   arrivesAt: number; // ms timestamp
   purpose: WorldTripPurpose;
   groupSize: number;
+  miningStartedAt?: number; // ms timestamp, mining_return only
 }
 
 export interface ActiveRadarContact {
@@ -35,7 +37,7 @@ export interface ActiveRadarContact {
   observedAt: number;
   velocityX: number;
   velocityY: number;
-  signature: SpacecraftRole;
+  signature: SpacecraftRole | null;
 }
 
 export type ActiveMovement = ActiveTrip | ActiveRadarContact;
@@ -65,6 +67,13 @@ const PURPOSE_COLOR: Record<Exclude<ActiveTrip['purpose'], 'mine' | 'mining_retu
 const MAX_VISIBLE_SHIPS = 25;
 const SHIP_RADIUS = 3;
 const SHIP_SPACING = 8;
+const ORBIT_MARGIN = 8;
+const ORBIT_PERIOD_MS = 120_000;
+/** Time a mining group needs to fan out around the orbit after arrival, and to regroup before leaving. */
+const ORBIT_FAN_MS = 4_000;
+
+/** Visual radius of the loaded asteroid at a position, or null if none is loaded there. */
+export type AsteroidRadiusLookup = (x: number, y: number) => number | null;
 
 export class TripLayer {
   /** Add this to the world container */
@@ -74,7 +83,7 @@ export class TripLayer {
   private trips: ActiveMovement[] = [];
   private scannerCircles: ScannerCircle[] = [];
 
-  constructor() {
+  constructor(private asteroidRadiusAt: AsteroidRadiusLookup) {
     this.container.addChild(this.graphics);
   }
 
@@ -105,6 +114,42 @@ export class TripLayer {
     }
   }
 
+  /** Point on the orbit facing the station: mining ships enter and leave the orbit here. */
+  private approachPoint(asteroidX: number, asteroidY: number, stationX: number, stationY: number) {
+    // Asteroid sprites are drawn at 2.4× their radius.
+    const radius =
+      (this.asteroidRadiusAt(asteroidX, asteroidY) ?? ASTEROID_DEFAULT_RADIUS) * 1.2 + ORBIT_MARGIN;
+    const angle = Math.atan2(stationY - asteroidY, stationX - asteroidX);
+    return {
+      x: asteroidX + Math.cos(angle) * radius,
+      y: asteroidY + Math.sin(angle) * radius,
+      angle,
+      radius,
+    };
+  }
+
+  /** Mining ships drift around the asteroid in whole laps, so they leave where they arrived. */
+  private drawOrbit(trip: ActiveTrip, now: number) {
+    const approach = this.approachPoint(trip.fromX, trip.fromY, trip.toX, trip.toY);
+    const startedAt = trip.miningStartedAt ?? trip.departedAt - ORBIT_PERIOD_MS;
+    const duration = Math.max(trip.departedAt - startedAt, 1);
+    const elapsed = Math.max(0, now - startedAt);
+    const laps = Math.max(1, Math.round(duration / ORBIT_PERIOD_MS));
+    const travelled = (elapsed / duration) * laps * Math.PI * 2;
+    const fan = Math.max(0, Math.min(1, Math.min(elapsed, trip.departedAt - now) / ORBIT_FAN_MS));
+    const shipCount = Math.min(Math.max(trip.groupSize, 1), MAX_VISIBLE_SHIPS);
+
+    for (let index = 0; index < shipCount; index += 1) {
+      const angle = approach.angle + travelled + fan * (index / shipCount) * Math.PI * 2;
+      const shipX = trip.fromX + Math.cos(angle) * approach.radius;
+      const shipY = trip.fromY + Math.sin(angle) * approach.radius;
+      this.graphics.circle(shipX, shipY, SHIP_RADIUS + 3);
+      this.graphics.fill({ color: PHASE_COLOR.mining, alpha: 0.2 });
+      this.graphics.circle(shipX, shipY, SHIP_RADIUS);
+      this.graphics.fill({ color: PHASE_COLOR.mining, alpha: 0.9 });
+    }
+  }
+
   /**
    * Redraws all in-flight ship markers at their interpolated positions.
    * Call this every frame from the PixiJS ticker.
@@ -123,6 +168,12 @@ export class TripLayer {
           const dy = y - circle.y;
           return dx * dx + dy * dy <= circle.range * circle.range;
         });
+        // Unidentified civil traffic shows as a faint dot anywhere on the map.
+        if (trip.signature === null) {
+          this.graphics.circle(x, y, 2);
+          this.graphics.fill({ color: 0xaab4c0, alpha: 0.45 });
+          continue;
+        }
         if (!visible) continue;
         const color = trip.signature === 'fighter' ? 0xff5555 : 0x66ddff;
         const pulse = 2 + Math.sin(now / 180);
@@ -135,12 +186,7 @@ export class TripLayer {
       const miningPhase = getMiningTripPhase(trip, now);
 
       if (miningPhase === 'mining') {
-        const pulse = 2 + 1.5 * Math.sin(now / 250);
-        const formationRadius =
-          Math.ceil(Math.sqrt(Math.min(trip.groupSize, MAX_VISIBLE_SHIPS))) * 4;
-        this.graphics.circle(trip.fromX, trip.fromY, formationRadius + 5 + pulse);
-        this.graphics.stroke({ color: PHASE_COLOR.mining, alpha: 0.55, width: 1.5 });
-        this.drawFormation(trip.fromX, trip.fromY, PHASE_COLOR.mining, trip.groupSize);
+        this.drawOrbit(trip, now);
         continue;
       }
 
@@ -155,8 +201,14 @@ export class TripLayer {
       // Already arrived — skip (avoid frozen dot at destination)
       if (progress >= 1) continue;
 
-      const x = trip.fromX + (trip.toX - trip.fromX) * progress;
-      const y = trip.fromY + (trip.toY - trip.fromY) * progress;
+      let { fromX, fromY, toX, toY } = trip;
+      if (miningPhase === 'outbound')
+        ({ x: toX, y: toY } = this.approachPoint(toX, toY, fromX, fromY));
+      if (miningPhase === 'returning') {
+        ({ x: fromX, y: fromY } = this.approachPoint(fromX, fromY, toX, toY));
+      }
+      const x = fromX + (toX - fromX) * progress;
+      const y = fromY + (toY - fromY) * progress;
 
       const color = miningPhase
         ? PHASE_COLOR[miningPhase]

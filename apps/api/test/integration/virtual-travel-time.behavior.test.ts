@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, like, notExists, or } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import {
@@ -109,6 +109,16 @@ before(async () => {
         lockedAmount: 0,
       },
     ]);
+  // One defending Mole keeps the single-Merlin attack a win, independent of the starter fleet.
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 1 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, targetStation.id),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
 
   asteroidId = randomUUID();
   await getDb()
@@ -143,7 +153,15 @@ after(async () => {
     .select({ id: sectors.id })
     .from(sectors)
     .where(
-      and(inArray(sectors.sectorX, [sectorX, sectorX + 1]), inArray(sectors.sectorY, [sectorY]))
+      or(
+        and(inArray(sectors.sectorX, [sectorX, sectorX + 1]), inArray(sectors.sectorY, [sectorY])),
+        // The drains also settle due dev-world missions with this test's seeded IDs; an unsettled
+        // leftover sector would collide with the same deterministic ID on the next run.
+        and(
+          like(sectors.seed, 'virtual-travel-world:%'),
+          notExists(db.select().from(stations).where(eq(stations.sectorId, sectors.id)))
+        )
+      )
     );
   const allSectorIds = [...new Set([...sectorIds, ...allSectors.map((sector) => sector.id)])];
 
@@ -231,7 +249,7 @@ test('virtual mining uses deterministic IDs and arrival-based follow-up legs', a
     returnTrip.departedAt.toISOString(),
     new Date(outbound.arrivesAt.getTime() + 6_000).toISOString()
   );
-  assert.equal(returnTrip.createdAt.toISOString(), returnTrip.departedAt.toISOString());
+  assert.equal(returnTrip.createdAt.toISOString(), outbound.arrivesAt.toISOString());
 
   assert.equal(await settleTripArrival(returnTrip, context.at(returnTrip.arrivesAt)), true);
   assert.equal(
