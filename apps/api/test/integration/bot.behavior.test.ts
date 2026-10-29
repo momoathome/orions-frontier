@@ -22,20 +22,20 @@ import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
 import { runBotDecisionTick } from '../../src/services/bot/bot.js';
 import { loadGoalBotState } from '../../src/services/bot/goal-loader.js';
+import { generateRetaliateCandidates, stepRaid } from '../../src/services/bot/goals/conflict.js';
 import {
   generateExploreSectorCandidate,
   generateEstablishColonyCandidate,
   stepExploreSector,
   stepEstablishColony,
+} from '../../src/services/bot/goals/expansion.js';
+import {
   generateFortifyCandidate,
   generateBuildStrikeForceCandidate,
   stepFortifyStation,
   stepBuildStrikeForce,
-  generateRetaliateCandidates,
-  stepRaid,
-  generateSalvageCandidates,
-  stepSalvage,
-} from '../../src/services/bot/goal-economy.js';
+} from '../../src/services/bot/goals/military.js';
+import { generateSalvageCandidates, stepSalvage } from '../../src/services/bot/goals/salvage.js';
 import { seedStationBuildings } from '../../src/services/station/buildings.js';
 import { seedStationDefenseUpgrades } from '../../src/services/station/defense.js';
 import { seedStationResources } from '../../src/services/station/resources.js';
