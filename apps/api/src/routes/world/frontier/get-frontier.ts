@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { getFrontierTargets } from '../../../services/world-mission.service.js';
+import { getFrontierTargets } from '../../../services/missions/index.js';
 import { defineRoute } from '../../../lib/route.js';
 
 const QuerySchema = z.object({ stationId: z.uuid() });

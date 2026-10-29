@@ -5,7 +5,7 @@ import type {
   VisibleStation,
 } from '@orions-frontier/shared';
 import type { CombatReport } from '@orions-frontier/shared';
-import type { BotIntent } from './bot-intent.js';
+import type { BotIntent } from './intent.js';
 
 /** Per-station snapshot for the goal-driven bot strategy. */
 export interface StationSnapshot {

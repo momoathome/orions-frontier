@@ -1,5 +1,5 @@
 import { authenticate } from '../../middleware/auth.js';
-import { getUserStations } from '../../services/station.service.js';
+import { getUserStations } from '../../services/station/index.js';
 import { defineRoute } from '../../lib/route.js';
 
 /**

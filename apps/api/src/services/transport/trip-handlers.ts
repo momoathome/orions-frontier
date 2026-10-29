@@ -4,15 +4,15 @@ import { asteroids, asteroidAssignments, asteroidVeins } from '../../lib/db/sche
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { claimMiningCargo } from '../mining/mining-claim.service.js';
+import { claimMiningCargo } from '../mining/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
-import { creditStationResources } from '../station-resource.service.js';
+import { creditStationResources } from '../station/index.js';
 import {
-  effectiveMiningRate,
-  effectiveCargoCapacity,
   applyVectorNavigation,
-} from '../research-effects.js';
+  effectiveCargoCapacity,
+  effectiveMiningRate,
+} from '../research/index.js';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
 import {
   completionEventId,

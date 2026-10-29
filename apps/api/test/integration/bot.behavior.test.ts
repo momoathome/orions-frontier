@@ -20,8 +20,8 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
-import { runBotDecisionTick } from '../../src/services/bot/bot.service.js';
-import { loadGoalBotState } from '../../src/services/bot/goal-loader.service.js';
+import { runBotDecisionTick } from '../../src/services/bot/bot.js';
+import { loadGoalBotState } from '../../src/services/bot/goal-loader.js';
 import {
   generateExploreSectorCandidate,
   generateEstablishColonyCandidate,
@@ -36,11 +36,11 @@ import {
   generateSalvageCandidates,
   stepSalvage,
 } from '../../src/services/bot/goal-economy.js';
-import { seedStationBuildings } from '../../src/services/building.service.js';
-import { seedStationDefenseUpgrades } from '../../src/services/defense.service.js';
-import { seedStationResources } from '../../src/services/station-resource.service.js';
-import { seedStationSpacecrafts } from '../../src/services/spacecraft.service.js';
-import { executeBotIntent } from '../../src/services/bot/bot-intent.js';
+import { seedStationBuildings } from '../../src/services/station/buildings.js';
+import { seedStationDefenseUpgrades } from '../../src/services/station/defense.js';
+import { seedStationResources } from '../../src/services/station/resources.js';
+import { seedStationSpacecrafts } from '../../src/services/station/spacecraft.js';
+import { executeBotIntent } from '../../src/services/bot/intent.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
@@ -834,8 +834,7 @@ test('bot exploration and colonization goal generation', async () => {
   assert.equal(colonyStep.intent.type, 'start_colonization');
 
   // Verify goal lifecycle integration — generateGoalCandidates should include expansion
-  const { generateGoalCandidates } =
-    await import('../../src/services/bot/goal-lifecycle.service.js');
+  const { generateGoalCandidates } = await import('../../src/services/bot/goal-lifecycle.js');
   const allCandidates = await generateGoalCandidates(state);
   const exploreCandidates = allCandidates.filter((c) => c.goalType === 'explore_sector');
   const colonyCandidates = allCandidates.filter((c) => c.goalType === 'establish_colony');
@@ -964,8 +963,7 @@ test('bot fortify and strike force goal generation', async () => {
   );
 
   // Verify generateGoalCandidates includes conflict goals
-  const { generateGoalCandidates } =
-    await import('../../src/services/bot/goal-lifecycle.service.js');
+  const { generateGoalCandidates } = await import('../../src/services/bot/goal-lifecycle.js');
   const allCandidates = await generateGoalCandidates(state);
   const fortifyCandidates = allCandidates.filter((c) => c.goalType === 'fortify_station');
   assert.ok(fortifyCandidates.length > 0, 'generateGoalCandidates should include fortify_station');

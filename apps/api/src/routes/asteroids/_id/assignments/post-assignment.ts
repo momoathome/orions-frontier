@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../../middleware/auth.js';
-import { createAsteroidAssignment } from '../../../../services/mining/assignment.service.js';
+import { createAsteroidAssignment } from '../../../../services/mining/index.js';
 import { publishUserEvent } from '../../../../lib/realtime.js';
 import { defineRoute, idParams } from '../../../../lib/route.js';
 

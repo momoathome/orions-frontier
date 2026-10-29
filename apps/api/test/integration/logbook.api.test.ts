@@ -10,8 +10,8 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { runSimulationTick } from '../../src/services/simulation.service.js';
-import { recordLogbookEvents } from '../../src/services/logbook.service.js';
+import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { recordLogbookEvents } from '../../src/services/logbook/logbook.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
 import { authHeaders, buildTestApp } from '../helpers/test-app.js';
 

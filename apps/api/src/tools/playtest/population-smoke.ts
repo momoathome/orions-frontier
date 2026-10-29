@@ -6,7 +6,7 @@ import { sectors } from '../../lib/db/schema/sectors.js';
 import { spawnSlots } from '../../lib/db/schema/spawn-slots.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { users } from '../../lib/db/schema/users.js';
-import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION } from '../../services/bot/bot-profiles.js';
+import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION } from '../../services/bot/index.js';
 import { joinSyntheticPlayer, PlaytestPopulationRegistry } from './population.js';
 import { EVEN_PROFILE_WEIGHTS } from './profile-distribution.js';
 

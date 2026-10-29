@@ -1,6 +1,6 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { WorldTickResult } from '../../services/simulation.service.js';
+import type { WorldTickResult } from '../../services/simulation/index.js';
 import type { PlaytestAliasRegistry } from './aliases.js';
 import type { PlaytestConfig } from './config.js';
 import {

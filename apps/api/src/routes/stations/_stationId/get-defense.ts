@@ -1,6 +1,5 @@
 import { authenticate } from '../../../middleware/auth.js';
-import { ownStation } from '../../../services/station.service.js';
-import { getStationDefenseUpgrades } from '../../../services/defense.service.js';
+import { getStationDefenseUpgrades, ownStation } from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 export default defineRoute(async (app) => {

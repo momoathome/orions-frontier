@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
-import { runWorldTick, type WorldTickResult } from '../../services/simulation.service.js';
+import { runWorldTick, type WorldTickResult } from '../../services/simulation/index.js';
 import { PlaytestAliasRegistry } from './aliases.js';
 import { bootstrapPlaytestWorld, type PlaytestBootstrapResult } from './bootstrap.js';
 import { PlaytestCollector } from './collector.js';

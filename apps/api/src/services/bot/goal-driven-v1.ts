@@ -1,6 +1,6 @@
 import { entriesOf, required } from '@orions-frontier/shared';
 import type { BotProfile, GoalType } from '../../lib/db/schema/bot-controllers.js';
-import { PROFILE_PARAMS } from './bot-profiles.js';
+import { PROFILE_PARAMS } from './profiles.js';
 
 // ---------------------------------------------------------------------------
 // Category system

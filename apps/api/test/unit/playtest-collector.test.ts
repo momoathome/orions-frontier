@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { BotDecisionOutcome } from '../../src/services/bot/bot.service.js';
+import type { BotDecisionOutcome } from '../../src/services/bot/bot.js';
 import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
 import { PlaytestCollector } from '../../src/tools/playtest/collector.js';
 import type { PlaytestCompletionEvent } from '../../src/lib/completion-events.js';

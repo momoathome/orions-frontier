@@ -1,6 +1,6 @@
 import { authenticate } from '../../middleware/auth.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
-import { findUserById, toAuthenticatedUser } from '../../services/auth.service.js';
+import { findUserById, toAuthenticatedUser } from '../../services/auth/index.js';
 import { defineRoute } from '../../lib/route.js';
 
 /**

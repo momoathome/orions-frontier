@@ -1,5 +1,5 @@
 import { authenticate } from '../../../../middleware/auth.js';
-import { getResearchState } from '../../../../services/research.service.js';
+import { getResearchState } from '../../../../services/research/index.js';
 import { defineRoute, stationParams } from '../../../../lib/route.js';
 
 export default defineRoute(async (app) => {

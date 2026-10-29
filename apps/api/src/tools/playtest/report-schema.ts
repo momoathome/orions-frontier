@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION } from '../../services/bot/bot-profiles.js';
+import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION } from '../../services/bot/index.js';
 import type { PlaytestConfig } from './config.js';
 import type { PlaytestInvariantFinding } from './invariants.js';
 import type { PlaytestRunResult } from './runner.js';

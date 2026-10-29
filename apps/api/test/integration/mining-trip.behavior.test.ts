@@ -20,10 +20,10 @@ import { users } from '../../src/lib/db/schema/users.js';
 import {
   createAsteroidAssignment,
   requestAsteroidAssignmentRecall,
-} from '../../src/services/mining/assignment.service.js';
+} from '../../src/services/mining/assignment.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
-import { getAsteroidById } from '../../src/services/asteroid.service.js';
-import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
+import { getAsteroidById } from '../../src/services/map/asteroid.js';
+import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();

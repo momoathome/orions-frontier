@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { authenticate } from '../../middleware/auth.js';
-import { createStation } from '../../services/station.service.js';
-import { seedBotsForSector } from '../../services/bot/bot-provision.service.js';
+import { createStation } from '../../services/station/index.js';
+import { seedBotsForSector } from '../../services/bot/index.js';
 import { defineRoute } from '../../lib/route.js';
 
 const CreateStationSchema = z.object({

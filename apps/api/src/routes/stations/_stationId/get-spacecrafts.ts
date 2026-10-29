@@ -1,6 +1,9 @@
 import { authenticate } from '../../../middleware/auth.js';
-import { ownStation } from '../../../services/station.service.js';
-import { getStationHangar, getStationSpacecrafts } from '../../../services/spacecraft.service.js';
+import {
+  getStationHangar,
+  getStationSpacecrafts,
+  ownStation,
+} from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 /**

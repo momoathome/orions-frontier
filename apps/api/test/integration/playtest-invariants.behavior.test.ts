@@ -17,7 +17,7 @@ import {
   type PlaytestInvariantCode,
 } from '../../src/tools/playtest/invariants.js';
 import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
-import type { WorldTickResult } from '../../src/services/simulation.service.js';
+import type { WorldTickResult } from '../../src/services/simulation/simulation.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
 
 let userId = '';

@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { ownStation } from '../../../services/station.service.js';
-import { startDefenseUpgrade } from '../../../services/defense.service.js';
+import { ownStation, startDefenseUpgrade } from '../../../services/station/index.js';
 import { defenseUpgradeKeys } from '@orions-frontier/shared';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 

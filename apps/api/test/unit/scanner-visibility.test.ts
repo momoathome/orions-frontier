@@ -5,7 +5,7 @@ import {
   isPointVisible,
   visibleChunkBounds,
   type ScannerCoverage,
-} from '../../src/services/scanner-visibility.service.js';
+} from '../../src/services/map/scanner-visibility.js';
 import { interpolateWorldPosition } from '../../src/lib/travel.js';
 
 const coverage = (overrides: Partial<ScannerCoverage> = {}): ScannerCoverage => ({

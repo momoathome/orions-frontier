@@ -9,7 +9,7 @@ import type { CombatReport, StationVisualProfile } from '@orions-frontier/shared
 import type { DefenseUpgradeKey } from '@orions-frontier/shared';
 import { getDefenseUpgrade, calculateDefenseUpgradeEffect } from '@orions-frontier/game-config';
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
-import { PROFILE_PARAMS } from './bot-profiles.js';
+import { PROFILE_PARAMS } from './profiles.js';
 
 // ---------------------------------------------------------------------------
 // Hostility

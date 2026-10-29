@@ -20,21 +20,21 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { worldMissions } from '../../src/lib/db/schema/world-missions.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
-import { startAttack } from '../../src/services/combat.service.js';
-import { createAsteroidAssignment } from '../../src/services/mining/assignment.service.js';
-import { startSalvage } from '../../src/services/salvage.service.js';
+import { startAttack } from '../../src/services/combat/combat.js';
+import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
+import { startSalvage } from '../../src/services/combat/salvage.js';
 import {
   setTestResources,
   createTestSector,
   createTestStation,
   createTestUser,
 } from '../helpers/fixtures.js';
-import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
+import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import {
   completeDueWorldMissions,
   startColonization,
   startExpedition,
-} from '../../src/services/world-mission.service.js';
+} from '../../src/services/missions/world-mission.js';
 
 const userIds: string[] = [];
 const sectorIds: string[] = [];

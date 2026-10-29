@@ -14,9 +14,9 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { WORLD_CONFIG } from '../../src/lib/world-config.js';
-import { seedBotsForSector } from '../../src/services/bot/bot-provision.service.js';
-import { ensureSector, openNextSettlementSector } from '../../src/services/sector.service.js';
-import { createStation } from '../../src/services/station.service.js';
+import { seedBotsForSector } from '../../src/services/bot/provision.js';
+import { ensureSector, openNextSettlementSector } from '../../src/services/map/sector.js';
+import { createStation } from '../../src/services/station/station.js';
 
 const userId = randomUUID();
 let sectorId = '';

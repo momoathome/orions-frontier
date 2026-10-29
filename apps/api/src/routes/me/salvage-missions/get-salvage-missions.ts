@@ -1,5 +1,5 @@
 import { authenticate } from '../../../middleware/auth.js';
-import { getUserSalvageMissions } from '../../../services/salvage.service.js';
+import { getUserSalvageMissions } from '../../../services/combat/index.js';
 import { defineRoute } from '../../../lib/route.js';
 
 export default defineRoute(async (app) => {

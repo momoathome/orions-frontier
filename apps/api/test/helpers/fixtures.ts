@@ -6,10 +6,10 @@ import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { seedStationBuildings } from '../../src/services/building.service.js';
-import { seedStationDefenseUpgrades } from '../../src/services/defense.service.js';
-import { seedStationResources } from '../../src/services/station-resource.service.js';
-import { seedStationSpacecrafts } from '../../src/services/spacecraft.service.js';
+import { seedStationBuildings } from '../../src/services/station/buildings.js';
+import { seedStationDefenseUpgrades } from '../../src/services/station/defense.js';
+import { seedStationResources } from '../../src/services/station/resources.js';
+import { seedStationSpacecrafts } from '../../src/services/station/spacecraft.js';
 
 export async function createTestUser(
   overrides: Partial<typeof users.$inferInsert> = {}

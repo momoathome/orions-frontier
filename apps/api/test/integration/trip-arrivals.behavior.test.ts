@@ -13,8 +13,8 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
-import { runSimulationTick } from '../../src/services/simulation.service.js';
+import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
+import { runSimulationTick } from '../../src/services/simulation/simulation.js';
 
 let userId: string;
 let stationId: string;

@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { ownStation } from '../../../services/station.service.js';
-import { buildSpacecrafts } from '../../../services/spacecraft.service.js';
+import { buildSpacecrafts, ownStation } from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 const BodySchema = z.object({

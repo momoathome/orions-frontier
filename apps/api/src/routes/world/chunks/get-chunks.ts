@@ -1,12 +1,12 @@
 import { authenticate } from '../../../middleware/auth.js';
-import { getVisibleChunkAsteroids } from '../../../services/asteroid.service.js';
-import { getVisibleChunkStations, parseChunkRange } from '../../../services/world.service.js';
-import { getVisibleDebris } from '../../../services/salvage.service.js';
 import {
   getUserRevealedAsteroidIds,
   getUserScannerCoverages,
-} from '../../../services/scanner-visibility.service.js';
-import type { VisibilityProjectionStats } from '../../../services/scanner-visibility.service.js';
+  getVisibleChunkAsteroids,
+  type VisibilityProjectionStats,
+} from '../../../services/map/index.js';
+import { getVisibleChunkStations, parseChunkRange } from '../../../services/world/index.js';
+import { getVisibleDebris } from '../../../services/combat/index.js';
 import { defineRoute, chunkRangeQuery } from '../../../lib/route.js';
 
 /** Maximum allowed chunk range per axis to prevent oversized queries */

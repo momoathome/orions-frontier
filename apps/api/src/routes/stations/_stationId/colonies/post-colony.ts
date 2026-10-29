@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../../middleware/auth.js';
-import { startColonization } from '../../../../services/world-mission.service.js';
+import { startColonization } from '../../../../services/missions/index.js';
 import { defineRoute, stationParams } from '../../../../lib/route.js';
 
 const BodySchema = z.object({

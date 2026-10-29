@@ -23,15 +23,15 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
-import { getStationBuildings, startBuildingUpgrade } from '../../src/services/building.service.js';
+import { getStationBuildings, startBuildingUpgrade } from '../../src/services/station/buildings.js';
 import {
   getStationDefenseUpgrades,
   startDefenseUpgrade,
-} from '../../src/services/defense.service.js';
-import { startResearch } from '../../src/services/research.service.js';
-import { buildSpacecrafts } from '../../src/services/spacecraft.service.js';
+} from '../../src/services/station/defense.js';
+import { startResearch } from '../../src/services/research/research.js';
+import { buildSpacecrafts } from '../../src/services/station/spacecraft.js';
 import { setTestResources, createTestSector, createTestUser } from '../helpers/fixtures.js';
-import { createStation } from '../../src/services/station.service.js';
+import { createStation } from '../../src/services/station/station.js';
 
 const virtualStart = new Date('2035-04-12T08:30:00.000Z');
 let userId = '';

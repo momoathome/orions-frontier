@@ -16,7 +16,7 @@ import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
 import { PlaytestCollector } from '../../src/tools/playtest/collector.js';
 import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 import { loadPlaytestSnapshot } from '../../src/tools/playtest/snapshot-loader.js';
-import { completeDueResearchDetailed } from '../../src/services/research.service.js';
+import { completeDueResearchDetailed } from '../../src/services/research/research.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
 
 let userId = '';
