@@ -1,10 +1,17 @@
-import { required } from '@orions-frontier/shared';
-import { and, eq, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import { asteroids, asteroidVeins, asteroidAssignments } from '../../lib/db/schema/asteroids.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
+import {
+  addAssignmentRecallRequest,
+  findAsteroid,
+  findAsteroidForUpdate,
+  insertAsteroidAssignment,
+  listStationAssignmentsWithAsteroid,
+} from '../../repositories/asteroids.js';
+import { insertTrip } from '../../repositories/spacecraft-trips.js';
+import {
+  findStationSpacecraftByKey,
+  reserveSpacecraft,
+} from '../../repositories/station-spacecrafts.js';
+import { findOwnedStation } from '../../repositories/stations.js';
 import type { AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';
@@ -50,19 +57,9 @@ export const createAsteroidAssignment = async (
   }
 
   // Unscanned asteroids may be mined blind; the scanner only limits what the player knows.
-  const [[station], [asteroid]] = await Promise.all([
-    db
-      .select({ id: stations.id, x: stations.x, y: stations.y })
-      .from(stations)
-      .where(
-        and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
-      )
-      .limit(1),
-    db
-      .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
-      .from(asteroids)
-      .where(eq(asteroids.id, asteroidId))
-      .limit(1),
+  const [station, asteroid] = await Promise.all([
+    findOwnedStation(db, stationId, userId),
+    findAsteroid(db, asteroidId),
   ]);
   if (!station) return { code: 'STATION_NOT_FOUND', message: 'Station not found' };
   if (!asteroid) {
@@ -76,20 +73,7 @@ export const createAsteroidAssignment = async (
   }
 
   // Check station has enough available (unlocked) spacecraft of this type
-  const [stationScraft] = await db
-    .select({
-      id: stationSpacecrafts.id,
-      amount: stationSpacecrafts.amount,
-      lockedAmount: stationSpacecrafts.lockedAmount,
-    })
-    .from(stationSpacecrafts)
-    .where(
-      and(
-        eq(stationSpacecrafts.stationId, stationId),
-        eq(stationSpacecrafts.spacecraftKey, spacecraftKey)
-      )
-    )
-    .limit(1);
+  const stationScraft = await findStationSpacecraftByKey(db, stationId, spacecraftKey);
   if (!stationScraft) {
     return { code: 'INSUFFICIENT_SPACECRAFT', message: 'No spacecraft of this type at station' };
   }
@@ -104,43 +88,26 @@ export const createAsteroidAssignment = async (
   const departedAt = context.now;
   const distance = calcDistance({ x: station.x, y: station.y }, { x: asteroid.x, y: asteroid.y });
   const created = await db.transaction(async (tx) => {
-    const [lockedAsteroid] = await tx
-      .select({ id: asteroids.id, x: asteroids.x, y: asteroids.y })
-      .from(asteroids)
-      .where(eq(asteroids.id, asteroidId))
-      .for('update');
+    const lockedAsteroid = await findAsteroidForUpdate(tx, asteroidId);
     if (!lockedAsteroid) return { kind: 'asteroid_missing' } as const;
 
-    const [locked] = await tx
-      .update(stationSpacecrafts)
-      .set({ lockedAmount: sql`${stationSpacecrafts.lockedAmount} + ${assignedAmount}` })
-      .where(
-        and(
-          eq(stationSpacecrafts.id, stationScraft.id),
-          sql`${stationSpacecrafts.amount} - ${stationSpacecrafts.lockedAmount} >= ${assignedAmount}`
-        )
-      )
-      .returning({ id: stationSpacecrafts.id });
+    const locked = await reserveSpacecraft(tx, stationScraft.id, assignedAmount);
 
     if (!locked) return { kind: 'insufficient_spacecraft' } as const;
 
-    const [assignment] = await tx
-      .insert(asteroidAssignments)
-      .values({
-        id: context.nextId('assignment'),
-        asteroidId,
-        stationId,
-        spacecraftKey,
-        assignedAmount,
-        assignedAt: context.now,
-        status: 'traveling_to_asteroid',
-      })
-      .returning({ id: asteroidAssignments.id });
-    const assignmentId = required(assignment, 'assignment').id;
+    const assignmentId = await insertAsteroidAssignment(tx, {
+      id: context.nextId('assignment'),
+      asteroidId,
+      stationId,
+      spacecraftKey,
+      assignedAmount,
+      assignedAt: context.now,
+      status: 'traveling_to_asteroid',
+    });
 
     // The whole group launches together and fans out around the asteroid on the map.
     const baseArrivesAt = calcArrivesAt(departedAt, distance, scraft.speed);
-    await tx.insert(spacecraftTrips).values({
+    await insertTrip(tx, {
       id: context.nextId('trip'),
       stationSpacecraftId: stationScraft.id,
       assignmentId,
@@ -188,24 +155,13 @@ export const requestAsteroidAssignmentRecall = async (
   if (!Number.isInteger(amount) || amount < 1) return false;
 
   const db = getDb();
-  const result = await db
-    .update(asteroidAssignments)
-    .set({
-      recallRequestedAt: context.now,
-      recallRequestedAmount: sql`${asteroidAssignments.recallRequestedAmount} + ${amount}`,
-    })
-    .from(stations)
-    .where(
-      and(
-        eq(asteroidAssignments.id, params.assignmentId),
-        eq(asteroidAssignments.asteroidId, params.asteroidId),
-        eq(asteroidAssignments.stationId, stations.id),
-        eq(stations.userId, params.userId),
-        sql`${asteroidAssignments.assignedAmount} - ${asteroidAssignments.recallRequestedAmount} >= ${amount}`
-      )
-    )
-    .returning({ id: asteroidAssignments.id });
-  return result.length > 0;
+  return addAssignmentRecallRequest(db, {
+    assignmentId: params.assignmentId,
+    asteroidId: params.asteroidId,
+    userId: params.userId,
+    amount,
+    requestedAt: context.now,
+  });
 };
 
 export interface StationMiningAssignment {
@@ -231,35 +187,7 @@ export const getStationMiningAssignments = async (
 ): Promise<StationMiningAssignment[]> => {
   const db = getDb();
 
-  const rows = await db
-    .select({
-      id: asteroidAssignments.id,
-      asteroidId: asteroidAssignments.asteroidId,
-      spacecraftKey: asteroidAssignments.spacecraftKey,
-      assignedAmount: asteroidAssignments.assignedAmount,
-      assignedAt: asteroidAssignments.assignedAt,
-      status: asteroidAssignments.status,
-      recallRequestedAt: asteroidAssignments.recallRequestedAt,
-      recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
-      asteroidX: asteroids.x,
-      asteroidY: asteroids.y,
-      asteroidSize: asteroids.size,
-      asteroidPrimaryResourceKey: asteroidVeins.resourceKey,
-      asteroidRemainingAmount: sql<number>`(
-        SELECT COALESCE(SUM(v.remaining_amount), 0)::int
-        FROM asteroid_veins v WHERE v.asteroid_id = ${asteroids.id}
-      )`,
-    })
-    .from(asteroidAssignments)
-    .innerJoin(asteroids, eq(asteroids.id, asteroidAssignments.asteroidId))
-    .leftJoin(
-      asteroidVeins,
-      and(
-        eq(asteroidVeins.asteroidId, asteroidAssignments.asteroidId),
-        eq(asteroidVeins.veinType, 'primary')
-      )
-    )
-    .where(eq(asteroidAssignments.stationId, stationId));
+  const rows = await listStationAssignmentsWithAsteroid(db, stationId);
 
   return rows.map((r) => ({
     id: r.id,

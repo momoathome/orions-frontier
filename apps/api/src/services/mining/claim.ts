@@ -1,7 +1,9 @@
-import { eq } from 'drizzle-orm';
 import type { Tx } from '../../lib/db/index.js';
-import { asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import type { CargoManifest } from '../../lib/db/schema/spacecraft-trips.js';
+import {
+  listAsteroidVeinsForUpdate,
+  updateAsteroidVeinRemaining,
+} from '../../repositories/asteroids.js';
 
 export interface MiningClaim {
   cargoManifest: CargoManifest;
@@ -19,16 +21,7 @@ export async function claimMiningCargo(
     throw new RangeError('maxAmount must be an integer greater than 0');
   }
 
-  const veins = await tx
-    .select({
-      id: asteroidVeins.id,
-      resourceKey: asteroidVeins.resourceKey,
-      remainingAmount: asteroidVeins.remainingAmount,
-    })
-    .from(asteroidVeins)
-    .where(eq(asteroidVeins.asteroidId, asteroidId))
-    .orderBy(asteroidVeins.createdAt, asteroidVeins.id)
-    .for('update');
+  const veins = await listAsteroidVeinsForUpdate(tx, asteroidId);
 
   const totalAvailable = veins.reduce((sum, vein) => sum + vein.remainingAmount, 0);
   const totalToClaim = Math.min(totalAvailable, maxAmount);
@@ -47,10 +40,7 @@ export async function claimMiningCargo(
 
     if (amount > 0) {
       cargoManifest[vein.resourceKey] = (cargoManifest[vein.resourceKey] ?? 0) + amount;
-      await tx
-        .update(asteroidVeins)
-        .set({ remainingAmount: vein.remainingAmount - amount })
-        .where(eq(asteroidVeins.id, vein.id));
+      await updateAsteroidVeinRemaining(tx, vein.id, vein.remainingAmount - amount);
     }
 
     available -= vein.remainingAmount;

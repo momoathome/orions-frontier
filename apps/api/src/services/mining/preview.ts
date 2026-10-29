@@ -1,9 +1,7 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
 import { getSpacecraft } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
-import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import { sumAsteroidRemainingAmount } from '../../repositories/asteroids.js';
+import { findMiningRoute } from '../../repositories/stations.js';
 import { calculateMiningCycle } from '../../lib/mining-cycle.js';
 import { calcDistance } from '../../lib/travel.js';
 import {
@@ -36,28 +34,8 @@ export async function getMiningPreview({
   const db = getDb();
   const spacecraft = getSpacecraft(spacecraftKey);
   if (!spacecraft) return { ok: false, status: 404, message: 'Spacecraft not found' } as const;
-  const [[row], coverages, revealedIds] = await Promise.all([
-    db
-      .select({
-        stationX: stations.x,
-        stationY: stations.y,
-        asteroidX: asteroids.x,
-        asteroidY: asteroids.y,
-        available: sql<number>`${stationSpacecrafts.amount} - ${stationSpacecrafts.lockedAmount}`,
-      })
-      .from(stations)
-      .innerJoin(
-        stationSpacecrafts,
-        and(
-          eq(stationSpacecrafts.stationId, stations.id),
-          eq(stationSpacecrafts.spacecraftKey, spacecraftKey)
-        )
-      )
-      .innerJoin(asteroids, eq(asteroids.id, asteroidId))
-      .where(
-        and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
-      )
-      .limit(1),
+  const [row, coverages, revealedIds] = await Promise.all([
+    findMiningRoute(db, { stationId, userId, spacecraftKey, asteroidId }),
     getUserScannerCoverages(userId),
     getUserRevealedAsteroidIds(userId),
   ]);
@@ -76,11 +54,7 @@ export async function getMiningPreview({
     return { ok: false, status: 400, message: `Only ${row.available} miners available` } as const;
   }
 
-  const [reserve] = await db
-    .select({ amount: sql<number>`coalesce(sum(${asteroidVeins.remainingAmount}), 0)::int` })
-    .from(asteroidVeins)
-    .where(eq(asteroidVeins.asteroidId, asteroidId));
-  const remainingAmount = reserve?.amount ?? 0;
+  const remainingAmount = await sumAsteroidRemainingAmount(db, asteroidId);
   const scanned =
     revealedIds.has(asteroidId) ||
     isPointVisible(coverages, { x: row.asteroidX, y: row.asteroidY });
