@@ -150,5 +150,15 @@ Wir erweitern den vorhandenen technischen Vorsprung nicht um weitere klassische
 Browsergame-Kataloge. Neue Arbeit stärkt den spielergesteuerten Idle-Kern: endliche Asteroiden,
 sichtbare Mining-Rundläufe, verständliche Leistungswerte und bewusste Investitionsentscheidungen.
 
-Der aktuelle Stand und die verbleibende Balancingphase sind im
-[Umsetzungsplan](docs/implementation-plan.md) festgehalten.
+Richtung, Entscheidungen, Zahlenziele und offene Arbeit stehen im
+[Design-Kompass](docs/design-compass.md). Die fachlichen Verträge der Systeme:
+
+- [Mining-Rundlauf](docs/mining-loop.md)
+- [Stationskapazitäten](docs/station-capacities.md)
+- [Weltgenerierung](docs/world-generation.md)
+- [Scanner und Sichtbarkeit](docs/scanner-visibility.md)
+- [Bot-System](docs/bot-system.md)
+
+Offene Specs für die nächste Mechanik: [Bomber und Vernichtung](docs/station-destruction.md).
+
+Abgeschlossene Pläne und Tickets stehen in der Git-Historie, nicht in `docs/`.

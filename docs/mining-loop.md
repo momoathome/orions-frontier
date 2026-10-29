@@ -1,232 +1,90 @@
 # Endlicher Mining-Rundlauf
 
-Status: Backend-Kern, Recall, Entscheidungs-UI und sichtbare Mining-Phasen umgesetzt.
+Der Spieler wählt Asteroid und Minerzahl. Automatisiert ist nur die wiederkehrende Ausführung des
+Auftrags: Flug, Abbau, Rückkehr und Lieferung. Die Station wählt weder Ressourcen noch Asteroiden und
+baut nichts selbstständig.
 
-Implementierungsstand: Der Backend-Rundlauf von der Zuweisung über Hinflug, ankunftsbasierte
-Beanspruchung, Abbauzeit, Rückflug und Lieferung wiederholt sich bereits bis zur vollständigen
-Erschöpfung. Der alte periodische Mining-Tick, die Pufferbefüllung, automatische Selbst-Recalls und
-die Transporter-Disposition wurden aus dem Laufzeitpfad entfernt. Die allgemeine verzögerte
-Trip-Verarbeitung bleibt für die neuen Hin- und Rückflüge bestehen. Die zugehörigen alten
-Datenbankfelder und die funktionslosen Transporterschiffe wurden ebenfalls entfernt.
+## Ablauf
 
-Dieses Dokument ersetzt den Entwurf eines „Autonomous Core“. Die Station wählt weder Ressourcen
-noch Asteroiden und baut nicht selbstständig Module oder Einheiten. Automatisiert wird nur die
-wiederkehrende Ausführung eines vom Spieler eingerichteten Mining-Auftrags.
+1. Der Spieler beurteilt Entfernung, Vorrat und die Leistung seiner Miner und weist Miner zu.
+2. Die Gruppe startet gemeinsam, fliegt zum Asteroiden und beansprucht bei Ankunft ihre Ladung.
+3. Sie baut ab, fliegt zurück und liefert an die Station.
+4. Der Auftrag wiederholt sich, bis der Spieler ihn ändert oder der Asteroid erschöpft ist.
 
-## Spielerischer Kern
+Auf der Karte umkreisen die Miner den Asteroiden während des Abbaus langsam und verlassen den Orbit
+dort, wo sie angekommen sind.
 
-1. Der Spieler entdeckt einen Asteroiden.
-2. Er beurteilt Entfernung, Vorrat und die Leistung seiner verfügbaren Miner.
-3. Er weist dem Asteroiden einen oder mehrere Miner zu.
-4. Die Miner fliegen hin, bauen ab, kehren mit ihrer Ladung zurück und liefern sie ab.
-5. Der Auftrag wiederholt sich, bis der Spieler ihn ändert oder der Asteroid erschöpft ist.
-6. Der Spieler investiert die gelieferten Ressourcen in Stationsmodule und Einheiten.
-
-Das Idle-Spiel übernimmt damit Wiederholung und Offline-Fortschritt, aber nicht die
-wirtschaftlichen Entscheidungen des Spielers.
-
-## Festgelegte Entscheidungen
+## Regeln
 
 ### Endliche Asteroiden
 
-- Jede Ressourcenader besitzt eine konkrete verbleibende Menge.
-- Förderung reduziert diese Menge tatsächlich.
-- Asteroiden besitzen keine zusätzliche Förderkapazität. Zehn Miner dürfen annähernd zehnmal so
-  schnell abbauen wie ein Miner.
-- Es gibt keinen geschützten Restvorrat und keine automatische wirtschaftliche Abschaltung.
-- Nach vollständiger Erschöpfung endet der Auftrag; Miner kehren mit ihrer letzten, gegebenenfalls
-  unvollständigen Ladung zurück.
-- Restmenge und erwartete Erschöpfungszeit sind vor und während des Auftrags sichtbar.
+- Jede Ressourcenader hat nur `resourceKey` und `remainingAmount`. Abbaurate und Geschwindigkeit
+  kommen ausschließlich vom Miner, die Entfernung bestimmt nur die Flugzeit.
+- Förderung reduziert den Vorrat tatsächlich. Es gibt kein Förderlimit pro Asteroid: zehn Miner
+  bauen annähernd zehnmal so schnell ab wie einer.
+- Es gibt keinen geschützten Restvorrat und keine automatische Abschaltung. Restmenge und erwartete
+  Erschöpfung sind vor und während des Auftrags sichtbar.
+- Ein Asteroid ist erschöpft, sobald alle Adern `remainingAmount = 0` haben. Er wird entfernt, wenn
+  die letzte aktive Gruppe ihre Ladung abgeliefert hat.
 
-Eine schnelle Erschöpfung durch viele Miner ist eine bewusste Spielerentscheidung. Die
-Vorratsgrößen müssen verhindern, dass ein normal belegter früher Asteroid unbeabsichtigt in einer
-kurzen Offline-Phase verschwindet.
+Vorratsbereiche (`apps/api/src/lib/world-config.ts`):
 
-### Einfaches Asteroidenmodell
+| Größe  |    Gesamtvorrat |
+| ------ | --------------: |
+| klein  |     2.700–4.800 |
+| mittel |   12.000–21.000 |
+| groß   |   45.000–84.000 |
+| massiv | 240.000–420.000 |
 
-Eine Ressourcenader benötigt im Zielmodell nur:
-
-```text
-resourceKey       carbon
-remainingAmount  10000
-```
-
-`yieldPerHour` wird durch `remainingAmount` ersetzt. `stability`, `purity` und `purityTier`
-entfallen ebenfalls:
-
-- die Abbaugeschwindigkeit kommt ausschließlich vom Miner;
-- die Entfernung beeinflusst ausschließlich Flugzeit und Lieferleistung;
-- die Asteroidengröße bestimmt bei der Weltgenerierung den möglichen Vorratsbereich;
-- die Ressourcenverteilung der Welt bestimmt, wie häufig Carbon, Titanium und seltene Ressourcen
-  gefunden werden.
-
-Ein Asteroid darf weiterhin mehrere Ressourcenadern besitzen. Sein Gesamtvorrat wird anhand seiner
-Größe erzeugt und auf die vorhandenen Adern verteilt. Dafür kann die bestehende Gewichtung aus
-Primär-, Sekundär- und Spurader zunächst weiterverwendet werden; sie ist dann nur noch eine
-Verteilungsregel und kein Förderlimit.
-
-Aktuelle Vorratsbereiche der spielbaren Baseline:
-
-| Größe  |   Gesamtvorrat |
-| ------ | -------------: |
-| klein  |      900–1.600 |
-| mittel |    4.000–7.000 |
-| groß   |  15.000–28.000 |
-| massiv | 80.000–140.000 |
-
-Die Werte bilden den messbaren Startvertrag für den spielbaren Durchstich. Weiteres Balancing
-erfolgt anhand echter Spielsessions. Ressourcen
-werden als ganze Einheiten gespeichert. Ein Asteroid gilt ohne zusätzliches Statusfeld als
-erschöpft, sobald alle seine Adern `remainingAmount = 0` besitzen. Er bleibt nur so lange in der Welt,
-bis alle bereits aktiven Minergruppen ihre beanspruchte Ladung abgeliefert haben. Mit der Rückkehr
-der letzten Gruppe werden Asteroid und Adern entfernt.
-
-Die Vorratsbereiche werden später aus einer gewünschten Laufzeit abgeleitet:
-
-```text
-Zielvorrat = Referenz-Lieferleistung × gewünschte Laufzeit
-```
-
-Ein Vorrat von `1.200` Einheiten hält bei einer frühen Lieferleistung von ungefähr `300/h` etwa
-vier Stunden. Drei gleiche Miner verkürzen diese Dauer näherungsweise auf gut eine Stunde. So
-bleiben die Vorratswerte nachvollziehbar, obwohl sie anschließend anhand des Spielgefühls angepasst
-werden.
-
-Bei konkurrierenden Minern wird die tatsächlich entnommene Menge innerhalb einer
-Datenbanktransaktion auf den aktuellen Restvorrat begrenzt. Dadurch kann die letzte Ladung kleiner
-als der Frachtraum sein, aber der Vorrat niemals negativ werden.
-
-### Ein Miner übernimmt den Rundlauf
-
-Für den ersten spielbaren Schnitt gibt es keinen separaten Transporterbetrieb:
-
-1. Der Miner fliegt leer zum Asteroiden.
-2. Er baut, bis sein Frachtraum voll oder der Asteroid erschöpft ist.
-3. Er fliegt zur Station zurück und liefert seine Ladung ab.
-4. Bei bestehendem Auftrag und verbleibendem Vorrat beginnt der nächste Rundlauf.
-
-Fordert der Spieler einen Recall an, kann er einzelne Miner aus einer gemeinsam versendeten Gruppe
-auswählen. Sie beenden den aktuellen Rundlauf und werden bei der nächsten Ankunft an der Station
-freigegeben. Die verbleibenden Miner starten danach wieder gemeinsam. Trifft die Recall-Anforderung
-noch vor der Beanspruchung am Asteroiden ein, bauen nur die weiterhin aktiven Miner eine neue Ladung
-ab; die zurückgerufenen Miner kehren mit der Gruppe zur Station zurück.
-
-Asteroidenpuffer, automatische Transport-Disposition, Förderkapazität und
-Stabilitätsverschleiß entfallen mit der Umstellung. Spezialisierte Logistik kommt nur zurück, wenn
-ein späterer spielbarer Bedarf wie Außenposten oder große Mining-Netze sie rechtfertigt.
+Der Gesamtvorrat wird nach Größe erzeugt und auf Primär-, Sekundär- und Spuradern verteilt.
 
 ### Konkurrenz um den letzten Vorrat
 
-Beim Versenden wird noch keine Ressource reserviert. Erst wenn eine Minergruppe tatsächlich am
-Asteroiden ankommt, beansprucht sie innerhalb einer Datenbanktransaktion höchstens ihren
-gemeinsamen Frachtraum. Mehrere Miner derselben Gruppe teilen eine unvollständige Ladung und bauen
-sie mit ihrer gemeinsamen Rate ab.
+Beim Versenden wird nichts reserviert. Erst bei Ankunft beansprucht eine Gruppe in einer
+Transaktion höchstens ihren gemeinsamen Frachtraum. Beanspruchte Ressourcen stehen später
+eintreffenden Gruppen nicht mehr zur Verfügung. Reicht der freie Vorrat nicht, gibt es eine
+Teilladung mit kürzerer Abbauzeit; ist nichts mehr frei, kehrt die Gruppe leer zurück. Es zählt
+die Ankunftszeit, nicht der Versandzeitpunkt. Der Vorrat wird nie negativ.
 
-Bereits beanspruchte Ressourcen zählen als „im Abbau“ und stehen später eintreffenden Gruppen nicht
-mehr zur Verfügung. Reicht der freie Vorrat nicht, erhält die Gruppe eine Teilladung und benötigt
-entsprechend weniger Abbauzeit. Ist nichts mehr frei, endet ihr Auftrag und sie kehrt leer zurück.
-Bei konkurrierenden Spielern entscheidet damit die tatsächliche Ankunftszeit und nicht der
-Zeitpunkt des Versendens. Gleichzeitig verarbeitete Ankünfte werden durch die Transaktion eindeutig
-nacheinander vergeben.
+### Recall
 
-### Verantwortung des Spielers
+Der Spieler kann einzelne Miner einer Gruppe zurückrufen. Sie beenden den aktuellen Rundlauf und
+werden bei der nächsten Ankunft an der Station frei; die übrigen starten wieder gemeinsam. Trifft der
+Recall vor der Beanspruchung ein, bauen nur die weiterhin aktiven Miner ab.
 
-Der Spieler entscheidet:
+### Lieferung
 
-- welcher Asteroid erschlossen wird;
-- wie viele Miner dort arbeiten;
-- welches Stationsmodul gebaut wird;
-- welche Einheit gebaut wird;
-- welche Expedition oder welcher Angriff gestartet wird.
-
-Automatisch sind nur Flug, Abbau, Rückkehr und Lieferung eines bereits erteilten Auftrags.
-
-### Weltraumperspektive
-
-Eigene Miner und andere Einheiten bleiben unabhängig von Scannerabdeckung als Schiffe sichtbar.
-Fremde Einheiten erscheinen nur innerhalb eines eigenen Scannerkreises als informationsarme
-Radarkontakte. Eine Umstellung auf Bewohnergruppen ist nicht vorgesehen.
+Die Lieferung lagert höchstens den freien Platz im Warehouse ein; der Rest verfällt
+(siehe `docs/station-capacities.md`).
 
 ## Zeit- und Leistungsmodell
 
-Die Abbaurate beschreibt die Leistung während der Arbeit am Asteroiden. Die Reisezeit reduziert
-die tatsächlich an der Station ankommende Leistung.
-
 ```text
 Abbauzeit       = Ladungsmenge / Abbaurate
-Flugzeit        = Entfernung / Geschwindigkeit
+Flugzeit        = Entfernung / (Geschwindigkeit × 80)
 Rundlaufzeit    = Abbauzeit + 2 × Flugzeit
 Lieferleistung  = Ladungsmenge / Rundlaufzeit
 ```
 
-Für eine Mole mit `600/h` Abbaurate und `100` Einheiten Frachtraum beträgt die reine Abbauzeit
-10 Minuten:
+Eine Mole (`600/h`, 100 Frachtraum) baut 10 Minuten ab:
 
-- 2 Minuten Flug pro Strecke: 14 Minuten Rundlauf, ungefähr `429/h` Lieferleistung;
-- 4 Minuten Flug pro Strecke: 18 Minuten Rundlauf, ungefähr `333/h` Lieferleistung;
-- 10 Minuten Flug pro Strecke: 30 Minuten Rundlauf, `200/h` Lieferleistung.
+- 2 Minuten Flug pro Strecke: 14 Minuten Rundlauf, etwa `429/h`;
+- 4 Minuten Flug pro Strecke: 18 Minuten Rundlauf, etwa `333/h`;
+- 10 Minuten Flug pro Strecke: 30 Minuten Rundlauf, `200/h`.
 
-Bei der letzten Teilmenge wird mit der tatsächlichen Ladungsmenge gerechnet. Für mehrere gleiche
-Miner kann die Vorschau näherungsweise linear rechnen, solange genügend Vorrat verbleibt:
+Die Vorschau rechnet für mehrere gleiche Miner linear, solange genug Vorrat bleibt. Angezeigte Zeiten
+und Raten stammen aus demselben Modell wie die Simulation.
 
-```text
-Gemeinsame Lieferleistung = Anzahl Miner × Lieferleistung eines Miners
-```
+Damit hat jeder Schiffswert eine Bedeutung: Abbaurate verkürzt die Arbeitsphase, Geschwindigkeit
+lohnt sich auf langen Strecken, Frachtraum verteilt die Reisezeit auf mehr Ladung, und ein
+stärkerer Miner bringt mehr Leistung pro Hangarplatz.
 
-Die Simulation selbst muss konkurrierende Abbauvorgänge transaktional begrenzen, damit der
-Asteroid nie unter null fällt und seine letzte Ressource nur einmal vergeben wird.
+## Baseline
 
-## Darstellung und Entscheidungshilfe
+Als Regressionstest in `apps/api/test/unit/asteroid-gen.test.ts` festgehalten:
 
-Vor einer Zuweisung zeigt die Oberfläche:
-
-- Entfernung zum Asteroiden;
-- Ressourcenarten und verbleibende Mengen;
-- Geschwindigkeit, Abbaurate und Frachtraum des Miners;
-- Flugzeit pro Strecke und erwartete Rundlaufzeit;
-- Lieferleistung eines Miners und aller vorgesehenen Miner zusammen;
-- erwartete vollständige Erschöpfung des Asteroiden.
-
-Während des Auftrags zeigt die Welt die Miner in den Phasen Hinflug, Abbau und Rückflug. Angezeigte
-Zeiten und Raten sind Prognosen aus demselben Berechnungsmodell, das die Simulation verwendet.
-
-## Sinn der Schiffswerte
-
-- Eine höhere Abbaurate verkürzt die Arbeitsphase.
-- Eine höhere Geschwindigkeit ist besonders auf langen Strecken wertvoll.
-- Ein größerer Frachtraum verteilt die Reisezeit auf mehr gelieferte Ressourcen.
-- Ein leistungsfähigerer Miner erzielt mehr Lieferleistung pro später belegtem Hangarplatz.
-
-Damit sind Entfernung und Schiffswahl echte wirtschaftliche Entscheidungen, ohne eine zusätzliche
-Transportökonomie zu benötigen.
-
-## Bewusst nachgelagert
-
-### Hangarplätze
-
-Hangarplätze bleiben als gemeinsame Grenze für zivile und militärische Schiffe vorgesehen. Sie
-werden erst nach dem funktionierenden Mining-Rundlauf eingeführt. Ein Schiff belegt seinen Platz
-auch während eines Auftrags, damit abwesende Schiffe keinen unbegrenzten Neubau erlauben.
-
-### Hydrogenium
-
-`hydrogenium` bleibt als Energieversorgung der Station vorgesehen. Ob Mining-Aufträge oder
-Entfernung zusätzlich Hydrogenium verbrauchen, wird erst nach einem spielbaren Rundlauf bewertet.
-Der erste Schnitt erhält keine weitere Verbrauchsregel nur um ihrer selbst willen.
-
-### Logistik
-
-Separate Frachter und lokale Ressourcenpuffer sind kein Teil des ersten Kerns. Sie werden nicht als
-bereits geplantes Ausbaulevel vorgebaut.
-
-## Aktuelle Balancing-Baseline
-
-- Ein kleiner Starterasteroid hält mit drei Mole ungefähr 2-4,5 Stunden.
-- Eine neue Station beginnt mit drei Mole (`600/h`, 100 Frachtraum, Geschwindigkeit 80).
-- Starterziele ergeben damit ungefähr 13-18 Minuten Rundlauf; eine Lieferung deckt einen
-  spürbaren Teil des nächsten frühen Upgrades (siehe `docs/design-compass.md`).
-- Core-Level 1 bietet zehn Hangarplätze. Der Spieler kann seine erste Miningflotte ausbauen, muss
-  vor größeren zivilen und militärischen Flotten aber in den Core investieren.
-
-Diese Werte sind als Regressionstest festgehalten. Sie werden nur anhand realer Spielverläufe
-verändert, nicht durch eine zweite vorsorgliche Balanceformel.
+- Eine neue Station beginnt mit drei Mole.
+- Starterziele liegen 1,5–4,2 Flugminuten entfernt, ein Rundlauf dauert 12–19 Minuten.
+- Eine Lieferung deckt einen spürbaren Teil des nächsten frühen Upgrades
+  (siehe `docs/design-compass.md`).
+- Ein kleiner Starterasteroid hält mit drei Mole etwa 2–4,5 Stunden.
