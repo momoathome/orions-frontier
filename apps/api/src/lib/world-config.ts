@@ -19,10 +19,10 @@ export const WORLD_CONFIG = {
     massive: { min: 3, max: 3 },
   },
   ASTEROID_RESOURCE_AMOUNT: {
-    small: { min: 900, max: 1_600 },
-    medium: { min: 4_000, max: 7_000 },
-    large: { min: 15_000, max: 28_000 },
-    massive: { min: 80_000, max: 140_000 },
+    small: { min: 2_700, max: 4_800 },
+    medium: { min: 12_000, max: 21_000 },
+    large: { min: 45_000, max: 84_000 },
+    massive: { min: 240_000, max: 420_000 },
   },
   VEIN_WEIGHTS: { primary: 0.7, secondary: 0.25, trace: 0.05 },
 

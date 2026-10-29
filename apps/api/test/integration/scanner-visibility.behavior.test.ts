@@ -14,6 +14,7 @@ import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
+import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/asteroid.service.js';
@@ -212,9 +213,18 @@ after(async () => {
   await db
     .delete(spacecraftTrips)
     .where(inArray(spacecraftTrips.stationSpacecraftId, [viewerFleetId, targetFleetId]));
-  await db
-    .delete(asteroidAssignments)
-    .where(inArray(asteroidAssignments.asteroidId, [visibleAsteroidId, hiddenAsteroidId]));
+  // Trips before assignments, like the arrival worker locks them, so a dev worker settling a
+  // test trip concurrently cannot deadlock this cleanup.
+  await db.transaction(async (tx) => {
+    const testAssignments = tx
+      .select({ id: asteroidAssignments.id })
+      .from(asteroidAssignments)
+      .where(inArray(asteroidAssignments.asteroidId, [visibleAsteroidId, hiddenAsteroidId]));
+    await tx.delete(spacecraftTrips).where(inArray(spacecraftTrips.assignmentId, testAssignments));
+    await tx
+      .delete(asteroidAssignments)
+      .where(inArray(asteroidAssignments.asteroidId, [visibleAsteroidId, hiddenAsteroidId]));
+  });
   await db.delete(debrisFields).where(eq(debrisFields.sectorId, sectorId));
   await db.delete(asteroids).where(eq(asteroids.sectorId, sectorId));
   await db
@@ -223,6 +233,15 @@ after(async () => {
   await db
     .delete(stationSpacecrafts)
     .where(inArray(stationSpacecrafts.id, [viewerFleetId, targetFleetId]));
+  // A dev worker settling a test trip may have credited cargo to a test station.
+  await db
+    .delete(stationResources)
+    .where(
+      inArray(
+        stationResources.stationId,
+        db.select({ id: stations.id }).from(stations).where(eq(stations.sectorId, sectorId))
+      )
+    );
   await db.delete(stations).where(eq(stations.sectorId, sectorId));
   await db.delete(users).where(inArray(users.id, [viewerId, targetId]));
   await db.delete(sectors).where(eq(sectors.id, sectorId));
@@ -329,6 +348,12 @@ test('blind mining reveals an unscanned asteroid once the first cargo heads home
   assert.equal(revealed?.scanned, true);
   assert.equal(revealed.veins.length, 1);
   assert.equal((await getAsteroidById(hiddenAsteroidId, targetId))?.scanned, false);
+
+  // Stop the blind mining again so a running dev worker cannot mine out the shared fixture.
+  await getDb().transaction(async (tx) => {
+    await tx.delete(spacecraftTrips).where(eq(spacecraftTrips.assignmentId, created.id));
+    await tx.delete(asteroidAssignments).where(eq(asteroidAssignments.id, created.id));
+  });
 });
 
 test('salvage and attacks still require scanner coverage', async () => {
@@ -395,6 +420,45 @@ test('foreign movement is a route-free contact while the owner keeps its full tr
   assert.equal(ownTrip?.kind, 'own_trip');
   assert.equal(ownTrip.fromX, 2_500);
   assert.equal(ownTrip.toX, -2_500);
+});
+
+test('foreign civil traffic outside the scanner is an anonymous blip', async () => {
+  const miningTripId = randomUUID();
+  // An hour ahead, so a running API worker cannot settle the trip during the test.
+  const later = new Date(now.getTime() + 3_600_000);
+  await getDb()
+    .insert(spacecraftTrips)
+    .values({
+      id: miningTripId,
+      stationSpacecraftId: targetFleetId,
+      groupSize: 1,
+      fromType: 'station',
+      fromId: visibleTargetStationId,
+      fromX: 2_500,
+      fromY: 0,
+      toType: 'station',
+      toId: hiddenTargetStationId,
+      toX: -2_500,
+      toY: 0,
+      departedAt: new Date(later.getTime() - 5_000),
+      arrivesAt: new Date(later.getTime() + 5_000),
+      purpose: 'mining_return',
+      cargoManifest: { carbon: 10 },
+    });
+
+  const movements = (when: Date) =>
+    getVisibleWorldMovements(range, viewerId, when).then((all) =>
+      all.filter(({ id }) => id === miningTripId)
+    );
+  const [blip] = await movements(new Date(later.getTime() - 5_000));
+  assert.equal(blip?.kind, 'radar_contact');
+  assert.equal(blip.signature, null);
+  for (const privateField of ['fromX', 'toX', 'groupSize', 'ownerType', 'cargoManifest']) {
+    assert.equal(privateField in blip, false);
+  }
+  const [scanned] = await movements(later);
+  assert.equal(scanned?.kind === 'radar_contact' && scanned.signature, 'miner');
+  await getDb().delete(spacecraftTrips).where(eq(spacecraftTrips.id, miningTripId));
 });
 
 test('a trip crossing the view stays visible although both endpoints lie outside it', async () => {

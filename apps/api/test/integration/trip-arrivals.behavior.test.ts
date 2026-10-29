@@ -112,7 +112,7 @@ test('parallel mining returns store only free warehouse capacity', async () => {
   const db = getDb();
   await db
     .update(stationResources)
-    .set({ amount: 1_490 })
+    .set({ amount: 4_990 })
     .where(eq(stationResources.stationId, stationId));
   const now = new Date();
   const trips = await db
@@ -149,7 +149,7 @@ test('parallel mining returns store only free warehouse capacity', async () => {
         trips.map((trip) => trip.id)
       )
     );
-  assert.equal(resource?.amount, 1_500);
+  assert.equal(resource?.amount, 5_000);
   assert.equal(
     settled.reduce((sum, trip) => sum + (trip.cargoManifest?.carbon ?? 0), 0),
     10

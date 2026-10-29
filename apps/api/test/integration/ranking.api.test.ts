@@ -26,6 +26,14 @@ const setCoreLevel = (stationId: string, level: number) =>
       and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'core'))
     );
 
+const setMoles = (stationId: string, amount: number) =>
+  getDb()
+    .update(stationSpacecrafts)
+    .set({ amount })
+    .where(
+      and(eq(stationSpacecrafts.stationId, stationId), eq(stationSpacecrafts.spacecraftKey, 'mole'))
+    );
+
 before(async () => {
   await runMigrations();
   await initDb();
@@ -34,14 +42,14 @@ before(async () => {
   const newcomer = await createTestUser();
   userIds.push(leader.id, runnerUp.id, newcomer.id);
   sectorId = (await createTestSector()).id;
-  // The leader's score is summed over two stations: 4 + 3 core levels beat a single level 6.
+  // Influence is summed over the leader's two stations; every station starts with 3 Moles.
   const leaderHome = await createTestStation({ userId: leader.id, sectorId });
   const leaderColony = await createTestStation({ userId: leader.id, sectorId });
   const runnerUpHome = await createTestStation({ userId: runnerUp.id, sectorId });
   stationIds.push(leaderHome.id, leaderColony.id, runnerUpHome.id);
-  await setCoreLevel(leaderHome.id, 4);
-  await setCoreLevel(leaderColony.id, 3);
-  await setCoreLevel(runnerUpHome.id, 6);
+  await setCoreLevel(leaderHome.id, 3);
+  await setCoreLevel(leaderColony.id, 2);
+  await setCoreLevel(runnerUpHome.id, 3);
 });
 
 after(async () => {
@@ -66,20 +74,35 @@ const fetchRanking = async (userId: string): Promise<Ranking> => {
   return response.json<Ranking>();
 };
 
-test('players are ranked server-wide by the Station Score of all their stations', async () => {
+test('players are ranked server-wide by the Influence of all their stations and ships', async () => {
   const [leader = '', runnerUp = '', newcomer = ''] = userIds;
 
   const leaderView = await fetchRanking(leader);
   const runnerUpView = await fetchRanking(runnerUp);
   assert.ok(leaderView.me && runnerUpView.me);
-  assert.equal(leaderView.me.score, 35);
+  // Core upgrades 950 + 380 resources, 6 Moles at half of 190 each.
+  assert.deepEqual(leaderView.me.influence, {
+    buildings: 13,
+    research: 0,
+    defense: 0,
+    fleet: 6,
+    total: 19,
+  });
   assert.equal(leaderView.me.stationCount, 2);
   assert.equal(leaderView.me.ownerType, 'player');
-  assert.equal(runnerUpView.me.score, 30);
+  assert.equal(runnerUpView.me.influence.total, 13);
   assert.ok(leaderView.me.rank < runnerUpView.me.rank);
 
+  // Lost ships only reduce the fleet share.
+  await setMoles(stationIds[2] ?? '', 1);
+  const afterLosses = (await fetchRanking(runnerUp)).me;
+  assert.ok(afterLosses);
+  assert.equal(afterLosses.influence.buildings, 10);
+  assert.equal(afterLosses.influence.fleet, 1);
+  assert.equal(afterLosses.influence.total, 11);
+
   // The list is ordered and the own row matches the player's place in it.
-  const scores = leaderView.top.map((entry) => entry.score);
+  const scores = leaderView.top.map((entry) => entry.influence.total);
   assert.deepEqual(
     scores,
     [...scores].sort((a, b) => b - a)

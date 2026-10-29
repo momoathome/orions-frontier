@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import type { Ranking } from '@orions-frontier/shared';
+import type { InfluenceBreakdown, Ranking } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
@@ -24,13 +24,21 @@ async function load(): Promise<void> {
   }
 }
 
+const breakdownTitle = (influence: InfluenceBreakdown): string =>
+  `Buildings ${influence.buildings} · Research ${influence.research} · Defense ${influence.defense} · Fleet ${influence.fleet}`;
+
 const scheduleLoad = debounced(load, 500);
 
 void load();
-const unsubscribe = wsClient.on('building_upgrade_completed', scheduleLoad);
+const unsubscribers = [
+  wsClient.on('building_upgrade_completed', scheduleLoad),
+  wsClient.on('defense_upgrade_completed', scheduleLoad),
+  wsClient.on('spacecraft_build_completed', scheduleLoad),
+  wsClient.on('world_mission_completed', scheduleLoad),
+];
 onUnmounted(() => {
   scheduleLoad.cancel();
-  unsubscribe();
+  for (const unsubscribe of unsubscribers) unsubscribe();
 });
 </script>
 
@@ -39,7 +47,7 @@ onUnmounted(() => {
     <p v-if="error" class="mb-2 text-rose-300/70">{{ error }}</p>
     <template v-if="ranking">
       <div class="mb-3 flex items-baseline justify-between text-white/35">
-        <span class="text-[9px] uppercase tracking-[0.3em]">Server ranking · Station Score</span>
+        <span class="text-[9px] uppercase tracking-[0.3em]">Server ranking · Influence</span>
         <span v-if="ranking.me" class="tabular-nums">
           Your rank <span class="text-cyan-300">#{{ ranking.me.rank }}</span> of
           {{ ranking.totalPlayers }}
@@ -52,7 +60,7 @@ onUnmounted(() => {
             <th class="w-10 pb-1 font-normal">#</th>
             <th class="pb-1 font-normal">Commander</th>
             <th class="w-20 pb-1 text-right font-normal">Stations</th>
-            <th class="w-20 pb-1 text-right font-normal">Score</th>
+            <th class="w-20 pb-1 text-right font-normal">Influence</th>
           </tr>
         </thead>
         <tbody>
@@ -74,7 +82,9 @@ onUnmounted(() => {
               >
             </td>
             <td class="py-1 text-right tabular-nums">{{ entry.stationCount }}</td>
-            <td class="py-1 text-right tabular-nums">{{ entry.score }}</td>
+            <td class="py-1 text-right tabular-nums" :title="breakdownTitle(entry.influence)">
+              {{ entry.influence.total }}
+            </td>
           </tr>
         </tbody>
       </table>

@@ -35,6 +35,7 @@ export interface DevelopmentMetrics {
   buildingLevelTotal: number;
   defenseLevelTotal: number;
   completedResearch: number;
+  influence: number;
   spacecraftUnits: number;
   spacecraftBuilt: Record<string, number>;
   queueActiveSamples: number;
@@ -150,6 +151,7 @@ export function emptyDevelopmentMetrics(): DevelopmentMetrics {
     buildingLevelTotal: 0,
     defenseLevelTotal: 0,
     completedResearch: 0,
+    influence: 0,
     spacecraftUnits: 0,
     spacecraftBuilt: {},
     queueActiveSamples: 0,

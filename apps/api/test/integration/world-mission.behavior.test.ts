@@ -337,7 +337,7 @@ test('expedition returns and colonization transfers a miner to the second statio
     })
     .from(stationSpacecrafts)
     .where(eq(stationSpacecrafts.stationId, originStationId));
-  assert.deepEqual(originShip, { amount: 0, lockedAmount: 0 });
+  assert.deepEqual(originShip, { amount: 2, lockedAmount: 0 });
 });
 
 test('bot expedition and colonization use the same travel and resource rules', async () => {

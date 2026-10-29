@@ -21,6 +21,7 @@ import {
   createAsteroidAssignment,
   requestAsteroidAssignmentRecall,
 } from '../../src/services/mining/assignment.service.js';
+import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
 import { getAsteroidById } from '../../src/services/asteroid.service.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
 
@@ -107,7 +108,7 @@ before(async () => {
     asteroidId,
     veinType: 'primary',
     resourceKey: 'carbon',
-    remainingAmount: 75,
+    remainingAmount: 150,
   });
 });
 
@@ -169,12 +170,12 @@ async function resetMiningState() {
       asteroidId,
       veinType: 'primary',
       resourceKey: 'carbon',
-      remainingAmount: 75,
+      remainingAmount: 150,
     });
   } else {
     await db
       .update(asteroidVeins)
-      .set({ remainingAmount: 75 })
+      .set({ remainingAmount: 150 })
       .where(eq(asteroidVeins.asteroidId, asteroidId));
   }
   await db
@@ -269,11 +270,11 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
       )
     );
   assert.ok(firstReturn);
-  assert.deepEqual(firstReturn.cargoManifest, { carbon: 50 });
-  assert.equal(firstReturn.departedAt.getTime() - firstArrival.getTime(), 5 * 60_000);
+  assert.deepEqual(firstReturn.cargoManifest, { carbon: 100 });
+  assert.equal(firstReturn.departedAt.getTime() - firstArrival.getTime(), 10 * 60_000);
   const miningView = await getAsteroidById(asteroidId, userId);
   assert.equal(miningView?.assignments[0]?.activeTrip?.purpose, 'mining_return');
-  assert.deepEqual(miningView.assignments[0].activeTrip.cargoManifest, { carbon: 50 });
+  assert.deepEqual(miningView.assignments[0].activeTrip.cargoManifest, { carbon: 100 });
   assert.equal(await settleTripArrival(firstReturn), true);
 
   const [secondOutbound] = await db
@@ -301,8 +302,8 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
     );
   const secondReturn = pendingReturns[0];
   assert.ok(secondReturn);
-  assert.deepEqual(secondReturn.cargoManifest, { carbon: 25 });
-  assert.equal(secondReturn.departedAt.getTime() - secondOutbound.arrivesAt.getTime(), 150_000);
+  assert.deepEqual(secondReturn.cargoManifest, { carbon: 50 });
+  assert.equal(secondReturn.departedAt.getTime() - secondOutbound.arrivesAt.getTime(), 5 * 60_000);
 
   assert.equal(await settleTripArrival(secondReturn), true);
 
@@ -325,7 +326,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
     .from(asteroids)
     .where(eq(asteroids.id, asteroidId));
 
-  assert.equal(resource?.amount, 75);
+  assert.equal(resource?.amount, 150);
   assert.equal(fleet?.lockedAmount, 0);
   assert.equal(assignment, undefined);
   assert.equal(asteroid, undefined);
@@ -409,8 +410,8 @@ test('recall finishes the claimed load and stops the group at its station', asyn
       )
     );
 
-  assert.equal(resource?.amount, 50);
-  assert.equal(reserve?.amount, 25);
+  assert.equal(resource?.amount, 100);
+  assert.equal(reserve?.amount, 50);
   assert.equal(fleet?.lockedAmount, 0);
   assert.equal(assignment, undefined);
   assert.equal(nextOutbound.length, 0);
@@ -472,12 +473,12 @@ test('recall during outbound flight returns without claiming a new load', async 
     .from(stationSpacecrafts)
     .where(eq(stationSpacecrafts.id, stationSpacecraftId));
 
-  assert.equal(reserve?.amount, 75);
+  assert.equal(reserve?.amount, 150);
   assert.equal(resource, undefined);
   assert.equal(fleet?.lockedAmount, 0);
 });
 
-test('recalls one miner while the rest of its group continues mining', async () => {
+test('a miner group launches together and a recall stops a single miner', async () => {
   const db = getDb();
   await resetMiningState();
   await db
@@ -489,47 +490,46 @@ test('recalls one miner while the rest of its group continues mining', async () 
     .set({ remainingAmount: 1_000 })
     .where(eq(asteroidVeins.asteroidId, asteroidId));
 
-  const created = await createAsteroidAssignment({
-    userId,
-    asteroidId,
-    stationId,
-    spacecraftKey,
-    assignedAmount: 3,
-  });
+  const now = new Date();
+  const created = await createAsteroidAssignment(
+    { userId, asteroidId, stationId, spacecraftKey, assignedAmount: 3 },
+    createRealtimeExecutionContext(now)
+  );
   assert.ok(!('code' in created));
   assignmentId = created.id;
+  const createdId = created.id;
+
+  const tripsOf = (purpose: 'mine' | 'mining_return') =>
+    db
+      .select()
+      .from(spacecraftTrips)
+      .where(
+        and(
+          eq(spacecraftTrips.assignmentId, createdId),
+          eq(spacecraftTrips.purpose, purpose),
+          eq(spacecraftTrips.status, 'traveling')
+        )
+      )
+      .orderBy(spacecraftTrips.arrivesAt);
+
+  const outbound = await tripsOf('mine');
+  assert.deepEqual(
+    outbound.map((trip) => [trip.groupSize, (trip.departedAt.getTime() - now.getTime()) / 1000]),
+    [[3, 0]]
+  );
+
+  // The recalled miner mines nothing; the other two bring a full load each.
   assert.equal(
     await requestAsteroidAssignmentRecall({ assignmentId, asteroidId, userId, amount: 1 }),
     true
   );
-
-  const [outbound] = await db
-    .select()
-    .from(spacecraftTrips)
-    .where(
-      and(
-        eq(spacecraftTrips.assignmentId, assignmentId),
-        eq(spacecraftTrips.purpose, 'mine'),
-        eq(spacecraftTrips.status, 'traveling')
-      )
-    );
-  assert.ok(outbound);
-  assert.equal(await settleTripArrival(outbound), true);
-
-  const [returnTrip] = await db
-    .select()
-    .from(spacecraftTrips)
-    .where(
-      and(
-        eq(spacecraftTrips.assignmentId, assignmentId),
-        eq(spacecraftTrips.purpose, 'mining_return'),
-        eq(spacecraftTrips.status, 'traveling')
-      )
-    );
-  assert.ok(returnTrip);
-  assert.equal(returnTrip.groupSize, 3);
-  assert.deepEqual(returnTrip.cargoManifest, { carbon: 100 });
-  assert.equal(await settleTripArrival(returnTrip), true);
+  for (const trip of outbound) assert.equal(await settleTripArrival(trip), true);
+  const returns = await tripsOf('mining_return');
+  assert.deepEqual(
+    returns.map((trip) => [trip.groupSize, trip.cargoManifest]),
+    [[3, { carbon: 200 }]]
+  );
+  for (const trip of returns) assert.equal(await settleTripArrival(trip), true);
 
   const [assignment] = await db
     .select({
@@ -539,16 +539,6 @@ test('recalls one miner while the rest of its group continues mining', async () 
     })
     .from(asteroidAssignments)
     .where(eq(asteroidAssignments.id, assignmentId));
-  const [nextOutbound] = await db
-    .select({ groupSize: spacecraftTrips.groupSize })
-    .from(spacecraftTrips)
-    .where(
-      and(
-        eq(spacecraftTrips.assignmentId, assignmentId),
-        eq(spacecraftTrips.purpose, 'mine'),
-        eq(spacecraftTrips.status, 'traveling')
-      )
-    );
   const [fleet] = await db
     .select({ lockedAmount: stationSpacecrafts.lockedAmount })
     .from(stationSpacecrafts)
@@ -559,7 +549,10 @@ test('recalls one miner while the rest of its group continues mining', async () 
     recallRequestedAmount: 0,
     recallRequestedAt: null,
   });
-  assert.equal(nextOutbound?.groupSize, 2);
+  assert.deepEqual(
+    (await tripsOf('mine')).map((trip) => trip.groupSize),
+    [2]
+  );
   assert.equal(fleet?.lockedAmount, 2);
 });
 
@@ -613,7 +606,7 @@ test('modular cargo frames claims whole resource units for a Mole', async () => 
         )
       );
     assert.ok(returnTrip);
-    assert.deepEqual(returnTrip.cargoManifest, { carbon: 55 });
+    assert.deepEqual(returnTrip.cargoManifest, { carbon: 110 });
   } finally {
     await resetMiningState();
     await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));

@@ -84,7 +84,7 @@ test('economy endpoints require authentication and station ownership', async () 
   });
   assert.equal(resources.statusCode, 200);
   assert.equal(resources.json().resources.carbon, 250);
-  assert.equal(resources.json().storageCapacity, 1_500);
+  assert.equal(resources.json().storageCapacity, 5_000);
 });
 
 test('the assignment endpoint validates input and starts a mining trip', async () => {

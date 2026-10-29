@@ -111,6 +111,9 @@ async function loadTrips(): Promise<void> {
               arrivesAt: new Date(movement.arrivesAt).getTime(),
               purpose: movement.purpose,
               groupSize: movement.groupSize,
+              miningStartedAt: movement.miningStartedAt
+                ? new Date(movement.miningStartedAt).getTime()
+                : undefined,
             }
           : {
               ...movement,

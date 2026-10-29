@@ -22,3 +22,9 @@ export {
 export type { DefenseUpgradeSeedDefinition } from './defense.js';
 export { getResearchDefinition, researchDefinitions } from './research.js';
 export type { ResearchDefinition } from './research.js';
+export {
+  calculateInfluence,
+  INFLUENCE_FLEET_SHARE,
+  INFLUENCE_RESOURCES_PER_POINT,
+} from './influence.js';
+export type { InfluenceInput } from './influence.js';

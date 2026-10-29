@@ -176,6 +176,7 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
     aggregate.development.buildingLevelTotal += bot.development.buildingLevelTotal;
     aggregate.development.defenseLevelTotal += bot.development.defenseLevelTotal;
     aggregate.development.completedResearch += bot.development.completedResearch;
+    aggregate.development.influence += bot.development.influence;
     aggregate.development.spacecraftUnits += bot.development.spacecraftUnits;
     sumRecord(aggregate.development.spacecraftBuilt, bot.development.spacecraftBuilt);
     aggregate.development.queueActiveSamples += bot.development.queueActiveSamples;
@@ -498,6 +499,7 @@ export class PlaytestAggregator {
         .filter((station) => station.ownerAlias === botSnapshot.botAlias)
         .reduce((sum, station) => sum + station.defenseLevelTotal, 0);
       state.metrics.development.completedResearch = botSnapshot.completedResearch;
+      state.metrics.development.influence = botSnapshot.influence;
       state.metrics.development.spacecraftUnits = botSnapshot.spacecraftUnits;
       state.metrics.development.snapshotSamples += 1;
       const ownedStations = snapshot.stations.filter(

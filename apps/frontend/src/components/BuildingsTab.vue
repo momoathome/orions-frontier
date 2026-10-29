@@ -107,7 +107,7 @@ const effectTypeLabels: Record<BuildingEffectType, string> = {
 function formatEffect(type: BuildingEffectType, value: number): { label: string; display: string } {
   switch (type) {
     case 'station_progression':
-      return { label: 'Station Score', display: `+${value}` };
+      return { label: 'Progression', display: `+${value}` };
     case 'hangar_capacity':
       return { label: 'Crew places', display: `${value}` };
     case 'spacecraft_unlock':

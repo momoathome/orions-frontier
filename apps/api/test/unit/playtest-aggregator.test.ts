@@ -68,6 +68,7 @@ function botSnapshot(overrides: Partial<PlaytestBotSnapshot> = {}): PlaytestBotS
     spacecraftUnits: 4,
     lockedSpacecraftUnits: 1,
     completedResearch: 0,
+    influence: 0,
     activeWork: 1,
     activeGoal: 'increase_income',
     lastAction: 'assign_miner',
