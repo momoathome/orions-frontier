@@ -1,19 +1,15 @@
-import { and, eq, inArray } from 'drizzle-orm';
 import { getSpacecraft } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import { listTravelingTripsBySpacecraft } from '../../repositories/spacecraft-trips.js';
+import { listStationSpacecraftKeysByStations } from '../../repositories/station-spacecrafts.js';
+import { listStationIdsByUser } from '../../repositories/stations.js';
 
 /** All traveling trips across the user's stations, for the map's in-flight spacecraft. */
 export async function getActiveUserTrips(userId: string) {
   const db = getDb();
 
   // Use stations.userId not id
-  const stationRows = await db
-    .select({ id: stations.id })
-    .from(stations)
-    .where(eq(stations.userId, userId));
+  const stationRows = await listStationIdsByUser(db, userId);
 
   if (stationRows.length === 0) {
     return [];
@@ -22,13 +18,7 @@ export async function getActiveUserTrips(userId: string) {
   const stationIds = stationRows.map((s) => s.id);
 
   // Get all stationSpacecraft ids for this user's stations
-  const ssRows = await db
-    .select({
-      id: stationSpacecrafts.id,
-      spacecraftKey: stationSpacecrafts.spacecraftKey,
-    })
-    .from(stationSpacecrafts)
-    .where(inArray(stationSpacecrafts.stationId, stationIds));
+  const ssRows = await listStationSpacecraftKeysByStations(db, stationIds);
 
   if (ssRows.length === 0) {
     return [];
@@ -38,15 +28,7 @@ export async function getActiveUserTrips(userId: string) {
   const ssInfoMap = new Map(ssRows.map((s) => [s.id, s]));
 
   // Get all active trips
-  const trips = await db
-    .select()
-    .from(spacecraftTrips)
-    .where(
-      and(
-        inArray(spacecraftTrips.stationSpacecraftId, ssIds),
-        eq(spacecraftTrips.status, 'traveling')
-      )
-    );
+  const trips = await listTravelingTripsBySpacecraft(db, ssIds);
 
   return trips.map((trip) => {
     const ss = ssInfoMap.get(trip.stationSpacecraftId);

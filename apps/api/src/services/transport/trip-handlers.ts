@@ -1,9 +1,21 @@
-import { and, eq, sql } from 'drizzle-orm';
 import type { Tx } from '../../lib/db/index.js';
-import { asteroids, asteroidAssignments, asteroidVeins } from '../../lib/db/schema/asteroids.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
+import {
+  deleteAsteroid,
+  deleteAsteroidAssignment,
+  findAsteroidForUpdate,
+  findAssignmentRouteForUpdate,
+  hasAsteroidAssignments,
+  sumAsteroidRemainingAmount,
+  updateAsteroidAssignment,
+} from '../../repositories/asteroids.js';
+import {
+  insertTrip,
+  sumHomeboundGroupSize,
+  updateTripCargo,
+  type TripRow,
+} from '../../repositories/spacecraft-trips.js';
+import { releaseSpacecraftClamped } from '../../repositories/station-spacecrafts.js';
+import { findStation } from '../../repositories/stations.js';
 import { claimMiningCargo } from '../mining/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
@@ -29,7 +41,7 @@ import {
 //   handleMineArrival          purpose='mine'          toType='asteroid'
 //   handleMiningReturnArrival  purpose='mining_return' toType='station'
 
-type Trip = typeof spacecraftTrips.$inferSelect;
+type Trip = TripRow;
 // Each arriving miner claims one load and creates its timed mining return trip.
 export async function handleMineArrival(
   tx: Tx,
@@ -38,41 +50,16 @@ export async function handleMineArrival(
 ): Promise<void> {
   if (!trip.assignmentId) return;
 
-  const [assignment] = await tx
-    .select({
-      id: asteroidAssignments.id,
-      stationId: asteroidAssignments.stationId,
-      assignedAmount: asteroidAssignments.assignedAmount,
-      spacecraftKey: asteroidAssignments.spacecraftKey,
-      stationX: stations.x,
-      stationY: stations.y,
-      asteroidX: asteroids.x,
-      asteroidY: asteroids.y,
-      recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
-    })
-    .from(asteroidAssignments)
-    .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
-    .innerJoin(asteroids, eq(asteroidAssignments.asteroidId, asteroids.id))
-    .where(eq(asteroidAssignments.id, trip.assignmentId))
-    .for('update', { of: asteroidAssignments });
+  const assignment = await findAssignmentRouteForUpdate(tx, trip.assignmentId);
 
   if (!assignment) return;
   const spacecraft = requireSpacecraft(assignment.spacecraftKey);
 
   // Miners already heading home absorb recalls first; any recall left over turns this
   // miner back empty. The assignment row lock keeps parallel arrivals from double-counting.
-  const [homebound] = await tx
-    .select({ amount: sql<number>`coalesce(sum(${spacecraftTrips.groupSize}), 0)::int` })
-    .from(spacecraftTrips)
-    .where(
-      and(
-        eq(spacecraftTrips.assignmentId, assignment.id),
-        eq(spacecraftTrips.purpose, 'mining_return'),
-        eq(spacecraftTrips.status, 'traveling')
-      )
-    );
+  const homebound = await sumHomeboundGroupSize(tx, assignment.id);
   const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
-  const unclaimedRecall = Math.max(0, assignment.recallRequestedAmount - (homebound?.amount ?? 0));
+  const unclaimedRecall = Math.max(0, assignment.recallRequestedAmount - homebound);
   const activeGroupSize = Math.max(0, groupSize - unclaimedRecall);
   const effectiveCargo = await effectiveCargoCapacity(tx, assignment.stationId, spacecraft.cargo);
   const cargoCapacity = Math.floor(activeGroupSize * effectiveCargo);
@@ -96,7 +83,7 @@ export async function handleMineArrival(
     departedAt
   );
 
-  await tx.insert(spacecraftTrips).values({
+  await insertTrip(tx, {
     id: context.nextId('trip'),
     stationSpacecraftId: trip.stationSpacecraftId,
     assignmentId: assignment.id,
@@ -117,10 +104,7 @@ export async function handleMineArrival(
     createdAt: trip.arrivesAt,
   });
 
-  await tx
-    .update(asteroidAssignments)
-    .set({ status: 'traveling_to_station' })
-    .where(eq(asteroidAssignments.id, assignment.id));
+  await updateAsteroidAssignment(tx, assignment.id, { status: 'traveling_to_station' });
 }
 
 // Starts the next outbound leg while free resources remain; otherwise the
@@ -134,14 +118,8 @@ export async function handleMiningReturnArrival(
   if (trip.cargoManifest) {
     const requested = { ...trip.cargoManifest };
     const credited = await creditStationResources(tx, trip.toId, requested);
-    await tx
-      .update(spacecraftTrips)
-      .set({ cargoManifest: credited })
-      .where(eq(spacecraftTrips.id, trip.id));
-    const [station] = await tx
-      .select({ userId: stations.userId })
-      .from(stations)
-      .where(eq(stations.id, trip.toId));
+    await updateTripCargo(tx, trip.id, credited);
+    const station = await findStation(tx, trip.toId);
     if (station) {
       delivery = {
         type: 'mining_delivery_completed',
@@ -164,40 +142,15 @@ export async function handleMiningReturnArrival(
 
   // Serialize returns for one asteroid (trip.fromId). Without this lock, two miners
   // could both observe the other assignment and leave an exhausted asteroid behind.
-  await tx
-    .select({ id: asteroids.id })
-    .from(asteroids)
-    .where(eq(asteroids.id, trip.fromId))
-    .for('update');
+  await findAsteroidForUpdate(tx, trip.fromId);
 
-  const [assignment] = await tx
-    .select({
-      id: asteroidAssignments.id,
-      stationId: asteroidAssignments.stationId,
-      asteroidId: asteroidAssignments.asteroidId,
-      spacecraftKey: asteroidAssignments.spacecraftKey,
-      stationX: stations.x,
-      stationY: stations.y,
-      asteroidX: asteroids.x,
-      asteroidY: asteroids.y,
-      recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
-      assignedAmount: asteroidAssignments.assignedAmount,
-    })
-    .from(asteroidAssignments)
-    .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
-    .innerJoin(asteroids, eq(asteroidAssignments.asteroidId, asteroids.id))
-    .where(eq(asteroidAssignments.id, trip.assignmentId))
-    .for('update', { of: asteroidAssignments });
+  const assignment = await findAssignmentRouteForUpdate(tx, trip.assignmentId);
 
   if (!assignment) return delivery;
   if (delivery) delivery.asteroidId = assignment.asteroidId;
   const spacecraft = requireSpacecraft(assignment.spacecraftKey);
 
-  const [reserve] = await tx
-    .select({ amount: sql<number>`coalesce(sum(${asteroidVeins.remainingAmount}), 0)::int` })
-    .from(asteroidVeins)
-    .where(eq(asteroidVeins.asteroidId, assignment.asteroidId));
-  const exhausted = (reserve?.amount ?? 0) <= 0;
+  const exhausted = (await sumAsteroidRemainingAmount(tx, assignment.asteroidId)) <= 0;
 
   // Recalls stop the arriving miners; an exhausted asteroid stops all of them.
   const recalledAmount = Math.min(assignment.recallRequestedAmount, trip.groupSize);
@@ -205,38 +158,25 @@ export async function handleMiningReturnArrival(
   const continuingAmount = trip.groupSize - stoppingAmount;
 
   if (stoppingAmount > 0) {
-    await tx
-      .update(stationSpacecrafts)
-      .set({
-        lockedAmount: sql`GREATEST(0, ${stationSpacecrafts.lockedAmount} - ${stoppingAmount})`,
-      })
-      .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId));
+    await releaseSpacecraftClamped(tx, trip.stationSpacecraftId, stoppingAmount);
 
     const assignedAmount = assignment.assignedAmount - stoppingAmount;
     const recallRequestedAmount = assignment.recallRequestedAmount - recalledAmount;
     if (assignedAmount <= 0) {
-      await tx.delete(asteroidAssignments).where(eq(asteroidAssignments.id, assignment.id));
+      await deleteAsteroidAssignment(tx, assignment.id);
     } else {
-      await tx
-        .update(asteroidAssignments)
-        .set({
-          assignedAmount,
-          recallRequestedAmount,
-          ...(recallRequestedAmount === 0 ? { recallRequestedAt: null } : {}),
-        })
-        .where(eq(asteroidAssignments.id, assignment.id));
+      await updateAsteroidAssignment(tx, assignment.id, {
+        assignedAmount,
+        recallRequestedAmount,
+        ...(recallRequestedAmount === 0 ? { recallRequestedAt: null } : {}),
+      });
     }
   }
 
   if (exhausted) {
     if (delivery) delivery.asteroidExhausted = true;
-    const [remainingAssignment] = await tx
-      .select({ id: asteroidAssignments.id })
-      .from(asteroidAssignments)
-      .where(eq(asteroidAssignments.asteroidId, assignment.asteroidId))
-      .limit(1);
-    if (!remainingAssignment) {
-      await tx.delete(asteroids).where(eq(asteroids.id, assignment.asteroidId));
+    if (!(await hasAsteroidAssignments(tx, assignment.asteroidId))) {
+      await deleteAsteroid(tx, assignment.asteroidId);
     }
   }
 
@@ -254,7 +194,7 @@ export async function handleMiningReturnArrival(
     baseArrivesAt,
     departedAt
   );
-  await tx.insert(spacecraftTrips).values({
+  await insertTrip(tx, {
     id: context.nextId('trip'),
     stationSpacecraftId: trip.stationSpacecraftId,
     assignmentId: assignment.id,
@@ -273,10 +213,7 @@ export async function handleMiningReturnArrival(
     createdAt: departedAt,
   });
 
-  await tx
-    .update(asteroidAssignments)
-    .set({ status: 'traveling_to_asteroid' })
-    .where(eq(asteroidAssignments.id, assignment.id));
+  await updateAsteroidAssignment(tx, assignment.id, { status: 'traveling_to_asteroid' });
 
   return delivery;
 }
