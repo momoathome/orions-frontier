@@ -30,8 +30,8 @@ erforderlich.
 ## Strategie `goal_v1`
 
 Die zielorientierte Strategie verwendet elf Zieltypen, vier Profile und eine gewichtete
-Score-Funktion. Die Kandidatenerzeugung und -bewertung ist dokumentiert in
-`docs/goal-driven-bots-plan.md`.
+Score-Funktion. Kandidatenerzeugung und Bewertung liegen in
+`apps/api/src/services/bot/goal-driven-v1.ts`.
 
 ### Profile
 

@@ -68,11 +68,6 @@ Vorher passte ab Stufe 11 das nächste Upgrade nicht mehr ins Lager, ein harter 
 Lager war auf jeder Stufe nach etwa 2 Stunden voll. Jetzt reicht es auf Höhe der Flotte
 mindestens 7–9 Stunden, auf hohen Stufen deutlich länger (Details in `docs/station-capacities.md`).
 
-## Bewusst noch nicht
-
-- Logistik zwischen eigenen Stationen (DSP-Gefühl), sobald mehrere Stationen Alltag sind.
-- Weitere Ressourcen, Gebäude oder Schiffsklassen, bevor der Grundtakt sitzt.
-
 ## Entscheidungen
 
 ### Vernichtung einer Station
@@ -80,8 +75,8 @@ mindestens 7–9 Stunden, auf hohen Stufen deutlich länger (Details in `docs/st
 - Jede Station hat eine **Integrität** von 100. Bei 0 ist sie vernichtet.
 - Nur ein **Bomber** senkt die Integrität. Er ist teuer und langsam und wirkt nur, wenn er den Kampf
   überlebt. Erst muss also die Verteidigung fallen.
-- Ein überlebender Bomber senkt die Integrität um einen Zufallswert (Vorschlag 20–35), also braucht
-  es mehrere Wellen.
+- Überlebende Bomber senken die Integrität um 20–35 pro Welle (feste Formel, siehe
+  [Spec](./station-destruction.md)), also braucht es mehrere Wellen.
 - Die Integrität regeneriert langsam (Vorschlag +1 pro Stunde). Vernichtung braucht damit
   koordinierte Angriffe in einem Zeitfenster, und der Verteidiger hat Zeit zu reagieren.
 - Übrig bleibt ein Trümmerfeld wie nach einem Kampf: Lagerbestand und ein Teil der verbauten
@@ -101,7 +96,32 @@ mindestens 7–9 Stunden, auf hohen Stufen deutlich länger (Details in `docs/st
   sehen und verteidigen, Aufträge umplanen, Gegner mit vollem Lager angreifen.
 - Dafür müssen eingehende Angriffe rechtzeitig sichtbar sein.
 
-## Nächste Schritte
+## Backlog
 
-1. Miner-Werte und Lagerkurve per Playtest gegen die Zahlenziele messen.
-2. Vernichtung und Mehrstationen-Pfad als nächste Spielmechanik festlegen.
+Die einzige Liste für offene Arbeit und Ideen. Abgeschlossenes steht in der Git-Historie, nicht
+hier.
+
+### Jetzt
+
+1. **Vernichtung und Mehrstationen-Pfad umsetzen** nach der
+   [Spec](./station-destruction.md): gemischte Angriffsflotten, Bomber, Integrität, eingehende
+   Angriffe, Vernichtung, Neustart und steigende Kolonisationskosten.
+2. **Miner-Werte, Lagerkurve und Kolonisation per Playtest messen** (`npm run playtest:baseline`).
+   Dabei die Befunde der letzten Baseline gegen die neuen Werte prüfen: Lagerverlust, Warlords im
+   Ressourcenstillstand, blockierte Pionier-Kolonisation, Technokraten in der
+   Forschungswiederwahl, instabile neue Kolonien.
+
+### Danach
+
+3. **Admin-Ansicht für Bots:** wo sie stehen, was sie verfolgen, was sie geschafft haben.
+4. **UI-Lesbarkeit:** größere Schrift und klarere Panels.
+
+### Später, nur bei nachgewiesenem Bedarf
+
+- Logistik zwischen eigenen Stationen (DSP-Gefühl), sobald mehrere Stationen Alltag sind.
+- Hydrogenium-Verbrauch für Aufträge oder Entfernung.
+- Weitere Ressourcen, Gebäude oder Schiffsklassen, bevor der Grundtakt sitzt.
+- Eigenes Expeditionsschiff oder Drohne statt vorhandener Schiffe.
+- Stationsbild: Landepads, Solar- und Radiatorflügel, Verkehr je Schiffsklasse.
+- Handel, Betriebskosten, Diplomatie, Asteroiden-Nachschub.
+- Radar: Tarnung, Allianz-Radar, Radarlog (siehe `docs/scanner-visibility.md`).

@@ -107,9 +107,9 @@ Asteroiden-Nachschub, private Vorkommen und unendliche Reserven sind nicht vorge
 Die aktuelle Baseline schützt folgende Größenordnungen:
 
 - Starterziele liegen ungefähr zwei bis vier Flugminuten entfernt.
-- Ein erster voller Mole-Rundlauf dauert ungefähr 9 bis 13 Minuten.
-- Drei Mole benötigen für einen kleinen Starterasteroiden ungefähr 1 bis 2 Stunden.
-- Ein voll belegter Ansiedlungssektor besitzt bei drei Mole je Station ungefähr 3 bis 6 Tage
+- Ein erster voller Mole-Rundlauf dauert ungefähr 12 bis 19 Minuten.
+- Drei Mole benötigen für einen kleinen Starterasteroiden ungefähr 2 bis 4,5 Stunden.
+- Ein voll belegter Ansiedlungssektor besitzt bei drei Mole je Station ungefähr 3 bis 9 Tage
   Referenzvorrat.
 
 Nachschub wird erst geplant, wenn reale Spielstände zeigen, dass Exploration und Kolonisation alte
