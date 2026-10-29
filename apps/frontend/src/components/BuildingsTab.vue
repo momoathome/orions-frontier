@@ -3,11 +3,17 @@ import { computed, ref } from 'vue';
 import { calculateBuildingBuildTime } from '@orions-frontier/game-config';
 import {
   getCostShortfall,
-  type BuildingEffectType,
+  type BuildingKey,
   type StationBuildingWithDefinition,
 } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { formatBuildTime, formatCountdown, formatShortfall } from '../lib/format';
+import {
+  formatBuildingEffect,
+  formatBuildTime,
+  formatCountdown,
+  formatShortfall,
+} from '../lib/format';
+import BuildingLevelsModal from './BuildingLevelsModal.vue';
 import CostList from './CostList.vue';
 import { useOverviewStore } from '../stores/overview.js';
 
@@ -15,30 +21,10 @@ const { stationId } = defineProps<{ stationId: string }>();
 const overview = useOverviewStore();
 const upgrading = ref<string | null>(null);
 const error = ref<string | null>(null);
+const levelsKey = ref<BuildingKey | null>(null);
 
 const detail = computed(() => overview.state.details[stationId] ?? null);
 const now = computed(() => overview.state.now);
-
-function formatEffect(type: BuildingEffectType, value: number): { label: string; display: string } {
-  switch (type) {
-    case 'station_progression':
-      return { label: 'Progression', display: `+${value}` };
-    case 'hangar_capacity':
-      return { label: 'Crew places', display: `${value}` };
-    case 'spacecraft_unlock':
-      return { label: 'Ship Tier', display: `Tier ${value}` };
-    case 'spacecraft_production_bonus':
-      return { label: 'Build Speed', display: `+${value}%` };
-    case 'storage_capacity':
-      return { label: 'Capacity', display: value.toLocaleString('en-US') };
-    case 'protected_storage':
-      return { label: 'Protected', display: value.toLocaleString('en-US') };
-    case 'scanner_range':
-      return { label: 'Scan Range', display: `${value.toLocaleString('en-US')} units` };
-    case 'research_capacity':
-      return { label: 'Research capacity', display: `${value}` };
-  }
-}
 
 const cards = computed(() =>
   (detail.value?.buildings ?? []).map((building) => {
@@ -72,8 +58,8 @@ const cards = computed(() =>
       effects: building.effects.map((effect) => {
         const next = building.nextLevelEffects?.find((n) => n.type === effect.type);
         return {
-          ...formatEffect(effect.type, effect.value),
-          next: next ? formatEffect(next.type, next.value).display : null,
+          ...formatBuildingEffect(effect.type, effect.value),
+          next: next ? formatBuildingEffect(next.type, next.value).display : null,
         };
       }),
       missing: formatShortfall(shortfall),
@@ -110,13 +96,21 @@ async function startUpgrade(building: StationBuildingWithDefinition) {
     <article
       v-for="card in cards"
       :key="card.building.definition.key"
-      class="ui-card"
+      class="ui-card cursor-pointer transition hover:border-ui-cyan/40"
       :class="card.accent"
+      @click="levelsKey = card.building.definition.key"
     >
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-baseline gap-2">
           <h3 class="text-base font-semibold text-ui-bright">
-            {{ card.building.definition.name }}
+            <button
+              type="button"
+              class="hover:underline"
+              :aria-label="`${card.building.definition.name} levels`"
+              @click.stop="levelsKey = card.building.definition.key"
+            >
+              {{ card.building.definition.name }}
+            </button>
           </h3>
           <span class="ui-num text-[13px] text-ui-muted">Lv. {{ card.building.level }}</span>
         </div>
@@ -178,7 +172,7 @@ async function startUpgrade(building: StationBuildingWithDefinition) {
             class="ui-btn"
             :class="{ 'ui-btn-primary': card.affordable }"
             :disabled="!card.affordable || upgrading !== null"
-            @click="startUpgrade(card.building)"
+            @click.stop="startUpgrade(card.building)"
           >
             {{ upgrading === card.building.definition.key ? 'Starting…' : 'Upgrade' }}
           </button>
@@ -188,5 +182,12 @@ async function startUpgrade(building: StationBuildingWithDefinition) {
 
       <span v-if="card.nextUnlock" class="text-xs text-ui-muted">{{ card.nextUnlock }}</span>
     </article>
+
+    <BuildingLevelsModal
+      v-if="levelsKey"
+      :station-id="stationId"
+      :initial-key="levelsKey"
+      @close="levelsKey = null"
+    />
   </div>
 </template>

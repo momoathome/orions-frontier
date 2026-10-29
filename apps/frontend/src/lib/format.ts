@@ -1,4 +1,4 @@
-import type { CostShortfall } from '@orions-frontier/shared';
+import type { BuildingEffectType, CostShortfall } from '@orions-frontier/shared';
 import { resourceName } from './mining-utils';
 
 /** "4:12" or "1:04:12" until the deadline; "0:00" once it passed. */
@@ -53,4 +53,29 @@ export function formatShortfall(shortfall: CostShortfall): string | null {
   return Number.isFinite(shortfall.hoursUntilAffordable)
     ? `Missing ${missing}, affordable in ${formatWait(shortfall.hoursUntilAffordable)}`
     : `Missing ${missing} and no income of it yet`;
+}
+
+/** Label and value of one building effect, e.g. "Capacity" / "6,500". */
+export function formatBuildingEffect(
+  type: BuildingEffectType,
+  value: number
+): { label: string; display: string } {
+  switch (type) {
+    case 'station_progression':
+      return { label: 'Progression', display: `+${value}` };
+    case 'hangar_capacity':
+      return { label: 'Crew places', display: `${value}` };
+    case 'spacecraft_unlock':
+      return { label: 'Spacecraft', display: `Tier ${value}` };
+    case 'spacecraft_production_bonus':
+      return { label: 'Build Speed', display: `+${value}%` };
+    case 'storage_capacity':
+      return { label: 'Capacity', display: value.toLocaleString('en-US') };
+    case 'protected_storage':
+      return { label: 'Protected', display: value.toLocaleString('en-US') };
+    case 'scanner_range':
+      return { label: 'Scan Range', display: `${value.toLocaleString('en-US')} units` };
+    case 'research_capacity':
+      return { label: 'Research capacity', display: `${value}` };
+  }
 }
