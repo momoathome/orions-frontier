@@ -70,6 +70,47 @@ export async function findStationSpacecraftByKey(
   return row;
 }
 
+export function listStationSpacecraftIdsByKeys(db: QueryDb, stationId: string, keys: string[]) {
+  return db
+    .select({ id: stationSpacecrafts.id, spacecraftKey: stationSpacecrafts.spacecraftKey })
+    .from(stationSpacecrafts)
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, stationId),
+        inArray(stationSpacecrafts.spacecraftKey, keys)
+      )
+    );
+}
+
+export function listStationSpacecraftsForUpdate(tx: Tx, stationId: string) {
+  return tx
+    .select()
+    .from(stationSpacecrafts)
+    .where(eq(stationSpacecrafts.stationId, stationId))
+    .for('update');
+}
+
+/** Removes ships lost in flight: they leave the fleet and their lock. */
+export async function removeLockedSpacecraft(tx: Tx, id: string, amount: number) {
+  await tx
+    .update(stationSpacecrafts)
+    .set({
+      amount: sql`${stationSpacecrafts.amount} - ${amount}`,
+      lockedAmount: sql`${stationSpacecrafts.lockedAmount} - ${amount}`,
+    })
+    .where(eq(stationSpacecrafts.id, id));
+}
+
+/** Removes docked ships; the caller has verified that enough are free. */
+export async function removeSpacecraft(tx: Tx, id: string, amount: number) {
+  await tx
+    .update(stationSpacecrafts)
+    .set({
+      amount: sql`${stationSpacecrafts.amount} - ${amount}`,
+    })
+    .where(eq(stationSpacecrafts.id, id));
+}
+
 /** Locks `amount` ships for a trip; false if fewer than that are free. Atomic under concurrency. */
 export async function reserveSpacecraft(tx: Tx, id: string, amount: number) {
   const [locked] = await tx

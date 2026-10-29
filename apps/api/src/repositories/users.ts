@@ -10,6 +10,11 @@ export async function findUser(db: QueryDb, id: string) {
   return row;
 }
 
+export async function findUserForUpdate(tx: Tx, id: string) {
+  const [row] = await tx.select().from(users).where(eq(users.id, id)).for('update');
+  return row;
+}
+
 export async function findUserByEmail(db: QueryDb, email: string) {
   const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   return row;
