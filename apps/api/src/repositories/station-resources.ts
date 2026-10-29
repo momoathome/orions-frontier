@@ -82,3 +82,7 @@ export async function setStationResourceAmount(
     .returning({ resourceKey: stationResources.resourceKey });
   return updated !== undefined;
 }
+
+export async function deleteStationResources(tx: Tx, stationId: string) {
+  await tx.delete(stationResources).where(eq(stationResources.stationId, stationId));
+}

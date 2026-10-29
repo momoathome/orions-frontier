@@ -211,3 +211,7 @@ export async function listWorkedAsteroidIdsByUser(db: SelectDistinctDb, userId: 
     .where(eq(stations.userId, userId));
   return rows.map((row) => row.asteroidId);
 }
+
+export async function deleteStationAssignments(tx: Tx, stationId: string) {
+  await tx.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, stationId));
+}

@@ -37,3 +37,8 @@ export async function findFreeSpawnSlotForUpdate(tx: Tx, slotType: string, secto
 export async function assignSpawnSlot(tx: Tx, slotId: string, stationId: string) {
   await tx.update(spawnSlots).set({ stationId }).where(eq(spawnSlots.id, slotId));
 }
+
+/** Frees the station's slots for new stations. */
+export async function releaseSpawnSlots(tx: Tx, stationId: string) {
+  await tx.update(spawnSlots).set({ stationId: null }).where(eq(spawnSlots.stationId, stationId));
+}
