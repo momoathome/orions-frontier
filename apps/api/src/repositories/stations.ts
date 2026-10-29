@@ -1,9 +1,10 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, between, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { users } from '../lib/db/schema/users.js';
+import type { ChunkBounds } from './asteroids.js';
 
 export type StationRow = typeof stations.$inferSelect;
 
@@ -123,4 +124,32 @@ export async function lockStationCreation(tx: Tx) {
 export async function insertStation(tx: Tx, values: typeof stations.$inferInsert) {
   const [row] = await tx.insert(stations).values(values).returning();
   return row;
+}
+
+/** Standing stations in the chunk range with owner protection, bot flag and integrity. */
+export function listStationsInChunks(db: QueryDb, bounds: ChunkBounds) {
+  return db
+    .select({
+      id: stations.id,
+      userId: stations.userId,
+      name: stations.name,
+      x: stations.x,
+      y: stations.y,
+      botUserId: botControllers.userId,
+      ownerCreatedAt: users.createdAt,
+      protectedUntil: users.protectedUntil,
+      attackProtectionBrokenAt: users.attackProtectionBrokenAt,
+      integrity: stations.integrity,
+      integrityUpdatedAt: stations.integrityUpdatedAt,
+    })
+    .from(stations)
+    .innerJoin(users, eq(users.id, stations.userId))
+    .leftJoin(botControllers, eq(botControllers.userId, stations.userId))
+    .where(
+      and(
+        between(stations.chunkX, bounds.minChunkX, bounds.maxChunkX),
+        between(stations.chunkY, bounds.minChunkY, bounds.maxChunkY),
+        isNull(stations.destroyedAt)
+      )
+    );
 }

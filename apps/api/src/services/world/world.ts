@@ -1,13 +1,9 @@
-import { and, between, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { interpolateWorldPosition } from '../../lib/travel.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
-import { botControllers } from '../../lib/db/schema/bot-controllers.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { users } from '../../lib/db/schema/users.js';
-import { worldMissions } from '../../lib/db/schema/world-missions.js';
+import { listTravelingTripsInBounds } from '../../repositories/spacecraft-trips.js';
+import { listStationsInChunks } from '../../repositories/stations.js';
+import { listMovingWorldMissions } from '../../repositories/world-missions.js';
 import {
   required,
   AppError,
@@ -84,30 +80,7 @@ export async function getVisibleChunkStations(
   combatDiagnostics?: VisibleStationCombatDiagnostics
 ): Promise<VisibleStation[]> {
   const db = getDb();
-  const rows = await db
-    .select({
-      id: stations.id,
-      userId: stations.userId,
-      name: stations.name,
-      x: stations.x,
-      y: stations.y,
-      botUserId: botControllers.userId,
-      ownerCreatedAt: users.createdAt,
-      protectedUntil: users.protectedUntil,
-      attackProtectionBrokenAt: users.attackProtectionBrokenAt,
-      integrity: stations.integrity,
-      integrityUpdatedAt: stations.integrityUpdatedAt,
-    })
-    .from(stations)
-    .innerJoin(users, eq(users.id, stations.userId))
-    .leftJoin(botControllers, eq(botControllers.userId, stations.userId))
-    .where(
-      and(
-        between(stations.chunkX, range.minChunkX, range.maxChunkX),
-        between(stations.chunkY, range.minChunkY, range.maxChunkY),
-        isNull(stations.destroyedAt)
-      )
-    );
+  const rows = await listStationsInChunks(db, range);
   const now = combatDiagnostics?.now ?? new Date();
   if (stats) stats.stationCandidates = rows.length;
 
@@ -179,57 +152,8 @@ export async function getVisibleWorldMovements(
   const db = getDb();
   const bounds = worldBounds(range);
   const [trips, missions, coverages] = await Promise.all([
-    db
-      .select({
-        id: spacecraftTrips.id,
-        fromX: spacecraftTrips.fromX,
-        fromY: spacecraftTrips.fromY,
-        toX: spacecraftTrips.toX,
-        toY: spacecraftTrips.toY,
-        departedAt: spacecraftTrips.departedAt,
-        arrivesAt: spacecraftTrips.arrivesAt,
-        purpose: spacecraftTrips.purpose,
-        groupSize: spacecraftTrips.groupSize,
-        createdAt: spacecraftTrips.createdAt,
-        spacecraftKey: stationSpacecrafts.spacecraftKey,
-        userId: stations.userId,
-        botUserId: botControllers.userId,
-      })
-      .from(spacecraftTrips)
-      .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
-      .innerJoin(stations, eq(stationSpacecrafts.stationId, stations.id))
-      .leftJoin(botControllers, eq(botControllers.userId, stations.userId))
-      .where(
-        and(
-          eq(spacecraftTrips.status, 'traveling'),
-          // A trip's position stays on its straight path, so its bounding box must touch the view.
-          sql`least(${spacecraftTrips.fromX}, ${spacecraftTrips.toX}) < ${bounds.maxX}`,
-          sql`greatest(${spacecraftTrips.fromX}, ${spacecraftTrips.toX}) >= ${bounds.minX}`,
-          sql`least(${spacecraftTrips.fromY}, ${spacecraftTrips.toY}) < ${bounds.maxY}`,
-          sql`greatest(${spacecraftTrips.fromY}, ${spacecraftTrips.toY}) >= ${bounds.minY}`
-        )
-      ),
-    db
-      .select({
-        id: worldMissions.id,
-        fromX: stations.x,
-        fromY: stations.y,
-        targetSectorX: worldMissions.targetSectorX,
-        targetSectorY: worldMissions.targetSectorY,
-        targetX: worldMissions.targetX,
-        targetY: worldMissions.targetY,
-        departedAt: worldMissions.departedAt,
-        arrivesAt: worldMissions.arrivesAt,
-        status: worldMissions.status,
-        purpose: worldMissions.missionType,
-        spacecraftKey: worldMissions.spacecraftKey,
-        userId: worldMissions.userId,
-        botUserId: botControllers.userId,
-      })
-      .from(worldMissions)
-      .innerJoin(stations, eq(worldMissions.originStationId, stations.id))
-      .leftJoin(botControllers, eq(botControllers.userId, worldMissions.userId))
-      .where(inArray(worldMissions.status, ['traveling', 'returning'])),
+    listTravelingTripsInBounds(db, bounds),
+    listMovingWorldMissions(db),
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
   ]);
 
