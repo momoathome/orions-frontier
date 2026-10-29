@@ -138,7 +138,8 @@ npm run test:playtest-e2e
 ```
 
 Reproduzierbare Presets liegen unter `configs/playtest/`. Die technische Entwicklungsbaseline
-über drei frische Welten läuft mit:
+über drei frische Welten läuft je 72 virtuelle Stunden, damit Kolonisation und Angriffe nach dem
+24-Stunden-Schutz mitgemessen werden:
 
 ```bash
 npm run playtest:baseline

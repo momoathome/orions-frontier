@@ -1,7 +1,7 @@
 {
-  "seed": "baseline-24h",
+  "seed": "baseline-72h",
   "virtualStart": "2030-01-01T00:00:00.000Z",
-  "durationHours": 24,
+  "durationHours": 72,
   "stepSeconds": 60,
   "joinIntervalMinutes": 15,
   "populationLimit": 12,
