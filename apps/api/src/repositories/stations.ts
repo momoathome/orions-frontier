@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import type { QueryDb } from '../lib/db/index.js';
+import type { QueryDb, Tx } from '../lib/db/index.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { users } from '../lib/db/schema/users.js';
@@ -20,6 +20,18 @@ export async function findOwnedStation(db: QueryDb, stationId: string, userId: s
       and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
     )
     .limit(1);
+  return row;
+}
+
+/** Locks the user's station, unless it was destroyed. */
+export async function findOwnedStationForUpdate(tx: Tx, stationId: string, userId: string) {
+  const [row] = await tx
+    .select()
+    .from(stations)
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    )
+    .for('update');
   return row;
 }
 
