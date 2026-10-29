@@ -98,8 +98,8 @@ export class ChunkStreamer {
     // Split the load range into sub-requests that fit within the API limit,
     // then fetch only those that contain un-loaded chunks.
     for (const sub of this._splitRange(loadRange)) {
-      if (reloadAll || this._hasNewChunks(sub)) {
-        void this._fetchChunks(sub);
+      for (const request of reloadAll ? [sub] : this._missingRects(sub)) {
+        void this._fetchChunks(request, reloadAll);
       }
     }
   }
@@ -120,17 +120,30 @@ export class ChunkStreamer {
     return result;
   }
 
-  private _hasNewChunks(sub: SubRange): boolean {
-    for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
-      for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {
+  /**
+   * The chunks still missing in `sub` as row strips; rows with the same span merge. A pan
+   * fetches only its new edge, and a diagonal pan's L-shape becomes two strips, not one box.
+   */
+  private _missingRects(sub: SubRange): SubRange[] {
+    const rects: SubRange[] = [];
+    for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {
+      let minCX = Infinity;
+      let maxCX = -Infinity;
+      for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
         const key = chunkKey(cx, cy);
-        if (!this.loadedChunks.has(key) && !this.pendingChunks.has(key)) return true;
+        if (this.loadedChunks.has(key) || this.pendingChunks.has(key)) continue;
+        minCX = Math.min(minCX, cx);
+        maxCX = Math.max(maxCX, cx);
       }
+      if (minCX > maxCX) continue;
+      const last = rects.at(-1);
+      if (last?.maxCY === cy - 1 && last.minCX === minCX && last.maxCX === maxCX) last.maxCY = cy;
+      else rects.push({ minCX, maxCX, minCY: cy, maxCY: cy });
     }
-    return false;
+    return rects;
   }
 
-  private async _fetchChunks(sub: SubRange) {
+  private async _fetchChunks(sub: SubRange, replace = false) {
     // Mark all chunks in this sub-range as pending
     for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
       for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {
@@ -174,6 +187,8 @@ export class ChunkStreamer {
 
       for (const [key, chunk] of byChunk) {
         this.pendingChunks.delete(key);
+        // A strip can include a chunk loaded in the meantime; rebuilding it only costs GC.
+        if (!replace && this.loadedChunks.has(key)) continue;
         this.loadedChunks.set(key, chunk);
         this.onChunkLoaded?.(key, chunk);
       }

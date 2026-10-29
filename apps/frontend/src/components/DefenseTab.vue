@@ -102,6 +102,7 @@ async function load(): Promise<void> {
     ]);
     reports.value = combatReports;
     upgrades.value = defenseResponse.upgrades;
+    scheduleNextArrival();
     error.value = null;
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Defense data could not be loaded');
@@ -123,12 +124,30 @@ async function startUpgrade(upgrade: StationDefenseUpgradeWithDefinition): Promi
   }
 }
 
+// The defender gets no event when a battle resolves, so reload once at the next arrival.
+let arrivalTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleNextArrival() {
+  clearTimeout(arrivalTimer);
+  const next = Math.min(
+    ...reports.value
+      .filter((report) => report.status === 'traveling')
+      .map((report) => Date.parse(report.arrivesAt))
+  );
+  if (Number.isFinite(next)) {
+    arrivalTimer = setTimeout(() => void load(), Math.max(0, next - Date.now()) + 2_000);
+  }
+}
+
 void load();
-const interval = setInterval(() => void load(), 10_000);
-const unsubscribeIncoming = wsClient.on('incoming_attack', () => void load());
+// Pushed events instead of a 10 s poll: attacks announce, upgrades and own missions complete.
+const unsubscribe = [
+  wsClient.on('incoming_attack', () => void load()),
+  wsClient.on('defense_upgrade_completed', () => void load()),
+  wsClient.on('world_mission_completed', () => void load()),
+];
 onUnmounted(() => {
-  unsubscribeIncoming();
-  clearInterval(interval);
+  for (const off of unsubscribe) off();
+  clearTimeout(arrivalTimer);
 });
 </script>
 

@@ -1,4 +1,4 @@
-import { BlurFilter, Container, Sprite, Texture } from 'pixi.js';
+import { BlurFilter, Container, Rectangle, Sprite, Texture } from 'pixi.js';
 import type { VisibleAsteroid } from '@orions-frontier/shared';
 import {
   CHUNK_SIZE,
@@ -12,9 +12,13 @@ import { chunkKey } from './ChunkStreamer.js';
 import type { ChunkKey } from './ChunkStreamer.js';
 
 // AsteroidLayer
-// Manages one PixiJS Container per loaded chunk.
-// Asteroids in a chunk are drawn onto a single Graphics object
-// (one draw call per chunk) for high throughput with thousands of asteroids.
+// Manages one cullable PixiJS Container per loaded chunk. Unscanned asteroids of every
+// chunk share one blurred root, so the blur is a single filter pass per frame.
+
+/** Below this zoom asteroids are a few pixels wide and the blur pass buys nothing. */
+const BLUR_MIN_ZOOM = 0.25;
+/** Sprites reach past their chunk edge by up to the largest drawn radius. */
+const CULL_PADDING = 80;
 
 export interface AsteroidHit {
   id: string;
@@ -30,7 +34,9 @@ export class AsteroidLayer {
   /** Root container — add this to the world container */
   readonly container = new Container();
 
-  private chunkContainers = new Map<ChunkKey, Container>();
+  private scannedRoot = new Container();
+  private unscannedRoot = new Container();
+  private chunkContainers = new Map<ChunkKey, Container[]>();
 
   // Hit-test data: per-chunk list and flat id→position map
   private chunkAsteroidData = new Map<ChunkKey, AsteroidHit[]>();
@@ -42,19 +48,40 @@ export class AsteroidLayer {
   /** Asteroid textures (index 0–5 → asteroid1.webp–asteroid6.webp) */
   private textures: Texture[] = [];
 
+  constructor() {
+    this.unscannedRoot.filters = [this.unscannedBlur];
+    this.container.addChild(this.unscannedRoot, this.scannedRoot);
+  }
+
   setTextures(textures: Texture[]) {
     this.textures = textures;
+  }
+
+  /** Drops the blur pass while zoomed far out; call each frame. */
+  setZoom(zoom: number) {
+    const blur = zoom >= BLUR_MIN_ZOOM;
+    if (blur !== this.unscannedRoot.filters.length > 0) {
+      this.unscannedRoot.filters = blur ? [this.unscannedBlur] : [];
+    }
   }
 
   addChunk(key: ChunkKey, asteroids: VisibleAsteroid[]) {
     this.removeChunk(key); // idempotent
 
-    const chunkContainer = new Container();
-    chunkContainer.label = `chunk-${key}`;
-
-    const unscannedContainer = new Container();
-    unscannedContainer.filters = [this.unscannedBlur];
-    chunkContainer.addChild(unscannedContainer);
+    const [cx = 0, cy = 0] = key.split(':').map(Number);
+    const cullArea = new Rectangle(
+      cx * CHUNK_SIZE - CULL_PADDING,
+      cy * CHUNK_SIZE - CULL_PADDING,
+      CHUNK_SIZE + 2 * CULL_PADDING,
+      CHUNK_SIZE + 2 * CULL_PADDING
+    );
+    const [chunkContainer, unscannedContainer] = [new Container(), new Container()];
+    for (const part of [chunkContainer, unscannedContainer]) {
+      part.label = `chunk-${key}`;
+      part.cullable = true;
+      part.cullableChildren = false;
+      part.cullArea = cullArea;
+    }
 
     for (const a of asteroids) {
       const sprite = new Sprite(this._textureFor(a.id));
@@ -98,15 +125,16 @@ export class AsteroidLayer {
       this.asteroidById.set(h.id, h);
     }
 
-    this.chunkContainers.set(key, chunkContainer);
-    this.container.addChild(chunkContainer);
+    this.chunkContainers.set(key, [chunkContainer, unscannedContainer]);
+    this.scannedRoot.addChild(chunkContainer);
+    this.unscannedRoot.addChild(unscannedContainer);
   }
 
   removeChunk(key: ChunkKey) {
     const existing = this.chunkContainers.get(key);
     if (!existing) return;
-    this.container.removeChild(existing);
-    existing.destroy({ children: true });
+    // Sprites share the asteroid textures, so destroying children never frees them.
+    for (const part of existing) part.destroy({ children: true });
     this.chunkContainers.delete(key);
 
     // Clean up hit-test data for this chunk

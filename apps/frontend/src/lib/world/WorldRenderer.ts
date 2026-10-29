@@ -1,5 +1,7 @@
+// Pixi compiles uniform uploads with new Function; this swaps in eval-free versions for the CSP.
+import 'pixi.js/unsafe-eval';
 import type { Texture } from 'pixi.js';
-import { Application, Assets, Container, Graphics, Text } from 'pixi.js';
+import { Application, Assets, Container, CullerPlugin, extensions, Graphics, Text } from 'pixi.js';
 import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
 import { AsteroidLayer } from './AsteroidLayer.js';
@@ -34,6 +36,12 @@ export interface AssignedAsteroid {
 //   ChunkStreamer (chunk lifecycle + API fetching)
 //   AsteroidLayer (PixiJS rendering per chunk)
 //   Background (star field + world-aligned grid)
+
+// Skips chunk containers outside the viewport; they opt in through `cullable`.
+extensions.add(CullerPlugin);
+
+/** ProMotion displays tick at 120 Hz; the map gains nothing visible from more than 60. */
+const MAX_FPS = 60;
 
 export interface StationInfo {
   id: string;
@@ -70,6 +78,8 @@ export class WorldRenderer {
   // station rings + label
   private stationRingsG!: Graphics;
   private stationRingLabel!: Text;
+  /** Scanner circles only change with their stations, not with the camera. */
+  private stationRingsDirty = true;
   private _assignedAsteroids: AssignedAsteroid[] = [];
   /** Accumulates each tick — drives dash animation */
   private _routePhase = 0;
@@ -144,15 +154,20 @@ export class WorldRenderer {
     }
     this.scannerStations = scannerStations;
 
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
     this.app = new Application();
     await this.app.init({
       width: w,
       height: h,
       backgroundColor: 0x070b14,
-      antialias: true,
-      resolution: window.devicePixelRatio || 1,
+      // WebGPU where the browser has it, WebGL otherwise.
+      preference: 'webgpu',
+      // Retina pixels already smooth edges; MSAA on top would quadruple the fill cost.
+      antialias: pixelRatio < 2,
+      resolution: pixelRatio,
       autoDensity: true,
     });
+    this.app.ticker.maxFPS = MAX_FPS;
 
     el.appendChild(this.app.canvas);
 
@@ -276,6 +291,7 @@ export class WorldRenderer {
 
   setScannerStations(stations: StationInfo[]): void {
     this.scannerStations = stations;
+    this.stationRingsDirty = true;
     this.tripLayer.setScannerCircles(
       this.scannerBypass ? [] : stations.map((entry) => ({ ...entry, range: entry.scannerRange }))
     );
@@ -283,6 +299,7 @@ export class WorldRenderer {
 
   setScannerBypass(enabled: boolean): void {
     this.scannerBypass = enabled;
+    this.stationRingsDirty = true;
     this.tripLayer.setScannerCircles(
       enabled ? [] : this.scannerStations.map((entry) => ({ ...entry, range: entry.scannerRange }))
     );
@@ -345,15 +362,20 @@ export class WorldRenderer {
 
   private _drawStationRings() {
     const g = this.stationRingsG;
-    g.clear();
     if (this.scannerBypass || !this.stationInfo || this.scannerStations.length === 0) {
+      if (this.stationRingsDirty) g.clear();
+      this.stationRingsDirty = false;
       this.stationRingLabel.visible = false;
       return;
     }
-    for (const station of this.scannerStations) {
-      const active = station.id === this.stationInfo.id;
-      g.circle(station.x, station.y, station.scannerRange);
-      g.stroke({ color: 0x35d8ff, alpha: active ? 0.42 : 0.18, width: active ? 1.6 : 1 });
+    if (this.stationRingsDirty) {
+      g.clear();
+      for (const station of this.scannerStations) {
+        const active = station.id === this.stationInfo.id;
+        g.circle(station.x, station.y, station.scannerRange);
+        g.stroke({ color: 0x35d8ff, alpha: active ? 0.42 : 0.18, width: active ? 1.6 : 1 });
+      }
+      this.stationRingsDirty = false;
     }
 
     const screenPos = this.camera.worldToScreen(
@@ -397,6 +419,7 @@ export class WorldRenderer {
     this.tripLayer.redraw();
 
     const now = Date.now();
+    this.asteroidLayer.setZoom(this.camera.zoom);
     this.stationLayer.animate(now, this.camera.zoom);
     this.activeStationVisual?.animate(now, this.camera.zoom);
 
