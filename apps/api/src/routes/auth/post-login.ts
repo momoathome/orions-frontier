@@ -1,5 +1,5 @@
 import { LoginRequestSchema } from '@orions-frontier/shared';
-import { loginUser } from '../../services/auth.service.js';
+import { loginUser } from '../../services/auth/index.js';
 import { defineRoute } from '../../lib/route.js';
 
 /**

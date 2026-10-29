@@ -7,8 +7,8 @@ import { stations } from './lib/db/schema/stations.js';
 import { sql } from 'drizzle-orm';
 import { WORLD_CONFIG } from './lib/world-config.js';
 import { logger } from './lib/logger.js';
-import { createStation } from './services/station.service.js';
-import { ensureSector } from './services/sector.service.js';
+import { createStation } from './services/station/index.js';
+import { ensureSector } from './services/map/index.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,

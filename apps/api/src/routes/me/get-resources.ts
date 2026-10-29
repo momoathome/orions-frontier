@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { authenticate } from '../../middleware/auth.js';
 import {
-  getStationResources,
   getDeliveredResourceRates,
+  getStationResources,
   getStationStorageCapacity,
-} from '../../services/station-resource.service.js';
+} from '../../services/station/index.js';
 import { defineRoute } from '../../lib/route.js';
 
 const QuerySchema = z.object({ stationId: z.uuid() });

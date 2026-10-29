@@ -1,9 +1,9 @@
 import { buildApp } from './app.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
-import { runWorldTick, startSimulationScheduler } from './services/simulation.service.js';
+import { runWorldTick, startSimulationScheduler } from './services/simulation/index.js';
 import { seedAsteroidWorld, seedDevUser } from './seed.js';
-import { seedBotsForOccupiedSectors } from './services/bot/bot-provision.service.js';
+import { seedBotsForOccupiedSectors } from './services/bot/index.js';
 import { runMigrations } from './lib/db/migrate.js';
 import { parseEnv } from './lib/env.js';
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { AppError } from '@orions-frontier/shared';
-import { parseChunkRange } from '../../src/services/world.service.js';
+import { parseChunkRange } from '../../src/services/world/world.js';
 
 test('chunk ranges must be integer, ordered, and bounded', () => {
   assert.deepEqual(

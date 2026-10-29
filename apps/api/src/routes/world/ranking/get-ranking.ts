@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
 import { defineRoute } from '../../../lib/route.js';
-import { getRanking } from '../../../services/ranking.service.js';
+import { getRanking } from '../../../services/ranking/index.js';
 
 /**
  * GET /api/world/ranking

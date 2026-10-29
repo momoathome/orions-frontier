@@ -17,20 +17,20 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/asteroid.service.js';
-import { startAttack } from '../../src/services/combat.service.js';
-import { createAsteroidAssignment } from '../../src/services/mining/assignment.service.js';
+import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/map/asteroid.js';
+import { startAttack } from '../../src/services/combat/combat.js';
+import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
 import {
   getDebrisById,
   getVisibleDebris,
   startSalvage,
-} from '../../src/services/salvage.service.js';
-import { getUserScannerCoverages } from '../../src/services/scanner-visibility.service.js';
-import { starterStationVisualProfile } from '../../src/services/station-visual.service.js';
+} from '../../src/services/combat/salvage.js';
+import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
+import { starterStationVisualProfile } from '../../src/services/station/visual.js';
 import {
   getVisibleChunkStations,
   getVisibleWorldMovements,
-} from '../../src/services/world.service.js';
+} from '../../src/services/world/world.js';
 import { buildTestApp } from '../helpers/test-app.js';
 
 const viewerId = randomUUID();

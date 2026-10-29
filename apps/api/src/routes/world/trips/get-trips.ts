@@ -1,5 +1,5 @@
 import { authenticate } from '../../../middleware/auth.js';
-import { getVisibleWorldMovements, parseChunkRange } from '../../../services/world.service.js';
+import { getVisibleWorldMovements, parseChunkRange } from '../../../services/world/index.js';
 import { defineRoute, chunkRangeQuery } from '../../../lib/route.js';
 
 // At the minimum map zoom a desktop viewport spans considerably more than the

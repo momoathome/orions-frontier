@@ -17,13 +17,13 @@ import { users } from '../../src/lib/db/schema/users.js';
 import { worldMissions } from '../../src/lib/db/schema/world-missions.js';
 import { WORLD_CONFIG } from '../../src/lib/world-config.js';
 import { calcDistance, calcTravelHours } from '../../src/lib/travel.js';
-import { ensureSector } from '../../src/services/sector.service.js';
-import { createStation } from '../../src/services/station.service.js';
+import { ensureSector } from '../../src/services/map/sector.js';
+import { createStation } from '../../src/services/station/station.js';
 import {
   completeDueWorldMissions,
   startColonization,
   startExpedition,
-} from '../../src/services/world-mission.service.js';
+} from '../../src/services/missions/world-mission.js';
 
 const userId = randomUUID();
 const secondUserId = randomUUID();

@@ -27,7 +27,7 @@ import type { GoalBotState, StationSnapshot } from './goal-state.js';
 import type { GoalCandidate } from './goal-driven-v1.js';
 import type { GoalResult } from './goal-state.js';
 import { GOAL_CATEGORY } from './goal-driven-v1.js';
-import { getFrontierTargets, getKnownSectors } from '../world-mission.service.js';
+import { getFrontierTargets, getKnownSectors } from '../missions/index.js';
 import {
   calculateHostility,
   calculateReserve,
@@ -35,7 +35,7 @@ import {
   availableOffensivePower,
   scoreConflictTarget,
 } from './conflict-intel.js';
-import { PROFILE_PARAMS } from './bot-profiles.js';
+import { PROFILE_PARAMS } from './profiles.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

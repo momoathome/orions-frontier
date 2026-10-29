@@ -1,6 +1,5 @@
-import type { BotDecisionOutcome } from '../../services/bot/bot.service.js';
-import type { WorldTickResult } from '../../services/simulation.service.js';
-import type { ConflictOpportunitySnapshot } from '../../services/bot/goal-economy.js';
+import type { BotDecisionOutcome, ConflictOpportunitySnapshot } from '../../services/bot/index.js';
+import type { WorldTickResult } from '../../services/simulation/index.js';
 import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
 import type { PlaytestAliasRegistry } from './aliases.js';
 

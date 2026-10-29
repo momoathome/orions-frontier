@@ -5,9 +5,12 @@ import { botControllers, type BotProfile } from '../../lib/db/schema/bot-control
 import { sectors } from '../../lib/db/schema/sectors.js';
 import { stations } from '../../lib/db/schema/stations.js';
 import { users } from '../../lib/db/schema/users.js';
-import { createStation } from '../../services/station.service.js';
-import { seedBotsForSector } from '../../services/bot/bot-provision.service.js';
-import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION } from '../../services/bot/bot-profiles.js';
+import { createStation } from '../../services/station/index.js';
+import {
+  GOAL_BOT_STRATEGY,
+  GOAL_BOT_STRATEGY_VERSION,
+  seedBotsForSector,
+} from '../../services/bot/index.js';
 import { selectWeightedProfile, type BotProfileWeights } from './profile-distribution.js';
 
 export type PopulationKind = 'resident_bot' | 'synthetic_player';

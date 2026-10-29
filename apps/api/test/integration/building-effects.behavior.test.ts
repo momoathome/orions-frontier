@@ -10,15 +10,15 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { getUserScannerCoverages } from '../../src/services/scanner-visibility.service.js';
-import { getStationBuildings, startBuildingUpgrade } from '../../src/services/building.service.js';
+import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
+import { getStationBuildings, startBuildingUpgrade } from '../../src/services/station/buildings.js';
 import {
   getStationDefenseUpgrades,
   startDefenseUpgrade,
-} from '../../src/services/defense.service.js';
-import { runSimulationTick } from '../../src/services/simulation.service.js';
-import { getStationHangar } from '../../src/services/spacecraft.service.js';
-import { getStationStorageCapacity } from '../../src/services/station-resource.service.js';
+} from '../../src/services/station/defense.js';
+import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { getStationHangar } from '../../src/services/station/spacecraft.js';
+import { getStationStorageCapacity } from '../../src/services/station/resources.js';
 import {
   createTestSector,
   createTestStation,

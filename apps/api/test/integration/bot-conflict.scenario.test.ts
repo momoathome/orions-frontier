@@ -7,8 +7,8 @@ import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields, salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { runBotDecisionTick } from '../../src/services/bot/bot.service.js';
-import { runSimulationTick } from '../../src/services/simulation.service.js';
+import { runBotDecisionTick } from '../../src/services/bot/bot.js';
+import { runSimulationTick } from '../../src/services/simulation/simulation.js';
 import {
   createTestSector,
   createTestStation,

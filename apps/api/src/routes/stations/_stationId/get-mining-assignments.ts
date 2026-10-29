@@ -1,6 +1,6 @@
 import { authenticate } from '../../../middleware/auth.js';
-import { ownStation } from '../../../services/station.service.js';
-import { getStationMiningAssignments } from '../../../services/mining/assignment.service.js';
+import { ownStation } from '../../../services/station/index.js';
+import { getStationMiningAssignments } from '../../../services/mining/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 /**

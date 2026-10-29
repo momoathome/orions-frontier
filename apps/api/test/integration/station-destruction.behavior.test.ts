@@ -15,10 +15,10 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { getUserCombatReports, startAttack } from '../../src/services/combat.service.js';
-import { getRanking } from '../../src/services/ranking.service.js';
-import { createStation, getUserStations } from '../../src/services/station.service.js';
-import { settleTripArrival } from '../../src/services/transport/trip-arrivals.service.js';
+import { getUserCombatReports, startAttack } from '../../src/services/combat/combat.js';
+import { getRanking } from '../../src/services/ranking/ranking.js';
+import { createStation, getUserStations } from '../../src/services/station/station.js';
+import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
 
 let attackerUserId = '';

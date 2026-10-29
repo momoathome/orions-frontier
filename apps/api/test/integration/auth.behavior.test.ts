@@ -7,7 +7,7 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { loginUser, registerUser } from '../../src/services/auth.service.js';
+import { loginUser, registerUser } from '../../src/services/auth/auth.js';
 
 const createdUserIds: string[] = [];
 

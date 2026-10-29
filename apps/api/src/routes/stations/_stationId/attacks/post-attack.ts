@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../../middleware/auth.js';
-import { startAttack } from '../../../../services/combat.service.js';
+import { startAttack } from '../../../../services/combat/index.js';
 import { defineRoute, stationParams } from '../../../../lib/route.js';
 
 const BodySchema = z.object({

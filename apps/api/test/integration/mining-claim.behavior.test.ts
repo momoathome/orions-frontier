@@ -6,7 +6,7 @@ import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { asteroids, asteroidVeins } from '../../src/lib/db/schema/asteroids.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
-import { claimMiningCargo } from '../../src/services/mining/mining-claim.service.js';
+import { claimMiningCargo } from '../../src/services/mining/claim.js';
 
 const asteroidId = randomUUID();
 const sectorId = randomUUID();

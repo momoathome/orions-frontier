@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../../../middleware/auth.js';
-import { startResearch } from '../../../../../services/research.service.js';
+import { startResearch } from '../../../../../services/research/index.js';
 import { defineRoute, stationParams } from '../../../../../lib/route.js';
 
 export default defineRoute(async (app) => {

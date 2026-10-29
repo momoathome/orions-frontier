@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../../middleware/auth.js';
-import { startSalvage } from '../../../../services/salvage.service.js';
+import { startSalvage } from '../../../../services/combat/index.js';
 import { defineRoute, idParams } from '../../../../lib/route.js';
 
 const BodySchema = z.object({

@@ -4,7 +4,7 @@ import {
   buildStationVisualProfile,
   levelVisualTier,
   trafficVisualTier,
-} from '../../src/services/station-visual.service.js';
+} from '../../src/services/station/visual.js';
 
 test('station visual levels are projected into coarse tiers', () => {
   assert.equal(levelVisualTier(0), 0);

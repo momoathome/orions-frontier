@@ -17,33 +17,36 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { seedStationBuildings, startBuildingUpgrade } from '../../src/services/building.service.js';
+import {
+  seedStationBuildings,
+  startBuildingUpgrade,
+} from '../../src/services/station/buildings.js';
 import {
   buildSpacecrafts,
   getStationHangar,
   getStationSpacecrafts,
   seedStationSpacecrafts,
-} from '../../src/services/spacecraft.service.js';
-import { createStation } from '../../src/services/station.service.js';
+} from '../../src/services/station/spacecraft.js';
+import { createStation } from '../../src/services/station/station.js';
 import {
   getDeliveredResourceRates,
   getStationResources,
   seedStationResources,
-} from '../../src/services/station-resource.service.js';
-import { getUserScannerCoverages } from '../../src/services/scanner-visibility.service.js';
+} from '../../src/services/station/resources.js';
+import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
 import {
   completeDueResearch,
   getResearchState,
   startResearch,
-} from '../../src/services/research.service.js';
-import { runSimulationTick } from '../../src/services/simulation.service.js';
+} from '../../src/services/research/research.js';
+import { runSimulationTick } from '../../src/services/simulation/simulation.js';
 import {
   applyGridOptimization,
   applyVectorNavigation,
   effectiveAttackPower,
   effectiveCargoCapacity,
   effectiveMiningRate,
-} from '../../src/services/research-effects.js';
+} from '../../src/services/research/effects.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();

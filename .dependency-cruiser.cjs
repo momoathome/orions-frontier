@@ -9,6 +9,23 @@ module.exports = {
       to: { circular: true },
     },
     {
+      name: 'services-only-via-index',
+      severity: 'error',
+      comment: 'Ein Service-Ordner wird von außen nur über seine index.ts importiert.',
+      from: { path: '^apps/api/src/services/([^/]+)/' },
+      to: {
+        path: '^apps/api/src/services/',
+        pathNot: ['^apps/api/src/services/$1/', '^apps/api/src/services/[^/]+/index\\.ts$'],
+      },
+    },
+    {
+      name: 'outside-only-via-index',
+      severity: 'error',
+      comment: 'Routen, Werkzeuge und App-Start importieren Services nur über index.ts.',
+      from: { pathNot: '^apps/api/src/services/' },
+      to: { path: '^apps/api/src/services/', pathNot: '^apps/api/src/services/[^/]+/index\\.ts$' },
+    },
+    {
       name: 'lib-is-base',
       severity: 'error',
       comment: 'lib ist die Basis und kennt weder Services, Routen noch Werkzeuge.',

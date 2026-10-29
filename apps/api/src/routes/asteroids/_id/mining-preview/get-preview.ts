@@ -11,13 +11,13 @@ import {
   getUserRevealedAsteroidIds,
   getUserScannerCoverages,
   isPointVisible,
-} from '../../../../services/scanner-visibility.service.js';
+} from '../../../../services/map/index.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
 import {
-  effectiveMiningRate,
   effectiveCargoCapacity,
-} from '../../../../services/research-effects.js';
-import { hasCompletedResearch } from '../../../../services/research.service.js';
+  effectiveMiningRate,
+  hasCompletedResearch,
+} from '../../../../services/research/index.js';
 import { defineRoute, idParams } from '../../../../lib/route.js';
 
 const QuerySchema = z.object({

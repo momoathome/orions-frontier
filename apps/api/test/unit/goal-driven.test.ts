@@ -304,7 +304,7 @@ import {
   stepStabilizeStation,
 } from '../../src/services/bot/goal-economy.js';
 import type { GoalBotState } from '../../src/services/bot/goal-state.js';
-import { checkUrgentMaintenance } from '../../src/services/bot/goal-lifecycle.service.js';
+import { checkUrgentMaintenance } from '../../src/services/bot/goal-lifecycle.js';
 
 const baseStation = (overrides: Partial<StationSnapshot> = {}): StationSnapshot => ({
   id: 'station-1',

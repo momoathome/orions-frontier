@@ -1,6 +1,6 @@
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { authenticate } from '../../../middleware/auth.js';
-import { getDebrisById } from '../../../services/salvage.service.js';
+import { getDebrisById } from '../../../services/combat/index.js';
 import { defineRoute, idParams } from '../../../lib/route.js';
 
 export default defineRoute(async (app) => {

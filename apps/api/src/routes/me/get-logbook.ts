@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { authenticate } from '../../middleware/auth.js';
 import { defineRoute } from '../../lib/route.js';
-import { getLogbook } from '../../services/logbook.service.js';
+import { getLogbook } from '../../services/logbook/index.js';
 
 /**
  * GET /api/me/logbook

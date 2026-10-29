@@ -19,8 +19,8 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
 import type { MiningDeliveryCompletedEvent } from '../../src/lib/completion-events.js';
-import { createAsteroidAssignment } from '../../src/services/mining/assignment.service.js';
-import { runWorldTick } from '../../src/services/simulation.service.js';
+import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
 
 let userId = '';
