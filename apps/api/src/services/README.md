@@ -33,6 +33,8 @@ Repository der Tabelle, deren Zeilen sie liefert.
 - Keine Spielregeln: keine `AppError`-Meldungen, keine Werte aus `game-config`. Prüfen und Melden
   bleibt im Service.
 - Repositories importieren nur `lib/db` und `@orions-frontier/shared`, keine Services.
+- Wert-Konstanten aus dem Schema, die Services brauchen (z. B. `goalTypes`), reicht das passende
+  Repository weiter; Services importieren das Schema nur als Typ.
 
 ## Schichten
 
