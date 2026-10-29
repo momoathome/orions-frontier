@@ -143,7 +143,7 @@ export const getAsteroidById = async (
     const activeTrip = activeTrips.get(assignment.id);
     return {
       id: assignment.id,
-      stationId: assignment.stationId,
+      stationId: isOwnAssignment ? assignment.stationId : null,
       spacecraftKey: assignment.spacecraftKey,
       spacecraftName: spacecraft.name,
       spacecraftMiningRate: miningRate,

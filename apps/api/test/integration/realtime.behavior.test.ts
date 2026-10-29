@@ -8,12 +8,13 @@ import { attachRealtimeServer, publishUserEvent } from '../../src/lib/realtime.j
 
 const secret = 'realtime-behavior-test-secret';
 const userId = crypto.randomUUID();
+const bannedUserId = crypto.randomUUID();
 const app = Fastify();
 let url: string;
 
 before(async () => {
   await app.register(fastifyJwt, { secret });
-  attachRealtimeServer(app);
+  attachRealtimeServer(app, (id) => Promise.resolve(id === bannedUserId ? null : 'player'));
   const address = await app.listen({ port: 0, host: '127.0.0.1' });
   url = address.replace('http://', 'ws://');
 });
@@ -55,4 +56,18 @@ test('authenticates clients and sends user events from the API process', async (
   );
   const [code] = await rejected;
   assert.equal(code, 4401);
+
+  // A still valid token of a banned account is turned away as well.
+  const bannedClient = new WebSocket(url);
+  await once(bannedClient, 'open');
+  const bannedRejected = once(bannedClient, 'close');
+  bannedClient.send(
+    JSON.stringify({
+      type: 'authenticate',
+      payload: { token: app.jwt.sign({ userId: bannedUserId, role: 'player' }) },
+      timestamp: Date.now(),
+    })
+  );
+  const [bannedCode] = await bannedRejected;
+  assert.equal(bannedCode, 4401);
 });

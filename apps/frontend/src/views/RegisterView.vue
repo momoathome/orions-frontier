@@ -50,11 +50,11 @@ async function submit() {
       <input
         v-model="form.password"
         required
-        minlength="8"
+        minlength="12"
         maxlength="128"
         type="password"
         autocomplete="new-password"
-        placeholder="Password"
+        placeholder="Password (at least 12 characters)"
         class="rounded border border-white/10 bg-white/5 px-3 py-2"
       />
       <p v-if="error" class="text-sm text-red-300">{{ error }}</p>

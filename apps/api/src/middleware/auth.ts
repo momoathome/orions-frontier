@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { AppError, ErrorCode, type JwtPayload } from '@orions-frontier/shared';
+import { findUserById } from '../services/auth/index.js';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -11,6 +12,7 @@ declare module '@fastify/jwt' {
 /**
  * Fastify preHandler — validates JWT and sets request.user.
  * Use as `preHandler: [authenticate]` on protected routes.
+ * A valid token is not enough: the account must still be active, and its current role counts.
  */
 export const authenticate = async (
   request: FastifyRequest,
@@ -21,4 +23,9 @@ export const authenticate = async (
   } catch {
     throw new AppError(ErrorCode.UNAUTHORIZED, 'Authentication required');
   }
+  const user = await findUserById(request.user.userId);
+  if (user?.status !== 'active') {
+    throw new AppError(ErrorCode.UNAUTHORIZED, 'Authentication required');
+  }
+  request.user.role = user.role;
 };

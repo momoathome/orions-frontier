@@ -229,6 +229,21 @@ test('hides mining groups from players without their own presence at the asteroi
   assert.equal(foreignView.assignments.length, 0);
   assert.deepEqual(foreignView.inTransit, {});
 
+  // Mining there too shows the other group, but not which station it belongs to.
+  const second = await createAsteroidAssignment({
+    userId: secondUserId,
+    asteroidId,
+    stationId: secondStationId,
+    spacecraftKey,
+    assignedAmount: 1,
+  });
+  assert.ok(!('code' in second));
+  const coMinerView = await getAsteroidById(asteroidId, secondUserId);
+  assert.deepEqual(coMinerView?.assignments.map((assignment) => assignment.stationId).sort(), [
+    secondStationId,
+    null,
+  ]);
+
   await resetMiningState();
 });
 

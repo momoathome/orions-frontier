@@ -88,8 +88,8 @@ diesen Entwicklungsstand nicht vorgesehen.
 `apps/api/test/integration` unter anderem API-Routen, konkurrierende Ressourcenausgaben und
 Mining-Zugriffe, vollständige Mining-Rundläufe, Bots, Exploration, Kolonisation, Kampf, Bergung,
 Forschung sowie WebSocket-Authentifizierung. `npm run test:behavior` bleibt als Alias für
-die Integrationstests erhalten. Mit `npm run verify` laufen statische Checks, Build und beide
-Testgruppen gemeinsam.
+die Integrationstests erhalten. Mit `npm run verify` laufen statische Checks, ein Audit der Laufzeit-Abhängigkeiten
+(`npm run audit`), Build und beide Testgruppen gemeinsam.
 
 Einzelne Workspaces lassen sich direkt ansprechen:
 

@@ -94,7 +94,7 @@ function onActionDone() {
 type Assignment = AsteroidDetail['assignments'][number];
 interface OperationGroup {
   key: string;
-  stationId: string;
+  stationId: string | null;
   spacecraftKey: string;
   spacecraftName: string;
   assignments: Assignment[];

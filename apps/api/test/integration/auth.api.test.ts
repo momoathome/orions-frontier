@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -86,4 +86,37 @@ test('a user can register, login and load their authenticated profile', async ()
   });
   assert.equal(profile.statusCode, 200);
   assert.equal(profile.json().id, registered.user.id);
+});
+
+test('a valid token stops working once the account is no longer active', async () => {
+  const suffix = randomUUID();
+  const registration = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: {
+      username: `ban-${suffix}`,
+      email: `ban-${suffix}@example.test`,
+      password: 'correct-password',
+    },
+  });
+  const { token, user } = registration.json();
+  createdUserIds.push(user.id);
+  const headers = { authorization: `Bearer ${token}` };
+
+  assert.equal((await app.inject({ method: 'GET', url: '/api/auth/me', headers })).statusCode, 200);
+  await getDb().update(users).set({ status: 'banned' }).where(eq(users.id, user.id));
+  assert.equal((await app.inject({ method: 'GET', url: '/api/auth/me', headers })).statusCode, 401);
+});
+
+test('login attempts from one address are rate limited', async () => {
+  const statuses: number[] = [];
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'nobody@example.test', password: 'wrong-password' },
+    });
+    statuses.push(response.statusCode);
+  }
+  assert.ok(statuses.includes(429), `expected a 429, got ${statuses.join(', ')}`);
 });

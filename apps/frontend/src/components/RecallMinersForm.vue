@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 
 export interface AssignmentGroup {
-  stationId: string;
+  stationId: string | null;
   spacecraftKey: string;
   spacecraftName: string;
   ids: string[];

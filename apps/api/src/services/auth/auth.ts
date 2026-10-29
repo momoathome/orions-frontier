@@ -12,6 +12,8 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
 import type { AuthenticatedUser } from '@orions-frontier/shared';
 
 const BCRYPT_ROUNDS = 12;
+/** Compared against for unknown emails, so a login takes as long whether the account exists or not. */
+const DUMMY_HASH = '$2b$12$Nla5fysvrRgC5HoYYVLMpOxqXftKaKZfTzP/L4WVQRVHBf547vH9W';
 
 export const toAuthenticatedUser = (user: UserRow): AuthenticatedUser => ({
   id: user.id,
@@ -33,12 +35,8 @@ export const findUserById = async (id: string) => {
 
 export const loginUser = async (email: string, password: string): Promise<AuthenticatedUser> => {
   const user = await findUserByEmail(getDb(), email);
-  if (!user) {
-    throw new AppError(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
-  }
-
-  const passwordValid = await bcrypt.compare(password, user.passwordHash);
-  if (!passwordValid) {
+  const passwordValid = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
+  if (!user || !passwordValid) {
     throw new AppError(ErrorCode.INVALID_CREDENTIALS, 'Invalid email or password');
   }
 

@@ -2,8 +2,8 @@
 
 /* Game UI palette and fonts, see docs/ui-principles.md (R1, R8). */
 @theme {
-  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-ui-bg: #060a12;
   --color-ui-panel: #0a101c;
   --color-ui-card: #0f1828;

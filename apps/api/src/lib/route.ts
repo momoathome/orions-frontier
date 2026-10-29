@@ -16,3 +16,6 @@ export const chunkRangeQuery = scannerBypassQuery.extend({
   minChunkY: z.string().optional(),
   maxChunkY: z.string().optional(),
 });
+
+/** Login und Registrierung pro IP: bremst Credential Stuffing und teure bcrypt-Runden. */
+export const AUTH_RATE_LIMIT = { max: 10, timeWindow: '1 minute' };

@@ -1,9 +1,16 @@
 import type { FastifyInstance } from 'fastify';
-import { WebSocket, WebSocketServer } from 'ws';
+import { type RawData, WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
-import type { JwtPayload, RealtimeEvents, RealtimeEventType } from '@orions-frontier/shared';
+import type {
+  JwtPayload,
+  RealtimeEvents,
+  RealtimeEventType,
+  UserRole,
+} from '@orions-frontier/shared';
 
 type RealtimeApp = Pick<FastifyInstance, 'server' | 'jwt'>;
+/** Current role of an active account, null for banned or deleted ones; a valid token is not enough. */
+export type ActiveRoleLookup = (userId: string) => Promise<UserRole | null>;
 
 const clientMessageSchema = z.object({
   type: z.string(),
@@ -32,16 +39,21 @@ export function publishUserEvent<K extends RealtimeEventType>(
   for (const socket of clients.get(userId) ?? []) send(socket, message);
 }
 
-export function attachRealtimeServer(app: RealtimeApp): WebSocketServer {
-  const server = new WebSocketServer({ server: app.server });
+export function attachRealtimeServer(
+  app: RealtimeApp,
+  activeRole: ActiveRoleLookup
+): WebSocketServer {
+  const server = new WebSocketServer({ server: app.server, maxPayload: 4_096 });
 
   server.on('connection', (socket) => {
     let userId: string | null = null;
+    let authenticating = false;
     const authTimeout = setTimeout(() => {
       socket.close(4401, 'Authentication timeout');
     }, 10_000);
 
-    socket.on('message', (raw) => {
+    const handleMessage = async (raw: RawData) => {
+      if (authenticating) return;
       try {
         const text = Buffer.concat(
           Array.isArray(raw) ? raw : [Buffer.isBuffer(raw) ? raw : Buffer.from(raw)]
@@ -55,7 +67,14 @@ export function attachRealtimeServer(app: RealtimeApp): WebSocketServer {
             return;
           }
 
+          authenticating = true;
           const user = app.jwt.verify<JwtPayload>(token);
+          const role = await activeRole(user.userId);
+          authenticating = false;
+          if (!role || socket.readyState !== WebSocket.OPEN) {
+            socket.close(4401, 'Unauthorized');
+            return;
+          }
           userId = user.userId;
           clearTimeout(authTimeout);
           const userClients = clients.get(userId) ?? new Set<WebSocket>();
@@ -63,7 +82,7 @@ export function attachRealtimeServer(app: RealtimeApp): WebSocketServer {
           clients.set(userId, userClients);
           send(socket, {
             type: 'authenticated',
-            payload: { userId, role: user.role },
+            payload: { userId, role },
             timestamp: Date.now(),
           });
           return;
@@ -75,7 +94,8 @@ export function attachRealtimeServer(app: RealtimeApp): WebSocketServer {
       } catch {
         if (!userId) socket.close(4401, 'Unauthorized');
       }
-    });
+    };
+    socket.on('message', (raw) => void handleMessage(raw));
 
     socket.on('close', () => {
       clearTimeout(authTimeout);

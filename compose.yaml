@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orionsfrontier}
       POSTGRES_DB: ${POSTGRES_DB:-orionsfrontier}
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -36,7 +36,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
       CORS_ORIGIN: http://localhost:${FRONTEND_PORT:-5173}
     ports:
-      - '${API_PORT:-3000}:3000'
+      - '127.0.0.1:${API_PORT:-3000}:3000'
     volumes:
       - ./apps/api/src:/app/apps/api/src
       - ./packages/shared/src:/app/packages/shared/src
@@ -66,7 +66,7 @@ services:
       VITE_API_URL: http://localhost:${API_PORT:-3000}
       VITE_WS_URL: ws://localhost:${API_PORT:-3000}
     ports:
-      - '${FRONTEND_PORT:-5173}:5173'
+      - '127.0.0.1:${FRONTEND_PORT:-5173}:5173'
     volumes:
       - ./apps/frontend/src:/app/apps/frontend/src
       - ./apps/frontend/public:/app/apps/frontend/public

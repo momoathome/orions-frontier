@@ -29,7 +29,7 @@ export interface AuthenticatedUser {
 export const RegisterRequestSchema = z.object({
   username: z.string().min(3).max(50),
   email: z.email(),
-  password: z.string().min(8).max(128),
+  password: z.string().min(12).max(128),
 });
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 
