@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { required } from '@orions-frontier/shared';
-import type { QueryDb } from '../lib/db/index.js';
+import type { QueryDb, Tx } from '../lib/db/index.js';
 import { users } from '../lib/db/schema/users.js';
 
 export type UserRow = typeof users.$inferSelect;
@@ -32,4 +32,8 @@ export async function hasUserWithUsername(db: QueryDb, username: string) {
 export async function insertUser(db: QueryDb, values: typeof users.$inferInsert) {
   const [row] = await db.insert(users).values(values).returning();
   return required(row, 'user');
+}
+
+export async function updateUser(tx: Tx, id: string, values: Partial<typeof users.$inferInsert>) {
+  await tx.update(users).set(values).where(eq(users.id, id));
 }

@@ -1,8 +1,7 @@
 import { buildingKeys, defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
-import { inArray } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
+import { listBuildingLevelsByStations } from '../../repositories/station-buildings.js';
+import { listSpacecraftAmountsByStations } from '../../repositories/station-spacecrafts.js';
 import { buildings, defenseUpgrades, getSpacecraft } from '@orions-frontier/game-config';
 import type {
   BuildingKey,
@@ -97,22 +96,8 @@ export async function getStationVisualProfiles(
 
   const db = getDb();
   const [buildingRows, spacecraftRows] = await Promise.all([
-    db
-      .select({
-        stationId: stationBuildings.stationId,
-        buildingKey: stationBuildings.buildingKey,
-        level: stationBuildings.level,
-      })
-      .from(stationBuildings)
-      .where(inArray(stationBuildings.stationId, [...stationIds])),
-    db
-      .select({
-        stationId: stationSpacecrafts.stationId,
-        spacecraftKey: stationSpacecrafts.spacecraftKey,
-        amount: stationSpacecrafts.amount,
-      })
-      .from(stationSpacecrafts)
-      .where(inArray(stationSpacecrafts.stationId, [...stationIds])),
+    listBuildingLevelsByStations(db, [...stationIds]),
+    listSpacecraftAmountsByStations(db, [...stationIds]),
   ]);
 
   const levelsByStation = new Map<string, StationBuildingLevels>();

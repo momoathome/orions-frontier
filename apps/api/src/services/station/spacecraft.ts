@@ -1,11 +1,24 @@
-import { and, eq, isNull, max, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { publishUserEvent } from '../../lib/realtime.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
-import { stationResources } from '../../lib/db/schema/station-resources.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import {
+  insertStationSpacecraftIfMissing,
+  insertStationSpacecrafts,
+  listSpacecraftAmounts,
+  listStationSpacecrafts,
+} from '../../repositories/station-spacecrafts.js';
+import {
+  findLatestBuildOrderEnd,
+  insertBuildOrder,
+  listBuildOrderAmounts,
+  listBuildOrders,
+  type BuildOrderRow,
+} from '../../repositories/spacecraft-build-orders.js';
+import {
+  deductStationResource,
+  listStationResources,
+} from '../../repositories/station-resources.js';
+import { findBuildingLevel } from '../../repositories/station-buildings.js';
+import { findOwnedStationForUpdate } from '../../repositories/stations.js';
 import {
   calculateBuildingEffect,
   calculateHangarCapacity,
@@ -26,34 +39,20 @@ export const getStationSpacecrafts = async (
 ): Promise<StationSpacecraftWithDefinition[]> => {
   const db = getDb();
 
-  const [shipyard] = await db
-    .select({ level: stationBuildings.level })
-    .from(stationBuildings)
-    .where(
-      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'shipyard'))
-    )
-    .limit(1);
+  const shipyardLevel = await findBuildingLevel(db, stationId, 'shipyard');
   const unlockedKeys = Object.entries(SHIPYARD_UNLOCKS)
-    .filter(([level]) => (shipyard?.level ?? 0) >= Number(level))
+    .filter(([level]) => (shipyardLevel ?? 0) >= Number(level))
     .flatMap(([, keys]) => keys);
   if (unlockedKeys.length === 0) return [];
 
   const definitions = spacecrafts.filter((definition) => unlockedKeys.includes(definition.key));
-  const stationRows = await db
-    .select()
-    .from(stationSpacecrafts)
-    .where(eq(stationSpacecrafts.stationId, stationId));
+  const stationRows = await listStationSpacecrafts(db, stationId);
   const stationRowByDefinition = new Map(stationRows.map((row) => [row.spacecraftKey, row]));
 
   // Load build orders for all definitions in this station
-  const buildOrderRows = await db
-    .select()
-    .from(spacecraftBuildOrders)
-    .where(eq(spacecraftBuildOrders.stationId, stationId));
+  const buildOrderRows = await listBuildOrders(db, stationId);
 
-  const buildOrdersByKey = buildOrderRows.reduce<
-    Record<string, (typeof spacecraftBuildOrders.$inferSelect)[]>
-  >((acc, o) => {
+  const buildOrdersByKey = buildOrderRows.reduce<Record<string, BuildOrderRow[]>>((acc, o) => {
     (acc[o.spacecraftKey] ??= []).push(o);
     return acc;
   }, {});
@@ -100,7 +99,8 @@ export const seedStationSpacecrafts = async (
   db: SeedDb = getDb(),
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> => {
-  await db.insert(stationSpacecrafts).values(
+  await insertStationSpacecrafts(
+    db,
     INITIAL_SPACECRAFTS.map((spacecraft) => ({
       id: context.nextId('station-spacecraft'),
       stationId,
@@ -134,31 +134,13 @@ export async function getStationHangar(stationId: string): Promise<{
   used: number;
 }> {
   const db = getDb();
-  const [hangar, fleet, queued] = await Promise.all([
-    db
-      .select({ level: stationBuildings.level })
-      .from(stationBuildings)
-      .where(
-        and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'hangar'))
-      )
-      .limit(1),
-    db
-      .select({
-        spacecraftKey: stationSpacecrafts.spacecraftKey,
-        amount: stationSpacecrafts.amount,
-      })
-      .from(stationSpacecrafts)
-      .where(eq(stationSpacecrafts.stationId, stationId)),
-    db
-      .select({
-        spacecraftKey: spacecraftBuildOrders.spacecraftKey,
-        amount: spacecraftBuildOrders.amount,
-      })
-      .from(spacecraftBuildOrders)
-      .where(eq(spacecraftBuildOrders.stationId, stationId)),
+  const [hangarLevel, fleet, queued] = await Promise.all([
+    findBuildingLevel(db, stationId, 'hangar'),
+    listSpacecraftAmounts(db, stationId),
+    listBuildOrderAmounts(db, stationId),
   ]);
   return {
-    capacity: calculateHangarCapacity(hangar[0]?.level ?? 0),
+    capacity: calculateHangarCapacity(hangarLevel ?? 0),
     used: calculateCrewUsage(fleet) + calculateCrewUsage(queued),
   };
 }
@@ -205,23 +187,10 @@ export const buildSpacecrafts = async (
   }
 
   const resourceMap = await db.transaction(async (tx) => {
-    const [station] = await tx
-      .select({ id: stations.id })
-      .from(stations)
-      .where(
-        and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
-      )
-      .for('update');
+    const station = await findOwnedStationForUpdate(tx, stationId, userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-    const [shipyardBuilding] = await tx
-      .select({ level: stationBuildings.level })
-      .from(stationBuildings)
-      .where(
-        and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'shipyard'))
-      )
-      .limit(1);
-    const shipyardLevel = shipyardBuilding?.level ?? 0;
+    const shipyardLevel = (await findBuildingLevel(tx, stationId, 'shipyard')) ?? 0;
     const unlockedKeys = new Set<string>();
     for (const [level, keys] of Object.entries(SHIPYARD_UNLOCKS)) {
       if (shipyardLevel >= Number(level)) keys.forEach((key) => unlockedKeys.add(key));
@@ -235,30 +204,12 @@ export const buildSpacecrafts = async (
       }
     }
 
-    const [hangarBuilding, fleet, queued] = await Promise.all([
-      tx
-        .select({ level: stationBuildings.level })
-        .from(stationBuildings)
-        .where(
-          and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'hangar'))
-        )
-        .limit(1),
-      tx
-        .select({
-          spacecraftKey: stationSpacecrafts.spacecraftKey,
-          amount: stationSpacecrafts.amount,
-        })
-        .from(stationSpacecrafts)
-        .where(eq(stationSpacecrafts.stationId, stationId)),
-      tx
-        .select({
-          spacecraftKey: spacecraftBuildOrders.spacecraftKey,
-          amount: spacecraftBuildOrders.amount,
-        })
-        .from(spacecraftBuildOrders)
-        .where(eq(spacecraftBuildOrders.stationId, stationId)),
+    const [hangarLevel, fleet, queued] = await Promise.all([
+      findBuildingLevel(tx, stationId, 'hangar'),
+      listSpacecraftAmounts(tx, stationId),
+      listBuildOrderAmounts(tx, stationId),
     ]);
-    const hangarCapacity = calculateHangarCapacity(hangarBuilding[0]?.level ?? 0);
+    const hangarCapacity = calculateHangarCapacity(hangarLevel ?? 0);
     const hangarUsed = calculateCrewUsage(fleet) + calculateCrewUsage(queued);
     const requestedCrew = orders.reduce(
       (sum, order) =>
@@ -274,10 +225,7 @@ export const buildSpacecrafts = async (
       );
     }
 
-    const resourceRows = await tx
-      .select()
-      .from(stationResources)
-      .where(eq(stationResources.stationId, stationId));
+    const resourceRows = await listStationResources(tx, stationId);
     const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
     for (const [resourceKey, needed] of totalCosts.entries()) {
       const current = currentResources.get(resourceKey) ?? 0;
@@ -299,16 +247,8 @@ export const buildSpacecrafts = async (
     const buildTimeMultiplier = Math.max(0.25, 1 - (productionBonus + researchBonus) / 100);
     const endsAtByKey = new Map<string, Date>();
     for (const def of defs) {
-      const [row] = await tx
-        .select({ maxEndsAt: max(spacecraftBuildOrders.endsAt) })
-        .from(spacecraftBuildOrders)
-        .where(
-          and(
-            eq(spacecraftBuildOrders.stationId, stationId),
-            eq(spacecraftBuildOrders.spacecraftKey, def.key)
-          )
-        );
-      if (row?.maxEndsAt) endsAtByKey.set(def.key, row.maxEndsAt);
+      const maxEndsAt = await findLatestBuildOrderEnd(tx, stationId, def.key);
+      if (maxEndsAt) endsAtByKey.set(def.key, maxEndsAt);
     }
     const now = context.now.getTime();
     const orderEndsAt = orders.map((order) => {
@@ -322,20 +262,12 @@ export const buildSpacecrafts = async (
     });
 
     for (const [resourceKey, amount] of totalCosts.entries()) {
-      await tx
-        .update(stationResources)
-        .set({ amount: sql`${stationResources.amount} - ${amount}` })
-        .where(
-          and(
-            eq(stationResources.stationId, stationId),
-            eq(stationResources.resourceKey, resourceKey)
-          )
-        );
+      await deductStationResource(tx, stationId, resourceKey, amount);
       currentResources.set(resourceKey, (currentResources.get(resourceKey) ?? 0) - amount);
     }
 
     for (const { order, def, endsAt } of orderEndsAt) {
-      await tx.insert(spacecraftBuildOrders).values({
+      await insertBuildOrder(tx, {
         id: context.nextId('spacecraft-build-order'),
         stationId,
         spacecraftKey: def.key,
@@ -345,18 +277,15 @@ export const buildSpacecrafts = async (
       });
 
       // Ensure stationSpacecrafts row exists (amount=0 if brand new)
-      await tx
-        .insert(stationSpacecrafts)
-        .values({
-          id: context.nextId('station-spacecraft'),
-          stationId,
-          spacecraftKey: def.key,
-          amount: 0,
-          lockedAmount: 0,
-          createdAt: context.now,
-          updatedAt: context.now,
-        })
-        .onConflictDoNothing();
+      await insertStationSpacecraftIfMissing(tx, {
+        id: context.nextId('station-spacecraft'),
+        stationId,
+        spacecraftKey: def.key,
+        amount: 0,
+        lockedAmount: 0,
+        createdAt: context.now,
+        updatedAt: context.now,
+      });
     }
 
     return currentResources;

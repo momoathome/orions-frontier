@@ -1,9 +1,15 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { users } from '../../lib/db/schema/users.js';
-import { spawnSlots } from '../../lib/db/schema/spawn-slots.js';
-import { sectors } from '../../lib/db/schema/sectors.js';
+import {
+  findOwnedStation,
+  findOwnedStationInSector,
+  insertStation,
+  listActiveStationsByUser,
+  listStationDestroyedAtByUser,
+  lockStationCreation,
+  type StationRow,
+} from '../../repositories/stations.js';
+import { updateUser } from '../../repositories/users.js';
+import { assignSpawnSlot, findFreeSpawnSlotForUpdate } from '../../repositories/spawn-slots.js';
 import { seedStationResources } from './resources.js';
 import { seedStationBuildings } from './buildings.js';
 import { seedStationDefenseUpgrades } from './defense.js';
@@ -29,7 +35,7 @@ import {
 } from '../../lib/game-execution-context.js';
 
 const toStation = (
-  row: typeof stations.$inferSelect,
+  row: StationRow,
   scannerRange: number,
   visualProfile = starterStationVisualProfile()
 ): Station => ({
@@ -47,13 +53,7 @@ const toStation = (
 
 /** Returns the station id when it belongs to the user, otherwise throws NOT_FOUND. */
 export const ownStation = async (userId: string, stationId: string): Promise<string> => {
-  const [station] = await getDb()
-    .select({ id: stations.id })
-    .from(stations)
-    .where(
-      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
-    )
-    .limit(1);
+  const station = await findOwnedStation(getDb(), stationId, userId);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
   return station.id;
 };
@@ -61,10 +61,7 @@ export const ownStation = async (userId: string, stationId: string): Promise<str
 export const getUserStations = async (userId: string): Promise<Station[]> => {
   const db = getDb();
   const [rows, coverages] = await Promise.all([
-    db
-      .select()
-      .from(stations)
-      .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt))),
+    listActiveStationsByUser(db, userId),
     getUserScannerCoverages(userId),
   ]);
   const ranges = new Map(coverages.map((coverage) => [coverage.stationId, coverage.range]));
@@ -81,92 +78,50 @@ export const createStation = async (
   const slotType = data.slotType ?? 'player';
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(1869772101)`);
+    await lockStationCreation(tx);
     if (slotType === 'player') {
-      const owned = await tx
-        .select({ destroyedAt: stations.destroyedAt })
-        .from(stations)
-        .where(eq(stations.userId, userId));
+      const owned = await listStationDestroyedAtByUser(tx, userId);
       if (owned.some((station) => !station.destroyedAt)) {
         throw new AppError(ErrorCode.ALREADY_EXISTS, 'User already has an initial station');
       }
       // A restart after losing every station renews the attack protection.
       if (owned.length > 0) {
-        await tx
-          .update(users)
-          .set({
-            protectedUntil: new Date(context.now.getTime() + ATTACK_PROTECTION_DURATION_MS),
-            attackProtectionBrokenAt: null,
-          })
-          .where(eq(users.id, userId));
+        await updateUser(tx, userId, {
+          protectedUntil: new Date(context.now.getTime() + ATTACK_PROTECTION_DURATION_MS),
+          attackProtectionBrokenAt: null,
+        });
       }
     } else if (data.sectorId) {
-      const [existing] = await tx
-        .select()
-        .from(stations)
-        .where(
-          and(
-            eq(stations.userId, userId),
-            eq(stations.sectorId, data.sectorId),
-            isNull(stations.destroyedAt)
-          )
-        )
-        .limit(1);
+      const existing = await findOwnedStationInSector(tx, userId, data.sectorId);
       if (existing) return toStation(existing, calculateScannerRange(1));
     }
 
-    const findSlot = () => {
-      const conditions = [
-        isNull(spawnSlots.stationId),
-        eq(spawnSlots.slotType, slotType),
-        eq(sectors.role, 'settlement'),
-      ];
-      if (data.sectorId) conditions.push(eq(sectors.id, data.sectorId));
-      return tx
-        .select({ slot: spawnSlots, sectorSeed: sectors.seed })
-        .from(spawnSlots)
-        .innerJoin(sectors, eq(spawnSlots.sectorId, sectors.id))
-        .where(and(...conditions))
-        .orderBy(
-          asc(sectors.createdAt),
-          asc(sectors.sectorY),
-          asc(sectors.sectorX),
-          asc(spawnSlots.slotIndex)
-        )
-        .limit(1)
-        .for('update');
-    };
+    const findSlot = () => findFreeSpawnSlotForUpdate(tx, slotType, data.sectorId);
 
-    let [slot] = await findSlot();
+    let slot = await findSlot();
     if (!slot && slotType === 'player' && !data.sectorId) {
       await openNextSettlementSector(tx, context);
-      [slot] = await findSlot();
+      slot = await findSlot();
     }
 
     if (!slot) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, `No ${slotType} spawn slot is available.`);
     }
 
-    const [station] = await tx
-      .insert(stations)
-      .values({
-        id: context.nextId('station'),
-        userId,
-        name: data.name,
-        sectorId: slot.slot.sectorId,
-        x: slot.slot.x,
-        y: slot.slot.y,
-        chunkX: Math.floor(slot.slot.x / WORLD_CONFIG.CHUNK_SIZE),
-        chunkY: Math.floor(slot.slot.y / WORLD_CONFIG.CHUNK_SIZE),
-        createdAt: context.now,
-      })
-      .returning();
+    const station = await insertStation(tx, {
+      id: context.nextId('station'),
+      userId,
+      name: data.name,
+      sectorId: slot.slot.sectorId,
+      x: slot.slot.x,
+      y: slot.slot.y,
+      chunkX: Math.floor(slot.slot.x / WORLD_CONFIG.CHUNK_SIZE),
+      chunkY: Math.floor(slot.slot.y / WORLD_CONFIG.CHUNK_SIZE),
+      createdAt: context.now,
+    });
     if (!station) throw new Error('Failed to create station');
 
-    await tx
-      .update(spawnSlots)
-      .set({ stationId: station.id })
-      .where(eq(spawnSlots.id, slot.slot.id));
+    await assignSpawnSlot(tx, slot.slot.id, station.id);
     await seedStationResources(station.id, tx);
     await seedStationBuildings(station.id, tx, context);
     await seedStationDefenseUpgrades(station.id, tx, context);

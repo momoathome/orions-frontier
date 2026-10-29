@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gte, inArray } from 'drizzle-orm';
 import { required, type ResourceMap } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../lib/db/index.js';
 import { asteroidAssignments } from '../lib/db/schema/asteroids.js';
@@ -35,5 +35,28 @@ export function listTravelingTripsByAsteroid(db: QueryDb, asteroidId: string) {
     .innerJoin(asteroidAssignments, eq(spacecraftTrips.assignmentId, asteroidAssignments.id))
     .where(
       and(eq(asteroidAssignments.asteroidId, asteroidId), eq(spacecraftTrips.status, 'traveling'))
+    );
+}
+
+/** Mining returns that reached a station from these fleets since `since`. */
+export function listMiningDeliveriesSince(
+  db: QueryDb,
+  stationSpacecraftIds: string[],
+  since: Date
+) {
+  return db
+    .select({
+      cargoManifest: spacecraftTrips.cargoManifest,
+      arrivesAt: spacecraftTrips.arrivesAt,
+    })
+    .from(spacecraftTrips)
+    .where(
+      and(
+        inArray(spacecraftTrips.stationSpacecraftId, stationSpacecraftIds),
+        eq(spacecraftTrips.status, 'arrived'),
+        eq(spacecraftTrips.purpose, 'mining_return'),
+        eq(spacecraftTrips.toType, 'station'),
+        gte(spacecraftTrips.arrivesAt, since)
+      )
     );
 }
