@@ -33,6 +33,14 @@ module.exports = {
       },
     },
     {
+      name: 'no-own-index',
+      severity: 'error',
+      comment:
+        'Innerhalb eines Service-Ordners direkt importieren, nicht über die eigene index.ts.',
+      from: { path: '^apps/api/src/services/([^/]+)/.+' },
+      to: { path: '^apps/api/src/services/$1/index\\.ts$' },
+    },
+    {
       name: 'outside-only-via-index',
       severity: 'error',
       comment: 'Routen, Werkzeuge und App-Start importieren Services nur über index.ts.',
@@ -61,7 +69,7 @@ module.exports = {
       comment:
         'Routen fragen die Datenbank nicht selbst ab; das tun Services (Health-Check ausgenommen).',
       from: { path: '^apps/api/src/routes/', pathNot: '^apps/api/src/routes/health/' },
-      to: { path: '^apps/api/src/lib/db/' },
+      to: { path: '^apps/api/src/lib/db/|^node_modules/drizzle-orm/' },
     },
     ...layerRules(),
     {
