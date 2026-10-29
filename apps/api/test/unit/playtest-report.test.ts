@@ -3,16 +3,16 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { playtestConsoleSummary } from '../../src/lib/playtest/console-summary.js';
-import { validatePlaytestConfig } from '../../src/lib/playtest/config.js';
-import type { PlaytestMetrics } from '../../src/lib/playtest/metrics.js';
+import { playtestConsoleSummary } from '../../src/tools/playtest/console-summary.js';
+import { validatePlaytestConfig } from '../../src/tools/playtest/config.js';
+import type { PlaytestMetrics } from '../../src/tools/playtest/metrics.js';
 import {
   playtestConfigHash,
   playtestReportSchema,
   publicPlaytestConfig,
   type PlaytestReport,
-} from '../../src/lib/playtest/report-schema.js';
-import { writePlaytestReport } from '../../src/lib/playtest/report-writer.js';
+} from '../../src/tools/playtest/report-schema.js';
+import { writePlaytestReport } from '../../src/tools/playtest/report-writer.js';
 
 const temporaryDirectories: string[] = [];
 

@@ -23,7 +23,7 @@ services:
       - node
       - --import
       - tsx
-      - apps/api/src/lib/playtest/main.ts
+      - apps/api/src/tools/playtest/main.ts
     environment:
       PLAYTEST_MODE: '1'
       PLAYTEST_EXPECTED_HOST: playtest-postgres

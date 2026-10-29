@@ -8,6 +8,29 @@ module.exports = {
       from: {},
       to: { circular: true },
     },
+    {
+      name: 'lib-is-base',
+      severity: 'error',
+      comment: 'lib ist die Basis und kennt weder Services, Routen noch Werkzeuge.',
+      from: { path: '^apps/api/src/lib/' },
+      to: {
+        path: '^apps/api/src/(services|routes|tools|middleware|plugins)/|^apps/api/src/[^/]+\\.ts$',
+      },
+    },
+    {
+      name: 'services-not-from-entrypoints',
+      severity: 'error',
+      comment: 'Services kennen weder Routen noch Werkzeuge noch den App-Start.',
+      from: { path: '^apps/api/src/services/' },
+      to: { path: '^apps/api/src/(routes|tools)/|^apps/api/src/[^/]+\\.ts$' },
+    },
+    {
+      name: 'nobody-imports-tools',
+      severity: 'error',
+      comment: 'Werkzeuge (Playtest, Reports) sind Einstiegspunkte, kein Baustein.',
+      from: { pathNot: '^apps/api/src/tools/' },
+      to: { path: '^apps/api/src/tools/' },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },

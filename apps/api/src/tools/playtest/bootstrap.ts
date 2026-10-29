@@ -1,10 +1,10 @@
 import { eq, sql } from 'drizzle-orm';
-import type { GameExecutionContext } from '../game-execution-context.js';
-import { getDb, initDb } from '../db/index.js';
-import { runMigrations } from '../db/migrate.js';
-import { stations } from '../db/schema/stations.js';
-import { users } from '../db/schema/users.js';
-import { seedAsteroidWorld } from '../seed.js';
+import type { GameExecutionContext } from '../../lib/game-execution-context.js';
+import { getDb, initDb } from '../../lib/db/index.js';
+import { runMigrations } from '../../lib/db/migrate.js';
+import { stations } from '../../lib/db/schema/stations.js';
+import { users } from '../../lib/db/schema/users.js';
+import { seedAsteroidWorld } from '../../seed.js';
 import { guardPlaytestDatabase } from './database-guard.js';
 import { calculatePlaytestWorldChecksum, type PlaytestWorldSummary } from './world-checksum.js';
 

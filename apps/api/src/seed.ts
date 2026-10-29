@@ -1,18 +1,18 @@
 import bcrypt from 'bcrypt';
 import { eq, or } from 'drizzle-orm';
-import { getDb } from './db/index.js';
-import { sectors } from './db/schema/sectors.js';
-import { users } from './db/schema/users.js';
-import { stations } from './db/schema/stations.js';
+import { getDb } from './lib/db/index.js';
+import { sectors } from './lib/db/schema/sectors.js';
+import { users } from './lib/db/schema/users.js';
+import { stations } from './lib/db/schema/stations.js';
 import { sql } from 'drizzle-orm';
-import { WORLD_CONFIG } from './world-config.js';
-import { logger } from './logger.js';
-import { createStation } from '../services/station.service.js';
-import { ensureSector } from '../services/sector.service.js';
+import { WORLD_CONFIG } from './lib/world-config.js';
+import { logger } from './lib/logger.js';
+import { createStation } from './services/station.service.js';
+import { ensureSector } from './services/sector.service.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
-} from './game-execution-context.js';
+} from './lib/game-execution-context.js';
 
 export const seedAsteroidWorld = async (
   context: GameExecutionContext = createRealtimeExecutionContext()

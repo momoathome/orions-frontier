@@ -1,7 +1,7 @@
 import type { BotDecisionOutcome } from '../../services/bot/bot.service.js';
 import type { WorldTickResult } from '../../services/simulation.service.js';
 import type { ConflictOpportunitySnapshot } from '../../services/bot/goal-economy.js';
-import type { PlaytestCompletionEvent } from '../completion-events.js';
+import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
 import type { PlaytestAliasRegistry } from './aliases.js';
 
 type PlaytestDetailValue = string | number | boolean | null;

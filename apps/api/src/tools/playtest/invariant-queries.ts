@@ -1,17 +1,17 @@
 import { and, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { calculateBuildingEffect } from '@orions-frontier/game-config';
-import { getDb } from '../db/index.js';
-import { asteroidVeins } from '../db/schema/asteroids.js';
-import { combatMissions } from '../db/schema/combat-missions.js';
-import { salvageMissions } from '../db/schema/debris-fields.js';
-import { spacecraftBuildOrders } from '../db/schema/spacecraft-build-orders.js';
-import { spacecraftTrips } from '../db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../db/schema/station-buildings.js';
-import { stationResearch } from '../db/schema/station-research.js';
-import { stationResources } from '../db/schema/station-resources.js';
-import { stationSpacecrafts } from '../db/schema/station-spacecrafts.js';
-import { stations } from '../db/schema/stations.js';
-import { worldMissions } from '../db/schema/world-missions.js';
+import { getDb } from '../../lib/db/index.js';
+import { asteroidVeins } from '../../lib/db/schema/asteroids.js';
+import { combatMissions } from '../../lib/db/schema/combat-missions.js';
+import { salvageMissions } from '../../lib/db/schema/debris-fields.js';
+import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
+import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
+import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
+import { stationResearch } from '../../lib/db/schema/station-research.js';
+import { stationResources } from '../../lib/db/schema/station-resources.js';
+import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
+import { stations } from '../../lib/db/schema/stations.js';
+import { worldMissions } from '../../lib/db/schema/world-missions.js';
 
 export type DatabaseInvariantCode =
   | 'negative_resource'

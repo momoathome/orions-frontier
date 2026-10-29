@@ -1,6 +1,6 @@
-import { WORLD_CONFIG } from '../world-config.js';
-import { calcDistance } from '../travel.js';
-import { generateSector } from './sector-gen.js';
+import { WORLD_CONFIG } from '../lib/world-config.js';
+import { calcDistance } from '../lib/travel.js';
+import { generateSector } from '../lib/world-gen/sector-gen.js';
 
 const reserveByResource = (sector: ReturnType<typeof generateSector>) => {
   const result: Record<string, number> = {};

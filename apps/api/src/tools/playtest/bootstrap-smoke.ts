@@ -1,5 +1,5 @@
-import { closeDb } from '../db/index.js';
-import { createSeededExecutionContext } from '../game-execution-context.js';
+import { closeDb } from '../../lib/db/index.js';
+import { createSeededExecutionContext } from '../../lib/game-execution-context.js';
 import { bootstrapPlaytestWorld } from './bootstrap.js';
 import { runPlaytestPopulationSmoke } from './population-smoke.js';
 

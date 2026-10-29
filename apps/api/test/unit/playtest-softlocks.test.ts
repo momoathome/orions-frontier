@@ -4,8 +4,8 @@ import type {
   NormalizedBotDecision,
   NormalizedStateObservation,
   PlaytestDiagnostic,
-} from '../../src/lib/playtest/collector.js';
-import type { SoftlockThresholds } from '../../src/lib/playtest/config.js';
+} from '../../src/tools/playtest/collector.js';
+import type { SoftlockThresholds } from '../../src/tools/playtest/config.js';
 import {
   emptyConflictMetrics,
   emptyDevelopmentMetrics,
@@ -14,11 +14,11 @@ import {
   emptySalvageMetrics,
   type BotMetrics,
   type PlaytestMetrics,
-} from '../../src/lib/playtest/metrics.js';
+} from '../../src/tools/playtest/metrics.js';
 import {
   analyzeSoftlocks,
   type PlaytestWarningCode,
-} from '../../src/lib/playtest/softlock-analyzer.js';
+} from '../../src/tools/playtest/softlock-analyzer.js';
 
 const start = Date.parse('2030-01-01T00:00:00.000Z');
 const end = new Date(start + 10 * 3_600_000);

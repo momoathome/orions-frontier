@@ -169,7 +169,7 @@ export default defineConfigWithVueTs(
   },
   {
     // Tests, Seed und Playtest arbeiten mit Daten, die sie selbst angelegt haben.
-    files: ['apps/api/test/**/*.ts', 'apps/api/src/lib/seed.ts'],
+    files: ['apps/api/test/**/*.ts', 'apps/api/src/seed.ts'],
     rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
   },
   {

@@ -4,7 +4,7 @@ import {
   assertPlaytestDatabaseTarget,
   PLAYTEST_DATABASE_HOST,
   PLAYTEST_DATABASE_NAME,
-} from '../../src/lib/playtest/database-guard.js';
+} from '../../src/tools/playtest/database-guard.js';
 
 const validEnvironment = {
   PLAYTEST_MODE: '1',

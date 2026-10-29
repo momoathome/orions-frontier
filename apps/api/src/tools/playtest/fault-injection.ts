@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { stationResources } from '../db/schema/station-resources.js';
+import { getDb } from '../../lib/db/index.js';
+import { stationResources } from '../../lib/db/schema/station-resources.js';
 import type { PlaytestPopulationMember } from './population.js';
 import type { PlaytestWarning } from './softlock-analyzer.js';
 

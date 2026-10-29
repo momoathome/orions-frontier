@@ -14,8 +14,8 @@
     "typecheck": "tsc --noEmit && tsc -p test --noEmit",
     "lint": "eslint .",
     "db:migrate": "tsx src/lib/db/migrate.ts",
-    "scanner:report": "node --import tsx src/lib/scanner-visibility-report.ts",
-    "world:report": "node --import tsx src/lib/world-gen/report.ts"
+    "scanner:report": "node --import tsx src/tools/scanner-visibility-report.ts",
+    "world:report": "node --import tsx src/tools/world-report.ts"
   },
   "dependencies": {
     "@fastify/autoload": "^6.5.1",
