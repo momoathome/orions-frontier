@@ -18,7 +18,7 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
-import type { MiningDeliveryCompletedEvent } from '../../src/lib/playtest/events.js';
+import type { MiningDeliveryCompletedEvent } from '../../src/lib/completion-events.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.service.js';
 import { runWorldTick } from '../../src/services/simulation.service.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';

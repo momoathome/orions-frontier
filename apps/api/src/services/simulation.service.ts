@@ -14,7 +14,7 @@ import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { logger as rootLogger } from '../lib/logger.js';
 import { publishUserEvent } from '../lib/realtime.js';
-import { completionEventId, type PlaytestCompletionEvent } from '../lib/playtest/events.js';
+import { completionEventId, type PlaytestCompletionEvent } from '../lib/completion-events.js';
 import { runBotDecisionTick, type BotDecisionOutcome } from './bot/bot.service.js';
 import { defenseUpgradeMaxLevel } from './defense.service.js';
 import { completeDueResearchDetailed } from './research.service.js';

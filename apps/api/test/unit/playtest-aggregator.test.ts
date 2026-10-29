@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { BotDecisionOutcome } from '../../src/services/bot/bot.service.js';
 import { PlaytestAggregator } from '../../src/lib/playtest/aggregator.js';
 import { PlaytestAliasRegistry } from '../../src/lib/playtest/aliases.js';
-import type { PlaytestCompletionEvent } from '../../src/lib/playtest/events.js';
+import type { PlaytestCompletionEvent } from '../../src/lib/completion-events.js';
 import type { PlaytestPopulationMember } from '../../src/lib/playtest/population.js';
 import type {
   PlaytestBotSnapshot,

@@ -25,7 +25,7 @@ import { calculateMiningCycle } from '../../lib/mining-cycle.js';
 import { calcDistance, calcTravelHours } from '../../lib/travel.js';
 import type { GoalBotState, StationSnapshot } from './goal-state.js';
 import type { GoalCandidate } from './goal-driven-v1.js';
-import type { GoalResult } from './goal-lifecycle.service.js';
+import type { GoalResult } from './goal-state.js';
 import { GOAL_CATEGORY } from './goal-driven-v1.js';
 import { getFrontierTargets, getKnownSectors } from '../world-mission.service.js';
 import {

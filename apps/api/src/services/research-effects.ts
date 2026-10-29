@@ -1,4 +1,5 @@
-import { hasCompletedResearch, type QueryDb } from './research.service.js';
+import type { QueryDb } from '../lib/db/index.js';
+import { hasCompletedResearch } from './research.service.js';
 
 const EXTRACTION_ALGORITHMS = 'extraction_algorithms';
 const MODULAR_CARGO_FRAMES = 'modular_cargo_frames';

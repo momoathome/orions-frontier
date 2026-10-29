@@ -35,3 +35,7 @@ export const closeDb = async (): Promise<void> => {
   client = null;
   db = null;
 };
+
+export type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
+/** A transaction or the pooled connection; for reads that work inside and outside a transaction. */
+export type QueryDb = Tx | ReturnType<typeof getDb>;

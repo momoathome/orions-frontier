@@ -1,11 +1,10 @@
 import { isOneOf, required, entriesOf } from '@orions-frontier/shared';
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 import { calculateColonizationCost, getSpacecraft } from '@orions-frontier/game-config';
-import type { GoalBotState, StationSnapshot } from './goal-state.js';
+import type { GoalBotState, GoalResult, StationSnapshot } from './goal-state.js';
 import { selectGoal } from './goal-driven-v1.js';
 import type { CategoryWeights, GoalCandidate } from './goal-driven-v1.js';
 import { goalTypes } from '../../lib/db/schema/bot-controllers.js';
-import type { BotIntent } from './bot-intent.js';
 import {
   generateEconomicCandidates,
   stepStabilizeStation,
@@ -32,17 +31,6 @@ import {
   pickAvailableMinerKey,
   selectBestAsteroid,
 } from './goal-economy.js';
-
-// ---------------------------------------------------------------------------
-// Result types
-// ---------------------------------------------------------------------------
-
-export type GoalResult =
-  | { type: 'success'; intent: BotIntent; reason: string }
-  | { type: 'waiting'; detail: string; reason: string }
-  | { type: 'saving'; detail: string; reason: string }
-  | { type: 'blocked'; detail: string; reason: string }
-  | { type: 'complete'; goalType: string; targetRef: string; reason: string };
 
 // ---------------------------------------------------------------------------
 // Maintenance

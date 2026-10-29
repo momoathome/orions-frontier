@@ -12,7 +12,7 @@ import {
   isOneOf,
   type ResourceMap,
 } from '@orions-frontier/shared';
-import type { getDb } from '../lib/db/index.js';
+import type { Tx } from '../lib/db/index.js';
 import { asteroidAssignments } from '../lib/db/schema/asteroids.js';
 import { combatMissions } from '../lib/db/schema/combat-missions.js';
 import { salvageMissions } from '../lib/db/schema/debris-fields.js';
@@ -25,12 +25,15 @@ import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { worldMissions } from '../lib/db/schema/world-missions.js';
-import { calcArrivesAt, calcDistance, type Coordinate } from '../lib/travel.js';
+import {
+  calcArrivesAt,
+  calcDistance,
+  interpolateWorldPosition,
+  type Coordinate,
+} from '../lib/travel.js';
 import type { GameExecutionContext } from '../lib/game-execution-context.js';
 import { creditStationResources } from './station-resource.service.js';
-import { interpolateWorldPosition } from './world.service.js';
 
-type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
 
 /** Share of the resources invested in buildings and defense that a destroyed station leaves behind. */

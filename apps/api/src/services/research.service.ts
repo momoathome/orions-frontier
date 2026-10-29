@@ -5,7 +5,7 @@ import {
   getResearchDefinition,
   researchDefinitions,
 } from '@orions-frontier/game-config';
-import { getDb } from '../lib/db/index.js';
+import { getDb, type QueryDb } from '../lib/db/index.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stationResearch } from '../lib/db/schema/station-research.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
@@ -14,10 +14,7 @@ import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
 } from '../lib/game-execution-context.js';
-import { completionEventId, type ResearchCompletedEvent } from '../lib/playtest/events.js';
-
-type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
-export type QueryDb = Tx | ReturnType<typeof getDb>;
+import { completionEventId, type ResearchCompletedEvent } from '../lib/completion-events.js';
 
 const researchCapacity = (level: number) =>
   calculateBuildingEffect('laboratory', level).find((effect) => effect.type === 'research_capacity')

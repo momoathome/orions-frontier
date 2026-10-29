@@ -1,9 +1,7 @@
 import { eq } from 'drizzle-orm';
-import type { getDb } from '../../lib/db/index.js';
+import type { Tx } from '../../lib/db/index.js';
 import { asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import type { CargoManifest } from '../../lib/db/schema/spacecraft-trips.js';
-
-type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 
 export interface MiningClaim {
   cargoManifest: CargoManifest;

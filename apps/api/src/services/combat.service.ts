@@ -17,7 +17,7 @@ import {
   requireSpacecraft,
   ATTACK_PROTECTION_DURATION_MS,
 } from '@orions-frontier/game-config';
-import { getDb } from '../lib/db/index.js';
+import { getDb, type Tx } from '../lib/db/index.js';
 import { combatMissions } from '../lib/db/schema/combat-missions.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
@@ -41,9 +41,8 @@ import {
   completionEventId,
   discardedResources,
   type PlaytestCompletionEvent,
-} from '../lib/playtest/events.js';
+} from '../lib/completion-events.js';
 
-type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
 
 const toReport = (

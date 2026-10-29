@@ -5,6 +5,7 @@ import type {
   VisibleStation,
 } from '@orions-frontier/shared';
 import type { CombatReport } from '@orions-frontier/shared';
+import type { BotIntent } from './bot-intent.js';
 
 /** Per-station snapshot for the goal-driven bot strategy. */
 export interface StationSnapshot {
@@ -84,3 +85,10 @@ export interface GoalBotState {
     protectedOwnerIds: string[];
   };
 }
+
+export type GoalResult =
+  | { type: 'success'; intent: BotIntent; reason: string }
+  | { type: 'waiting'; detail: string; reason: string }
+  | { type: 'saving'; detail: string; reason: string }
+  | { type: 'blocked'; detail: string; reason: string }
+  | { type: 'complete'; goalType: string; targetRef: string; reason: string };

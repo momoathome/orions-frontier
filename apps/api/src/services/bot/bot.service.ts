@@ -8,7 +8,7 @@ import {
   determineNextStep,
   selectGoalForState,
 } from './goal-lifecycle.service.js';
-import type { GoalResult } from './goal-lifecycle.service.js';
+import type { GoalResult } from './goal-state.js';
 import { BotIntentRejected, executeBotIntent } from './bot-intent.js';
 import {
   resolveGameExecutionContext,

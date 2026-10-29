@@ -8,7 +8,7 @@ import {
   type ResourceMap,
   type SalvageMission,
 } from '@orions-frontier/shared';
-import { getDb } from '../lib/db/index.js';
+import { getDb, type Tx } from '../lib/db/index.js';
 import { debrisFields, salvageMissions } from '../lib/db/schema/debris-fields.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
@@ -33,9 +33,8 @@ import {
   completionEventId,
   discardedResources,
   type PlaytestCompletionEvent,
-} from '../lib/playtest/events.js';
+} from '../lib/completion-events.js';
 
-type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
 
 const toMission = (row: typeof salvageMissions.$inferSelect): SalvageMission => ({
