@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { resourceName } from '../lib/mining-utils';
 import { computed, ref, watch } from 'vue';
 import type {
   StationSpacecraftsResponse,
@@ -65,58 +66,69 @@ async function launch(): Promise<void> {
 </script>
 
 <template>
-  <div
-    class="absolute bottom-0 left-0 z-20 flex min-h-48 w-full cursor-default flex-col border-t-2 border-violet-400/35 bg-[#060c1b]/97 font-mono backdrop-blur-xl"
+  <aside
+    class="flex h-full w-[400px] shrink-0 flex-col border-l border-ui-line bg-ui-panel text-left text-sm text-ui-text"
+    aria-label="Debris field"
   >
-    <div class="flex h-11 items-center justify-between border-b border-white/7 px-5">
-      <span class="text-sm font-semibold tracking-widest text-violet-200">DEBRIS FIELD</span>
-      <button type="button" class="h-7 w-7 text-white/50" @click="$emit('close')">✕</button>
+    <div class="flex items-start justify-between gap-3 border-b border-ui-line px-[18px] py-4">
+      <div class="flex flex-col gap-1">
+        <span class="ui-label">Debris field</span>
+        <h2 class="text-xl font-semibold text-ui-bright">Recoverable wreckage</h2>
+      </div>
+      <button
+        type="button"
+        class="ui-btn ui-btn-icon"
+        aria-label="Close panel"
+        @click="$emit('close')"
+      >
+        ✕
+      </button>
     </div>
-    <div class="grid flex-1 grid-cols-2 gap-8 px-5 py-4 text-[10px]">
-      <div>
-        <p class="mb-2 text-[9px] uppercase tracking-[0.3em] text-white/20">Recoverable</p>
+    <div class="flex flex-1 flex-col gap-5 overflow-y-auto px-[18px] py-4">
+      <section class="flex flex-col gap-1">
+        <h3 class="ui-label mb-1">Recoverable</h3>
         <div
           v-for="[key, value] in resources"
           :key="key"
-          class="flex justify-between border-b border-white/5 py-1"
+          class="flex justify-between border-b border-ui-line py-1.5 last:border-0"
         >
-          <span class="text-white/40">{{ key }}</span>
-          <span class="text-violet-200">{{ value }}</span>
+          <span class="text-ui-soft">{{ resourceName(key) }}</span>
+          <span class="ui-num text-ui-bright">{{ value }}</span>
         </div>
-      </div>
-      <div class="flex flex-col gap-2 border-l border-white/5 pl-5">
-        <p class="text-[9px] uppercase tracking-[0.3em] text-white/20">Salvage</p>
+      </section>
+      <section class="flex flex-col gap-3">
+        <h3 class="ui-label">Salvage</h3>
         <template v-if="salvagers.length">
-          <select
-            v-model="selectedSpacecraftKey"
-            class="h-7 rounded border border-white/10 bg-[#080d18] px-2"
-          >
-            <option
-              v-for="ship in salvagers"
-              :key="ship.definition.key"
-              :value="ship.definition.key"
-            >
-              {{ ship.definition.name }} ({{ ship.amount - ship.lockedAmount }} ready)
-            </option>
-          </select>
-          <input
-            v-model.number="amount"
-            type="number"
-            min="1"
-            class="h-7 rounded border border-white/10 bg-white/5 px-2"
-          />
-          <button
-            type="button"
-            :disabled="sending || amount < 1"
-            class="h-7 rounded border border-violet-400/30 text-violet-200 disabled:opacity-30"
-            @click="launch"
-          >
-            {{ sending ? 'Launching…' : 'Recover' }}
-          </button>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs text-ui-muted">Spacecraft</span>
+            <select v-model="selectedSpacecraftKey" class="ui-input">
+              <option
+                v-for="ship in salvagers"
+                :key="ship.definition.key"
+                :value="ship.definition.key"
+              >
+                {{ ship.definition.name }} ({{ ship.amount - ship.lockedAmount }} ready)
+              </option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs text-ui-muted">Amount</span>
+            <input v-model.number="amount" type="number" min="1" class="ui-input ui-num" />
+          </label>
         </template>
-        <p v-else class="text-white/25">No salvager is available.</p>
-        <p v-if="feedback" class="text-white/50">{{ feedback }}</p>
-      </div>
+        <p v-else class="text-ui-soft">No salvager is ready. Build one in the Shipyard (Fleet).</p>
+        <p v-if="feedback" class="text-ui-soft">{{ feedback }}</p>
+      </section>
     </div>
-  </div>
+    <div v-if="salvagers.length" class="border-t border-ui-line px-[18px] py-4">
+      <button
+        type="button"
+        :disabled="sending || amount < 1"
+        class="ui-btn ui-btn-primary w-full"
+        @click="launch"
+      >
+        {{ sending ? 'Launching…' : 'Recover' }}
+      </button>
+    </div>
+  </aside>
 </template>

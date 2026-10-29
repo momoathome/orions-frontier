@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted, useTemplateRef } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onUnmounted, useTemplateRef } from 'vue';
 import TopHud from '../components/TopHud.vue';
 import StationPanel from '../components/StationPanel.vue';
 import TargetStationPanel from '../components/TargetStationPanel.vue';
 import AsteroidPanel from '../components/AsteroidPanel.vue';
 import DebrisPanel from '../components/DebrisPanel.vue';
+import SituationPanel from '../components/SituationPanel.vue';
+import UiModal from '../components/UiModal.vue';
+import LogbookTab from '../components/LogbookTab.vue';
+import RankingTab from '../components/RankingTab.vue';
+import { stationSections, useOverviewStore, type StationSection } from '../stores/overview.js';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
@@ -33,6 +38,11 @@ const stationId = ref<string | null>(null);
 const stationName = ref<string | undefined>(undefined);
 const stationIntegrity = ref<number | undefined>(undefined);
 const stationPanelOpen = ref(false);
+const stationSection = ref<StationSection>('buildings');
+const accountModal = ref<'logbook' | 'ranking' | null>(null);
+const overview = useOverviewStore();
+let stopOverview: (() => void) | null = null;
+const OPEN_SECTION_KEY = 'open_station_section';
 const isDragging = ref(false);
 const hoveringEntity = ref(false);
 const needsStation = ref(false);
@@ -173,6 +183,30 @@ function closeAsteroidPanel() {
   scheduleMiningRefresh();
 }
 
+function onMiningChanged() {
+  scheduleMiningRefresh();
+  void overview.refreshTrips();
+  if (stationId.value) void overview.refreshStation(stationId.value);
+}
+
+/** Opens a station's panel; another own station becomes active first (reload, as on the map). */
+function openStation(id: string, section: StationSection | null) {
+  if (id !== stationId.value) {
+    localStorage.setItem('active_station_id', id);
+    if (section) localStorage.setItem(OPEN_SECTION_KEY, section);
+    window.location.reload();
+    return;
+  }
+  deselect();
+  if (section) stationSection.value = section;
+  stationPanelOpen.value = true;
+}
+
+function openAccountModal(kind: 'logbook' | 'ranking') {
+  accountModal.value = kind;
+  if (kind === 'logbook') overview.markLogbookSeen();
+}
+
 const worldEl = useTemplateRef<HTMLDivElement>('worldRef');
 let renderer: WorldRenderer | null = null;
 let stationInfo: StationInfo | null = null;
@@ -188,6 +222,15 @@ onMounted(async () => {
     needsStation.value = true;
     return;
   }
+  stopOverview = overview.start();
+  const pendingSection = localStorage.getItem(OPEN_SECTION_KEY);
+  localStorage.removeItem(OPEN_SECTION_KEY);
+  const restoredSection = stationSections.find((entry) => entry === pendingSection);
+  if (restoredSection) {
+    stationSection.value = restoredSection;
+    stationPanelOpen.value = true;
+  }
+  await nextTick();
 
   renderer = new WorldRenderer();
 
@@ -216,8 +259,7 @@ onMounted(async () => {
 
   renderer.onForeignStationClick = (station) => {
     if (station.isOwn) {
-      localStorage.setItem('active_station_id', station.id);
-      window.location.reload();
+      openStation(station.id, null);
       return;
     }
     stationPanelOpen.value = false;
@@ -274,6 +316,7 @@ watch(selectedEntity, (entity) => {
 });
 
 onUnmounted(() => {
+  stopOverview?.();
   scheduleMiningRefresh.cancel();
   scheduleChunkRefresh.cancel();
   unsubTransportTick?.();
@@ -305,140 +348,125 @@ watch(canBypassScanner, (allowed) => {
 
 <template>
   <div
-    class="relative w-screen h-screen overflow-hidden bg-[#070b14] text-white select-none"
-    :class="cursorClass()"
+    class="relative flex h-screen w-screen flex-col overflow-hidden bg-ui-bg text-left text-sm text-ui-text select-none"
   >
-    <!-- PixiJS canvas mount point -->
-    <div ref="worldRef" class="absolute inset-0" />
-
     <div
       v-if="needsStation"
-      class="absolute inset-0 z-30 flex items-center justify-center bg-[#070b14] p-4"
+      class="absolute inset-0 z-30 flex items-center justify-center bg-ui-bg p-4"
     >
-      <form
-        class="w-full max-w-sm rounded border border-cyan-500/20 bg-[#0a1120] p-6 flex flex-col gap-4"
-        @submit.prevent="createFirstStation"
-      >
-        <h1 class="text-lg tracking-widest text-cyan-200">Found your first station</h1>
-        <p class="text-sm text-white/50">Choose a name for your foothold in the frontier.</p>
+      <form class="ui-card w-full max-w-sm gap-4 p-6" @submit.prevent="createFirstStation">
+        <h1 class="text-xl font-semibold text-ui-bright">Found your first station</h1>
+        <p class="text-ui-soft">Choose a name for your foothold in the frontier.</p>
         <input
           v-model.trim="stationNameInput"
           required
           maxlength="128"
-          class="rounded border border-white/10 bg-white/5 px-3 py-2"
+          aria-label="Station name"
+          class="ui-input"
         />
-        <p v-if="stationCreationError" class="text-sm text-red-300">{{ stationCreationError }}</p>
-        <button
-          type="submit"
-          :disabled="creatingStation"
-          class="rounded border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-cyan-200 disabled:opacity-50"
-        >
+        <p v-if="stationCreationError" class="text-ui-red">{{ stationCreationError }}</p>
+        <button type="submit" :disabled="creatingStation" class="ui-btn ui-btn-primary">
           {{ creatingStation ? 'Founding…' : 'Found station' }}
         </button>
       </form>
     </div>
 
-    <!-- Top HUD -->
-    <TopHud v-if="stationId" :station-id="stationId" />
-
-    <button
-      v-if="stationId && canBypassScanner"
-      type="button"
-      class="absolute top-12 left-4 z-10 rounded border px-3 py-1.5 text-[10px] uppercase tracking-wider backdrop-blur-sm"
-      :class="
-        scannerBypass
-          ? 'border-amber-300/50 bg-amber-300/15 text-amber-100'
-          : 'border-cyan-300/30 bg-[#080d18]/75 text-cyan-100/80'
-      "
-      @click.stop="toggleScannerBypass"
-    >
-      Scanner {{ scannerBypass ? 'off' : 'on' }}
-    </button>
-
-    <div
+    <TopHud
       v-if="stationId"
-      class="absolute top-12 right-4 z-10 flex items-center gap-3 rounded border border-white/8 bg-[#080d18]/75 px-2.5 py-1.5 text-[8px] uppercase tracking-wider text-white/45 backdrop-blur-sm pointer-events-none"
-    >
-      <span class="flex items-center gap-1.5"
-        ><i class="w-1.5 h-1.5 rounded-full bg-[#44aaff]" />Outbound</span
-      >
-      <span class="flex items-center gap-1.5"
-        ><i class="w-1.5 h-1.5 rounded-full bg-[#ffcc44] animate-pulse" />Mining</span
-      >
-      <span class="flex items-center gap-1.5"
-        ><i class="w-1.5 h-1.5 rounded-full bg-[#ff8a22]" />Returning</span
-      >
+      :station-id="stationId"
+      @logbook="openAccountModal('logbook')"
+      @ranking="openAccountModal('ranking')"
+    />
+
+    <div class="flex min-h-0 flex-1">
+      <SituationPanel
+        v-if="stationId"
+        :active-station-id="stationId"
+        @open="openStation"
+        @logbook="openAccountModal('logbook')"
+      />
+
+      <div class="relative min-w-0 flex-1" :class="cursorClass()">
+        <!-- PixiJS canvas mount point -->
+        <div ref="worldRef" class="absolute inset-0" />
+
+        <button
+          v-if="stationId && canBypassScanner"
+          type="button"
+          class="ui-btn absolute left-3 top-3 z-10 h-8 bg-ui-panel/80 px-3 text-xs"
+          :class="scannerBypass ? 'border-ui-amber text-ui-amber' : ''"
+          @click.stop="toggleScannerBypass"
+        >
+          Scanner {{ scannerBypass ? 'off' : 'on' }}
+        </button>
+
+        <div
+          v-if="stationId"
+          class="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-4 rounded-md border border-ui-line bg-ui-panel/80 px-3 py-1.5 text-xs text-ui-muted backdrop-blur-sm"
+        >
+          <span class="flex items-center gap-1.5"
+            ><i class="h-2 w-2 rounded-full bg-ui-blue" />Outbound</span
+          >
+          <span class="flex items-center gap-1.5"
+            ><i class="h-2 w-2 animate-pulse rounded-full bg-ui-amber" />Mining</span
+          >
+          <span class="flex items-center gap-1.5"
+            ><i class="h-2 w-2 rounded-full bg-ui-orange" />Returning</span
+          >
+        </div>
+
+        <!-- Detail panels float over the map so opening one never moves it. -->
+        <div class="absolute inset-y-0 right-0 z-20 flex shadow-2xl shadow-black/60">
+          <StationPanel
+            v-if="stationPanelOpen && stationId"
+            v-model:section="stationSection"
+            :station-id="stationId"
+            :station-name="stationName"
+            :integrity="stationIntegrity"
+            @close="stationPanelOpen = false"
+          />
+          <TargetStationPanel
+            v-else-if="selectedEntity?.type === 'station'"
+            :station="selectedEntity.station"
+            :origin="stationInfo"
+            @close="deselect()"
+          />
+          <AsteroidPanel
+            v-else-if="selectedEntity?.type === 'asteroid'"
+            :asteroid-id="selectedEntity.id"
+            :station-id="stationId"
+            :scanner-bypass="scannerBypass"
+            @close="closeAsteroidPanel"
+            @refresh="onMiningChanged"
+          />
+          <DebrisPanel
+            v-else-if="selectedEntity?.type === 'debris' && stationId"
+            :field="selectedEntity.field"
+            :station-id="stationId"
+            @close="deselect()"
+            @launched="onMiningChanged"
+          />
+        </div>
+      </div>
     </div>
 
-    <!-- Station Panel -->
-    <transition
-      enter-active-class="transition-transform duration-300 ease-out"
-      enter-from-class="translate-y-full"
-      enter-to-class="translate-y-0"
-      leave-active-class="transition-transform duration-200 ease-in"
-      leave-from-class="translate-y-0"
-      leave-to-class="translate-y-full"
+    <UiModal
+      v-if="accountModal === 'logbook' && stationId"
+      title="Logbook"
+      eyebrow="Account"
+      wide
+      @close="accountModal = null"
     >
-      <StationPanel
-        v-if="stationPanelOpen && stationId"
-        :station-id="stationId"
-        :station-name="stationName"
-        :integrity="stationIntegrity"
-        @close="stationPanelOpen = false"
-      />
-    </transition>
-
-    <!-- Foreign station target panel -->
-    <transition
-      enter-active-class="transition-transform duration-300 ease-out"
-      enter-from-class="translate-y-full"
-      enter-to-class="translate-y-0"
-      leave-active-class="transition-transform duration-200 ease-in"
-      leave-from-class="translate-y-0"
-      leave-to-class="translate-y-full"
+      <LogbookTab :station-id="stationId" />
+    </UiModal>
+    <UiModal
+      v-if="accountModal === 'ranking'"
+      title="Ranking"
+      eyebrow="Server"
+      wide
+      @close="accountModal = null"
     >
-      <TargetStationPanel
-        v-if="selectedEntity?.type === 'station'"
-        :station="selectedEntity.station"
-        :origin="stationInfo"
-        @close="deselect()"
-      />
-    </transition>
-
-    <!-- Asteroid Panel -->
-    <transition
-      enter-active-class="transition-transform duration-300 ease-out"
-      enter-from-class="translate-y-full"
-      enter-to-class="translate-y-0"
-      leave-active-class="transition-transform duration-200 ease-in"
-      leave-from-class="translate-y-0"
-      leave-to-class="translate-y-full"
-    >
-      <AsteroidPanel
-        v-if="selectedEntity?.type === 'asteroid'"
-        :asteroid-id="selectedEntity.id"
-        :station-id="stationId"
-        :scanner-bypass="scannerBypass"
-        @close="closeAsteroidPanel"
-        @refresh="scheduleMiningRefresh"
-      />
-    </transition>
-
-    <transition
-      enter-active-class="transition-transform duration-300 ease-out"
-      enter-from-class="translate-y-full"
-      enter-to-class="translate-y-0"
-      leave-active-class="transition-transform duration-200 ease-in"
-      leave-from-class="translate-y-0"
-      leave-to-class="translate-y-full"
-    >
-      <DebrisPanel
-        v-if="selectedEntity?.type === 'debris' && stationId"
-        :field="selectedEntity.field"
-        :station-id="stationId"
-        @close="deselect()"
-        @launched="loadTrips"
-      />
-    </transition>
+      <RankingTab />
+    </UiModal>
   </div>
 </template>

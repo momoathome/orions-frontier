@@ -68,62 +68,57 @@ async function attack() {
 </script>
 
 <template>
-  <div
-    class="absolute bottom-0 left-0 z-20 flex min-h-48 w-full cursor-default flex-col border-t-2 border-amber-400/35 bg-[#060c1b]/97 font-mono backdrop-blur-xl"
+  <aside
+    class="flex h-full w-[400px] shrink-0 flex-col border-l border-ui-line bg-ui-panel text-left text-sm text-ui-text"
+    aria-label="Target station"
   >
-    <div class="flex h-11 shrink-0 items-center justify-between border-b border-white/7 px-5">
-      <div class="flex items-center gap-3">
-        <span class="text-[9px] uppercase tracking-[0.35em] text-amber-300/45">Target station</span>
-        <span class="text-sm font-semibold tracking-widest text-white/90">{{ station.name }}</span>
-        <span class="text-[9px] uppercase tracking-widest text-white/25">
-          {{ station.ownerType }}
-        </span>
+    <div class="flex items-start justify-between gap-3 border-b border-ui-line px-[18px] py-4">
+      <div class="flex min-w-0 flex-col gap-1">
+        <span class="ui-label">Target station · {{ station.ownerType }}</span>
+        <h2 class="truncate text-xl font-semibold text-ui-bright">{{ station.name }}</h2>
       </div>
       <button
         type="button"
-        class="flex h-7 w-7 items-center justify-center rounded text-[11px] text-white/50 transition hover:bg-white/5 hover:text-white/80"
+        class="ui-btn ui-btn-icon"
+        aria-label="Close panel"
         @click="$emit('close')"
       >
         ✕
       </button>
     </div>
 
-    <div class="grid flex-1 grid-cols-2 gap-8 px-5 py-4">
-      <div class="flex flex-col gap-2 text-[10px]">
-        <span class="text-[9px] uppercase tracking-[0.3em] text-white/20">Public data</span>
-        <div class="flex justify-between border-b border-white/5 pb-1">
-          <span class="text-white/30">Coordinates</span>
-          <span class="tabular-nums text-white/65">{{ station.x }} / {{ station.y }}</span>
+    <div class="flex flex-1 flex-col gap-5 overflow-y-auto px-[18px] py-4">
+      <dl class="grid grid-cols-3 gap-2 text-xs text-ui-muted">
+        <div class="flex flex-col gap-0.5">
+          <dt>Coordinates</dt>
+          <dd class="ui-num text-sm text-ui-text">{{ station.x }} / {{ station.y }}</dd>
         </div>
-        <div v-if="distance !== null" class="flex justify-between border-b border-white/5 pb-1">
-          <span class="text-white/30">Distance</span>
-          <span class="tabular-nums text-white/65">{{ distance.toFixed(0) }}</span>
+        <div v-if="distance !== null" class="flex flex-col gap-0.5">
+          <dt>Distance</dt>
+          <dd class="ui-num text-sm text-ui-text">{{ distance.toFixed(0) }} u</dd>
         </div>
-        <div
-          v-if="station.integrity !== null"
-          class="flex justify-between border-b border-white/5 pb-1"
-        >
-          <span class="text-white/30">Integrity</span>
-          <span class="tabular-nums text-white/65">
+        <div v-if="station.integrity !== null" class="flex flex-col gap-0.5">
+          <dt>Integrity</dt>
+          <dd class="ui-num text-sm text-ui-text">
             {{ station.isOwn ? station.integrity : `≤ ${station.integrity}` }}%
-          </span>
+          </dd>
         </div>
-      </div>
+      </dl>
 
-      <div class="flex flex-col gap-2 border-l border-white/5 pl-5">
-        <span class="text-[9px] uppercase tracking-[0.3em] text-white/20">Actions</span>
-        <p v-if="!station.scanned" class="text-[9px] leading-relaxed text-white/35">
+      <section class="flex flex-col gap-3">
+        <h3 class="ui-label">Attack</h3>
+        <p v-if="!station.scanned" class="text-ui-soft">
           Outside scanner range. Upgrade a scanner or found a station nearby to target it.
         </p>
         <template v-else-if="fighters.length > 0">
           <label
             v-for="fighter in fighters"
             :key="fighter.definition.key"
-            class="flex items-center justify-between gap-2 text-[10px] text-white/60"
+            class="flex items-center justify-between gap-3"
           >
-            <span>
-              {{ fighter.definition.name }}
-              <span class="text-white/30">
+            <span class="flex flex-col">
+              <span class="text-ui-bright">{{ fighter.definition.name }}</span>
+              <span class="text-xs text-ui-muted">
                 {{ fighter.definition.role }} · {{ fighter.amount - fighter.lockedAmount }} ready
               </span>
             </span>
@@ -132,21 +127,30 @@ async function attack() {
               type="number"
               min="0"
               :max="fighter.amount - fighter.lockedAmount"
-              class="h-7 w-20 rounded border border-white/10 bg-white/5 px-2 text-[10px]"
+              :aria-label="`${fighter.definition.name} to send`"
+              class="ui-input ui-num w-24"
             />
           </label>
-          <button
-            type="button"
-            :disabled="sending || !hasShips"
-            class="h-7 rounded border border-red-400/30 text-[9px] uppercase tracking-widest text-red-300 disabled:opacity-30"
-            @click="attack"
-          >
-            {{ sending ? 'Launching…' : 'Attack' }}
-          </button>
         </template>
-        <p v-else class="text-[9px] text-white/25">No fighter or bomber is available.</p>
-        <p v-if="feedback" class="text-[9px] text-white/50">{{ feedback }}</p>
-      </div>
+        <p v-else class="text-ui-soft">
+          No fighter or bomber is ready. Build them in the Shipyard (Fleet).
+        </p>
+        <p v-if="feedback" class="text-ui-soft">{{ feedback }}</p>
+      </section>
     </div>
-  </div>
+
+    <div
+      v-if="station.scanned && fighters.length > 0"
+      class="border-t border-ui-line px-[18px] py-4"
+    >
+      <button
+        type="button"
+        :disabled="sending || !hasShips"
+        class="ui-btn ui-btn-danger w-full"
+        @click="attack"
+      >
+        {{ sending ? 'Launching…' : 'Launch attack' }}
+      </button>
+    </div>
+  </aside>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
 import { apiClient } from '../lib/api-client';
@@ -10,10 +10,11 @@ import type {
 } from '@orions-frontier/shared';
 import { roleTheme, formatBuildTime, hideBrokenImage } from '../lib/spacecraft-utils';
 import BuildForm from './BuildForm.vue';
+import { useOverviewStore } from '../stores/overview.js';
 import type { BuildOrder } from '../lib/spacecraft-utils';
 
 const { stationId } = defineProps<{ stationId: string }>();
-const emit = defineEmits<{ queueCount: [count: number] }>();
+const overview = useOverviewStore();
 
 const fleet = ref<StationSpacecraftWithDefinition[]>([]);
 const fleetLoading = ref(false);
@@ -148,23 +149,18 @@ const visibleOrders = computed(() =>
   allBuildOrders.value.filter((o) => new Date(o.endsAt).getTime() > now.value)
 );
 
-const activeOrdersCount = computed(() => visibleOrders.value.length);
-
 function timeUntil(isoStr: string): string {
   const ms = new Date(isoStr).getTime() - now.value;
   if (ms <= 0) return 'Done';
   return formatBuildTime(Math.ceil(ms / 1000));
 }
 
-watch(
-  activeOrdersCount,
-  (count) => {
-    emit('queueCount', count);
-  },
-  { immediate: true }
-);
-
 void loadFleet();
+
+function onBuilt() {
+  void loadFleet(true);
+  void overview.refreshStation(stationId);
+}
 
 const unsubscribeBuild = wsClient.on('spacecraft_build_completed', (payload) => {
   if (payload.stationId === stationId) void loadFleet(true);
@@ -186,43 +182,25 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- Loading -->
-  <div v-if="fleetLoading" class="flex-1 flex items-center justify-center">
-    <div class="flex items-center gap-2 text-cyan-400/50 text-[10px] uppercase tracking-widest">
-      <span
-        class="inline-block w-3 h-3 border border-cyan-400/50 border-t-cyan-400 rounded-full animate-spin"
-      />
-      Loading fleet…
-    </div>
+  <div v-if="fleetLoading" class="flex flex-1 items-center justify-center">
+    <p class="animate-pulse text-ui-muted">Loading fleet…</p>
   </div>
 
-  <!-- Error -->
-  <div v-else-if="fleetError" class="flex-1 flex items-center justify-center">
-    <p class="text-rose-400/60 text-[10px] uppercase tracking-widest">{{ fleetError }}</p>
+  <div v-else-if="fleetError" class="flex flex-1 items-center justify-center">
+    <p class="text-ui-red">{{ fleetError }}</p>
   </div>
 
-  <!-- Empty -->
-  <div v-else-if="fleet.length === 0" class="flex-1 flex items-center justify-center">
-    <p class="text-white/15 text-[9px] uppercase tracking-[0.4em]">No spacecraft assigned</p>
+  <div v-else-if="fleet.length === 0" class="flex flex-1 items-center justify-center">
+    <p class="text-ui-soft">No spacecraft available at this station.</p>
   </div>
 
-  <!-- Content -->
-  <div v-else class="flex-1 overflow-hidden flex flex-col">
-    <!-- Role filter bar -->
-    <div
-      class="flex items-center gap-0.5 px-3 h-8 border-b border-white/5 bg-[#040911]/40 shrink-0"
-    >
-      <span class="mr-3 text-[9px] text-white/35">
-        Hangar crew {{ hangar.used }}/{{ hangar.capacity }}
-      </span>
+  <div v-else class="flex flex-1 flex-col overflow-hidden text-sm">
+    <!-- Role filter + hangar -->
+    <div class="flex shrink-0 items-center gap-1 border-b border-ui-line px-[18px] py-2.5">
       <button
         type="button"
-        class="px-2.5 h-5 rounded text-[9px] uppercase tracking-[0.2em] transition"
-        :class="
-          roleFilter === 'all'
-            ? 'bg-white/10 text-white/65 border border-white/15'
-            : 'text-white/25 hover:text-white/50'
-        "
+        class="ui-tab capitalize"
+        :class="{ 'ui-tab-active': roleFilter === 'all' }"
         @click="roleFilter = 'all'"
       >
         All
@@ -231,248 +209,164 @@ onUnmounted(() => {
         v-for="role in uniqueRoles"
         :key="role"
         type="button"
-        class="px-2.5 h-5 rounded text-[9px] uppercase tracking-[0.2em] transition border"
-        :class="
-          roleFilter === role
-            ? [roleTheme(role).badge, roleTheme(role).badgeText]
-            : 'border-transparent text-white/25 hover:text-white/50'
-        "
+        class="ui-tab capitalize"
+        :class="{ 'ui-tab-active': roleFilter === role }"
         @click="roleFilter = role"
       >
         {{ role }}
       </button>
     </div>
 
-    <!-- Main: 2-column split -->
-    <div class="flex-1 grid grid-cols-[200px_1fr] overflow-hidden relative" :style="activeShipGlow">
-      <div class="border-r border-white/5 overflow-y-auto flex flex-col gap-px p-2">
-        <button
-          v-for="entry in filteredFleet"
-          :key="entry.definition.key"
-          type="button"
-          class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded text-left transition-all border"
-          :class="
-            activeShip?.definition.key === entry.definition.key
-              ? 'bg-white/7 border-white/12'
-              : 'border-transparent hover:bg-white/3 hover:border-white/6'
-          "
-          @click="activeShip = entry"
-        >
-          <div
-            class="w-0.5 self-stretch rounded-full shrink-0 opacity-70"
-            :class="roleTheme(entry.definition.role).topBar"
-          />
-          <div class="w-8 h-8 shrink-0 flex items-center justify-center relative">
-            <span class="text-white/8 text-[16px] absolute select-none pointer-events-none">◈</span>
+    <div
+      class="flex flex-1 flex-col gap-3 overflow-y-auto px-[18px] py-3.5"
+      :style="activeShipGlow"
+    >
+      <!-- Ship list -->
+      <ul class="flex flex-col gap-1" aria-label="Spacecraft">
+        <li v-for="entry in filteredFleet" :key="entry.definition.key">
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition"
+            :class="
+              activeShip?.definition.key === entry.definition.key
+                ? 'border-ui-line-strong bg-ui-card'
+                : 'border-transparent hover:border-ui-line hover:bg-ui-card/60'
+            "
+            :aria-pressed="activeShip?.definition.key === entry.definition.key"
+            @click="activeShip = entry"
+          >
+            <span
+              class="w-1 self-stretch rounded-full"
+              :class="roleTheme(entry.definition.role).topBar"
+            />
             <img
               v-if="entry.definition.image"
               :src="entry.definition.image"
-              :alt="entry.definition.name"
-              class="w-full h-full object-contain relative z-10 transition-opacity"
-              :class="entry.amount > 0 ? 'opacity-70' : 'opacity-25'"
+              alt=""
+              class="h-9 w-9 shrink-0 object-contain"
+              :class="entry.amount > 0 ? '' : 'opacity-40'"
               @error="hideBrokenImage"
             />
-          </div>
-          <div class="flex-1 min-w-0 flex flex-col gap-1">
-            <div class="flex items-center justify-between gap-1">
-              <span class="text-[10px] text-white/60 truncate leading-none font-medium">{{
-                entry.definition.name
-              }}</span>
+            <span class="flex min-w-0 flex-1 flex-col">
+              <span class="truncate font-semibold text-ui-bright">{{ entry.definition.name }}</span>
+              <span class="text-xs capitalize text-ui-muted">{{ entry.definition.role }}</span>
+            </span>
+            <span class="flex shrink-0 flex-col items-end">
               <span
-                class="text-[10px] tabular-nums font-semibold leading-none shrink-0"
-                :class="
-                  entry.amount > 0 ? roleTheme(entry.definition.role).amount : 'text-white/15'
-                "
+                class="ui-num font-semibold"
+                :class="entry.amount > 0 ? roleTheme(entry.definition.role).amount : 'text-ui-dim'"
                 >×{{ entry.amount }}</span
               >
-            </div>
-            <div class="flex items-center gap-1.5">
-              <div class="flex-1 h-px bg-white/8 rounded-full overflow-hidden">
-                <div
-                  class="h-full rounded-full transition-all opacity-65"
-                  :class="roleTheme(entry.definition.role).topBar"
-                  :style="{
-                    width:
-                      entry.amount > 0
-                        ? `${((entry.amount - entry.lockedAmount) / entry.amount) * 100}%`
-                        : '0%',
-                  }"
-                />
-              </div>
-              <span class="text-[8px] text-white/20 tabular-nums leading-none shrink-0"
-                >{{ entry.amount - entry.lockedAmount }}/{{ entry.amount }}</span
+              <span class="ui-num text-xs text-ui-muted"
+                >{{ entry.amount - entry.lockedAmount }} idle</span
               >
-            </div>
-          </div>
-        </button>
-        <p
-          v-if="filteredFleet.length === 0"
-          class="text-[9px] text-white/15 uppercase tracking-widest text-center py-6"
-        >
-          None
-        </p>
-      </div>
+            </span>
+          </button>
+        </li>
+        <li v-if="filteredFleet.length === 0" class="py-4 text-center text-ui-soft">
+          No spacecraft of this role.
+        </li>
+      </ul>
 
-      <div v-if="activeShip" class="overflow-y-auto flex flex-col">
-        <!-- Compact header: image + name + badge + counts in one row -->
-        <div class="flex items-center relative gap-3 px-4 py-3 border-b border-white/5 shrink-0">
-          <!-- Ship image small -->
-          <div class="w-12 h-12 shrink-0 flex items-center justify-center relative">
-            <div
-              class="absolute inset-0 rounded-full blur-xl opacity-25 pointer-events-none"
-              :class="roleTheme(activeShip.definition.role).topBar"
-            />
-            <span class="text-white/5 text-[28px] absolute select-none pointer-events-none">◈</span>
+      <template v-if="activeShip">
+        <!-- Selected ship -->
+        <section class="ui-card" :aria-label="activeShip.definition.name">
+          <div class="flex items-center gap-3">
             <img
               v-if="activeShip.definition.image"
               :src="activeShip.definition.image"
-              :alt="activeShip.definition.name"
-              class="w-full h-full object-contain relative z-10 drop-shadow-lg"
+              alt=""
+              class="h-14 w-14 shrink-0 object-contain drop-shadow-lg"
+              @error="hideBrokenImage"
             />
-          </div>
-
-          <!-- Identity + counts -->
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 mb-1">
-              <h2 class="text-[13px] font-semibold text-white/90 truncate leading-none">
-                {{ activeShip.definition.name }}
-              </h2>
-              <span
-                class="shrink-0 px-1.5 py-0.5 rounded text-[7px] uppercase tracking-widest border"
-                :class="roleTheme(activeShip.definition.role).badge"
-              >
-                <span :class="roleTheme(activeShip.definition.role).badgeText">{{
-                  activeShip.definition.role
-                }}</span>
-              </span>
-            </div>
-            <p class="text-[10px] leading-none">
-              <span class="text-white/30">Fleet </span>
-              <span
-                class="font-semibold tabular-nums"
-                :class="roleTheme(activeShip.definition.role).amount"
-                >{{ activeShip.amount }}</span
-              >
-              <span class="text-white/20 mx-1.5">·</span>
-              <span class="text-white/30">Idle </span>
-              <span class="font-semibold tabular-nums text-emerald-400">{{
-                activeShip.amount - activeShip.lockedAmount
-              }}</span>
-              <span class="text-white/20 mx-1.5">·</span>
-              <span class="text-white/30">Busy </span>
-              <span class="font-semibold tabular-nums text-white/40">{{
-                activeShip.lockedAmount
-              }}</span>
-              <span class="text-white/20 mx-1.5">·</span>
-              <span class="text-white/30">Crew </span>
-              <span class="font-semibold tabular-nums text-cyan-300">{{
-                activeShip.definition.crew
-              }}</span>
-            </p>
-            <!-- Availability bar -->
-            <div
-              class="mt-2 h-0.5 bg-white/5 rounded-full absolute bottom-0 left-0 w-full overflow-hidden"
-            >
-              <div
-                class="h-full transition-all opacity-50"
-                :class="roleTheme(activeShip.definition.role).topBar"
-                :style="{
-                  width:
-                    activeShip.amount > 0
-                      ? `${
-                          ((activeShip.amount - activeShip.lockedAmount) / activeShip.amount) * 100
-                        }%`
-                      : '0%',
-                }"
-              />
+            <div class="flex min-w-0 flex-1 flex-col gap-1">
+              <div class="flex items-center gap-2">
+                <h3 class="truncate text-base font-semibold text-ui-bright">
+                  {{ activeShip.definition.name }}
+                </h3>
+                <span
+                  class="rounded border px-2 py-0.5 text-xs capitalize"
+                  :class="[
+                    roleTheme(activeShip.definition.role).badge,
+                    roleTheme(activeShip.definition.role).badgeText,
+                  ]"
+                  >{{ activeShip.definition.role }}</span
+                >
+              </div>
+              <dl class="grid grid-cols-4 gap-2 text-xs text-ui-muted">
+                <div class="flex flex-col">
+                  <dt>Fleet</dt>
+                  <dd class="ui-num text-sm" :class="roleTheme(activeShip.definition.role).amount">
+                    {{ activeShip.amount }}
+                  </dd>
+                </div>
+                <div class="flex flex-col">
+                  <dt>Idle</dt>
+                  <dd class="ui-num text-sm text-ui-green">
+                    {{ activeShip.amount - activeShip.lockedAmount }}
+                  </dd>
+                </div>
+                <div class="flex flex-col">
+                  <dt>Busy</dt>
+                  <dd class="ui-num text-sm text-ui-text">{{ activeShip.lockedAmount }}</dd>
+                </div>
+                <div class="flex flex-col">
+                  <dt>Crew each</dt>
+                  <dd class="ui-num text-sm text-ui-text">{{ activeShip.definition.crew }}</dd>
+                </div>
+              </dl>
             </div>
           </div>
-        </div>
 
-        <!-- Stats + Build split -->
-        <div class="flex-1 grid grid-cols-[1fr_1fr] overflow-hidden min-h-0">
-          <!-- Stats: 2-col compact grid -->
-          <div class="p-4 border-r border-white/5 overflow-y-auto">
-            <div class="pt-3 grid grid-cols-2 gap-x-5 gap-y-2.5">
-              <div v-for="stat in activeShipStats" :key="stat.label" class="flex flex-col gap-0.5">
-                <div class="flex items-center justify-between">
-                  <span class="text-[8px] text-white/25 uppercase tracking-widest">{{
-                    stat.label
-                  }}</span>
-                  <span
-                    class="text-[9px] font-semibold tabular-nums"
-                    :class="
-                      stat.value > 0
-                        ? roleTheme(activeShip.definition.role).statValue
-                        : 'text-white/15'
-                    "
-                    >{{ stat.value }}</span
-                  >
-                </div>
-                <div class="h-0.5 bg-white/6 rounded-full overflow-hidden">
-                  <div
-                    class="h-full rounded-full transition-all"
-                    :class="
-                      stat.value > 0 ? roleTheme(activeShip.definition.role).topBar : 'bg-white/10'
-                    "
-                    :style="{
-                      width: `${statPct(stat.value, stat.max)}%`,
-                      opacity: stat.value > 0 ? '0.6' : '0.2',
-                    }"
-                  />
-                </div>
+          <dl class="grid grid-cols-2 gap-x-5 gap-y-2.5 border-t border-ui-line pt-3">
+            <div v-for="stat in activeShipStats" :key="stat.label" class="flex flex-col gap-1">
+              <div class="flex items-baseline justify-between text-[13px]">
+                <dt class="text-ui-muted">{{ stat.label }}</dt>
+                <dd
+                  class="ui-num font-semibold"
+                  :class="
+                    stat.value > 0 ? roleTheme(activeShip.definition.role).statValue : 'text-ui-dim'
+                  "
+                >
+                  {{ stat.value }}
+                </dd>
+              </div>
+              <div class="h-1 overflow-hidden rounded-full bg-ui-line">
+                <div
+                  class="h-full rounded-full opacity-70"
+                  :class="roleTheme(activeShip.definition.role).topBar"
+                  :style="{ width: `${statPct(stat.value, stat.max)}%` }"
+                />
               </div>
             </div>
-          </div>
+          </dl>
+        </section>
 
-          <!-- Build form -->
-          <div class="p-4 overflow-y-auto">
-            <BuildForm
-              :station-id="stationId"
-              :ship="activeShip"
-              :hangar="hangar"
-              @built="loadFleet(true)"
-            />
-          </div>
-        </div>
-      </div>
-
-      <!-- No selection -->
-      <div v-else class="flex items-center justify-center">
-        <p class="text-white/15 text-[9px] uppercase tracking-[0.4em]">Select a spacecraft</p>
-      </div>
+        <BuildForm :station-id="stationId" :ship="activeShip" :hangar="hangar" @built="onBuilt" />
+      </template>
     </div>
 
-    <!-- Bottom: Production Queue ticker (horizontal, shown when orders exist) -->
+    <!-- Production queue -->
     <div
       v-if="visibleOrders.length > 0"
-      class="border-t border-white/5 bg-[#040911]/60 shrink-0 flex items-center gap-2 px-3 h-9 overflow-x-auto"
+      class="flex shrink-0 items-center gap-2 overflow-x-auto border-t border-ui-line px-[18px] py-2.5"
     >
-      <span class="text-[7px] text-white/20 uppercase tracking-[0.35em] shrink-0">Queue</span>
-      <div class="w-px h-3 bg-white/10 shrink-0" />
+      <span class="ui-label shrink-0">Queue</span>
       <div
         v-for="(order, i) in visibleOrders"
         :key="order.id"
-        class="flex items-center gap-1.5 px-2 py-1 rounded border shrink-0 transition-all"
-        :class="i === 0 ? 'border-white/12 bg-white/5' : 'border-white/6 bg-transparent'"
+        class="flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-[13px]"
+        :class="i === 0 ? 'border-ui-line-strong bg-ui-card' : 'border-ui-line'"
       >
         <span
-          class="w-1.5 h-1.5 rounded-full shrink-0"
-          :class="
-            i === 0 ? [roleTheme(order.spacecraftRole).topBar, 'animate-pulse'] : 'bg-white/12'
-          "
+          class="h-1.5 w-1.5 rounded-full"
+          :class="i === 0 ? [roleTheme(order.spacecraftRole).topBar, 'animate-pulse'] : 'bg-ui-dim'"
         />
-        <span class="text-[9px] shrink-0" :class="i === 0 ? 'text-white/70' : 'text-white/35'">{{
-          order.spacecraftName
-        }}</span>
-        <span
-          class="text-[9px] tabular-nums font-semibold shrink-0"
-          :class="roleTheme(order.spacecraftRole).amount"
+        <span :class="i === 0 ? 'text-ui-text' : 'text-ui-muted'">{{ order.spacecraftName }}</span>
+        <span class="ui-num font-semibold" :class="roleTheme(order.spacecraftRole).amount"
           >×{{ order.amount }}</span
         >
-        <span class="text-[9px] tabular-nums text-white/30 shrink-0">{{
-          timeUntil(order.endsAt)
-        }}</span>
+        <span class="ui-num text-ui-muted">{{ timeUntil(order.endsAt) }}</span>
       </div>
     </div>
   </div>
