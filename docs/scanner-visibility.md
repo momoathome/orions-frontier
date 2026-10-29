@@ -54,7 +54,7 @@ selbst aus.
 
 ## Umsetzung
 
-`scanner-visibility.service.ts` enthält nur die gemeinsame Regel:
+`services/map/scanner-visibility.ts` enthält nur die gemeinsame Regel:
 `getUserScannerCoverages`, `isPointVisible` (quadrierte Distanz ohne Wurzel),
 `visibleCoverageBounds` und `assertPointVisible`. Objektservices laden ihre Daten selbst; es gibt
 keine zweite Distanzformel in SQL, Bots oder Frontend.

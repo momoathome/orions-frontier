@@ -175,9 +175,9 @@ Reihenfolge, jeweils mit `npm run verify`:
 4. **Vernichtung und Neustart** (Abschnitte 4, 7).
 5. **Kolonisationskosten** (Abschnitt 6) und Playtest-Messung.
 
-Betroffene Stellen (Auswahl): `combat.service.ts`, `salvage.service.ts`,
-`world-mission.service.ts`, `world.service.ts` (Projektion, `MILITARY_TRIP_PURPOSES`),
-`scanner-visibility.service.ts`, `ranking.service.ts`, `bot/goal-*`, `game-config`
+Betroffene Stellen (Auswahl): `combat/combat.ts`, `combat/salvage.ts`,
+`missions/world-mission.ts`, `world/world.ts` (Projektion, `MILITARY_TRIP_PURPOSES`),
+`map/scanner-visibility.ts`, `ranking/ranking.ts`, `bot/goal-*`, `game-config`
 (`spacecrafts.ts`, `buildings.ts`, `resources.ts`), `shared` (Rolle, Berichte, Payloads),
 `DefenseTab.vue`, `TargetStationPanel.vue`, `StationPanel.vue`, eine Migration mit Schema-Export.
 
