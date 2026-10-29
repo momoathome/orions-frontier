@@ -69,3 +69,7 @@ export async function claimDueResearch(db: QueryDb, id: string, completedAt: Dat
     .returning({ id: stationResearch.id });
   return claimed !== undefined;
 }
+
+export async function deleteStationResearch(tx: Tx, stationId: string) {
+  await tx.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
+}

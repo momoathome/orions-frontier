@@ -105,3 +105,17 @@ export async function hasUnresolvedSalvageOnDebris(tx: Tx, debrisFieldId: string
     .limit(1);
   return active !== undefined;
 }
+
+/** Resolves the mission flying this trip, whatever its status. */
+export async function resolveSalvageMissionByTrip(
+  tx: Tx,
+  leg: 'outbound' | 'return',
+  tripId: string,
+  resolvedAt: Date
+) {
+  const column = leg === 'outbound' ? salvageMissions.outboundTripId : salvageMissions.returnTripId;
+  await tx
+    .update(salvageMissions)
+    .set({ status: 'resolved', resolvedAt })
+    .where(eq(column, tripId));
+}

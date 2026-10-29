@@ -24,6 +24,10 @@ export async function insertStationBuildingIfMissing(
   return row;
 }
 
+export async function deleteStationBuildings(tx: Tx, stationId: string) {
+  await tx.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
+}
+
 export function listStationBuildings(db: QueryDb, stationId: string) {
   return db.select().from(stationBuildings).where(eq(stationBuildings.stationId, stationId));
 }

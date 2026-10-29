@@ -1,4 +1,4 @@
-import { and, between, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, between, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { asteroids } from '../lib/db/schema/asteroids.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
@@ -205,4 +205,22 @@ export async function findMiningRoute(
     )
     .limit(1);
   return row;
+}
+
+/** Positions of the user's other stations that still stand. */
+export function listOtherActiveStationPositionsByUser(
+  db: QueryDb,
+  userId: string,
+  exceptStationId: string
+) {
+  return db
+    .select({ id: stations.id, x: stations.x, y: stations.y })
+    .from(stations)
+    .where(
+      and(
+        eq(stations.userId, userId),
+        ne(stations.id, exceptStationId),
+        isNull(stations.destroyedAt)
+      )
+    );
 }

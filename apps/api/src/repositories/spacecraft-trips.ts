@@ -104,3 +104,21 @@ export function listTravelingTripsInBounds(db: QueryDb, bounds: WorldBounds) {
       )
     );
 }
+
+/** Locks the trips still traveling for these fleet rows. */
+export function listTravelingTripsBySpacecraftForUpdate(tx: Tx, stationSpacecraftIds: string[]) {
+  return tx
+    .select()
+    .from(spacecraftTrips)
+    .where(
+      and(
+        inArray(spacecraftTrips.stationSpacecraftId, stationSpacecraftIds),
+        eq(spacecraftTrips.status, 'traveling')
+      )
+    )
+    .for('update');
+}
+
+export async function cancelTrip(tx: Tx, id: string) {
+  await tx.update(spacecraftTrips).set({ status: 'cancelled' }).where(eq(spacecraftTrips.id, id));
+}

@@ -63,3 +63,19 @@ export async function updateCombatMission(
 ) {
   await tx.update(combatMissions).set(values).where(eq(combatMissions.id, id));
 }
+
+/** Resolves the mission flying this trip, whatever its status; undefined if none. */
+export async function resolveCombatMissionByTrip(
+  tx: Tx,
+  leg: 'outbound' | 'return',
+  tripId: string,
+  resolvedAt: Date
+) {
+  const column = leg === 'outbound' ? combatMissions.outboundTripId : combatMissions.returnTripId;
+  const [mission] = await tx
+    .update(combatMissions)
+    .set({ status: 'resolved', resolvedAt })
+    .where(eq(column, tripId))
+    .returning();
+  return mission;
+}

@@ -1,4 +1,3 @@
-import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import {
   calculateBuildingUpgradeCost,
   calculateDefenseUpgradeCost,
@@ -13,18 +12,42 @@ import {
   type ResourceMap,
 } from '@orions-frontier/shared';
 import type { Tx } from '../../lib/db/index.js';
-import { asteroidAssignments } from '../../lib/db/schema/asteroids.js';
-import { combatMissions } from '../../lib/db/schema/combat-missions.js';
-import { salvageMissions } from '../../lib/db/schema/debris-fields.js';
-import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { spawnSlots } from '../../lib/db/schema/spawn-slots.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationResearch } from '../../lib/db/schema/station-research.js';
-import { stationResources } from '../../lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../lib/db/schema/stations.js';
-import { worldMissions } from '../../lib/db/schema/world-missions.js';
+import { deleteStationAssignments } from '../../repositories/asteroids.js';
+import { resolveCombatMissionByTrip } from '../../repositories/combat-missions.js';
+import { resolveSalvageMissionByTrip } from '../../repositories/debris-fields.js';
+import { deleteBuildOrders } from '../../repositories/spacecraft-build-orders.js';
+import {
+  cancelTrip,
+  insertTrip,
+  listTravelingTripsBySpacecraftForUpdate,
+  updateTripCargo,
+  type TripRow,
+} from '../../repositories/spacecraft-trips.js';
+import { releaseSpawnSlots } from '../../repositories/spawn-slots.js';
+import {
+  deleteStationBuildings,
+  listBuildingLevels,
+} from '../../repositories/station-buildings.js';
+import { deleteStationResearch } from '../../repositories/station-research.js';
+import {
+  deleteStationResources,
+  listStationResources,
+} from '../../repositories/station-resources.js';
+import {
+  addLockedSpacecraft,
+  clearStationSpacecrafts,
+  listStationSpacecraftsForUpdate,
+  releaseSpacecraftClamped,
+} from '../../repositories/station-spacecrafts.js';
+import {
+  findStation,
+  listOtherActiveStationPositionsByUser,
+  updateStation,
+} from '../../repositories/stations.js';
+import {
+  listMovingWorldMissionsBySpacecraftForUpdate,
+  updateWorldMission,
+} from '../../repositories/world-missions.js';
 import {
   calcArrivesAt,
   calcDistance,
@@ -34,7 +57,7 @@ import {
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
 import { creditStationResources } from '../station/index.js';
 
-type Trip = typeof spacecraftTrips.$inferSelect;
+type Trip = TripRow;
 
 /** Share of the resources invested in buildings and defense that a destroyed station leaves behind. */
 const INVESTMENT_DEBRIS_SHARE = 0.2;
@@ -54,27 +77,16 @@ async function addLockedShips(
   amount: number,
   context: GameExecutionContext
 ): Promise<string> {
-  const [row] = await tx
-    .insert(stationSpacecrafts)
-    .values({
-      id: context.nextId('station-spacecraft'),
-      stationId,
-      spacecraftKey,
-      amount,
-      lockedAmount: amount,
-      createdAt: context.now,
-      updatedAt: context.now,
-    })
-    .onConflictDoUpdate({
-      target: [stationSpacecrafts.stationId, stationSpacecrafts.spacecraftKey],
-      set: {
-        amount: sql`${stationSpacecrafts.amount} + ${amount}`,
-        lockedAmount: sql`${stationSpacecrafts.lockedAmount} + ${amount}`,
-      },
-    })
-    .returning({ id: stationSpacecrafts.id });
-  if (!row) throw new Error('Failed to relocate spacecraft');
-  return row.id;
+  const rowId = await addLockedSpacecraft(tx, {
+    id: context.nextId('station-spacecraft'),
+    stationId,
+    spacecraftKey,
+    amount,
+    createdAt: context.now,
+    updatedAt: context.now,
+  });
+  if (!rowId) throw new Error('Failed to relocate spacecraft');
+  return rowId;
 }
 
 /** Ships of one trip per spacecraft key; combat trips carry a mixed fleet. */
@@ -85,24 +97,15 @@ async function tripGroups(
   now: Date
 ): Promise<Record<string, number>> {
   if (trip.purpose === 'combat' || trip.purpose === 'combat_return') {
-    const column =
-      trip.purpose === 'combat' ? combatMissions.outboundTripId : combatMissions.returnTripId;
-    const [mission] = await tx
-      .update(combatMissions)
-      .set({ status: 'resolved', resolvedAt: now })
-      .where(eq(column, trip.id))
-      .returning();
+    const leg = trip.purpose === 'combat' ? 'outbound' : 'return';
+    const mission = await resolveCombatMissionByTrip(tx, leg, trip.id, now);
     if (mission) {
       return (trip.purpose === 'combat' ? mission.attackerFleet : mission.attackerSurvivors) ?? {};
     }
   }
   if (trip.purpose === 'salvage' || trip.purpose === 'salvage_return') {
-    const column =
-      trip.purpose === 'salvage' ? salvageMissions.outboundTripId : salvageMissions.returnTripId;
-    await tx
-      .update(salvageMissions)
-      .set({ status: 'resolved', resolvedAt: now })
-      .where(eq(column, trip.id));
+    const leg = trip.purpose === 'salvage' ? 'outbound' : 'return';
+    await resolveSalvageMissionByTrip(tx, leg, trip.id, now);
   }
   return { [spacecraftKey]: trip.groupSize };
 }
@@ -118,11 +121,7 @@ export async function destroyStation(
   context: GameExecutionContext
 ): Promise<{ dockedShips: Map<string, number>; resources: ResourceMap }> {
   const { now } = context;
-  const fleetRows = await tx
-    .select()
-    .from(stationSpacecrafts)
-    .where(eq(stationSpacecrafts.stationId, station.id))
-    .for('update');
+  const fleetRows = await listStationSpacecraftsForUpdate(tx, station.id);
   const fleetIds = fleetRows.map((row) => row.id);
   const keyByRow = new Map(fleetRows.map((row) => [row.id, row.spacecraftKey]));
   const dockedShips = new Map<string, number>();
@@ -132,17 +131,11 @@ export async function destroyStation(
   }
 
   const resources: ResourceMap = {};
-  const storage = await tx
-    .select()
-    .from(stationResources)
-    .where(eq(stationResources.stationId, station.id));
+  const storage = await listStationResources(tx, station.id);
   for (const row of storage) addResources(resources, { [row.resourceKey]: row.amount });
 
-  const levels = await tx
-    .select({ key: stationBuildings.buildingKey, level: stationBuildings.level })
-    .from(stationBuildings)
-    .where(eq(stationBuildings.stationId, station.id));
-  for (const { key, level } of levels) {
+  const levels = await listBuildingLevels(tx, station.id);
+  for (const { buildingKey: key, level } of levels) {
     const costs = isOneOf(buildingKeys, key)
       ? Array.from({ length: Math.max(0, level - 1) }, (_, i) =>
           calculateBuildingUpgradeCost(key, i + 2)
@@ -158,16 +151,7 @@ export async function destroyStation(
     }
   }
 
-  const survivors = await tx
-    .select({ id: stations.id, x: stations.x, y: stations.y })
-    .from(stations)
-    .where(
-      and(
-        eq(stations.userId, station.userId),
-        ne(stations.id, station.id),
-        isNull(stations.destroyedAt)
-      )
-    );
+  const survivors = await listOtherActiveStationPositionsByUser(tx, station.userId, station.id);
   const nearest = (point: Coordinate) =>
     survivors.reduce<(typeof survivors)[number] | undefined>(
       (best, candidate) =>
@@ -176,23 +160,9 @@ export async function destroyStation(
     );
 
   const trips =
-    fleetIds.length === 0
-      ? []
-      : await tx
-          .select()
-          .from(spacecraftTrips)
-          .where(
-            and(
-              inArray(spacecraftTrips.stationSpacecraftId, fleetIds),
-              eq(spacecraftTrips.status, 'traveling')
-            )
-          )
-          .for('update');
+    fleetIds.length === 0 ? [] : await listTravelingTripsBySpacecraftForUpdate(tx, fleetIds);
   for (const trip of trips) {
-    await tx
-      .update(spacecraftTrips)
-      .set({ status: 'cancelled' })
-      .where(eq(spacecraftTrips.id, trip.id));
+    await cancelTrip(tx, trip.id);
     const groups = await tripGroups(tx, trip, keyByRow.get(trip.stationSpacecraftId) ?? '', now);
     const position = interpolateWorldPosition(trip, now);
     const target = nearest(position);
@@ -201,7 +171,7 @@ export async function destroyStation(
     for (const [spacecraftKey, amount] of Object.entries(groups)) {
       if (amount <= 0) continue;
       const rowId = await addLockedShips(tx, target.id, spacecraftKey, amount, context);
-      await tx.insert(spacecraftTrips).values({
+      await insertTrip(tx, {
         id: context.nextId('trip'),
         stationSpacecraftId: rowId,
         groupSize: amount,
@@ -228,53 +198,30 @@ export async function destroyStation(
   }
 
   const missions =
-    fleetIds.length === 0
-      ? []
-      : await tx
-          .select()
-          .from(worldMissions)
-          .where(
-            and(
-              inArray(worldMissions.stationSpacecraftId, fleetIds),
-              inArray(worldMissions.status, ['traveling', 'returning'])
-            )
-          )
-          .for('update');
+    fleetIds.length === 0 ? [] : await listMovingWorldMissionsBySpacecraftForUpdate(tx, fleetIds);
   for (const mission of missions) {
-    const [origin] = await tx
-      .select({ x: stations.x, y: stations.y })
-      .from(stations)
-      .where(eq(stations.id, mission.originStationId));
+    const origin = await findStation(tx, mission.originStationId);
     const target = origin ? nearest(origin) : undefined;
     if (!target) {
-      await tx
-        .update(worldMissions)
-        .set({ status: 'cancelled' })
-        .where(eq(worldMissions.id, mission.id));
+      await updateWorldMission(tx, mission.id, { status: 'cancelled' });
       continue;
     }
     // ponytail: the mission keeps its timing and only changes home; a returning ship jumps to the new path.
     const rowId = await addLockedShips(tx, target.id, mission.spacecraftKey, 1, context);
-    await tx
-      .update(worldMissions)
-      .set({ stationSpacecraftId: rowId, originStationId: target.id })
-      .where(eq(worldMissions.id, mission.id));
+    await updateWorldMission(tx, mission.id, {
+      stationSpacecraftId: rowId,
+      originStationId: target.id,
+    });
   }
 
-  await tx
-    .update(stationSpacecrafts)
-    .set({ amount: 0, lockedAmount: 0, updatedAt: now })
-    .where(eq(stationSpacecrafts.stationId, station.id));
-  await tx.delete(stationBuildings).where(eq(stationBuildings.stationId, station.id));
-  await tx.delete(stationResources).where(eq(stationResources.stationId, station.id));
-  await tx.delete(stationResearch).where(eq(stationResearch.stationId, station.id));
-  await tx.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, station.id));
-  await tx.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, station.id));
-  await tx.update(spawnSlots).set({ stationId: null }).where(eq(spawnSlots.stationId, station.id));
-  await tx
-    .update(stations)
-    .set({ integrity: 0, integrityUpdatedAt: now, destroyedAt: now })
-    .where(eq(stations.id, station.id));
+  await clearStationSpacecrafts(tx, station.id, now);
+  await deleteStationBuildings(tx, station.id);
+  await deleteStationResources(tx, station.id);
+  await deleteStationResearch(tx, station.id);
+  await deleteBuildOrders(tx, station.id);
+  await deleteStationAssignments(tx, station.id);
+  await releaseSpawnSlots(tx, station.id);
+  await updateStation(tx, station.id, { integrity: 0, integrityUpdatedAt: now, destroyedAt: now });
 
   return { dockedShips, resources };
 }
@@ -283,13 +230,7 @@ export async function destroyStation(
 export async function handleRelocateArrival(tx: Tx, trip: Trip): Promise<void> {
   if (trip.cargoManifest) {
     const credited = await creditStationResources(tx, trip.toId, { ...trip.cargoManifest });
-    await tx
-      .update(spacecraftTrips)
-      .set({ cargoManifest: credited })
-      .where(eq(spacecraftTrips.id, trip.id));
+    await updateTripCargo(tx, trip.id, credited);
   }
-  await tx
-    .update(stationSpacecrafts)
-    .set({ lockedAmount: sql`greatest(0, ${stationSpacecrafts.lockedAmount} - ${trip.groupSize})` })
-    .where(eq(stationSpacecrafts.id, trip.stationSpacecraftId));
+  await releaseSpacecraftClamped(tx, trip.stationSpacecraftId, trip.groupSize);
 }

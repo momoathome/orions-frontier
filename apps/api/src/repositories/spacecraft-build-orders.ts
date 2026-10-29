@@ -42,3 +42,7 @@ export async function findLatestBuildOrderEnd(
 export async function insertBuildOrder(tx: Tx, values: typeof spacecraftBuildOrders.$inferInsert) {
   await tx.insert(spacecraftBuildOrders).values(values);
 }
+
+export async function deleteBuildOrders(tx: Tx, stationId: string) {
+  await tx.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
+}
