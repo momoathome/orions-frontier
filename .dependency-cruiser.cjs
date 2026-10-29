@@ -53,7 +53,28 @@ module.exports = {
       comment: 'lib ist die Basis und kennt weder Services, Routen noch Werkzeuge.',
       from: { path: '^apps/api/src/lib/' },
       to: {
+        path: '^apps/api/src/(repositories|services|routes|tools|middleware|plugins)/|^apps/api/src/[^/]+\\.ts$',
+      },
+    },
+    {
+      name: 'repositories-only-data-access',
+      severity: 'error',
+      comment:
+        'Repositories kapseln Datenbank-Abfragen und kennen weder Services, Routen noch Werkzeuge.',
+      from: { path: '^apps/api/src/repositories/' },
+      to: {
         path: '^apps/api/src/(services|routes|tools|middleware|plugins)/|^apps/api/src/[^/]+\\.ts$',
+      },
+    },
+    {
+      name: 'services-query-via-repositories',
+      severity: 'warn',
+      comment:
+        'Services fragen die Datenbank nur über Repositories ab; Schema und drizzle-orm nur als Typ.',
+      from: { path: '^apps/api/src/services/' },
+      to: {
+        path: '^apps/api/src/lib/db/schema/|^node_modules/drizzle-orm/',
+        dependencyTypesNot: ['type-only'],
       },
     },
     {
@@ -69,7 +90,7 @@ module.exports = {
       comment:
         'Routen fragen die Datenbank nicht selbst ab; das tun Services (Health-Check ausgenommen).',
       from: { path: '^apps/api/src/routes/', pathNot: '^apps/api/src/routes/health/' },
-      to: { path: '^apps/api/src/lib/db/|^node_modules/drizzle-orm/' },
+      to: { path: '^apps/api/src/(lib/db|repositories)/|^node_modules/drizzle-orm/' },
     },
     ...layerRules(),
     {
