@@ -3,6 +3,7 @@ import { getDb } from '../../lib/db/index.js';
 import {
   findStationBuildingByKeyForUpdate,
   insertStationBuildingsIfMissing,
+  listBuildingLevels,
   listStationBuildings,
   updateStationBuilding,
 } from '../../repositories/station-buildings.js';
@@ -21,7 +22,7 @@ import {
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
 import { isOneOf, AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
-import { applyGridOptimization, hasCompletedResearch } from '../research/index.js';
+import { applyConstructionSpeed, hasCompletedResearch } from '../research/index.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -131,7 +132,15 @@ export const startBuildingUpgrade = async (
     const buildTimeSeconds = calculateBuildingBuildTime(buildingKey, targetLevel);
     const baseUpgradeEndsAt = new Date(context.now.getTime() + buildTimeSeconds * 1000);
     const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
-    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt, context.now);
+    const coreLevel =
+      (await listBuildingLevels(tx, stationId)).find((row) => row.buildingKey === 'core')?.level ??
+      1;
+    const upgradeEndsAt = applyConstructionSpeed(
+      hasGridOpt,
+      coreLevel,
+      baseUpgradeEndsAt,
+      context.now
+    );
     for (const cost of costs) {
       await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
       currentResources.set(

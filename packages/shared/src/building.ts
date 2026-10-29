@@ -16,7 +16,7 @@ export type BuildingKey = (typeof buildingKeys)[number];
 // Building Effect Types
 
 export type BuildingEffectType =
-  | 'station_progression'
+  | 'construction_speed'
   | 'hangar_capacity'
   | 'spacecraft_unlock'
   | 'spacecraft_production_bonus'

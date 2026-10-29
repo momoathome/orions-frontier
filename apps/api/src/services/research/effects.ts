@@ -1,3 +1,4 @@
+import { calculateConstructionSpeedBonus } from '@orions-frontier/game-config';
 import type { QueryDb } from '../../lib/db/index.js';
 import { hasCompletedResearch } from './research.js';
 
@@ -62,16 +63,16 @@ export async function effectiveAttackPower(
 }
 
 /**
- * Returns the upgrade end timestamp with station_grid_optimization applied.
+ * Returns the upgrade end timestamp with the Core's construction speed and
+ * station_grid_optimization (10%) applied; both percentages add up.
  */
-export function applyGridOptimization(
-  hasResearch: boolean,
+export function applyConstructionSpeed(
+  hasGridOptimization: boolean,
+  coreLevel: number,
   baseUpgradeEndsAt: Date,
   startsAt: Date
 ): Date {
-  if (hasResearch) {
-    const baseDuration = baseUpgradeEndsAt.getTime() - startsAt.getTime();
-    return new Date(startsAt.getTime() + Math.round(baseDuration * 0.9));
-  }
-  return baseUpgradeEndsAt;
+  const speedUp = calculateConstructionSpeedBonus(coreLevel) + (hasGridOptimization ? 10 : 0);
+  const baseDuration = baseUpgradeEndsAt.getTime() - startsAt.getTime();
+  return new Date(startsAt.getTime() + Math.round((baseDuration * (100 - speedUp)) / 100));
 }

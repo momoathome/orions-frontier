@@ -18,6 +18,7 @@ export {
   calculateBuildingUpgradeCost,
   calculateBuildingBuildTime,
   calculateBuildingEffect,
+  calculateConstructionSpeedBonus,
   calculateHangarCapacity,
   calculateScannerRange,
   SHIPYARD_UNLOCKS,

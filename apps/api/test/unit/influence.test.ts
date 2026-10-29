@@ -5,7 +5,7 @@ import { calculateInfluence } from '@orions-frontier/game-config';
 test('influence counts invested resources per category, the fleet at half its build cost', () => {
   const influence = calculateInfluence({
     levels: [
-      // Core 3: upgrades to 2 (380) and 3 (570); the seeded level 1 is free.
+      // Core 3: upgrades to 2 (800) and 3 (1280); the seeded level 1 is free.
       { key: 'core', level: 3 },
       { key: 'warehouse', level: 1 },
       // Armor Plating starts at 0, so level 1 cost 200.
@@ -19,5 +19,5 @@ test('influence counts invested resources per category, the fleet at half its bu
       { key: 'unknown_ship', amount: 5 },
     ],
   });
-  assert.deepEqual(influence, { buildings: 10, research: 4, defense: 2, fleet: 2, total: 18 });
+  assert.deepEqual(influence, { buildings: 21, research: 4, defense: 2, fleet: 2, total: 29 });
 });

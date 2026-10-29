@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { calculateBuildingBuildTime } from '@orions-frontier/game-config';
+import {
+  calculateBuildingBuildTime,
+  calculateConstructionSpeedBonus,
+} from '@orions-frontier/game-config';
 import {
   getCostShortfall,
   type BuildingKey,
@@ -26,6 +29,12 @@ const levelsKey = ref<BuildingKey | null>(null);
 const detail = computed(() => overview.state.details[stationId] ?? null);
 const now = computed(() => overview.state.now);
 
+const coreSpeedUp = computed(() =>
+  calculateConstructionSpeedBonus(
+    detail.value?.buildings.find((building) => building.definition.key === 'core')?.level ?? 1
+  )
+);
+
 const cards = computed(() =>
   (detail.value?.buildings ?? []).map((building) => {
     const resources = detail.value?.resources;
@@ -36,7 +45,10 @@ const cards = computed(() =>
     );
     const maxed = building.level >= building.definition.maxLevel;
     const endsAt = building.upgradeEndsAt ? Date.parse(building.upgradeEndsAt) : null;
-    const buildSeconds = calculateBuildingBuildTime(building.definition.key, building.level + 1);
+    const buildSeconds =
+      (calculateBuildingBuildTime(building.definition.key, building.level + 1) *
+        (100 - coreSpeedUp.value)) /
+      100;
     const affordable = !maxed && shortfall.missing.length === 0;
     const upgradingNow = building.isUpgrading && endsAt !== null && endsAt > now.value;
     const nextUnlock = Object.entries(building.unlockMilestones)
@@ -50,7 +62,7 @@ const cards = computed(() =>
       upgradingNow,
       accent: upgradingNow ? 'border-[#5a4317]' : affordable ? 'border-[#1f5b66]' : '',
       endsAt,
-      // ponytail: ignores research speed-ups, so the bar may lag slightly behind the countdown.
+      // ponytail: ignores the grid research speed-up, so the bar may lag slightly behind the countdown.
       progress: endsAt
         ? Math.min(100, Math.max(0, 100 - ((endsAt - now.value) / (buildSeconds * 1_000)) * 100))
         : 0,

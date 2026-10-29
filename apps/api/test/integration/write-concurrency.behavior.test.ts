@@ -41,7 +41,7 @@ import {
 } from '../../src/services/research/research.js';
 import { runSimulationTick } from '../../src/services/simulation/simulation.js';
 import {
-  applyGridOptimization,
+  applyConstructionSpeed,
   applyVectorNavigation,
   effectiveAttackPower,
   effectiveCargoCapacity,
@@ -304,12 +304,21 @@ test('all six research foundations expose their canonical server-side multiplier
   assert.equal(vectorArrival.getTime(), 90_000);
 
   const gridStartedAt = Date.now();
-  const gridArrival = applyGridOptimization(
+  const gridArrival = applyConstructionSpeed(
     true,
+    1,
     new Date(gridStartedAt + 100_000),
     new Date(gridStartedAt)
   );
   assert.equal(gridArrival.getTime() - gridStartedAt, 90_000);
+  // Core level 20 adds 38% on top of the research's 10%.
+  const coreArrival = applyConstructionSpeed(
+    true,
+    20,
+    new Date(gridStartedAt + 100_000),
+    new Date(gridStartedAt)
+  );
+  assert.equal(coreArrival.getTime() - gridStartedAt, 52_000);
 
   await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
 });

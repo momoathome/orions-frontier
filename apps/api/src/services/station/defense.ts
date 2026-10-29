@@ -29,7 +29,7 @@ import {
   listStationResources,
 } from '../../repositories/station-resources.js';
 import { findOwnedStationForUpdate } from '../../repositories/stations.js';
-import { applyGridOptimization, hasCompletedResearch } from '../research/index.js';
+import { applyConstructionSpeed, hasCompletedResearch } from '../research/index.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -165,7 +165,15 @@ export const startDefenseUpgrade = async (
       context.now.getTime() + calculateDefenseUpgradeBuildTime(upgradeKey, targetLevel) * 1000
     );
     const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
-    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt, context.now);
+    const coreLevel =
+      (await listBuildingLevels(tx, stationId)).find((row) => row.buildingKey === 'core')?.level ??
+      1;
+    const upgradeEndsAt = applyConstructionSpeed(
+      hasGridOpt,
+      coreLevel,
+      baseUpgradeEndsAt,
+      context.now
+    );
     for (const cost of costs) {
       await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
       currentResources.set(

@@ -80,26 +80,26 @@ test('players are ranked server-wide by the Influence of all their stations and 
   const leaderView = await fetchRanking(leader);
   const runnerUpView = await fetchRanking(runnerUp);
   assert.ok(leaderView.me && runnerUpView.me);
-  // Core upgrades 950 + 380 resources, 6 Moles at half of 190 each.
+  // Core upgrades 2080 + 800 resources, 6 Moles at half of 190 each.
   assert.deepEqual(leaderView.me.influence, {
-    buildings: 13,
+    buildings: 29,
     research: 0,
     defense: 0,
     fleet: 6,
-    total: 19,
+    total: 35,
   });
   assert.equal(leaderView.me.stationCount, 2);
   assert.equal(leaderView.me.ownerType, 'player');
-  assert.equal(runnerUpView.me.influence.total, 13);
+  assert.equal(runnerUpView.me.influence.total, 24);
   assert.ok(leaderView.me.rank < runnerUpView.me.rank);
 
   // Lost ships only reduce the fleet share.
   await setMoles(stationIds[2] ?? '', 1);
   const afterLosses = (await fetchRanking(runnerUp)).me;
   assert.ok(afterLosses);
-  assert.equal(afterLosses.influence.buildings, 10);
+  assert.equal(afterLosses.influence.buildings, 21);
   assert.equal(afterLosses.influence.fleet, 1);
-  assert.equal(afterLosses.influence.total, 11);
+  assert.equal(afterLosses.influence.total, 22);
 
   // The list is ordered and the own row matches the player's place in it.
   const scores = leaderView.top.map((entry) => entry.influence.total);

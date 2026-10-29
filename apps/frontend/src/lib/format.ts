@@ -61,8 +61,8 @@ export function formatBuildingEffect(
   value: number
 ): { label: string; display: string } {
   switch (type) {
-    case 'station_progression':
-      return { label: 'Progression', display: `+${value}` };
+    case 'construction_speed':
+      return { label: 'Build speed', display: `-${value}% time` };
     case 'hangar_capacity':
       return { label: 'Crew places', display: `${value}` };
     case 'spacecraft_unlock':

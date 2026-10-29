@@ -1,5 +1,5 @@
 export {
-  applyGridOptimization,
+  applyConstructionSpeed,
   applyVectorNavigation,
   effectiveAttackPower,
   effectiveCargoCapacity,

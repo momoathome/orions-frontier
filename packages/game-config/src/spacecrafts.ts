@@ -230,7 +230,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     speed: 70,
     miningRate: 1600,
     buildTime: 360,
-    crew: 10,
+    crew: 6,
     costs: [
       { resourceKey: 'carbon', amount: 250 },
       { resourceKey: 'titanium', amount: 240 },

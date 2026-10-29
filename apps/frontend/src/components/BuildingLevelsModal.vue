@@ -163,7 +163,7 @@ watch(
           </tbody>
         </table>
       </div>
-      <p class="text-xs text-ui-dim">Build times without research speed-ups.</p>
+      <p class="text-xs text-ui-dim">Build times before Core and research speed-ups.</p>
     </div>
   </UiModal>
 </template>

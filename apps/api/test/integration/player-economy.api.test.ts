@@ -124,10 +124,10 @@ test('the building endpoint validates the key and starts an upgrade', async () =
 
   const response = await app.inject({
     method: 'POST',
-    url: `/api/stations/${stationId}/buildings/core/upgrade`,
+    url: `/api/stations/${stationId}/buildings/warehouse/upgrade`,
     headers,
   });
   assert.equal(response.statusCode, 200);
-  assert.equal(response.json().definition.key, 'core');
+  assert.equal(response.json().definition.key, 'warehouse');
   assert.equal(response.json().isUpgrading, true);
 });

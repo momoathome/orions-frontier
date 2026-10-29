@@ -124,6 +124,8 @@ const scenarios = [
     profile: 'industrialist',
     events: ['building_completed', 'spacecraft_completed'],
     milestone: 'stableInitialStation',
+    // Shipyard upgrades are priced for a slower ramp, so the first new ship lands after 6 hours.
+    hours: 12,
   },
   {
     name: 'exploration',
@@ -136,7 +138,13 @@ const scenarios = [
     `--profile-${profile}`,
     profile === scenario.profile ? '1' : '0',
   ]);
-  const report = run(`e2e-scenario-${scenario.name}`, 6, {}, true, weights).report;
+  const report = run(
+    `e2e-scenario-${scenario.name}`,
+    scenario.hours ?? 6,
+    {},
+    true,
+    weights
+  ).report;
   assert.equal(report.status, 'success');
   for (const event of scenario.events) {
     assert.ok(
