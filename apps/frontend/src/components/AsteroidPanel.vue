@@ -4,7 +4,7 @@ import { ApiError, apiClient } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
 import {
-  estimateMiningCycle,
+  estimateAssignmentCycle,
   getMiningTripPhase,
   getMiningTripPhaseEndsAt,
   type AsteroidDetail,
@@ -15,6 +15,8 @@ import AssignMinersForm from './AssignMinersForm.vue';
 import RecallMinersForm, { type AssignmentGroup } from './RecallMinersForm.vue';
 import { resourceColor, resourceName } from '../lib/mining-utils';
 import UiModal from './UiModal.vue';
+import CostList from './CostList.vue';
+import { resources } from '@orions-frontier/game-config';
 import { useOverviewStore } from '../stores/overview.js';
 
 const { asteroidId, scannerBypass, stationId } = defineProps<{
@@ -186,14 +188,7 @@ function flightHours(assignment: Assignment): number {
 }
 
 function cycle(assignment: Assignment): MiningCycleEstimate | null {
-  if (activeAmount(assignment) <= 0) return null;
-  return estimateMiningCycle({
-    oneWayTravelHours: flightHours(assignment),
-    miningRate: assignment.spacecraftMiningRate,
-    cargoCapacity: assignment.spacecraftCargo,
-    minerCount: activeAmount(assignment),
-    remainingAmount: totalRemaining.value,
-  });
+  return estimateAssignmentCycle(assignment, totalRemaining.value);
 }
 
 function deliveryPerHour(assignment: Assignment): number {
@@ -231,6 +226,13 @@ function groupLoad(group: OperationGroup): number {
 const totalDeliveryPerHour = computed(
   () => asteroid.value?.assignments.reduce((sum, item) => sum + deliveryPerHour(item), 0) ?? 0
 );
+
+/** Each cargo is split by remaining vein amounts, so a vein's yield is its share of the total. */
+function veinYield(vein: AsteroidVein): number {
+  return totalRemaining.value > 0
+    ? (totalDeliveryPerHour.value * vein.remainingAmount) / totalRemaining.value
+    : 0;
+}
 
 const estimatedDepletionHours = computed(() =>
   totalDeliveryPerHour.value > 0 ? totalRemaining.value / totalDeliveryPerHour.value : 0
@@ -302,14 +304,6 @@ function formatCountdown(deadline: number | null): string {
     : `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
-function formatCargo(trip: NonNullable<Assignment['activeTrip']> | null): string {
-  if (!trip?.cargoManifest) return '—';
-  return Object.entries(trip.cargoManifest)
-    .filter(([, amount]) => amount > 0)
-    .map(([key, amount]) => `${amount} ${resourceName(key)}`)
-    .join(' · ');
-}
-
 const nextDelivery = computed(() => {
   const returning = (asteroid.value?.assignments ?? [])
     .map((assignment) => assignment.activeTrip)
@@ -320,11 +314,19 @@ const nextDelivery = computed(() => {
     .sort((left, right) => Date.parse(left.arrivesAt) - Date.parse(right.arrivesAt));
   return returning[0] ?? null;
 });
+const nextDeliveryCargo = computed(() =>
+  Object.entries(nextDelivery.value?.cargoManifest ?? {})
+    .filter(([, amount]) => amount > 0)
+    .map(([resourceKey, amount]) => ({ resourceKey, amount }))
+);
 
 const nextEvent = computed(() => {
   const events = (asteroid.value?.assignments ?? []).flatMap((assignment) => {
     const deadline = phaseDeadline(assignment);
-    return deadline && deadline > now.value
+    const shownAsDelivery =
+      phaseLabel(assignment) === 'RETURNING' &&
+      assignment.activeTrip?.id === nextDelivery.value?.id;
+    return deadline && deadline > now.value && !shownAsDelivery
       ? [{ assignment, deadline, description: phaseDescription(assignment) }]
       : [];
   });
@@ -351,6 +353,10 @@ const headerTitle = computed(() => {
   if (primaryVein.value) return resourceName(primaryVein.value.resourceKey);
   return asteroid.value?.scanned === false ? 'Unscanned' : 'Asteroid';
 });
+
+function formatYield(perHour: number): string {
+  return perHour < 10 ? perHour.toFixed(1) : Math.round(perHour).toLocaleString('en-US');
+}
 
 function formatCoord(n: number) {
   return n.toFixed(1);
@@ -446,10 +452,11 @@ const PHASES = [
               :key="vein.id"
               class="flex items-center justify-between gap-3 text-[13px]"
             >
-              <span class="flex items-center gap-2">
-                <span
-                  class="h-2 w-2 rounded-full"
-                  :style="{ background: resourceColor(vein.resourceKey) }"
+              <span class="flex min-w-0 flex-1 items-center gap-2">
+                <img
+                  :src="resources[vein.resourceKey].image"
+                  alt=""
+                  class="h-4 w-4 shrink-0 object-contain"
                 />
                 <span class="text-ui-text">{{ resourceName(vein.resourceKey) }}</span>
                 <span class="text-xs text-ui-dim">{{ VEIN_TYPE_LABELS[vein.veinType] }}</span>
@@ -457,6 +464,12 @@ const PHASES = [
               <span class="ui-num text-ui-soft">{{
                 vein.remainingAmount.toLocaleString('en-US')
               }}</span>
+              <span
+                v-if="totalDeliveryPerHour > 0"
+                class="ui-num w-16 text-right"
+                :class="veinYield(vein) >= 1 ? 'text-ui-cyan' : 'text-ui-dim'"
+                >~{{ formatYield(veinYield(vein)) }}/h</span
+              >
             </li>
           </ul>
           <p v-if="asteroid.veins.length === 0" class="text-ui-soft">No veins detected.</p>
@@ -475,14 +488,20 @@ const PHASES = [
               <span class="ui-num text-lg font-semibold text-ui-bright">{{
                 formatCountdown(Date.parse(nextDelivery.arrivesAt))
               }}</span>
-              <span class="text-xs text-ui-orange">{{ formatCargo(nextDelivery) }}</span>
+              <CostList :costs="nextDeliveryCargo" aria-label="Cargo" />
             </template>
             <span v-else class="text-[13px] text-ui-soft">Cargo not loaded yet</span>
           </div>
           <div class="ui-card gap-1">
-            <span class="text-xs text-ui-muted">Delivered</span>
-            <span class="ui-num text-lg font-semibold text-ui-cyan"
-              >~{{ totalDeliveryPerHour.toFixed(0) }}/h</span
+            <span class="text-xs text-ui-muted">Yield</span>
+            <!-- Mixed asteroids break the yield down per vein in the reserve list. -->
+            <span class="ui-num flex items-center gap-1.5 text-lg font-semibold text-ui-cyan">
+              <img
+                v-if="asteroid.veins.length === 1 && asteroid.veins[0]"
+                :src="resources[asteroid.veins[0].resourceKey].image"
+                :alt="resourceName(asteroid.veins[0].resourceKey)"
+                class="h-5 w-5 object-contain"
+              />~{{ formatYield(totalDeliveryPerHour) }}/h</span
             >
             <span class="text-xs text-ui-muted"
               >{{ totalMiningPowerRaw.toFixed(0) }}/h extraction</span

@@ -25,7 +25,8 @@ const entries = computed(() => {
         image: resources[key].image,
         amount,
         capacity: value.storageCapacity,
-        rate: value.rates[key] ?? 0,
+        // Expected mining income, the same figure as the Logistics tab.
+        rate: overview.state.details[stationId]?.income?.perHour[key] ?? 0,
         fill: Math.min(1, fill),
         barColor: fill >= 0.9 ? 'var(--color-ui-amber)' : resourceColor(key),
       };
@@ -38,19 +39,36 @@ const rank = computed(() => overview.state.ranking?.me ?? null);
   <header
     class="flex h-[72px] shrink-0 items-center gap-6 border-b border-ui-line bg-ui-panel px-5 text-left"
   >
-    <div class="w-[276px] shrink-0">
-      <span class="text-[13px] font-semibold uppercase tracking-[0.2em] text-ui-muted">
+    <!-- Stock belongs to one station; name it so a second station never reads as a total. -->
+    <div class="flex w-[276px] shrink-0 flex-col gap-0.5">
+      <span class="text-[11px] font-semibold uppercase tracking-[0.2em] text-ui-dim">
         Orion's Frontier
       </span>
+      <span class="truncate text-[15px] font-semibold text-ui-bright">{{
+        overview.stationName(stationId)
+      }}</span>
     </div>
 
-    <ul class="flex min-w-0 flex-1 items-center gap-6" aria-label="Station resources">
-      <li v-for="entry in entries" :key="entry.key" class="flex min-w-0 flex-col gap-1.5 py-2">
+    <ul
+      class="flex min-w-0 flex-1 items-center gap-6"
+      :aria-label="`Stock at ${overview.stationName(stationId)}`"
+    >
+      <li
+        v-for="entry in entries"
+        :key="entry.key"
+        class="flex min-w-0 flex-col gap-1.5 py-2"
+        :title="entry.name"
+      >
         <div class="flex items-center gap-2">
-          <img :src="entry.image" alt="" class="h-5 w-5 shrink-0 object-contain" />
-          <span class="text-xs text-ui-muted">{{ entry.name }}</span>
-          <span v-if="entry.rate > 0" class="ui-num text-xs text-ui-green"
-            >+{{ formatAmount(entry.rate) }}/h</span
+          <img :src="entry.image" :alt="entry.name" class="h-5 w-5 shrink-0 object-contain" />
+          <span class="hidden truncate text-xs text-ui-muted 2xl:inline" aria-hidden="true">{{
+            entry.name
+          }}</span>
+          <span
+            v-if="entry.rate > 0"
+            class="ui-num text-xs text-ui-green"
+            title="Expected mining income"
+            >+{{ formatAmount(Math.round(entry.rate)) }}/h</span
           >
         </div>
         <div class="flex items-center gap-2">

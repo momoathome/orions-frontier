@@ -3,10 +3,13 @@ import {
   getCostShortfall,
   getMiningTripPhase,
   getMiningTripPhaseEndsAt,
+  summarizeStationIncome,
+  type AsteroidDetail,
   type CombatReport,
   type LogbookEntry,
   type Ranking,
   type Station,
+  type StationIncome,
   type StationBuildingWithDefinition,
   type StationSpacecraftsResponse,
   type UserResourceSummary,
@@ -35,6 +38,7 @@ export interface StationDetail {
   resources: UserResourceSummary | null;
   buildings: StationBuildingWithDefinition[];
   fleet: StationSpacecraftsResponse | null;
+  income: StationIncome | null;
 }
 
 export const stationSections = [
@@ -96,13 +100,27 @@ const state = reactive<OverviewState>({
 
 const stationName = (id: string) => state.stations.find((s) => s.id === id)?.name ?? 'Station';
 
+// ponytail: one asteroid request per mined asteroid; add a station income endpoint if stations
+// regularly mine more than a handful of asteroids.
+async function loadStationIncome(id: string): Promise<StationIncome> {
+  const { assignments } = await apiClient.get<{ assignments: { asteroidId: string }[] }>(
+    `/stations/${id}/mining-assignments`
+  );
+  const asteroidIds = [...new Set(assignments.map((assignment) => assignment.asteroidId))];
+  const asteroids = await Promise.all(
+    asteroidIds.map((asteroidId) => apiClient.get<AsteroidDetail>(`/asteroids/${asteroidId}`))
+  );
+  return summarizeStationIncome(id, asteroids);
+}
+
 async function loadStationDetail(id: string): Promise<void> {
-  const [resources, buildings, fleet] = await Promise.all([
+  const [resources, buildings, fleet, income] = await Promise.all([
     apiClient.get<UserResourceSummary>('/me/resources', { params: { stationId: id } }),
     apiClient.get<{ buildings: StationBuildingWithDefinition[] }>(`/stations/${id}/buildings`),
     apiClient.get<StationSpacecraftsResponse>(`/stations/${id}/spacecrafts`),
+    loadStationIncome(id),
   ]);
-  state.details[id] = { resources, buildings: buildings.buildings, fleet };
+  state.details[id] = { resources, buildings: buildings.buildings, fleet, income };
 }
 
 async function guarded(load: () => Promise<unknown>): Promise<void> {
