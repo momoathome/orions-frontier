@@ -12,7 +12,10 @@ import {
 } from '../../lib/game-execution-context.js';
 import { goalTypes, type BotProfile, type GoalType } from '../../lib/db/schema/bot-controllers.js';
 import { isOneOf } from '@orions-frontier/shared';
-import { analyzeConflictOpportunities, type ConflictOpportunitySnapshot } from './goal-economy.js';
+import {
+  analyzeConflictOpportunities,
+  type ConflictOpportunitySnapshot,
+} from './goals/conflict.js';
 import {
   activeGoalCommitment,
   adaptCategoryWeights,

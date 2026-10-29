@@ -285,24 +285,29 @@ test('scored candidate includes breakdown', () => {
 // ---------------------------------------------------------------------------
 
 import type { StationSnapshot } from '../../src/services/bot/goal-state.js';
+import { analyzeConflictOpportunities, stepRaid } from '../../src/services/bot/goals/conflict.js';
 import {
-  analyzeConflictOpportunities,
-  generateSalvageCandidates,
   generateIncreaseCapacityCandidate,
   generateIncreaseIncomeCandidate,
-  generateResearchCandidates,
   generateStabilizeCandidate,
-  pickBestSalvageStation,
-  prioritizeStationsForStabilization,
-  selectBestAsteroid,
-  stepEstablishColony,
   stepIncreaseCapacity,
   stepIncreaseIncome,
-  stepRaid,
-  stepResearchTechnology,
-  stepSalvage,
   stepStabilizeStation,
-} from '../../src/services/bot/goal-economy.js';
+} from '../../src/services/bot/goals/economy.js';
+import { stepEstablishColony } from '../../src/services/bot/goals/expansion.js';
+import {
+  generateResearchCandidates,
+  stepResearchTechnology,
+} from '../../src/services/bot/goals/research.js';
+import {
+  generateSalvageCandidates,
+  pickBestSalvageStation,
+  stepSalvage,
+} from '../../src/services/bot/goals/salvage.js';
+import {
+  prioritizeStationsForStabilization,
+  selectBestAsteroid,
+} from '../../src/services/bot/goals/shared.js';
 import type { GoalBotState } from '../../src/services/bot/goal-state.js';
 import { checkUrgentMaintenance } from '../../src/services/bot/goal-lifecycle.js';
 

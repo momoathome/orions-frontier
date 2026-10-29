@@ -32,6 +32,8 @@ erforderlich.
 Die zielorientierte Strategie verwendet elf Zieltypen, vier Profile und eine gewichtete
 Score-Funktion. Kandidatenerzeugung und Bewertung liegen in
 `apps/api/src/services/bot/goal-driven-v1.ts`.
+Kandidaten und Schritte je Zielfamilie liegen in `apps/api/src/services/bot/goals/` (`economy`,
+`research`, `expansion`, `military`, `conflict`, `salvage`; gemeinsame Helfer in `shared.ts`).
 
 ### Profile
 

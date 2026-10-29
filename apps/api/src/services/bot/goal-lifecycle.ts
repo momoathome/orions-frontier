@@ -6,31 +6,37 @@ import { selectGoal } from './goal-driven-v1.js';
 import type { CategoryWeights, GoalCandidate } from './goal-driven-v1.js';
 import { goalTypes } from '../../lib/db/schema/bot-controllers.js';
 import {
-  generateEconomicCandidates,
-  stepStabilizeStation,
-  stepIncreaseIncome,
-  stepIncreaseCapacity,
-  stepResearchTechnology,
-  generateExploreSectorCandidate,
-  generateEstablishColonyCandidate,
-  stepExploreSector,
-  stepEstablishColony,
-  generateFortifyCandidate,
-  generateBuildStrikeForceCandidate,
-  stepFortifyStation,
-  stepBuildStrikeForce,
   generateRaidCandidates,
   generateRetaliateCandidates,
   stepRaid,
   stepRetaliate,
-  generateSalvageCandidates,
-  stepSalvage,
   isEligibleAttackSource,
-  pickBestSalvageStation,
+} from './goals/conflict.js';
+import {
+  generateEconomicCandidates,
+  stepStabilizeStation,
+  stepIncreaseIncome,
+  stepIncreaseCapacity,
+} from './goals/economy.js';
+import {
+  generateExploreSectorCandidate,
+  generateEstablishColonyCandidate,
+  stepExploreSector,
+  stepEstablishColony,
+} from './goals/expansion.js';
+import {
+  generateFortifyCandidate,
+  generateBuildStrikeForceCandidate,
+  stepFortifyStation,
+  stepBuildStrikeForce,
+} from './goals/military.js';
+import { stepResearchTechnology } from './goals/research.js';
+import { generateSalvageCandidates, stepSalvage, pickBestSalvageStation } from './goals/salvage.js';
+import {
   prioritizeStationsForStabilization,
   pickAvailableMinerKey,
   selectBestAsteroid,
-} from './goal-economy.js';
+} from './goals/shared.js';
 
 // ---------------------------------------------------------------------------
 // Maintenance
