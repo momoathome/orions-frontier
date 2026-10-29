@@ -23,7 +23,7 @@ import {
 // Trip Handlers
 //
 // Each handler receives the drizzle transaction (tx) and the arrived trip row.
-// Dispatched by settleTripArrival in trip-arrivals.service.ts.
+// Dispatched by settleTripArrival in trip-arrivals.ts.
 //
 // Handler → condition:
 //   handleMineArrival          purpose='mine'          toType='asteroid'
