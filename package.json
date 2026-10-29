@@ -21,7 +21,7 @@
     "lint": "eslint apps packages",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "check": "npm run typecheck && npm run lint && npm run check:boundaries && npm run format:check",
     "test:unit": "npm run build:packages && npm run test:unit --workspaces --if-present",
     "test:integration": "docker compose run --build --rm --remove-orphans api npm run test:integration --workspaces --if-present",
     "test:behavior": "npm run test:integration",
@@ -37,12 +37,14 @@
     "playtest": "node scripts/run-playtest.mjs",
     "playtest:smoke": "npm run playtest -- --seed smoke --duration-hours 2 --step-seconds 60 --join-interval-minutes 60 --population-limit 2 --snapshot-interval-minutes 30",
     "playtest:baseline": "node scripts/run-playtest-baseline.mjs",
-    "docker:rebuild": "docker compose up -d --build"
+    "docker:rebuild": "docker compose up -d --build",
+    "check:boundaries": "depcruise apps/api/src --config .dependency-cruiser.cjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.9.0",
+    "dependency-cruiser": "^17.4.3",
     "eslint": "^10.13.0",
     "eslint-plugin-vue": "^10.11.1",
     "prettier": "^3.9.10",
