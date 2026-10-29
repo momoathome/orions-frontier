@@ -85,3 +85,7 @@ export async function findBuildingLevel(db: QueryDb, stationId: string, building
     .limit(1);
   return row?.level;
 }
+
+export function listStationBuildingsByStations(db: QueryDb, stationIds: string[]) {
+  return db.select().from(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
+}

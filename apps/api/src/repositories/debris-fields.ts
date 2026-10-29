@@ -119,3 +119,10 @@ export async function resolveSalvageMissionByTrip(
     .set({ status: 'resolved', resolvedAt })
     .where(eq(column, tripId));
 }
+
+export function listUnresolvedSalvageMissionsByUser(db: QueryDb, userId: string) {
+  return db
+    .select()
+    .from(salvageMissions)
+    .where(and(eq(salvageMissions.userId, userId), ne(salvageMissions.status, 'resolved')));
+}

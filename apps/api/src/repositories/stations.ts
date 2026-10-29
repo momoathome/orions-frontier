@@ -1,4 +1,4 @@
-import { and, between, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, between, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { asteroids } from '../lib/db/schema/asteroids.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
@@ -293,4 +293,46 @@ export function listActiveStationPositionsInSector(db: QueryDb, sectorId: string
 /** Every station the user ever founded, destroyed ones included. */
 export function listStationIdsByUser(db: QueryDb, userId: string) {
   return db.select({ id: stations.id }).from(stations).where(eq(stations.userId, userId));
+}
+
+/** Whether any station row in the sector belongs to a non-bot user. */
+export async function hasHumanStationInSector(db: QueryDb, sectorId: string) {
+  const [row] = await db
+    .select({ id: stations.id })
+    .from(stations)
+    .innerJoin(users, eq(stations.userId, users.id))
+    .where(and(eq(stations.sectorId, sectorId), ne(users.role, 'bot')))
+    .limit(1);
+  return row !== undefined;
+}
+
+/** Bot owners of the sector's station rows. */
+export function listBotUserIdsInSector(db: QueryDb, sectorId: string) {
+  return db
+    .select({ userId: users.id })
+    .from(stations)
+    .innerJoin(users, eq(stations.userId, users.id))
+    .where(and(eq(stations.sectorId, sectorId), eq(users.role, 'bot')));
+}
+
+/** The user's active stations with their sector coordinates, ordered by id. */
+export function listActiveStationsWithSectorByUser(db: QueryDb, userId: string) {
+  return db
+    .select({
+      id: stations.id,
+      userId: stations.userId,
+      name: stations.name,
+      sectorId: stations.sectorId,
+      x: stations.x,
+      y: stations.y,
+      chunkX: stations.chunkX,
+      chunkY: stations.chunkY,
+      createdAt: stations.createdAt,
+      sectorX: sectors.sectorX,
+      sectorY: sectors.sectorY,
+    })
+    .from(stations)
+    .innerJoin(sectors, eq(stations.sectorId, sectors.id))
+    .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt)))
+    .orderBy(asc(stations.id));
 }

@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { getDb, QueryDb } from '../lib/db/index.js';
 import { sectors } from '../lib/db/schema/sectors.js';
+import { spawnSlots } from '../lib/db/schema/spawn-slots.js';
 
 /** Narrowed db so world generation can pass a transaction or a stub. */
 type InsertDb = Pick<ReturnType<typeof getDb>, 'insert'>;
@@ -102,4 +103,22 @@ export function listNearestSectors(
       asc(sectors.sectorX)
     )
     .limit(limit);
+}
+
+/** Settlement sectors with generated bot slots; hand-made fixtures have none. */
+export function listBotSettlementSectorIds(db: QueryDb) {
+  return db
+    .selectDistinct({ id: sectors.id })
+    .from(sectors)
+    .innerJoin(spawnSlots, eq(spawnSlots.sectorId, sectors.id))
+    .where(and(eq(sectors.role, 'settlement'), eq(spawnSlots.slotType, 'bot')));
+}
+
+export async function findSettlementSector(db: QueryDb, id: string) {
+  const [row] = await db
+    .select({ id: sectors.id, sectorX: sectors.sectorX, sectorY: sectors.sectorY })
+    .from(sectors)
+    .where(and(eq(sectors.id, id), eq(sectors.role, 'settlement')))
+    .limit(1);
+  return row;
 }

@@ -253,3 +253,10 @@ export function listStationSpacecraftKeysByStations(db: QueryDb, stationIds: str
     .from(stationSpacecrafts)
     .where(inArray(stationSpacecrafts.stationId, stationIds));
 }
+
+export function listStationSpacecraftsByStations(db: QueryDb, stationIds: string[]) {
+  return db
+    .select()
+    .from(stationSpacecrafts)
+    .where(inArray(stationSpacecrafts.stationId, stationIds));
+}

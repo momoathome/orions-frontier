@@ -159,3 +159,24 @@ export async function claimTripArrival(tx: Tx, id: string) {
     .returning({ id: spacecraftTrips.id });
   return claimed !== undefined;
 }
+
+/** Traveling trips of the stations' fleets, with the station they belong to. */
+export function listTravelingTripsByStations(db: QueryDb, stationIds: string[]) {
+  return db
+    .select({
+      id: spacecraftTrips.id,
+      stationId: stationSpacecrafts.stationId,
+      purpose: spacecraftTrips.purpose,
+      status: spacecraftTrips.status,
+      arrivesAt: spacecraftTrips.arrivesAt,
+      toId: spacecraftTrips.toId,
+    })
+    .from(spacecraftTrips)
+    .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
+    .where(
+      and(
+        inArray(stationSpacecrafts.stationId, stationIds),
+        eq(spacecraftTrips.status, 'traveling')
+      )
+    );
+}

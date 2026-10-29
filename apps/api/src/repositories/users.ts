@@ -42,3 +42,13 @@ export async function insertUser(db: QueryDb, values: typeof users.$inferInsert)
 export async function updateUser(tx: Tx, id: string, values: Partial<typeof users.$inferInsert>) {
   await tx.update(users).set(values).where(eq(users.id, id));
 }
+
+/** Returns the new user's id, or undefined if the username or email is already taken. */
+export async function insertUserIfAbsent(db: QueryDb, values: typeof users.$inferInsert) {
+  const [row] = await db
+    .insert(users)
+    .values(values)
+    .onConflictDoNothing()
+    .returning({ id: users.id });
+  return row;
+}

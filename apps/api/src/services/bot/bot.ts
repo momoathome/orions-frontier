@@ -1,6 +1,13 @@
-import { and, asc, eq, lte } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import { botControllers } from '../../lib/db/schema/bot-controllers.js';
+import {
+  claimBotDecision,
+  findBotController,
+  goalTypes,
+  listDueBotControllerUserIds,
+  updateBotController,
+  updateBotControllerReturningGoal,
+  type BotControllerUpdate,
+} from '../../repositories/bot-controllers.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { loadGoalBotState } from './goal-loader.js';
 import { checkUrgentMaintenance, determineNextStep, selectGoalForState } from './goal-lifecycle.js';
@@ -10,7 +17,7 @@ import {
   resolveGameExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
-import { goalTypes, type BotProfile, type GoalType } from '../../lib/db/schema/bot-controllers.js';
+import type { BotProfile, GoalType } from '../../lib/db/schema/bot-controllers.js';
 import { isOneOf } from '@orions-frontier/shared';
 import {
   analyzeConflictOpportunities,
@@ -118,20 +125,7 @@ async function handleGoalV1(
   }
 
   const db = getDb();
-  const controller = await db
-    .select({
-      profile: botControllers.profile,
-      activeGoalType: botControllers.activeGoalType,
-      activeGoalTarget: botControllers.activeGoalTarget,
-      goalStartedAt: botControllers.goalStartedAt,
-      lastProgressAt: botControllers.lastProgressAt,
-      blockedCount: botControllers.blockedCount,
-      categoryWeights: botControllers.categoryWeights,
-    })
-    .from(botControllers)
-    .where(eq(botControllers.userId, userId))
-    .limit(1)
-    .then((rows) => rows[0]);
+  const controller = await findBotController(db, userId);
   if (!controller) {
     return {
       action: 'wait',
@@ -148,16 +142,13 @@ async function handleGoalV1(
   }
 
   const clearGoal = async (): Promise<void> => {
-    await db
-      .update(botControllers)
-      .set({
-        activeGoalType: null,
-        activeGoalTarget: null,
-        goalStartedAt: null,
-        blockedCount: 0,
-        updatedAt: now,
-      })
-      .where(eq(botControllers.userId, userId));
+    await updateBotController(db, userId, {
+      activeGoalType: null,
+      activeGoalTarget: null,
+      goalStartedAt: null,
+      blockedCount: 0,
+      updatedAt: now,
+    });
   };
 
   const applyStep = async (
@@ -187,14 +178,11 @@ async function handleGoalV1(
     if (step.type === 'success') {
       try {
         await executeBotIntent(userId, step.intent, context);
-        await db
-          .update(botControllers)
-          .set({
-            ...baseGoalUpdate,
-            blockedCount: 0,
-            lastProgressAt: now,
-          })
-          .where(eq(botControllers.userId, userId));
+        await updateBotController(db, userId, {
+          ...baseGoalUpdate,
+          blockedCount: 0,
+          lastProgressAt: now,
+        });
         return {
           action: step.intent.type,
           reason: step.reason,
@@ -213,16 +201,13 @@ async function handleGoalV1(
             completedGoalType: null,
           };
         }
-        await db
-          .update(botControllers)
-          .set({
-            ...baseGoalUpdate,
-            blockedCount,
-            ...(error.retryAfterMs
-              ? { nextDecisionAt: new Date(now.getTime() + error.retryAfterMs) }
-              : {}),
-          })
-          .where(eq(botControllers.userId, userId));
+        await updateBotController(db, userId, {
+          ...baseGoalUpdate,
+          blockedCount,
+          ...(error.retryAfterMs
+            ? { nextDecisionAt: new Date(now.getTime() + error.retryAfterMs) }
+            : {}),
+        });
         return {
           action: error.kind,
           reason: error.message,
@@ -243,10 +228,7 @@ async function handleGoalV1(
           completedGoalType: null,
         };
       }
-      await db
-        .update(botControllers)
-        .set({ ...baseGoalUpdate, blockedCount })
-        .where(eq(botControllers.userId, userId));
+      await updateBotController(db, userId, { ...baseGoalUpdate, blockedCount });
       return {
         action: 'blocked',
         reason: step.reason,
@@ -255,10 +237,7 @@ async function handleGoalV1(
       };
     }
 
-    await db
-      .update(botControllers)
-      .set({ ...baseGoalUpdate, blockedCount: 0 })
-      .where(eq(botControllers.userId, userId));
+    await updateBotController(db, userId, { ...baseGoalUpdate, blockedCount: 0 });
     return {
       action: step.type,
       reason: step.reason,
@@ -402,26 +381,12 @@ export async function runBotDecisionTick(
   const { now } = context;
   const db = getDb();
   const outcomes: BotDecisionOutcome[] = [];
-  const due = await db
-    .select({ userId: botControllers.userId })
-    .from(botControllers)
-    .where(lte(botControllers.nextDecisionAt, now))
-    .orderBy(asc(botControllers.nextDecisionAt), asc(botControllers.userId));
+  const due = await listDueBotControllerUserIds(db, now);
 
   for (const bot of due) {
     const offsetMs = botOffsetMs(bot.userId);
     const nextDecisionAt = new Date(now.getTime() + DECISION_INTERVAL_MS + offsetMs);
-    const [claimed] = await db
-      .update(botControllers)
-      .set({ nextDecisionAt, updatedAt: now })
-      .where(and(eq(botControllers.userId, bot.userId), lte(botControllers.nextDecisionAt, now)))
-      .returning({
-        strategy: botControllers.strategy,
-        profile: botControllers.profile,
-        activeGoalType: botControllers.activeGoalType,
-        activeGoalTarget: botControllers.activeGoalTarget,
-        categoryWeights: botControllers.categoryWeights,
-      });
+    const claimed = await claimBotDecision(db, bot.userId, now, nextDecisionAt);
     if (!claimed) continue;
 
     let action = 'wait';
@@ -453,7 +418,7 @@ export async function runBotDecisionTick(
     }
 
     // Update action/reason (and lastProgressAt if this was a successful action)
-    const updates: Partial<typeof botControllers.$inferInsert> = {
+    const updates: BotControllerUpdate = {
       lastAction: action,
       lastReason: reason.slice(0, 255),
       updatedAt: now,
@@ -461,31 +426,21 @@ export async function runBotDecisionTick(
     if (hasProgress) {
       updates.lastProgressAt = now;
     }
-    const [updated] = await db
-      .update(botControllers)
-      .set(updates)
-      .where(eq(botControllers.userId, bot.userId))
-      .returning({
-        activeGoalType: botControllers.activeGoalType,
-        activeGoalTarget: botControllers.activeGoalTarget,
-      });
+    const updated = await updateBotControllerReturningGoal(db, bot.userId, updates);
     const resultKind = decisionResultKind(action, hasProgress);
     if (claimed.strategy === 'goal_v1') {
-      await db
-        .update(botControllers)
-        .set({
-          categoryWeights: adaptCategoryWeights(
-            categoryWeightsFor(claimed.profile, claimed.categoryWeights),
-            claimed.profile,
-            weightSignals(
-              claimed.activeGoalType,
-              updated?.activeGoalType ?? null,
-              completedGoalType,
-              resultKind
-            )
-          ),
-        })
-        .where(eq(botControllers.userId, bot.userId));
+      await updateBotController(db, bot.userId, {
+        categoryWeights: adaptCategoryWeights(
+          categoryWeightsFor(claimed.profile, claimed.categoryWeights),
+          claimed.profile,
+          weightSignals(
+            claimed.activeGoalType,
+            updated?.activeGoalType ?? null,
+            completedGoalType,
+            resultKind
+          )
+        ),
+      });
     }
     outcomes.push({
       botUserId: bot.userId,

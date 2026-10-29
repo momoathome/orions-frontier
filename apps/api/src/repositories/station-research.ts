@@ -73,3 +73,7 @@ export async function claimDueResearch(db: QueryDb, id: string, completedAt: Dat
 export async function deleteStationResearch(tx: Tx, stationId: string) {
   await tx.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
 }
+
+export function listStationResearchByStations(db: QueryDb, stationIds: string[]) {
+  return db.select().from(stationResearch).where(inArray(stationResearch.stationId, stationIds));
+}

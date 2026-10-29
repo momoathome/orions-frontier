@@ -1,4 +1,4 @@
-import { and, eq, max } from 'drizzle-orm';
+import { and, eq, inArray, max } from 'drizzle-orm';
 import type { QueryDb, Tx } from '../lib/db/index.js';
 import { spacecraftBuildOrders } from '../lib/db/schema/spacecraft-build-orders.js';
 
@@ -45,4 +45,11 @@ export async function insertBuildOrder(tx: Tx, values: typeof spacecraftBuildOrd
 
 export async function deleteBuildOrders(tx: Tx, stationId: string) {
   await tx.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
+}
+
+export function listBuildOrdersByStations(db: QueryDb, stationIds: string[]) {
+  return db
+    .select()
+    .from(spacecraftBuildOrders)
+    .where(inArray(spacecraftBuildOrders.stationId, stationIds));
 }
