@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { QueryDb } from '../lib/db/index.js';
 import { stations } from '../lib/db/schema/stations.js';
 
@@ -19,4 +19,11 @@ export async function findOwnedStation(db: QueryDb, stationId: string, userId: s
     )
     .limit(1);
   return row;
+}
+
+export function listStationOwners(db: QueryDb, ids: string[]) {
+  return db
+    .select({ id: stations.id, userId: stations.userId })
+    .from(stations)
+    .where(inArray(stations.id, ids));
 }
