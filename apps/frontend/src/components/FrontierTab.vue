@@ -99,22 +99,22 @@ onUnmounted(() => unsubscribe?.());
 </script>
 
 <template>
-  <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto p-4 md:grid-cols-3">
+  <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-auto px-[18px] py-4">
     <section>
-      <h3 class="mb-2 text-[9px] uppercase tracking-[0.28em] text-cyan-300/70">Unknown frontier</h3>
+      <h3 class="mb-2 text-xs uppercase tracking-[0.28em] text-cyan-300/70">Unknown frontier</h3>
       <div class="space-y-2">
         <div
           v-for="target in frontier.slice(0, 8)"
           :key="`${target.sectorX}:${target.sectorY}`"
-          class="flex items-center justify-between rounded border border-white/8 bg-white/3 p-2"
+          class="flex items-center justify-between rounded border border-ui-line bg-white/3 p-2"
         >
           <div>
-            <div class="text-xs text-white/75">? {{ target.sectorX }}, {{ target.sectorY }}</div>
-            <div class="text-[9px] text-white/35">{{ formatDuration(target.travelHours) }}</div>
+            <div class="text-xs text-ui-text">? {{ target.sectorX }}, {{ target.sectorY }}</div>
+            <div class="text-xs text-ui-muted">{{ formatDuration(target.travelHours) }}</div>
           </div>
           <button
             type="button"
-            class="rounded border border-cyan-400/25 px-2 py-1 text-[9px] text-cyan-200 disabled:opacity-30"
+            class="rounded border border-cyan-400/25 px-2 py-1 text-xs text-cyan-200 disabled:opacity-30"
             :disabled="busy || target.travelHours === null"
             @click="explore(target)"
           >
@@ -125,28 +125,28 @@ onUnmounted(() => unsubscribe?.());
     </section>
 
     <section>
-      <h3 class="mb-2 text-[9px] uppercase tracking-[0.28em] text-cyan-300/70">Colonization</h3>
+      <h3 class="mb-2 text-xs uppercase tracking-[0.28em] text-cyan-300/70">Colonization</h3>
       <input
         v-model.trim="colonyName"
         maxlength="128"
-        class="mb-2 w-full rounded border border-white/10 bg-white/5 px-2 py-1 text-xs"
+        class="mb-2 w-full rounded border border-ui-line-strong bg-white/5 px-2 py-1 text-xs"
       />
-      <p class="mb-2 text-[9px] text-white/35">Cost: {{ colonizationCostLabel }}</p>
+      <p class="mb-2 text-xs text-ui-muted">Cost: {{ colonizationCostLabel }}</p>
       <div class="space-y-2">
         <div
           v-for="sector in colonizable.slice(0, 8)"
           :key="sector.id"
-          class="flex items-center justify-between rounded border border-white/8 bg-white/3 p-2"
+          class="flex items-center justify-between rounded border border-ui-line bg-white/3 p-2"
         >
           <div>
-            <div class="text-xs text-white/75">
+            <div class="text-xs text-ui-text">
               Sector {{ sector.sectorX }}, {{ sector.sectorY }}
             </div>
-            <div class="text-[9px] text-white/35">{{ formatDuration(sector.travelHours) }}</div>
+            <div class="text-xs text-ui-muted">{{ formatDuration(sector.travelHours) }}</div>
           </div>
           <button
             type="button"
-            class="rounded border border-amber-400/25 px-2 py-1 text-[9px] text-amber-200 disabled:opacity-30"
+            class="rounded border border-amber-400/25 px-2 py-1 text-xs text-amber-200 disabled:opacity-30"
             :disabled="busy || !colonyName || sector.travelHours === null"
             @click="colonize(sector)"
           >
@@ -157,23 +157,23 @@ onUnmounted(() => unsubscribe?.());
     </section>
 
     <section>
-      <h3 class="mb-2 text-[9px] uppercase tracking-[0.28em] text-cyan-300/70">Missions</h3>
-      <p v-if="error" class="mb-2 text-[10px] text-red-300">{{ error }}</p>
+      <h3 class="mb-2 text-xs uppercase tracking-[0.28em] text-cyan-300/70">Missions</h3>
+      <p v-if="error" class="mb-2 text-xs text-red-300">{{ error }}</p>
       <div class="space-y-2">
         <div
           v-for="mission in missions.slice(0, 10)"
           :key="mission.id"
-          class="rounded border border-white/8 bg-white/3 p-2"
+          class="rounded border border-ui-line bg-white/3 p-2"
         >
-          <div class="flex justify-between text-[10px] text-white/70">
+          <div class="flex justify-between text-xs text-ui-text">
             <span>{{ mission.missionType }}</span
             ><span>{{ mission.status }}</span>
           </div>
-          <div class="text-[9px] text-white/35">
+          <div class="text-xs text-ui-muted">
             {{ mission.spacecraftName }} → {{ mission.targetSectorX }}, {{ mission.targetSectorY }}
           </div>
         </div>
-        <p v-if="missions.length === 0" class="text-[10px] text-white/25">No missions yet.</p>
+        <p v-if="missions.length === 0" class="text-xs text-ui-dim">No missions yet.</p>
       </div>
     </section>
   </div>

@@ -73,56 +73,44 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
-    <div class="flex items-center justify-between">
-      <span class="text-[10px] text-red-300/70 uppercase tracking-[0.18em]">Recall miners</span>
-      <button
-        type="button"
-        class="text-[10px] text-white/45 hover:text-white/80 uppercase tracking-wider"
-        @click="emit('cancel')"
-      >
-        Back
-      </button>
-    </div>
-
-    <div v-if="ownGroups.length === 0" class="text-[12px] text-white/45 py-3">
-      No active miner groups assigned
-    </div>
+  <div class="flex flex-col gap-4">
+    <p v-if="ownGroups.length === 0" class="text-ui-soft">No active miner groups assigned.</p>
 
     <template v-else>
-      <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+      <div class="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
         <label class="flex flex-col gap-1.5">
-          <span class="text-[10px] text-white/45 uppercase tracking-wide">Miner type</span>
-          <select
-            v-model="selectedAssignmentId"
-            class="bg-white/5 border border-white/10 rounded px-2 h-8 text-[12px] text-white/85 focus:outline-none focus:border-red-400/30"
-          >
+          <span class="text-xs text-ui-muted">Miner type</span>
+          <select v-model="selectedAssignmentId" class="ui-input">
             <option v-for="group in ownGroups" :key="group.ids[0]" :value="group.ids[0]">
-              {{ group.spacecraftName }} (×{{ group.totalAmount - group.recallRequestedAmount }}
-              active)
+              {{ group.spacecraftName }} · {{ group.totalAmount - group.recallRequestedAmount }}
+              active
             </option>
           </select>
         </label>
         <label class="flex flex-col gap-1.5">
-          <span class="text-[10px] text-white/45 uppercase tracking-wide">Amount</span>
+          <span class="text-xs text-ui-muted">Amount</span>
           <input
             v-model.number="recallAmount"
             type="number"
             min="1"
             :max="availableAmount"
-            class="w-20 bg-white/5 border border-white/10 rounded px-2 h-8 text-[12px] text-white/85 tabular-nums focus:outline-none focus:border-red-400/30"
+            class="ui-input ui-num w-24"
           />
         </label>
       </div>
 
-      <p class="text-[11px] text-white/45 leading-relaxed">
-        Recalled miners finish their current round trips and become available at the station. The
-        remaining group continues mining.
+      <p class="text-ui-soft">
+        Recalled miners finish their current round trip and then stay at the station. The rest of
+        the group keeps mining.
       </p>
 
-      <div v-if="recallError" class="text-[11px] text-red-400/85">{{ recallError }}</div>
+      <p v-if="recallError" class="text-ui-red">{{ recallError }}</p>
+    </template>
 
+    <div class="flex justify-end gap-2 border-t border-ui-line pt-4">
+      <button type="button" class="ui-btn" @click="emit('cancel')">Cancel</button>
       <button
+        v-if="ownGroups.length > 0"
         type="button"
         :disabled="
           recalling ||
@@ -131,11 +119,11 @@ async function submit() {
           recallAmount < 1 ||
           recallAmount > availableAmount
         "
-        class="h-8 rounded text-[11px] uppercase tracking-wider bg-red-400/10 text-red-300/90 border border-red-400/30 hover:bg-red-400/15 hover:text-red-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+        class="ui-btn ui-btn-danger"
         @click="submit"
       >
         {{ submitLabel }}
       </button>
-    </template>
+    </div>
   </div>
 </template>

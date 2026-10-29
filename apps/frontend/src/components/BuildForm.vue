@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue';
-import {
-  resourceKeys,
-  type StationSpacecraftWithDefinition,
-  type UserResourceSummary,
-} from '@orions-frontier/shared';
+import { computed, ref, watch } from 'vue';
+import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { formatBuildTime } from '../lib/spacecraft-utils';
+import { useOverviewStore } from '../stores/overview.js';
+import CostList from './CostList.vue';
 
 const { hangar, ship, stationId } = defineProps<{
   stationId: string;
@@ -15,25 +13,15 @@ const { hangar, ship, stationId } = defineProps<{
 }>();
 
 const emit = defineEmits<{ built: [] }>();
+const overview = useOverviewStore();
 
 const buildAmount = ref(1);
 const buildSubmitting = ref(false);
 const buildError = ref<string | null>(null);
 const buildSuccess = ref(false);
-const playerResources = ref<Record<string, number> | null>(null);
-
-async function fetchPlayerResources() {
-  try {
-    const response = await apiClient.get<UserResourceSummary>('/me/resources', {
-      params: { stationId: stationId },
-    });
-    playerResources.value = response.resources;
-  } catch {
-    // silently ignore – Max button simply won't work without fresh data
-  }
-}
-
-onMounted(() => fetchPlayerResources());
+const playerResources = computed(
+  () => overview.state.details[stationId]?.resources?.resources ?? null
+);
 
 // Reset state when selected ship changes
 watch(
@@ -41,7 +29,6 @@ watch(
   () => {
     buildError.value = null;
     buildSuccess.value = false;
-    void fetchPlayerResources();
   }
 );
 
@@ -60,17 +47,20 @@ const maxBuildable = computed(() => {
 const hasValidAmount = computed(
   () => Number.isInteger(buildAmount.value) && buildAmount.value >= 1
 );
+const amount = computed(() => (hasValidAmount.value ? buildAmount.value : 1));
+const crewNeeded = computed(() => ship.definition.crew * amount.value);
 const exceedsCapacity = computed(
-  () =>
-    hasValidAmount.value && hangar.used + ship.definition.crew * buildAmount.value > hangar.capacity
+  () => hasValidAmount.value && hangar.used + crewNeeded.value > hangar.capacity
+);
+const totalCosts = computed(() =>
+  ship.definition.costs
+    .filter((cost) => cost.amount > 0)
+    .map((cost) => ({ resourceKey: cost.resourceKey, amount: cost.amount * amount.value }))
 );
 const lacksResources = computed(
   () =>
     playerResources.value !== null &&
-    hasValidAmount.value &&
-    ship.definition.costs.some(
-      (cost) => (playerResources.value?.[cost.resourceKey] ?? 0) < cost.amount * buildAmount.value
-    )
+    totalCosts.value.some((cost) => (playerResources.value?.[cost.resourceKey] ?? 0) < cost.amount)
 );
 const canSubmit = computed(
   () =>
@@ -80,19 +70,17 @@ const canSubmit = computed(
     !exceedsCapacity.value &&
     !lacksResources.value
 );
-
-const submitClass = computed(() => {
-  if (buildSuccess.value) return 'border-green-500/40 bg-green-500/10 text-green-300';
-  if (!canSubmit.value) return 'border-white/10 bg-white/3 text-white/25 cursor-not-allowed';
-  return 'border-cyan-500/40 bg-cyan-500/9 hover:bg-cyan-500/20 text-cyan-200';
+const blocker = computed(() => {
+  if (exceedsCapacity.value)
+    return `Not enough hangar space: needs ${crewNeeded.value} crew, ${Math.max(0, hangar.capacity - hangar.used)} free`;
+  if (lacksResources.value) return 'Not enough resources for this amount';
+  return null;
 });
+const hangarPercent = (value: number) =>
+  hangar.capacity > 0 ? Math.min(100, (value / hangar.capacity) * 100) : 0;
 
 function setMaxAmount() {
   buildAmount.value = Math.max(1, maxBuildable.value);
-}
-
-function costFor(resourceKey: string): number {
-  return ship.definition.costs.find((c) => c.resourceKey === resourceKey)?.amount ?? 0;
 }
 
 async function submitBuild() {
@@ -121,14 +109,15 @@ async function submitBuild() {
 </script>
 
 <template>
-  <div class="pt-3 grid grid-cols-[auto_1fr_auto] items-end gap-5">
-    <!-- Amount -->
-    <div class="flex flex-col gap-1.5">
-      <span class="text-[9px] text-white/20 uppercase tracking-widest">Amount</span>
-      <div class="flex items-center gap-1">
+  <section class="ui-card" aria-label="Build spacecraft">
+    <h3 class="ui-label">Build {{ ship.definition.name }}</h3>
+
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1" role="group" aria-label="Amount">
         <button
           type="button"
-          class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+          class="ui-btn w-10 px-0"
+          aria-label="Decrease amount"
           @click="buildAmount = Math.max(1, buildAmount - 1)"
         >
           −
@@ -138,76 +127,62 @@ async function submitBuild() {
           type="number"
           min="1"
           step="1"
-          class="w-14 h-7 text-center text-[12px] text-white/80 bg-white/5 border border-white/12 rounded tabular-nums focus:outline-none focus:border-cyan-500/50"
+          aria-label="Amount"
+          class="ui-input ui-num w-16 text-center"
           @change="buildAmount = Math.max(1, Math.floor(buildAmount || 1))"
         />
         <button
           type="button"
-          class="w-7 h-7 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition"
+          class="ui-btn w-10 px-0"
+          aria-label="Increase amount"
           @click="buildAmount = buildAmount + 1"
         >
           +
         </button>
-        <button
-          type="button"
-          class="px-2 h-7 flex items-center justify-center rounded border border-white/10 text-white/35 hover:bg-white/8 hover:text-white/70 transition text-[9px] uppercase tracking-widest"
-          @click="setMaxAmount"
-        >
-          Max
-        </button>
+        <button type="button" class="ui-btn" @click="setMaxAmount">Max</button>
       </div>
-    </div>
-
-    <!-- Total costs -->
-    <div class="flex flex-col gap-1.5">
-      <span class="text-[9px] text-white/20 uppercase tracking-widest">Total</span>
-      <div class="flex items-center gap-x-6">
-        <div v-for="res in resourceKeys" :key="res" class="flex items-center gap-1.5 h-6">
-          <img
-            :src="`/assets/resources/${res}.png`"
-            :alt="res"
-            class="w-3.5 h-3.5 object-contain shrink-0"
-            :class="costFor(res) > 0 ? 'opacity-75' : 'opacity-15'"
-          />
-          <span
-            class="text-[11px] tabular-nums font-medium"
-            :class="costFor(res) > 0 ? 'text-white/65' : 'text-white/12'"
-            >{{
-              costFor(res) > 0 ? (costFor(res) * (buildAmount || 1)).toLocaleString() : '—'
-            }}</span
-          >
-        </div>
-        <div class="flex items-center gap-1.5 h-6">
-          <span class="text-[13px] text-white/25 leading-none">⏱</span>
-          <span class="text-[11px] text-white/50 tabular-nums">{{
-            formatBuildTime(ship.definition.buildTime * (buildAmount || 1))
-          }}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Build button -->
-    <div class="flex flex-col gap-1 items-end">
-      <span class="text-[9px] text-white/30 tabular-nums">
-        Crew {{ ship.definition.crew * (buildAmount || 1) }} · Hangar {{ hangar.used }}/{{
-          hangar.capacity
-        }}
-      </span>
       <button
         type="button"
+        class="ui-btn ui-btn-primary flex-1"
         :disabled="!canSubmit"
-        class="px-6 h-8 rounded border text-[10px] uppercase tracking-[0.2em] font-semibold transition"
-        :class="submitClass"
         @click="submitBuild"
       >
-        <span v-if="buildSuccess">Queued ✓</span>
-        <span v-else-if="buildSubmitting">Submitting…</span>
-        <span v-else-if="playerResources === null">Loading…</span>
-        <span v-else-if="exceedsCapacity">No capacity</span>
-        <span v-else-if="lacksResources">Insufficient resources</span>
-        <span v-else>Build</span>
+        <template v-if="buildSuccess">Queued ✓</template>
+        <template v-else-if="buildSubmitting">Submitting…</template>
+        <template v-else-if="playerResources === null">Loading…</template>
+        <template v-else>Build {{ amount }}</template>
       </button>
-      <p v-if="buildError" class="text-[9px] text-rose-400/70">{{ buildError }}</p>
     </div>
-  </div>
+
+    <CostList
+      :costs="totalCosts"
+      :stock="playerResources"
+      :duration="formatBuildTime(ship.definition.buildTime * amount)"
+    />
+
+    <div class="flex flex-col gap-1.5">
+      <div class="flex items-baseline justify-between text-[13px]">
+        <span class="text-ui-soft">
+          Crew <span class="ui-num text-ui-bright">{{ crewNeeded }}</span>
+        </span>
+        <span class="text-ui-muted">
+          Hangar
+          <span class="ui-num" :class="exceedsCapacity ? 'text-ui-red' : 'text-ui-bright'"
+            >{{ hangar.used + crewNeeded }} / {{ hangar.capacity }}</span
+          >
+        </span>
+      </div>
+      <div class="ui-bar flex">
+        <div class="h-full bg-ui-soft/50" :style="{ width: `${hangarPercent(hangar.used)}%` }" />
+        <div
+          class="h-full"
+          :class="exceedsCapacity ? 'bg-ui-red' : 'bg-ui-cyan'"
+          :style="{ width: `${hangarPercent(crewNeeded)}%` }"
+        />
+      </div>
+    </div>
+
+    <p v-if="blocker" class="text-xs text-ui-amber">{{ blocker }}</p>
+    <p v-if="buildError" class="text-xs text-ui-red">{{ buildError }}</p>
+  </section>
 </template>

@@ -1,148 +1,101 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue';
+import { computed } from 'vue';
 import { resources } from '@orions-frontier/game-config';
-import { apiClient } from '../lib/api-client.js';
-import { wsClient } from '../lib/ws-client.js';
-import { debounced } from '../lib/debounce.js';
-import { resourceKeys, type ResourceKey, type UserResourceSummary } from '@orions-frontier/shared';
+import { resourceKeys } from '@orions-frontier/shared';
+import { useOverviewStore } from '../stores/overview.js';
+import { formatAmount } from '../lib/format.js';
+import { resourceColor } from '../lib/mining-utils.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
+const emit = defineEmits<{ logbook: []; ranking: [] }>();
+const overview = useOverviewStore();
 
-interface ResourceEntry {
-  key: ResourceKey;
-  name: string;
-  image: string;
-  amount: number;
-  capacity: number;
-  ratePerHour: number;
-}
-
-const resourceEntries = ref<ResourceEntry[]>([]);
-const isOnline = ref(true);
-
-const scheduleFetch = debounced(fetchResources, 1000);
-
-function applyResourceSummary(summary: UserResourceSummary) {
-  resourceEntries.value = resourceKeys
-    .filter((key) => summary.resources[key] !== undefined)
+const summary = computed(() => overview.state.details[stationId]?.resources ?? null);
+const entries = computed(() => {
+  const value = summary.value;
+  if (!value) return [];
+  return resourceKeys
+    .filter((key) => value.resources[key] !== undefined)
     .map((key) => {
-      const def = resources[key];
+      const amount = value.resources[key] ?? 0;
+      const fill = value.storageCapacity > 0 ? amount / value.storageCapacity : 0;
       return {
-        key: key,
-        name: def.name,
-        image: def.image,
-        amount: summary.resources[key] ?? 0,
-        capacity: summary.storageCapacity,
-        ratePerHour: summary.rates[key] ?? 0,
+        key,
+        name: resources[key].name,
+        image: resources[key].image,
+        amount,
+        capacity: value.storageCapacity,
+        rate: value.rates[key] ?? 0,
+        fill: Math.min(1, fill),
+        barColor: fill >= 0.9 ? 'var(--color-ui-amber)' : resourceColor(key),
       };
     });
-}
-
-async function fetchResources() {
-  try {
-    const response = await apiClient.get<UserResourceSummary>('/me/resources', {
-      params: { stationId },
-    });
-    applyResourceSummary(response);
-    isOnline.value = true;
-  } catch {
-    isOnline.value = false;
-  }
-}
-
-// Instant update when resources are deducted (building upgrade / spacecraft build)
-const unsubscribeResources = wsClient.on('resources_updated', (payload) => {
-  if (payload.stationId !== stationId) return;
-  // Merge amounts only — rates remain until next full fetch
-  resourceEntries.value = resourceEntries.value.map((e) => ({
-    ...e,
-    amount: payload.resources[e.key] ?? e.amount,
-  }));
 });
-
-// Refetch when assignments change.
-const unsubscribeTick = wsClient.on('mining_tick_completed', () => {
-  scheduleFetch();
-});
-
-// Refetch after a trip arrival changes delivered resources.
-const unsubscribeTransport = wsClient.on('transport_tick_completed', () => {
-  scheduleFetch();
-});
-const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) => {
-  if (payload.stationId === stationId && payload.buildingKey === 'warehouse') scheduleFetch();
-});
-
-void fetchResources();
-
-onUnmounted(() => {
-  scheduleFetch.cancel();
-  unsubscribeResources();
-  unsubscribeTick();
-  unsubscribeTransport();
-  unsubscribeBuilding();
-});
-
-function fmt(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
-  return String(n);
-}
-
-function fmtRate(n: number): string {
-  if (n >= 1_000) return '+' + (n / 1_000).toFixed(1) + 'k';
-  return '+' + Math.round(n).toString();
-}
+const rank = computed(() => overview.state.ranking?.me ?? null);
 </script>
 
 <template>
-  <div
-    class="absolute top-0 left-0 right-0 z-10 cursor-default flex items-center justify-between px-5 h-9 bg-[#050a14]/90 border-b border-cyan-500/10 font-mono text-[11px]"
+  <header
+    class="flex h-[72px] shrink-0 items-center gap-6 border-b border-ui-line bg-ui-panel px-5 text-left"
   >
-    <!-- Resources -->
-    <div class="flex items-center gap-1">
-      <template v-for="(entry, i) in resourceEntries" :key="entry.key">
-        <div v-if="i > 0" class="h-3 w-px bg-white/10" />
-        <div class="flex items-center gap-1.5">
-          <img
-            :src="entry.image"
-            :alt="entry.name"
-            class="w-3.5 h-3.5 object-contain"
-            loading="lazy"
-          />
-          <span class="text-white/25 uppercase tracking-widest text-[9px]">{{ entry.name }}</span>
-          <span class="text-white/80 tabular-nums"
-            >{{ fmt(entry.amount) }}/{{ fmt(entry.capacity) }}</span
-          >
-          <span v-if="entry.ratePerHour > 0" class="text-cyan-400/50 tabular-nums text-[9px]"
-            >{{ fmtRate(entry.ratePerHour) }}/h</span
-          >
-        </div>
-      </template>
-
-      <!-- Skeleton while loading -->
-      <template v-if="resourceEntries.length === 0">
-        <div v-for="n in 5" :key="n" class="flex items-center gap-1.5">
-          <div v-if="n > 1" class="h-3 w-px bg-white/10" />
-          <div class="w-3.5 h-3.5 rounded bg-white/5 animate-pulse" />
-          <div class="w-12 h-2 rounded bg-white/5 animate-pulse" />
-        </div>
-      </template>
-    </div>
-
-    <div class="tracking-[0.5em] text-white/10 uppercase text-[9px]">ORION'S FRONTIER</div>
-
-    <div class="flex items-center gap-4">
-      <span
-        class="flex items-center gap-1.5 text-[9px] uppercase tracking-widest"
-        :class="isOnline ? 'text-green-400/60' : 'text-red-400/60'"
-      >
-        <span
-          class="w-1.5 h-1.5 rounded-full"
-          :class="isOnline ? 'bg-green-400 animate-pulse' : 'bg-red-400'"
-        />
-        {{ isOnline ? 'Online' : 'Offline' }}
+    <div class="w-[276px] shrink-0">
+      <span class="text-[13px] font-semibold uppercase tracking-[0.2em] text-ui-muted">
+        Orion's Frontier
       </span>
     </div>
-  </div>
+
+    <ul class="flex min-w-0 flex-1 items-center gap-6" aria-label="Station resources">
+      <li v-for="entry in entries" :key="entry.key" class="flex min-w-0 flex-col gap-1.5 py-2">
+        <div class="flex items-center gap-2">
+          <img :src="entry.image" alt="" class="h-5 w-5 shrink-0 object-contain" />
+          <span class="text-xs text-ui-muted">{{ entry.name }}</span>
+          <span v-if="entry.rate > 0" class="ui-num text-xs text-ui-green"
+            >+{{ formatAmount(entry.rate) }}/h</span
+          >
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="ui-num text-base font-semibold text-ui-bright">{{
+            formatAmount(entry.amount)
+          }}</span>
+          <span class="ui-num text-xs text-ui-dim">/ {{ formatAmount(entry.capacity) }}</span>
+        </div>
+        <div class="h-[3px] w-full overflow-hidden rounded-full bg-ui-line">
+          <div
+            class="h-full rounded-full"
+            :style="{ width: `${entry.fill * 100}%`, background: entry.barColor }"
+          />
+        </div>
+      </li>
+      <li v-if="entries.length === 0" class="text-sm text-ui-dim">Loading resources…</li>
+    </ul>
+
+    <nav class="flex shrink-0 items-center gap-2">
+      <button type="button" class="ui-btn" @click="emit('logbook')">
+        Logbook
+        <span
+          v-if="overview.unseenLogbook.length > 0"
+          class="ui-num rounded-full bg-[#10333c] px-2 py-0.5 text-xs text-ui-cyan"
+        >
+          {{ overview.unseenLogbook.length }} new
+        </span>
+      </button>
+      <button type="button" class="ui-btn" @click="emit('ranking')">
+        Ranking
+        <span v-if="rank" class="ui-num text-ui-bright">
+          #{{ rank.rank
+          }}<span class="text-ui-dim"> / {{ overview.state.ranking?.totalPlayers }}</span>
+        </span>
+      </button>
+      <span
+        class="ml-2 flex items-center gap-1.5 text-xs"
+        :class="overview.state.online ? 'text-ui-green' : 'text-ui-red'"
+      >
+        <span
+          class="h-2 w-2 rounded-full"
+          :class="overview.state.online ? 'bg-ui-green' : 'bg-ui-red'"
+        />
+        {{ overview.state.online ? 'Online' : 'Offline' }}
+      </span>
+    </nav>
+  </header>
 </template>

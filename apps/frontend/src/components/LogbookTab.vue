@@ -4,8 +4,10 @@ import type { LogbookEntry, LogbookEntryType } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
+import { useOverviewStore } from '../stores/overview.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
+const overview = useOverviewStore();
 const entries = ref<LogbookEntry[]>([]);
 const loaded = ref(false);
 const error = ref<string | null>(null);
@@ -65,27 +67,27 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-y-auto p-4 font-mono text-[10px]">
-    <p v-if="error" class="mb-2 text-rose-300/70">{{ error }}</p>
+  <div class="flex flex-col text-sm">
+    <p v-if="error" class="mb-2 text-ui-red">{{ error }}</p>
     <p
       v-if="loaded && !error && timeline.length === 0"
-      class="m-auto text-[9px] uppercase tracking-widest text-white/20"
+      class="m-auto text-xs uppercase tracking-[0.08em] text-ui-dim"
     >
       No entries yet
     </p>
-    <ol class="relative ml-1.5 border-l border-white/10">
+    <ol class="relative ml-1.5 border-l border-ui-line-strong">
       <li v-for="entry in timeline" :key="entry.id" class="relative pb-3 pl-4">
         <span class="absolute -left-[4.5px] top-1 h-2 w-2 rounded-full" :class="entry.style.dot" />
-        <div class="flex items-baseline gap-3" :class="entry.otherStation ? 'opacity-50' : ''">
-          <time class="shrink-0 tabular-nums text-white/30" :datetime="entry.occurredAt">
+        <div class="flex items-baseline gap-3">
+          <time class="shrink-0 tabular-nums text-ui-muted" :datetime="entry.occurredAt">
             {{ entry.time }}
           </time>
-          <span class="w-16 shrink-0 uppercase tracking-widest text-[8px] text-white/35">
+          <span class="w-16 shrink-0 uppercase tracking-[0.08em] text-xs text-ui-muted">
             {{ entry.style.label }}
           </span>
-          <span class="text-white/75">{{ entry.summary }}</span>
-          <span v-if="entry.otherStation" class="text-[8px] uppercase text-white/30">
-            other station
+          <span class="text-ui-text">{{ entry.summary }}</span>
+          <span v-if="entry.otherStation" class="shrink-0 text-xs text-ui-muted">
+            {{ overview.stationName(entry.stationId ?? '') }}
           </span>
         </div>
       </li>

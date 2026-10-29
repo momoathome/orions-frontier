@@ -68,6 +68,13 @@ Vorher passte ab Stufe 11 das nächste Upgrade nicht mehr ins Lager, ein harter 
 Lager war auf jeder Stufe nach etwa 2 Stunden voll. Jetzt reicht es auf Höhe der Flotte
 mindestens 7–9 Stunden, auf hohen Stufen deutlich länger (Details in `docs/station-capacities.md`).
 
+Playtest (2026-10-29, drei Seeds über 24 h und ein Seed über 72 h, je 16 Bots): Die Förderung hat
+sich gegenüber der Baseline vom Juli etwa verdoppelt, der Lagerverlust fiel von 12 % auf unter 1 %
+der abgebauten Menge. Die zweite Station gründen Bots nach 31–52 Stunden (Median 42), im Zielband.
+Die dritte folgt aber im Median schon 12 Stunden später, weil die Hauptstation bis dahin stark
+gewachsen ist. Neue Kolonien stabilisieren sich in 19–74 Minuten. Angriffe beginnen erst nach dem
+24-Stunden-Schutz; im 72-h-Lauf gab es 57, davon 46 gewonnen.
+
 ## Entscheidungen
 
 ### Vernichtung einer Station
@@ -106,15 +113,18 @@ hier.
 1. **Vernichtung und Mehrstationen-Pfad umsetzen** nach der
    [Spec](./station-destruction.md): gemischte Angriffsflotten, Bomber, Integrität, eingehende
    Angriffe, Vernichtung, Neustart und steigende Kolonisationskosten.
-2. **Miner-Werte, Lagerkurve und Kolonisation per Playtest messen** (`npm run playtest:baseline`).
-   Dabei die Befunde der letzten Baseline gegen die neuen Werte prüfen: Lagerverlust, Warlords im
-   Ressourcenstillstand, blockierte Pionier-Kolonisation, Technokraten in der
-   Forschungswiederwahl, instabile neue Kolonien.
+2. **Befunde der Baseline vom 2026-10-29 angehen** (`npm run playtest:baseline`, 72 h):
+   - Die dritte Station kommt zu schnell nach der zweiten; der Kostenfaktor 1,5 bremst kaum.
+   - Bots geben das Kolonieziel nach 2–5 Stunden Sparen auf, obwohl die Kosten fast einen Tag
+     Einkommen brauchen. Vor Warehouse Stufe 3 ist es gar kein Kandidat.
+   - Warlords lassen die meisten Gelegenheiten wegen zu kleiner Flotte oder Reserve aus.
+   - Einzelne Bots wechseln 7–8 Mal pro Stunde das Ziel (`goal_churn`); Bots bauen deutlich mehr
+     Merlins als Miner.
 
 ### Danach
 
 3. **Admin-Ansicht für Bots:** wo sie stehen, was sie verfolgen, was sie geschafft haben.
-4. **UI-Lesbarkeit:** größere Schrift und klarere Panels.
+4. **UI-Überarbeitung** nach [UI-Grundsätze](./ui-principles.md): Lesbarkeit, Lagebild, Panels.
 
 ### Später, nur bei nachgewiesenem Bedarf
 

@@ -2,7 +2,7 @@ import { resources } from '@orions-frontier/game-config';
 import { isOneOf, resourceKeys } from '@orions-frontier/shared';
 
 const RESOURCE_COLORS: Record<string, string> = {
-  carbon: '#778899',
+  carbon: '#e0605a',
   titanium: '#6699bb',
   hydrogenium: '#22ccee',
   kyber_crystal: '#aa33ff',

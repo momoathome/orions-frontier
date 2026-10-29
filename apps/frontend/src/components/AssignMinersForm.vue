@@ -99,7 +99,7 @@ function formatDuration(hours: number): string {
 }
 
 function formatNumber(value: number): string {
-  return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value);
 }
 
 async function submit() {
@@ -126,128 +126,119 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
-    <div class="flex items-center justify-between">
-      <span class="text-[10px] text-cyan-300/70 uppercase tracking-[0.18em]">Assign miners</span>
-      <button
-        type="button"
-        class="text-[10px] text-white/45 hover:text-white/80 uppercase tracking-wider"
-        @click="emit('cancel')"
-      >
-        Back
-      </button>
-    </div>
-
-    <span v-if="miners === null" class="text-[11px] text-white/45 animate-pulse">
-      Loading hangar…
-    </span>
-    <div v-else-if="miners.length === 0" class="text-[12px] text-white/45 py-3">
-      No idle mining spacecraft at this station
+  <div class="flex flex-col gap-4">
+    <span v-if="miners === null" class="animate-pulse text-ui-muted">Loading hangar…</span>
+    <div v-else-if="miners.length === 0" class="flex flex-col gap-1">
+      <span class="font-semibold text-ui-bright">No idle miners at this station</span>
+      <span class="text-ui-soft">
+        Build miners in the Shipyard (Fleet) or recall some from another asteroid.
+      </span>
     </div>
 
     <template v-else>
-      <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
-        <label class="flex flex-col gap-1.5">
-          <span class="text-[10px] text-white/45 uppercase tracking-wide">Spacecraft</span>
-          <select
-            v-model="selectedSpacecraftKey"
-            class="bg-white/5 border border-white/10 rounded px-2 h-8 text-[12px] text-white/85 focus:outline-none focus:border-cyan-400/40"
+      <label class="flex flex-col gap-1.5">
+        <span class="text-xs text-ui-muted">Spacecraft</span>
+        <select v-model="selectedSpacecraftKey" class="ui-input">
+          <option v-for="m in miners" :key="m.definition.key" :value="m.definition.key">
+            {{ m.definition.name }} · {{ m.amount - m.lockedAmount }} idle
+          </option>
+        </select>
+      </label>
+
+      <div class="flex flex-col gap-1.5">
+        <span class="text-xs text-ui-muted">Amount · {{ availableAmount }} available</span>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="Fewer miners"
+            class="ui-btn ui-btn-icon h-10 w-10 text-base"
+            @click="assignAmount = Math.max(1, assignAmount - 1)"
           >
-            <option v-for="m in miners" :key="m.definition.key" :value="m.definition.key">
-              {{ m.definition.name }} (×{{ m.amount - m.lockedAmount }} idle)
-            </option>
-          </select>
-        </label>
-
-        <div class="flex flex-col gap-1.5">
-          <span class="text-[10px] text-white/45 uppercase tracking-wide">Amount</span>
-          <div class="flex items-center gap-1">
-            <button
-              type="button"
-              aria-label="Fewer miners"
-              class="w-8 h-8 flex items-center justify-center rounded border border-white/10 text-white/60 hover:bg-white/8 hover:text-white/90 transition text-[14px]"
-              @click="assignAmount = Math.max(1, assignAmount - 1)"
-            >
-              −
-            </button>
-            <input
-              v-model.number="assignAmount"
-              type="number"
-              min="1"
-              step="1"
-              :max="availableAmount"
-              aria-label="Miner amount"
-              class="w-14 h-8 text-center text-[13px] text-white/85 bg-white/5 border border-white/12 rounded tabular-nums focus:outline-none focus:border-cyan-500/50"
-              @change="assignAmount = Math.max(1, Math.floor(assignAmount || 1))"
-            />
-            <button
-              type="button"
-              aria-label="More miners"
-              class="w-8 h-8 flex items-center justify-center rounded border border-white/10 text-white/60 hover:bg-white/8 hover:text-white/90 transition text-[14px]"
-              @click="assignAmount = assignAmount + 1"
-            >
-              +
-            </button>
-            <button
-              type="button"
-              class="px-3 h-8 flex items-center justify-center rounded border border-white/10 text-white/50 hover:bg-white/8 hover:text-white/80 transition text-[10px] uppercase tracking-wider"
-              @click="assignAmount = Math.max(1, availableAmount)"
-            >
-              Max
-            </button>
-          </div>
+            −
+          </button>
+          <input
+            v-model.number="assignAmount"
+            type="number"
+            min="1"
+            step="1"
+            :max="availableAmount"
+            aria-label="Miner amount"
+            class="ui-input ui-num w-20 text-center"
+            @change="assignAmount = Math.max(1, Math.floor(assignAmount || 1))"
+          />
+          <button
+            type="button"
+            aria-label="More miners"
+            class="ui-btn ui-btn-icon h-10 w-10 text-base"
+            @click="assignAmount = assignAmount + 1"
+          >
+            +
+          </button>
+          <button type="button" class="ui-btn" @click="assignAmount = Math.max(1, availableAmount)">
+            Max
+          </button>
         </div>
-      </div>
-
-      <span v-if="assignAmount > availableAmount" class="text-[10px] text-red-400/85">
-        Max available: {{ availableAmount }}
-      </span>
-
-      <div class="rounded border border-white/8 bg-white/2.5 px-3 py-2 min-h-[52px]">
-        <span v-if="previewLoading" class="text-[11px] text-white/45 animate-pulse">
-          Calculating…
+        <span v-if="assignAmount > availableAmount" class="text-[13px] text-ui-red">
+          Only {{ availableAmount }} available.
         </span>
-        <span v-else-if="previewError" class="text-[11px] text-red-400/80">{{ previewError }}</span>
-        <div v-else-if="preview" class="grid grid-cols-5 gap-3 text-[10px] tabular-nums">
-          <div class="flex flex-col gap-0.5">
-            <span class="text-white/35">Flight</span>
-            <span class="text-white/75">{{ formatDuration(preview.oneWayTravelHours) }}</span>
-          </div>
-          <div class="flex flex-col gap-0.5">
-            <span class="text-white/35">Mining</span>
-            <span class="text-white/75">{{ formatDuration(preview.miningHours) }}</span>
-          </div>
-          <div class="flex flex-col gap-0.5">
-            <span class="text-white/35">Round trip</span>
-            <span class="text-white/75">{{ formatDuration(preview.roundTripHours) }}</span>
-          </div>
-          <div class="flex flex-col gap-0.5">
-            <span class="text-white/35">Delivery</span>
-            <span class="text-cyan-300/90 font-semibold"
-              >{{ formatNumber(preview.totalDeliveryPerHour) }}/h</span
-            >
-          </div>
-          <div class="flex flex-col gap-0.5">
-            <span class="text-white/35">Depletion</span>
-            <span class="text-amber-300/85">{{
-              preview.estimatedDepletionHours === null
-                ? 'Unknown'
-                : formatDuration(preview.estimatedDepletionHours)
-            }}</span>
-          </div>
-        </div>
       </div>
 
-      <div v-if="assignError" class="text-[11px] text-red-400/85">{{ assignError }}</div>
+      <section class="flex flex-col gap-2">
+        <h3 class="ui-label">Forecast</h3>
+        <span v-if="previewLoading" class="animate-pulse text-ui-muted">Calculating…</span>
+        <span v-else-if="previewError" class="text-ui-red">{{ previewError }}</span>
+        <dl v-else-if="preview" class="grid grid-cols-3 gap-2.5">
+          <div class="ui-card gap-0.5 p-3">
+            <dt class="text-xs text-ui-muted">Flight</dt>
+            <dd class="ui-num text-base text-ui-bright">
+              {{ formatDuration(preview.oneWayTravelHours) }}
+            </dd>
+          </div>
+          <div class="ui-card gap-0.5 p-3">
+            <dt class="text-xs text-ui-muted">Mining</dt>
+            <dd class="ui-num text-base text-ui-bright">
+              {{ formatDuration(preview.miningHours) }}
+            </dd>
+          </div>
+          <div class="ui-card gap-0.5 p-3">
+            <dt class="text-xs text-ui-muted">Round trip</dt>
+            <dd class="ui-num text-base text-ui-bright">
+              {{ formatDuration(preview.roundTripHours) }}
+            </dd>
+          </div>
+          <div class="ui-card col-span-2 gap-0.5 p-3">
+            <dt class="text-xs text-ui-muted">Delivery</dt>
+            <dd class="ui-num text-base font-semibold text-ui-cyan">
+              {{ formatNumber(preview.totalDeliveryPerHour) }}/h
+            </dd>
+          </div>
+          <div class="ui-card gap-0.5 p-3">
+            <dt class="text-xs text-ui-muted">Depletion</dt>
+            <dd class="ui-num text-base text-ui-amber">
+              {{
+                preview.estimatedDepletionHours === null
+                  ? 'Unknown'
+                  : formatDuration(preview.estimatedDepletionHours)
+              }}
+            </dd>
+          </div>
+        </dl>
+      </section>
 
+      <p v-if="assignError" class="text-ui-red">{{ assignError }}</p>
+    </template>
+
+    <div class="flex justify-end gap-2 border-t border-ui-line pt-4">
+      <button type="button" class="ui-btn" @click="emit('cancel')">Cancel</button>
       <button
+        v-if="miners && miners.length > 0"
         type="button"
         :disabled="assigning || !selectedSpacecraftKey || assignAmount > availableAmount"
-        class="h-8 rounded text-[11px] uppercase tracking-wider bg-cyan-400/10 text-cyan-300/90 border border-cyan-400/30 hover:bg-cyan-400/15 hover:text-cyan-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+        class="ui-btn ui-btn-primary"
         @click="submit"
       >
         {{ submitLabel }}
       </button>
-    </template>
+    </div>
   </div>
 </template>
