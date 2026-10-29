@@ -1,5 +1,5 @@
-import { botProfiles, type BotProfile } from '../db/schema/bot-controllers.js';
-import { SeededRng } from '../world-gen/rng.js';
+import { botProfiles, type BotProfile } from '../../lib/db/schema/bot-controllers.js';
+import { SeededRng } from '../../lib/world-gen/rng.js';
 
 export type BotProfileWeights = Record<BotProfile, number>;
 

@@ -11,21 +11,21 @@ import {
   calculateInfluence,
   type InfluenceInput,
 } from '@orions-frontier/game-config';
-import { getDb } from '../db/index.js';
-import { asteroids, asteroidVeins } from '../db/schema/asteroids.js';
-import { botControllers, type BotProfile } from '../db/schema/bot-controllers.js';
-import { combatMissions } from '../db/schema/combat-missions.js';
-import { debrisFields, salvageMissions } from '../db/schema/debris-fields.js';
-import { sectors } from '../db/schema/sectors.js';
-import { spacecraftBuildOrders } from '../db/schema/spacecraft-build-orders.js';
-import { spacecraftTrips } from '../db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../db/schema/station-buildings.js';
-import { stationResearch } from '../db/schema/station-research.js';
-import { stationResources } from '../db/schema/station-resources.js';
-import { stationSpacecrafts } from '../db/schema/station-spacecrafts.js';
-import { stations } from '../db/schema/stations.js';
-import { users } from '../db/schema/users.js';
-import { worldMissions } from '../db/schema/world-missions.js';
+import { getDb } from '../../lib/db/index.js';
+import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
+import { botControllers, type BotProfile } from '../../lib/db/schema/bot-controllers.js';
+import { combatMissions } from '../../lib/db/schema/combat-missions.js';
+import { debrisFields, salvageMissions } from '../../lib/db/schema/debris-fields.js';
+import { sectors } from '../../lib/db/schema/sectors.js';
+import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
+import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
+import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
+import { stationResearch } from '../../lib/db/schema/station-research.js';
+import { stationResources } from '../../lib/db/schema/station-resources.js';
+import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
+import { stations } from '../../lib/db/schema/stations.js';
+import { users } from '../../lib/db/schema/users.js';
+import { worldMissions } from '../../lib/db/schema/world-missions.js';
 import type { PlaytestAliasRegistry } from './aliases.js';
 import type { CollectorSnapshot } from './collector.js';
 import type { PopulationKind } from './population.js';

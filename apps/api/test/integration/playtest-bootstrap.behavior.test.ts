@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { WORLD_CONFIG } from '../../src/lib/world-config.js';
-import type { PlaytestBootstrapResult } from '../../src/lib/playtest/bootstrap.js';
+import type { PlaytestBootstrapResult } from '../../src/tools/playtest/bootstrap.js';
 
 export function assertBootstrapResult(result: PlaytestBootstrapResult): void {
   assert.equal(result.sectors, (WORLD_CONFIG.INITIAL_SECTOR_RADIUS * 2 + 1) ** 2);

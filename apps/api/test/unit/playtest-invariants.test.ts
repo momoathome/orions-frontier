@@ -3,11 +3,11 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { validatePlaytestConfig } from '../../src/lib/playtest/config.js';
+import { validatePlaytestConfig } from '../../src/tools/playtest/config.js';
 import {
   PlaytestInvariantError,
   writePartialInvariantReport,
-} from '../../src/lib/playtest/invariants.js';
+} from '../../src/tools/playtest/invariants.js';
 
 const temporaryDirectories: string[] = [];
 

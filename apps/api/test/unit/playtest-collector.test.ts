@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BotDecisionOutcome } from '../../src/services/bot/bot.service.js';
-import { PlaytestAliasRegistry } from '../../src/lib/playtest/aliases.js';
-import { PlaytestCollector } from '../../src/lib/playtest/collector.js';
+import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
+import { PlaytestCollector } from '../../src/tools/playtest/collector.js';
 import type { PlaytestCompletionEvent } from '../../src/lib/completion-events.js';
-import type { PlaytestPopulationMember } from '../../src/lib/playtest/population.js';
+import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 
 const userId = '10000000-0000-4000-8000-000000000001';
 const stationId = '20000000-0000-4000-8000-000000000001';

@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BotDecisionOutcome } from '../../src/services/bot/bot.service.js';
-import { PlaytestAggregator } from '../../src/lib/playtest/aggregator.js';
-import { PlaytestAliasRegistry } from '../../src/lib/playtest/aliases.js';
+import { PlaytestAggregator } from '../../src/tools/playtest/aggregator.js';
+import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
 import type { PlaytestCompletionEvent } from '../../src/lib/completion-events.js';
-import type { PlaytestPopulationMember } from '../../src/lib/playtest/population.js';
+import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 import type {
   PlaytestBotSnapshot,
   PlaytestStateSnapshot,
   PlaytestStationSnapshot,
-} from '../../src/lib/playtest/snapshot-loader.js';
+} from '../../src/tools/playtest/snapshot-loader.js';
 
 const userId = '10000000-0000-4000-8000-000000000001';
 const stationId = '20000000-0000-4000-8000-000000000001';

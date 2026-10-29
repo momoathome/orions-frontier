@@ -4,12 +4,12 @@ import type { BotProfile } from '../../src/lib/db/schema/bot-controllers.js';
 import {
   PlaytestPopulationRegistry,
   type PlaytestPopulationMember,
-} from '../../src/lib/playtest/population.js';
+} from '../../src/tools/playtest/population.js';
 import {
   EVEN_PROFILE_WEIGHTS,
   selectWeightedProfile,
   validateProfileWeights,
-} from '../../src/lib/playtest/profile-distribution.js';
+} from '../../src/tools/playtest/profile-distribution.js';
 
 function member(overrides: Partial<PlaytestPopulationMember> = {}): PlaytestPopulationMember {
   return {

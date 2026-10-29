@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { asc, eq, sql } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { asteroids, asteroidVeins } from '../db/schema/asteroids.js';
-import { sectors } from '../db/schema/sectors.js';
-import { spawnSlots } from '../db/schema/spawn-slots.js';
+import { getDb } from '../../lib/db/index.js';
+import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
+import { sectors } from '../../lib/db/schema/sectors.js';
+import { spawnSlots } from '../../lib/db/schema/spawn-slots.js';
 
 export interface PlaytestWorldSummary {
   checksum: string;

@@ -12,10 +12,10 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { PlaytestAliasRegistry } from '../../src/lib/playtest/aliases.js';
-import { PlaytestCollector } from '../../src/lib/playtest/collector.js';
-import type { PlaytestPopulationMember } from '../../src/lib/playtest/population.js';
-import { loadPlaytestSnapshot } from '../../src/lib/playtest/snapshot-loader.js';
+import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
+import { PlaytestCollector } from '../../src/tools/playtest/collector.js';
+import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
+import { loadPlaytestSnapshot } from '../../src/tools/playtest/snapshot-loader.js';
 import { completeDueResearchDetailed } from '../../src/services/research.service.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
 

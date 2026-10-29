@@ -10,13 +10,13 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { PlaytestAliasRegistry } from '../../src/lib/playtest/aliases.js';
+import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
 import {
   PlaytestInvariantAuditor,
   PlaytestInvariantError,
   type PlaytestInvariantCode,
-} from '../../src/lib/playtest/invariants.js';
-import type { PlaytestPopulationMember } from '../../src/lib/playtest/population.js';
+} from '../../src/tools/playtest/invariants.js';
+import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 import type { WorldTickResult } from '../../src/services/simulation.service.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
 

@@ -1,11 +1,11 @@
 import { and, asc, eq } from 'drizzle-orm';
-import type { GameExecutionContext } from '../game-execution-context.js';
-import { getDb } from '../db/index.js';
-import { botControllers } from '../db/schema/bot-controllers.js';
-import { sectors } from '../db/schema/sectors.js';
-import { spawnSlots } from '../db/schema/spawn-slots.js';
-import { stations } from '../db/schema/stations.js';
-import { users } from '../db/schema/users.js';
+import type { GameExecutionContext } from '../../lib/game-execution-context.js';
+import { getDb } from '../../lib/db/index.js';
+import { botControllers } from '../../lib/db/schema/bot-controllers.js';
+import { sectors } from '../../lib/db/schema/sectors.js';
+import { spawnSlots } from '../../lib/db/schema/spawn-slots.js';
+import { stations } from '../../lib/db/schema/stations.js';
+import { users } from '../../lib/db/schema/users.js';
 import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION } from '../../services/bot/bot-profiles.js';
 import { joinSyntheticPlayer, PlaytestPopulationRegistry } from './population.js';
 import { EVEN_PROFILE_WEIGHTS } from './profile-distribution.js';
