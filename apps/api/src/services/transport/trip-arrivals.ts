@@ -1,6 +1,5 @@
-import { and, eq } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
+import { claimTripArrival, type TripRow } from '../../repositories/spacecraft-trips.js';
 import { handleMineArrival, handleMiningReturnArrival } from './trip-handlers.js';
 import {
   handleCombatTripArrival,
@@ -23,7 +22,7 @@ export interface TripArrivalResult {
 }
 
 export async function settleTripArrivalDetailed(
-  trip: typeof spacecraftTrips.$inferSelect,
+  trip: TripRow,
   contextOrNow?: GameExecutionContext | Date
 ): Promise<TripArrivalResult> {
   const db = getDb();
@@ -32,11 +31,7 @@ export async function settleTripArrivalDetailed(
   return db.transaction(async (tx) => {
     // Claim the trip atomically. Overlapping scheduler ticks may race each other, and a station
     // destruction may have cancelled it since it was read.
-    const [claimed] = await tx
-      .update(spacecraftTrips)
-      .set({ status: 'arrived' })
-      .where(and(eq(spacecraftTrips.id, trip.id), eq(spacecraftTrips.status, 'traveling')))
-      .returning({ id: spacecraftTrips.id });
+    const claimed = await claimTripArrival(tx, trip.id);
 
     if (!claimed) return { settled: false, events: [] };
 
@@ -59,7 +54,7 @@ export async function settleTripArrivalDetailed(
 }
 
 export async function settleTripArrival(
-  trip: typeof spacecraftTrips.$inferSelect,
+  trip: TripRow,
   contextOrNow?: GameExecutionContext | Date
 ): Promise<boolean> {
   return (await settleTripArrivalDetailed(trip, contextOrNow)).settled;

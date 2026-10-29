@@ -122,3 +122,40 @@ export function listTravelingTripsBySpacecraftForUpdate(tx: Tx, stationSpacecraf
 export async function cancelTrip(tx: Tx, id: string) {
   await tx.update(spacecraftTrips).set({ status: 'cancelled' }).where(eq(spacecraftTrips.id, id));
 }
+
+/** Ships of the assignment that are already flying home. */
+export async function sumHomeboundGroupSize(db: QueryDb, assignmentId: string) {
+  const [homebound] = await db
+    .select({ amount: sql<number>`coalesce(sum(${spacecraftTrips.groupSize}), 0)::int` })
+    .from(spacecraftTrips)
+    .where(
+      and(
+        eq(spacecraftTrips.assignmentId, assignmentId),
+        eq(spacecraftTrips.purpose, 'mining_return'),
+        eq(spacecraftTrips.status, 'traveling')
+      )
+    );
+  return homebound?.amount ?? 0;
+}
+
+export function listTravelingTripsBySpacecraft(db: QueryDb, stationSpacecraftIds: string[]) {
+  return db
+    .select()
+    .from(spacecraftTrips)
+    .where(
+      and(
+        inArray(spacecraftTrips.stationSpacecraftId, stationSpacecraftIds),
+        eq(spacecraftTrips.status, 'traveling')
+      )
+    );
+}
+
+/** Marks a traveling trip arrived; false if another worker or a cancellation got there first. */
+export async function claimTripArrival(tx: Tx, id: string) {
+  const [claimed] = await tx
+    .update(spacecraftTrips)
+    .set({ status: 'arrived' })
+    .where(and(eq(spacecraftTrips.id, id), eq(spacecraftTrips.status, 'traveling')))
+    .returning({ id: spacecraftTrips.id });
+  return claimed !== undefined;
+}

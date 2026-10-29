@@ -222,3 +222,51 @@ export function listAsteroidPositionsInSector(db: QueryDb, sectorId: string) {
     .from(asteroids)
     .where(eq(asteroids.sectorId, sectorId));
 }
+
+/** Locks the assignment and returns it with its station and asteroid positions. */
+export async function findAssignmentRouteForUpdate(tx: Tx, id: string) {
+  const [row] = await tx
+    .select({
+      id: asteroidAssignments.id,
+      stationId: asteroidAssignments.stationId,
+      asteroidId: asteroidAssignments.asteroidId,
+      assignedAmount: asteroidAssignments.assignedAmount,
+      spacecraftKey: asteroidAssignments.spacecraftKey,
+      stationX: stations.x,
+      stationY: stations.y,
+      asteroidX: asteroids.x,
+      asteroidY: asteroids.y,
+      recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
+    })
+    .from(asteroidAssignments)
+    .innerJoin(stations, eq(asteroidAssignments.stationId, stations.id))
+    .innerJoin(asteroids, eq(asteroidAssignments.asteroidId, asteroids.id))
+    .where(eq(asteroidAssignments.id, id))
+    .for('update', { of: asteroidAssignments });
+  return row;
+}
+
+export async function updateAsteroidAssignment(
+  tx: Tx,
+  id: string,
+  values: Partial<typeof asteroidAssignments.$inferInsert>
+) {
+  await tx.update(asteroidAssignments).set(values).where(eq(asteroidAssignments.id, id));
+}
+
+export async function deleteAsteroidAssignment(tx: Tx, id: string) {
+  await tx.delete(asteroidAssignments).where(eq(asteroidAssignments.id, id));
+}
+
+export async function hasAsteroidAssignments(db: QueryDb, asteroidId: string) {
+  const [row] = await db
+    .select({ id: asteroidAssignments.id })
+    .from(asteroidAssignments)
+    .where(eq(asteroidAssignments.asteroidId, asteroidId))
+    .limit(1);
+  return row !== undefined;
+}
+
+export async function deleteAsteroid(tx: Tx, id: string) {
+  await tx.delete(asteroids).where(eq(asteroids.id, id));
+}

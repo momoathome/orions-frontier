@@ -289,3 +289,8 @@ export function listActiveStationPositionsInSector(db: QueryDb, sectorId: string
     .from(stations)
     .where(and(eq(stations.sectorId, sectorId), isNull(stations.destroyedAt)));
 }
+
+/** Every station the user ever founded, destroyed ones included. */
+export function listStationIdsByUser(db: QueryDb, userId: string) {
+  return db.select({ id: stations.id }).from(stations).where(eq(stations.userId, userId));
+}

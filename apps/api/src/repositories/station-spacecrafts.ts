@@ -243,3 +243,13 @@ export async function addDockedSpacecraft(
       set: { amount: sql`${stationSpacecrafts.amount} + ${values.amount}` },
     });
 }
+
+export function listStationSpacecraftKeysByStations(db: QueryDb, stationIds: string[]) {
+  return db
+    .select({
+      id: stationSpacecrafts.id,
+      spacecraftKey: stationSpacecrafts.spacecraftKey,
+    })
+    .from(stationSpacecrafts)
+    .where(inArray(stationSpacecrafts.stationId, stationIds));
+}
