@@ -65,14 +65,23 @@ const submitLabel = computed(() => {
   return `Assign ${assignAmount.value} ${assignAmount.value === 1 ? 'miner' : 'miners'}`;
 });
 
+// Never go past the idle count: no warning line, no failing preview, so the modal keeps its size.
+watch([assignAmount, availableAmount], ([amount, available]) => {
+  if (available > 0 && amount > available) assignAmount.value = available;
+});
+
 let previewRequest = 0;
 watch(
   [selectedSpacecraftKey, assignAmount],
   async ([spacecraftKey, minerCount]) => {
     const requestId = ++previewRequest;
-    preview.value = null;
     previewError.value = null;
-    if (!spacecraftKey || minerCount < 1) return;
+    // Keep the last forecast on screen while the next one loads, so the modal keeps its size.
+    if (!spacecraftKey || minerCount < 1) {
+      preview.value = null;
+      previewLoading.value = false;
+      return;
+    }
 
     previewLoading.value = true;
     try {
@@ -152,6 +161,7 @@ async function submit() {
             type="button"
             aria-label="Fewer miners"
             class="ui-btn ui-btn-icon h-10 w-10 text-base"
+            :disabled="assignAmount <= 1"
             @click="assignAmount = Math.max(1, assignAmount - 1)"
           >
             −
@@ -170,24 +180,31 @@ async function submit() {
             type="button"
             aria-label="More miners"
             class="ui-btn ui-btn-icon h-10 w-10 text-base"
+            :disabled="assignAmount >= availableAmount"
             @click="assignAmount = assignAmount + 1"
           >
             +
           </button>
-          <button type="button" class="ui-btn" @click="assignAmount = Math.max(1, availableAmount)">
+          <button
+            type="button"
+            class="ui-btn"
+            :disabled="assignAmount >= availableAmount"
+            @click="assignAmount = Math.max(1, availableAmount)"
+          >
             Max
           </button>
         </div>
-        <span v-if="assignAmount > availableAmount" class="text-[13px] text-ui-red">
-          Only {{ availableAmount }} available.
-        </span>
       </div>
 
       <section class="flex flex-col gap-2">
         <h3 class="ui-label">Forecast</h3>
-        <span v-if="previewLoading" class="animate-pulse text-ui-muted">Calculating…</span>
-        <span v-else-if="previewError" class="text-ui-red">{{ previewError }}</span>
-        <dl v-else-if="preview" class="grid grid-cols-3 gap-2.5">
+        <span v-if="previewError" class="text-ui-red">{{ previewError }}</span>
+        <dl
+          v-else-if="preview"
+          class="grid grid-cols-3 gap-2.5 transition-opacity"
+          :class="{ 'opacity-60': previewLoading }"
+          :aria-busy="previewLoading"
+        >
           <div class="ui-card gap-0.5 p-3">
             <dt class="text-xs text-ui-muted">Flight</dt>
             <dd class="ui-num text-base text-ui-bright">
@@ -223,6 +240,7 @@ async function submit() {
             </dd>
           </div>
         </dl>
+        <span v-else-if="previewLoading" class="animate-pulse text-ui-muted">Calculating…</span>
       </section>
 
       <p v-if="assignError" class="text-ui-red">{{ assignError }}</p>

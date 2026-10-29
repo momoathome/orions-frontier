@@ -416,7 +416,7 @@ watch(canBypassScanner, (allowed) => {
         </div>
 
         <!-- Detail panels float over the map so opening one never moves it. -->
-        <div class="absolute inset-y-0 right-0 z-20 flex shadow-2xl shadow-black/60">
+        <div class="absolute inset-y-0 right-0 z-20 flex cursor-default shadow-2xl shadow-black/60">
           <StationPanel
             v-if="stationPanelOpen && stationId"
             v-model:section="stationSection"
