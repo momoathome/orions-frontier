@@ -18,7 +18,7 @@ import {
 import { getDb } from '../lib/db/index.js';
 import { logbookEntries } from '../lib/db/schema/logbook-entries.js';
 import { stations } from '../lib/db/schema/stations.js';
-import type { PlaytestCompletionEvent } from '../lib/playtest/events.js';
+import type { PlaytestCompletionEvent } from '../lib/completion-events.js';
 
 type NewEntry = typeof logbookEntries.$inferInsert;
 

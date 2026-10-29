@@ -13,7 +13,7 @@ import {
   getSpacecraft,
   requireSpacecraft,
 } from '@orions-frontier/game-config';
-import { getDb } from '../lib/db/index.js';
+import { getDb, type Tx } from '../lib/db/index.js';
 import { asteroids } from '../lib/db/schema/asteroids.js';
 import { sectors } from '../lib/db/schema/sectors.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
@@ -35,7 +35,7 @@ import {
   resolveGameExecutionContext,
   type GameExecutionContext,
 } from '../lib/game-execution-context.js';
-import { completionEventId, type PlaytestCompletionEvent } from '../lib/playtest/events.js';
+import { completionEventId, type PlaytestCompletionEvent } from '../lib/completion-events.js';
 
 const sectorCenter = (sectorX: number, sectorY: number) => ({
   x: sectorX * WORLD_CONFIG.SECTOR.WIDTH,
@@ -224,11 +224,7 @@ export async function getKnownSectors(userId: string, stationId: string): Promis
     );
 }
 
-async function lockAvailableShip(
-  tx: Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0],
-  stationId: string,
-  role?: 'miner'
-) {
+async function lockAvailableShip(tx: Tx, stationId: string, role?: 'miner') {
   const rows = await tx
     .select({
       stationSpacecraftId: stationSpacecrafts.id,
@@ -349,7 +345,7 @@ export async function startExpedition(
 }
 
 async function colonyPosition(
-  tx: Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0],
+  tx: Tx,
   sector: { id: string; seed: string; sectorX: number; sectorY: number },
   userId: string
 ) {

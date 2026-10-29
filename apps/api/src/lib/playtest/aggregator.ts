@@ -2,7 +2,7 @@ import { entriesOf, resourceKeys, type ResourceMap } from '@orions-frontier/shar
 import type { BotDecisionOutcome } from '../../services/bot/bot.service.js';
 import { BOT_RESOURCE_PREFERENCE_WEIGHTS } from '../../services/bot/goal-economy.js';
 import type { WorldTickResult } from '../../services/simulation.service.js';
-import type { PlaytestCompletionEvent } from './events.js';
+import type { PlaytestCompletionEvent } from '../completion-events.js';
 import type { PlaytestAliasRegistry } from './aliases.js';
 import { milestoneKeys, recordMilestone } from './milestones.js';
 import {

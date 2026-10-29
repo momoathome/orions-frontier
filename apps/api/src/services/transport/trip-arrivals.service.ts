@@ -9,7 +9,7 @@ import {
   resolveGameExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
-import type { PlaytestCompletionEvent } from '../../lib/playtest/events.js';
+import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
 
 // Trip Arrivals Service
 //

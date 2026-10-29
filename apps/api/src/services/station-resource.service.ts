@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, isNull } from 'drizzle-orm';
-import { getDb } from '../lib/db/index.js';
+import { getDb, type Tx } from '../lib/db/index.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -31,7 +31,6 @@ const INITIAL_RESOURCES: Record<ResourceKey, number> = {
 };
 
 type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
-type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 
 const storageCapacity = (warehouseLevel: number): number =>
   calculateBuildingEffect('warehouse', warehouseLevel).find(

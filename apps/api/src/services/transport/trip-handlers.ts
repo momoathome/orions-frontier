@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import type { getDb } from '../../lib/db/index.js';
+import type { Tx } from '../../lib/db/index.js';
 import { asteroids, asteroidAssignments, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
@@ -18,7 +18,7 @@ import {
   completionEventId,
   discardedResources,
   type MiningDeliveryCompletedEvent,
-} from '../../lib/playtest/events.js';
+} from '../../lib/completion-events.js';
 
 // Trip Handlers
 //
@@ -29,7 +29,6 @@ import {
 //   handleMineArrival          purpose='mine'          toType='asteroid'
 //   handleMiningReturnArrival  purpose='mining_return' toType='station'
 
-type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 type Trip = typeof spacecraftTrips.$inferSelect;
 // Each arriving miner claims one load and creates its timed mining return trip.
 export async function handleMineArrival(

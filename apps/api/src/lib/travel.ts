@@ -41,3 +41,29 @@ export function calcArrivesAt(departedAt: Date, distance: number, speed: number)
   const travelMs = travelHours * 3_600_000;
   return new Date(departedAt.getTime() + travelMs);
 }
+
+export interface TimedPath {
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  departedAt: Date;
+  arrivesAt: Date;
+}
+
+export function interpolateWorldPosition(path: TimedPath, now: Date) {
+  const durationMs = path.arrivesAt.getTime() - path.departedAt.getTime();
+  const progress =
+    now < path.departedAt
+      ? 0
+      : durationMs <= 0
+        ? 1
+        : Math.max(0, Math.min(1, (now.getTime() - path.departedAt.getTime()) / durationMs));
+  const moving = now >= path.departedAt && now < path.arrivesAt && durationMs > 0;
+  return {
+    x: path.fromX + (path.toX - path.fromX) * progress,
+    y: path.fromY + (path.toY - path.fromY) * progress,
+    velocityX: moving ? ((path.toX - path.fromX) / durationMs) * 1_000 : 0,
+    velocityY: moving ? ((path.toY - path.fromY) / durationMs) * 1_000 : 0,
+  };
+}
