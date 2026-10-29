@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { required, type ResourceMap } from '@orions-frontier/shared';
-import type { Tx } from '../lib/db/index.js';
+import type { QueryDb, Tx } from '../lib/db/index.js';
+import { asteroidAssignments } from '../lib/db/schema/asteroids.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
 
 export type TripRow = typeof spacecraftTrips.$inferSelect;
@@ -16,4 +17,23 @@ export async function insertTrip(tx: Tx, values: typeof spacecraftTrips.$inferIn
 
 export async function updateTripCargo(tx: Tx, id: string, cargoManifest: ResourceMap) {
   await tx.update(spacecraftTrips).set({ cargoManifest }).where(eq(spacecraftTrips.id, id));
+}
+
+/** Trips still traveling for any assignment on the asteroid. */
+export function listTravelingTripsByAsteroid(db: QueryDb, asteroidId: string) {
+  return db
+    .select({
+      id: spacecraftTrips.id,
+      assignmentId: spacecraftTrips.assignmentId,
+      purpose: spacecraftTrips.purpose,
+      groupSize: spacecraftTrips.groupSize,
+      departedAt: spacecraftTrips.departedAt,
+      arrivesAt: spacecraftTrips.arrivesAt,
+      cargoManifest: spacecraftTrips.cargoManifest,
+    })
+    .from(spacecraftTrips)
+    .innerJoin(asteroidAssignments, eq(spacecraftTrips.assignmentId, asteroidAssignments.id))
+    .where(
+      and(eq(asteroidAssignments.asteroidId, asteroidId), eq(spacecraftTrips.status, 'traveling'))
+    );
 }

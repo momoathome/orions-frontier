@@ -1,9 +1,12 @@
 import { required } from '@orions-frontier/shared';
-import { and, eq } from 'drizzle-orm';
 import type { getDb } from '../../lib/db/index.js';
-import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
-import { sectors } from '../../lib/db/schema/sectors.js';
-import { spawnSlots } from '../../lib/db/schema/spawn-slots.js';
+import { insertAsteroids, insertAsteroidVeins } from '../../repositories/asteroids.js';
+import {
+  findSectorByCoordinates,
+  insertSectorIfAbsent,
+  listSectorCoordinates,
+} from '../../repositories/sectors.js';
+import { insertSpawnSlots } from '../../repositories/spawn-slots.js';
 import { generateSector } from '../../lib/world-gen/sector-gen.js';
 import type { GeneratedAsteroid, SectorRole } from '../../lib/world-gen/types.js';
 import {
@@ -33,7 +36,7 @@ export async function insertGeneratedAsteroids(
       createdAt: context.now,
       updatedAt: context.now,
     }));
-    await db.insert(asteroids).values(asteroidRows);
+    await insertAsteroids(db, asteroidRows);
 
     const veins = asteroidRows.flatMap((asteroid, index) =>
       required(batch[index], 'batch[index]').veins.map((vein) => ({
@@ -46,7 +49,7 @@ export async function insertGeneratedAsteroids(
         createdAt: context.now,
       }))
     );
-    if (veins.length > 0) await db.insert(asteroidVeins).values(veins);
+    if (veins.length > 0) await insertAsteroidVeins(db, veins);
   }
 }
 
@@ -58,32 +61,25 @@ export async function ensureSector(
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<{ id: string; created: boolean; role: SectorRole }> {
   const generated = generateSector(sectorX, sectorY, context.worldSeed, role);
-  const [created] = await db
-    .insert(sectors)
-    .values({
-      id: context.nextId('sector'),
-      sectorX,
-      sectorY,
-      role,
-      seed: generated.seed,
-      createdAt: context.now,
-    })
-    .onConflictDoNothing({ target: [sectors.sectorX, sectors.sectorY] })
-    .returning({ id: sectors.id });
+  const created = await insertSectorIfAbsent(db, {
+    id: context.nextId('sector'),
+    sectorX,
+    sectorY,
+    role,
+    seed: generated.seed,
+    createdAt: context.now,
+  });
 
   if (!created) {
-    const [existing] = await db
-      .select({ id: sectors.id, role: sectors.role })
-      .from(sectors)
-      .where(and(eq(sectors.sectorX, sectorX), eq(sectors.sectorY, sectorY)))
-      .limit(1);
+    const existing = await findSectorByCoordinates(db, sectorX, sectorY);
     if (!existing) throw new Error('Sector creation raced without a persisted winner');
     return { id: existing.id, created: false, role: existing.role };
   }
 
   await insertGeneratedAsteroids(db, created.id, generated.asteroids, context);
   if (generated.spawnSlots.length > 0) {
-    await db.insert(spawnSlots).values(
+    await insertSpawnSlots(
+      db,
       generated.spawnSlots.map((slot) => ({
         id: context.nextId('spawn-slot'),
         sectorId: created.id,
@@ -102,9 +98,7 @@ export async function openNextSettlementSector(
   db: SectorDb,
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<string> {
-  const existing = await db
-    .select({ sectorX: sectors.sectorX, sectorY: sectors.sectorY })
-    .from(sectors);
+  const existing = await listSectorCoordinates(db);
   const occupied = new Set(existing.map(({ sectorX, sectorY }) => `${sectorX},${sectorY}`));
   const candidateMap = new Map<string, { sectorX: number; sectorY: number }>();
   for (const { sectorX, sectorY } of existing) {

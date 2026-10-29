@@ -1,9 +1,12 @@
-import { and, between, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
-import { asteroids, asteroidVeins, asteroidAssignments } from '../../lib/db/schema/asteroids.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { stationResearch } from '../../lib/db/schema/station-research.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import {
+  findAsteroid,
+  listAsteroidAssignmentsWithOwner,
+  listAsteroidSummariesInChunks,
+  listAsteroidVeins,
+} from '../../repositories/asteroids.js';
+import { listTravelingTripsByAsteroid } from '../../repositories/spacecraft-trips.js';
+import { listCompletedResearchByStations } from '../../repositories/station-research.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
 import type {
   AsteroidDetail,
@@ -35,31 +38,7 @@ export const getVisibleChunkAsteroids = async (
   revealedIds: ReadonlySet<string> = new Set()
 ): Promise<VisibleAsteroid[]> => {
   const db = getDb();
-  const rows = await db
-    .select({
-      id: asteroids.id,
-      x: asteroids.x,
-      y: asteroids.y,
-      chunkX: asteroids.chunkX,
-      chunkY: asteroids.chunkY,
-      size: asteroids.size,
-      primaryResourceKey: asteroidVeins.resourceKey,
-      remainingFraction: sql<number>`(
-        SELECT LEAST(1, COALESCE(SUM(v.remaining_amount)::float / NULLIF(SUM(v.initial_amount), 0), 1))
-        FROM asteroid_veins v WHERE v.asteroid_id = ${asteroids.id}
-      )`,
-    })
-    .from(asteroids)
-    .leftJoin(
-      asteroidVeins,
-      and(eq(asteroidVeins.asteroidId, asteroids.id), eq(asteroidVeins.veinType, 'primary'))
-    )
-    .where(
-      and(
-        between(asteroids.chunkX, params.minChunkX, params.maxChunkX),
-        between(asteroids.chunkY, params.minChunkY, params.maxChunkY)
-      )
-    );
+  const rows = await listAsteroidSummariesInChunks(db, params);
   if (stats) stats.asteroidCandidates = rows.length;
 
   return rows.map((row) =>
@@ -96,8 +75,8 @@ export const getAsteroidById = async (
 ): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
-  const [[row], coverages, revealedIds] = await Promise.all([
-    db.select().from(asteroids).where(eq(asteroids.id, id)).limit(1),
+  const [row, coverages, revealedIds] = await Promise.all([
+    findAsteroid(db, id),
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
     scannerBypass ? Promise.resolve(new Set<string>()) : getUserRevealedAsteroidIds(userId),
   ]);
@@ -106,34 +85,9 @@ export const getAsteroidById = async (
   const scanned = scannerBypass || revealedIds.has(id) || isPointVisible(coverages, row);
 
   const [veins, assignmentRows, travelingTrips] = await Promise.all([
-    db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, id)),
-    db
-      .select({
-        id: asteroidAssignments.id,
-        stationId: asteroidAssignments.stationId,
-        spacecraftKey: asteroidAssignments.spacecraftKey,
-        assignedAmount: asteroidAssignments.assignedAmount,
-        assignedAt: asteroidAssignments.assignedAt,
-        recallRequestedAt: asteroidAssignments.recallRequestedAt,
-        recallRequestedAmount: asteroidAssignments.recallRequestedAmount,
-        ownerUserId: stations.userId,
-      })
-      .from(asteroidAssignments)
-      .innerJoin(stations, eq(stations.id, asteroidAssignments.stationId))
-      .where(eq(asteroidAssignments.asteroidId, id)),
-    db
-      .select({
-        id: spacecraftTrips.id,
-        assignmentId: spacecraftTrips.assignmentId,
-        purpose: spacecraftTrips.purpose,
-        groupSize: spacecraftTrips.groupSize,
-        departedAt: spacecraftTrips.departedAt,
-        arrivesAt: spacecraftTrips.arrivesAt,
-        cargoManifest: spacecraftTrips.cargoManifest,
-      })
-      .from(spacecraftTrips)
-      .innerJoin(asteroidAssignments, eq(spacecraftTrips.assignmentId, asteroidAssignments.id))
-      .where(and(eq(asteroidAssignments.asteroidId, id), eq(spacecraftTrips.status, 'traveling'))),
+    listAsteroidVeins(db, id),
+    listAsteroidAssignmentsWithOwner(db, id),
+    listTravelingTripsByAsteroid(db, id),
   ]);
 
   // Miners fly individually; each assignment shows its next arrival.
@@ -167,20 +121,7 @@ export const getAsteroidById = async (
     ),
   ];
   const completedResearch =
-    ownStationIds.length > 0
-      ? await getDb()
-          .select({
-            stationId: stationResearch.stationId,
-            technologyKey: stationResearch.technologyKey,
-          })
-          .from(stationResearch)
-          .where(
-            and(
-              inArray(stationResearch.stationId, ownStationIds),
-              eq(stationResearch.status, 'completed')
-            )
-          )
-      : [];
+    ownStationIds.length > 0 ? await listCompletedResearchByStations(getDb(), ownStationIds) : [];
   const completedByStation = new Map<string, Set<string>>();
   for (const research of completedResearch) {
     const technologies = completedByStation.get(research.stationId) ?? new Set<string>();

@@ -1,10 +1,14 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import type { QueryDb, Tx } from '../lib/db/index.js';
+import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { botControllers } from '../lib/db/schema/bot-controllers.js';
+import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { users } from '../lib/db/schema/users.js';
 
 export type StationRow = typeof stations.$inferSelect;
+
+/** Narrowed db so scanner checks can run on a transaction or a stub. */
+type SelectDb = Pick<ReturnType<typeof getDb>, 'select'>;
 
 export async function findStation(db: QueryDb, id: string) {
   const [row] = await db.select().from(stations).where(eq(stations.id, id)).limit(1);
@@ -55,4 +59,21 @@ export function listActiveStationOwners(db: QueryDb) {
     .innerJoin(users, eq(users.id, stations.userId))
     .leftJoin(botControllers, eq(botControllers.userId, users.id))
     .where(isNull(stations.destroyedAt));
+}
+
+/** The user's stations with their scanner level (destroyed stations included). */
+export function listScannerStationsByUser(db: SelectDb, userId: string) {
+  return db
+    .select({
+      stationId: stations.id,
+      x: stations.x,
+      y: stations.y,
+      level: stationBuildings.level,
+    })
+    .from(stations)
+    .innerJoin(
+      stationBuildings,
+      and(eq(stationBuildings.stationId, stations.id), eq(stationBuildings.buildingKey, 'scanner'))
+    )
+    .where(eq(stations.userId, userId));
 }

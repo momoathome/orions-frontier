@@ -1,10 +1,7 @@
-import { and, eq } from 'drizzle-orm';
 import { calculateScannerRange } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
-import { asteroidAssignments } from '../../lib/db/schema/asteroids.js';
-import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import { listWorkedAsteroidIdsByUser } from '../../repositories/asteroids.js';
+import { listScannerStationsByUser } from '../../repositories/stations.js';
 
 export interface WorldPoint {
   x: number;
@@ -35,19 +32,7 @@ export async function getUserScannerCoverages(
   userId: string,
   db: ScannerDb = getDb()
 ): Promise<ScannerCoverage[]> {
-  const rows = await db
-    .select({
-      stationId: stations.id,
-      x: stations.x,
-      y: stations.y,
-      level: stationBuildings.level,
-    })
-    .from(stations)
-    .innerJoin(
-      stationBuildings,
-      and(eq(stationBuildings.stationId, stations.id), eq(stationBuildings.buildingKey, 'scanner'))
-    )
-    .where(eq(stations.userId, userId));
+  const rows = await listScannerStationsByUser(db, userId);
 
   return rows.map((row) => ({
     stationId: row.stationId,
@@ -62,19 +47,7 @@ export async function getUserRevealedAsteroidIds(
   userId: string,
   db: ScannerDb = getDb()
 ): Promise<Set<string>> {
-  const rows = await db
-    .selectDistinct({ asteroidId: asteroidAssignments.asteroidId })
-    .from(asteroidAssignments)
-    .innerJoin(stations, eq(stations.id, asteroidAssignments.stationId))
-    .innerJoin(
-      spacecraftTrips,
-      and(
-        eq(spacecraftTrips.assignmentId, asteroidAssignments.id),
-        eq(spacecraftTrips.purpose, 'mining_return')
-      )
-    )
-    .where(eq(stations.userId, userId));
-  return new Set(rows.map((row) => row.asteroidId));
+  return new Set(await listWorkedAsteroidIdsByUser(db, userId));
 }
 
 export function isPointVisible(coverages: readonly ScannerCoverage[], point: WorldPoint): boolean {
