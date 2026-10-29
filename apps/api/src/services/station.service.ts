@@ -1,6 +1,7 @@
-import { and, eq, isNull, asc, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { stations } from '../lib/db/schema/stations.js';
+import { users } from '../lib/db/schema/users.js';
 import { spawnSlots } from '../lib/db/schema/spawn-slots.js';
 import { sectors } from '../lib/db/schema/sectors.js';
 import { seedStationResources } from './station-resource.service.js';
@@ -12,7 +13,11 @@ import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { generateStarterPocket } from '../lib/world-gen/sector-gen.js';
 import { insertGeneratedAsteroids, openNextSettlementSector } from './sector.service.js';
 import { WORLD_CONFIG } from '../lib/world-config.js';
-import { calculateScannerRange } from '@orions-frontier/game-config';
+import {
+  ATTACK_PROTECTION_DURATION_MS,
+  calculateScannerRange,
+  currentIntegrity,
+} from '@orions-frontier/game-config';
 import { getUserScannerCoverages } from './scanner-visibility.service.js';
 import { getStationVisualProfiles, starterStationVisualProfile } from './station-visual.service.js';
 import {
@@ -33,6 +38,7 @@ const toStation = (
   y: row.y,
   scannerRange,
   visualProfile,
+  integrity: currentIntegrity(row.integrity, row.integrityUpdatedAt, new Date()),
   createdAt: row.createdAt.toISOString(),
 });
 
@@ -41,7 +47,9 @@ export const ownStation = async (userId: string, stationId: string): Promise<str
   const [station] = await getDb()
     .select({ id: stations.id })
     .from(stations)
-    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    )
     .limit(1);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
   return station.id;
@@ -50,7 +58,10 @@ export const ownStation = async (userId: string, stationId: string): Promise<str
 export const getUserStations = async (userId: string): Promise<Station[]> => {
   const db = getDb();
   const [rows, coverages] = await Promise.all([
-    db.select().from(stations).where(eq(stations.userId, userId)),
+    db
+      .select()
+      .from(stations)
+      .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt))),
     getUserScannerCoverages(userId),
   ]);
   const ranges = new Map(coverages.map((coverage) => [coverage.stationId, coverage.range]));
@@ -69,19 +80,34 @@ export const createStation = async (
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(1869772101)`);
     if (slotType === 'player') {
-      const [existing] = await tx
-        .select({ id: stations.id })
+      const owned = await tx
+        .select({ destroyedAt: stations.destroyedAt })
         .from(stations)
-        .where(eq(stations.userId, userId))
-        .limit(1);
-      if (existing) {
+        .where(eq(stations.userId, userId));
+      if (owned.some((station) => !station.destroyedAt)) {
         throw new AppError(ErrorCode.ALREADY_EXISTS, 'User already has an initial station');
+      }
+      // A restart after losing every station renews the attack protection.
+      if (owned.length > 0) {
+        await tx
+          .update(users)
+          .set({
+            protectedUntil: new Date(context.now.getTime() + ATTACK_PROTECTION_DURATION_MS),
+            attackProtectionBrokenAt: null,
+          })
+          .where(eq(users.id, userId));
       }
     } else if (data.sectorId) {
       const [existing] = await tx
         .select()
         .from(stations)
-        .where(and(eq(stations.userId, userId), eq(stations.sectorId, data.sectorId)))
+        .where(
+          and(
+            eq(stations.userId, userId),
+            eq(stations.sectorId, data.sectorId),
+            isNull(stations.destroyedAt)
+          )
+        )
         .limit(1);
       if (existing) return toStation(existing, calculateScannerRange(1));
     }

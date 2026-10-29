@@ -19,8 +19,11 @@ const distance = computed(() =>
 );
 
 const fighters = ref<StationSpacecraftWithDefinition[]>([]);
-const selectedSpacecraftKey = ref('');
-const amount = ref(1);
+const amounts = ref<Record<string, number>>({});
+const fleet = computed(() =>
+  Object.fromEntries(Object.entries(amounts.value).filter(([, amount]) => amount > 0))
+);
+const hasShips = computed(() => Object.keys(fleet.value).length > 0);
 const feedback = ref<string | null>(null);
 const sending = ref(false);
 
@@ -34,9 +37,11 @@ watch(
         `/stations/${stationId}/spacecrafts`
       );
       fighters.value = fleetResponse.spacecrafts.filter(
-        (entry) => entry.definition.role === 'fighter' && entry.amount > entry.lockedAmount
+        (entry) =>
+          (entry.definition.role === 'fighter' || entry.definition.role === 'bomber') &&
+          entry.amount > entry.lockedAmount
       );
-      selectedSpacecraftKey.value = fighters.value[0]?.definition.key ?? '';
+      amounts.value = Object.fromEntries(fighters.value.map((entry) => [entry.definition.key, 0]));
     } catch (error) {
       feedback.value = apiErrorMessage(error, 'Target data could not be loaded');
     }
@@ -45,14 +50,13 @@ watch(
 );
 
 async function attack() {
-  if (!origin || !selectedSpacecraftKey.value) return;
+  if (!origin || !hasShips.value) return;
   sending.value = true;
   feedback.value = null;
   try {
     await apiClient.post(`/stations/${origin.id}/attacks`, {
       targetStationId: station.id,
-      spacecraftKey: selectedSpacecraftKey.value,
-      amount: amount.value,
+      fleet: fleet.value,
     });
     feedback.value = 'Attack launched.';
   } catch (error) {
@@ -95,6 +99,15 @@ async function attack() {
           <span class="text-white/30">Distance</span>
           <span class="tabular-nums text-white/65">{{ distance.toFixed(0) }}</span>
         </div>
+        <div
+          v-if="station.integrity !== null"
+          class="flex justify-between border-b border-white/5 pb-1"
+        >
+          <span class="text-white/30">Integrity</span>
+          <span class="tabular-nums text-white/65">
+            {{ station.isOwn ? station.integrity : `≤ ${station.integrity}` }}%
+          </span>
+        </div>
       </div>
 
       <div class="flex flex-col gap-2 border-l border-white/5 pl-5">
@@ -103,34 +116,35 @@ async function attack() {
           Outside scanner range. Upgrade a scanner or found a station nearby to target it.
         </p>
         <template v-else-if="fighters.length > 0">
-          <select
-            v-model="selectedSpacecraftKey"
-            class="h-7 rounded border border-white/10 bg-[#080d18] px-2 text-[10px] text-white/70"
+          <label
+            v-for="fighter in fighters"
+            :key="fighter.definition.key"
+            class="flex items-center justify-between gap-2 text-[10px] text-white/60"
           >
-            <option
-              v-for="fighter in fighters"
-              :key="fighter.definition.key"
-              :value="fighter.definition.key"
-            >
-              {{ fighter.definition.name }} ({{ fighter.amount - fighter.lockedAmount }} ready)
-            </option>
-          </select>
-          <input
-            v-model.number="amount"
-            type="number"
-            min="1"
-            class="h-7 rounded border border-white/10 bg-white/5 px-2 text-[10px]"
-          />
+            <span>
+              {{ fighter.definition.name }}
+              <span class="text-white/30">
+                {{ fighter.definition.role }} · {{ fighter.amount - fighter.lockedAmount }} ready
+              </span>
+            </span>
+            <input
+              v-model.number="amounts[fighter.definition.key]"
+              type="number"
+              min="0"
+              :max="fighter.amount - fighter.lockedAmount"
+              class="h-7 w-20 rounded border border-white/10 bg-white/5 px-2 text-[10px]"
+            />
+          </label>
           <button
             type="button"
-            :disabled="sending || amount < 1"
+            :disabled="sending || !hasShips"
             class="h-7 rounded border border-red-400/30 text-[9px] uppercase tracking-widest text-red-300 disabled:opacity-30"
             @click="attack"
           >
             {{ sending ? 'Launching…' : 'Attack' }}
           </button>
         </template>
-        <p v-else class="text-[9px] text-white/25">No fighter is available.</p>
+        <p v-else class="text-[9px] text-white/25">No fighter or bomber is available.</p>
         <p v-if="feedback" class="text-[9px] text-white/50">{{ feedback }}</p>
       </div>
     </div>

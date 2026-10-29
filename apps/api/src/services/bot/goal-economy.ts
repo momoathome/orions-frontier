@@ -1,7 +1,7 @@
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 import {
   getSpacecraft,
-  COLONIZATION_COST,
+  calculateColonizationCost,
   calculateBuildingUpgradeCost,
   calculateDefenseUpgradeCost,
   calculateDefenseUpgradeEffect,
@@ -1458,7 +1458,8 @@ export async function generateEstablishColonyCandidate(
   if (!nearest) return null;
 
   // Check if we can afford colonization
-  const canAffordColony = entriesOf(COLONIZATION_COST).every(
+  const colonyCost = calculateColonizationCost(state.ownStations.length);
+  const canAffordColony = entriesOf(colonyCost).every(
     ([key, amount]) => (station.resources[key] ?? 0) >= amount
   );
   if (
@@ -1466,7 +1467,7 @@ export async function generateEstablishColonyCandidate(
     !canAcquireCosts(
       state,
       station,
-      entriesOf(COLONIZATION_COST).map(([resourceKey, amount]) => ({
+      entriesOf(colonyCost).map(([resourceKey, amount]) => ({
         resourceKey,
         amount,
       }))
@@ -1616,11 +1617,12 @@ export async function stepEstablishColony(
   if (supportPreparation) return supportPreparation;
 
   // Check resources
-  const canAffordColony = entriesOf(COLONIZATION_COST).every(
+  const colonyCost = calculateColonizationCost(_state.ownStations.length);
+  const canAffordColony = entriesOf(colonyCost).every(
     ([key, amount]) => (station.resources[key] ?? 0) >= amount
   );
   if (!canAffordColony) {
-    const colonyCosts = entriesOf(COLONIZATION_COST).map(([resourceKey, amount]) => ({
+    const colonyCosts = entriesOf(colonyCost).map(([resourceKey, amount]) => ({
       resourceKey,
       amount,
     }));
@@ -2529,16 +2531,27 @@ export async function stepRaid(
     };
   }
 
+  // Docked bombers join the raid; they only add integrity damage if the fighters win.
+  const fleet: Record<string, number> = { [group.spacecraftKey]: group.amount };
+  for (const row of station.fleets) {
+    const available = row.amount - row.lockedAmount;
+    if (getSpacecraft(row.spacecraftKey)?.role === 'bomber' && available > 0) {
+      fleet[row.spacecraftKey] = available;
+    }
+  }
+  const composition = Object.entries(fleet)
+    .map(([key, amount]) => `${amount}x ${key}`)
+    .join(', ');
+
   return {
     type: 'success',
     intent: {
       type: 'start_attack',
       stationId: station.id,
       targetStationId,
-      spacecraftKey: group.spacecraftKey,
-      amount: group.amount,
+      fleet,
     },
-    reason: `Attacking ${target.name || targetStationId} with ${group.amount}x ${group.spacecraftKey} (${group.totalAttack} attack vs est. ${estimatedDefense} defense)`,
+    reason: `Attacking ${target.name || targetStationId} with ${composition} (${group.totalAttack} attack vs est. ${estimatedDefense} defense)`,
   };
 }
 

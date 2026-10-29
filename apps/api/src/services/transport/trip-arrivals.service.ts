@@ -4,6 +4,7 @@ import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { handleMineArrival, handleMiningReturnArrival } from './trip-handlers.js';
 import { handleCombatTripArrival } from '../combat.service.js';
 import { handleSalvageTripArrival } from '../salvage.service.js';
+import { handleRelocateArrival } from '../station-destruction.service.js';
 import {
   resolveGameExecutionContext,
   type GameExecutionContext,
@@ -27,7 +28,8 @@ export async function settleTripArrivalDetailed(
   const context = resolveGameExecutionContext(contextOrNow).at(trip.arrivesAt);
 
   return db.transaction(async (tx) => {
-    // Claim the trip atomically. Overlapping scheduler ticks may race each other.
+    // Claim the trip atomically. Overlapping scheduler ticks may race each other, and a station
+    // destruction may have cancelled it since it was read.
     const [claimed] = await tx
       .update(spacecraftTrips)
       .set({ status: 'arrived' })
@@ -46,6 +48,8 @@ export async function settleTripArrivalDetailed(
       events = await handleCombatTripArrival(tx, trip, context);
     } else if (trip.purpose === 'salvage' || trip.purpose === 'salvage_return') {
       events = await handleSalvageTripArrival(tx, trip, context);
+    } else if (trip.purpose === 'relocate') {
+      await handleRelocateArrival(tx, trip);
     }
 
     return { settled: true, events };

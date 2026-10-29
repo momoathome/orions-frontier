@@ -372,8 +372,7 @@ test('salvage and attacks still require scanner coverage', async () => {
       userId: viewerId,
       stationId: viewerStationId,
       targetStationId: hiddenTargetStationId,
-      spacecraftKey: 'javelin',
-      amount: 1,
+      fleet: { javelin: 1 },
     }),
     /Target station not found/
   );

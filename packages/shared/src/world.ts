@@ -27,6 +27,8 @@ export interface VisibleStation {
   /** False outside scanner coverage: the visual profile is a neutral placeholder. */
   scanned: boolean;
   visualProfile: StationVisualProfile;
+  /** Exact for own stations, rounded up to a quarter when scanned, null outside coverage. */
+  integrity: number | null;
 }
 
 /** Influence points per investment category; `total` is their sum. */
@@ -63,7 +65,8 @@ export type WorldTripPurpose =
   | 'expedition'
   | 'colonization'
   | 'salvage'
-  | 'salvage_return';
+  | 'salvage_return'
+  | 'relocate';
 
 export interface OwnWorldTrip {
   kind: 'own_trip';

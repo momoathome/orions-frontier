@@ -14,6 +14,8 @@ export interface RealtimeEvents {
     orderId: string;
   };
   world_mission_completed: { missionId: string; missionType: string };
+  /** An attack on one of the player's stations was launched; composition stays hidden. */
+  incoming_attack: { missionId: string; defenderStationId: string; arrivesAt: string };
 }
 
 export type RealtimeEventType = keyof RealtimeEvents;

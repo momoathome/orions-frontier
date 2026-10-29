@@ -20,6 +20,7 @@ export const tripPurposeEnum = pgEnum('trip_purpose', [
   'combat_return',
   'salvage',
   'salvage_return',
+  'relocate',
 ]);
 
 export const tripStatusEnum = pgEnum('trip_status', ['traveling', 'arrived', 'cancelled']);

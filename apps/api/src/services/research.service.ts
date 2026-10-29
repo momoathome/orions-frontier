@@ -1,4 +1,4 @@
-import { and, asc, eq, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm';
 import { AppError, ErrorCode, type ResearchState } from '@orions-frontier/shared';
 import {
   calculateBuildingEffect,
@@ -38,7 +38,9 @@ export async function getResearchState(stationId: string, userId: string): Promi
   const [station] = await db
     .select({ id: stations.id })
     .from(stations)
-    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)));
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    );
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
   const [level, rows] = await Promise.all([
@@ -77,7 +79,9 @@ export async function startResearch(
     const [station] = await tx
       .select({ id: stations.id })
       .from(stations)
-      .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
+      .where(
+        and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+      )
       .for('update');
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 

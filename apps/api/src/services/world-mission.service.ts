@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import {
   required,
   AppError,
@@ -8,7 +8,11 @@ import {
   type FrontierTarget,
   type WorldMission,
 } from '@orions-frontier/shared';
-import { COLONIZATION_COST, getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';
+import {
+  calculateColonizationCost,
+  getSpacecraft,
+  requireSpacecraft,
+} from '@orions-frontier/game-config';
 import { getDb } from '../lib/db/index.js';
 import { asteroids } from '../lib/db/schema/asteroids.js';
 import { sectors } from '../lib/db/schema/sectors.js';
@@ -108,7 +112,9 @@ export async function getFrontierTargets(
     })
     .from(stations)
     .innerJoin(sectors, eq(stations.sectorId, sectors.id))
-    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    )
     .limit(1);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
@@ -160,7 +166,9 @@ export async function getKnownSectors(userId: string, stationId: string): Promis
     })
     .from(stations)
     .innerJoin(sectors, eq(stations.sectorId, sectors.id))
-    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    )
     .limit(1);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
   const [sectorRows, ownStations, fastestShip, hasVectorNavigation] = await Promise.all([
@@ -173,7 +181,10 @@ export async function getKnownSectors(userId: string, stationId: string): Promis
         asc(sectors.sectorX)
       )
       .limit(32),
-    db.select({ sectorId: stations.sectorId }).from(stations).where(eq(stations.userId, userId)),
+    db
+      .select({ sectorId: stations.sectorId })
+      .from(stations)
+      .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt))),
     db
       .select({ spacecraftKey: stationSpacecrafts.spacecraftKey })
       .from(stationSpacecrafts)
@@ -279,7 +290,13 @@ export async function startExpedition(
       })
       .from(stations)
       .innerJoin(sectors, eq(stations.sectorId, sectors.id))
-      .where(and(eq(stations.id, params.stationId), eq(stations.userId, params.userId)))
+      .where(
+        and(
+          eq(stations.id, params.stationId),
+          eq(stations.userId, params.userId),
+          isNull(stations.destroyedAt)
+        )
+      )
       .for('update');
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
@@ -344,7 +361,7 @@ async function colonyPosition(
     tx
       .select({ x: stations.x, y: stations.y })
       .from(stations)
-      .where(eq(stations.sectorId, sector.id)),
+      .where(and(eq(stations.sectorId, sector.id), isNull(stations.destroyedAt))),
     tx
       .select({ x: worldMissions.targetX, y: worldMissions.targetY })
       .from(worldMissions)
@@ -408,7 +425,13 @@ export async function startColonization(
       })
       .from(stations)
       .innerJoin(sectors, eq(stations.sectorId, sectors.id))
-      .where(and(eq(stations.id, params.stationId), eq(stations.userId, params.userId)))
+      .where(
+        and(
+          eq(stations.id, params.stationId),
+          eq(stations.userId, params.userId),
+          isNull(stations.destroyedAt)
+        )
+      )
       .for('update');
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
     const [targetSector] = await tx
@@ -423,9 +446,20 @@ export async function startColonization(
     const [existing] = await tx
       .select({ id: stations.id })
       .from(stations)
-      .where(and(eq(stations.userId, params.userId), eq(stations.sectorId, targetSector.id)))
+      .where(
+        and(
+          eq(stations.userId, params.userId),
+          eq(stations.sectorId, targetSector.id),
+          isNull(stations.destroyedAt)
+        )
+      )
       .limit(1);
     if (existing) throw new AppError(ErrorCode.ALREADY_EXISTS, 'You already have a station there');
+    const [{ owned } = { owned: 0 }] = await tx
+      .select({ owned: count() })
+      .from(stations)
+      .where(and(eq(stations.userId, params.userId), isNull(stations.destroyedAt)));
+    const colonyCost = calculateColonizationCost(owned);
     const [active] = await tx
       .select({ id: worldMissions.id })
       .from(worldMissions)
@@ -449,12 +483,12 @@ export async function startColonization(
     const available = new Map(
       resourceRows.map((resource) => [resource.resourceKey, resource.amount])
     );
-    for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
+    for (const [resourceKey, amount] of entriesOf(colonyCost)) {
       if ((available.get(resourceKey) ?? 0) < amount) {
         throw new AppError(ErrorCode.VALIDATION_ERROR, `Insufficient ${resourceKey}`);
       }
     }
-    for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
+    for (const [resourceKey, amount] of entriesOf(colonyCost)) {
       await tx
         .update(stationResources)
         .set({ amount: sql`${stationResources.amount} - ${amount}` })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { COLONIZATION_COST, resources } from '@orions-frontier/game-config';
+import { calculateColonizationCost, resources } from '@orions-frontier/game-config';
 import {
   entriesOf,
   type KnownSector,
@@ -22,9 +22,14 @@ let unsubscribe: (() => void) | null = null;
 const colonizable = computed(() =>
   sectors.value.filter((sector) => sector.role === 'frontier' && !sector.hasOwnStation)
 );
-const colonizationCostLabel = entriesOf(COLONIZATION_COST)
-  .map(([resourceKey, amount]) => `${amount.toLocaleString()} ${resources[resourceKey].name}`)
-  .join(' · ');
+// Each own station sits in its own sector, so this counts the stations the cost scales with.
+const colonizationCostLabel = computed(() =>
+  entriesOf(
+    calculateColonizationCost(sectors.value.filter((sector) => sector.hasOwnStation).length)
+  )
+    .map(([resourceKey, amount]) => `${amount.toLocaleString()} ${resources[resourceKey].name}`)
+    .join(' · ')
+);
 
 const formatDuration = (hours: number | null) => {
   if (hours === null) return 'no ship available';

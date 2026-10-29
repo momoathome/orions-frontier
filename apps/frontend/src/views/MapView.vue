@@ -31,6 +31,7 @@ const scannerBypass = ref(localStorage.getItem('dev_scanner_bypass') === 'true')
 
 const stationId = ref<string | null>(null);
 const stationName = ref<string | undefined>(undefined);
+const stationIntegrity = ref<number | undefined>(undefined);
 const stationPanelOpen = ref(false);
 const isDragging = ref(false);
 const hoveringEntity = ref(false);
@@ -56,6 +57,7 @@ async function loadUserStation(): Promise<StationInfo | null> {
     if (first) {
       stationId.value = first.id;
       stationName.value = first.name;
+      stationIntegrity.value = first.integrity;
       return {
         id: first.id,
         x: first.x,
@@ -381,6 +383,7 @@ watch(canBypassScanner, (allowed) => {
         v-if="stationPanelOpen && stationId"
         :station-id="stationId"
         :station-name="stationName"
+        :integrity="stationIntegrity"
         @close="stationPanelOpen = false"
       />
     </transition>

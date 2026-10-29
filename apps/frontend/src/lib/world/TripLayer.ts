@@ -61,6 +61,7 @@ const PURPOSE_COLOR: Record<Exclude<ActiveTrip['purpose'], 'mine' | 'mining_retu
   colonization: 0xffcc66,
   salvage: 0xbb88ff,
   salvage_return: 0xddbbff,
+  relocate: 0x88ccaa,
 };
 
 // ponytail: cap per-trip dots; switch to batched sprites if exact larger formations matter.

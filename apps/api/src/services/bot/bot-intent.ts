@@ -37,8 +37,7 @@ export type BotIntent =
       type: 'start_attack';
       stationId: string;
       targetStationId: string;
-      spacecraftKey: string;
-      amount: number;
+      fleet: Record<string, number>;
     }
   | {
       type: 'start_salvage';
@@ -151,8 +150,7 @@ export async function executeBotIntent(
           userId,
           stationId: intent.stationId,
           targetStationId: intent.targetStationId,
-          spacecraftKey: intent.spacecraftKey,
-          amount: intent.amount,
+          fleet: intent.fleet,
           context,
         });
         break;

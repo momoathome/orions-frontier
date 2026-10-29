@@ -1,4 +1,4 @@
-import { and, asc, between, count, eq, inArray, ne, or } from 'drizzle-orm';
+import { and, asc, between, count, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import { getDb } from '../../lib/db/index.js';
 import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { asteroidAssignments } from '../../lib/db/schema/asteroids.js';
@@ -47,7 +47,7 @@ export async function loadGoalBotState(
     })
     .from(stations)
     .innerJoin(sectors, eq(stations.sectorId, sectors.id))
-    .where(eq(stations.userId, userId))
+    .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt)))
     .orderBy(asc(stations.id));
   if (ownStationRows.length === 0) return null;
 

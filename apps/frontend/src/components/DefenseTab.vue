@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref } from 'vue';
 import type { CombatReport, StationDefenseUpgradeWithDefinition } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { wsClient } from '../lib/ws-client';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const reports = ref<CombatReport[]>([]);
@@ -20,6 +21,29 @@ const relevantReports = computed(() =>
     (report) => report.attackerStationId === stationId || report.defenderStationId === stationId
   )
 );
+
+const incomingAttacks = computed(() =>
+  relevantReports.value.filter(
+    (report) => report.defenderStationId === stationId && report.status === 'traveling'
+  )
+);
+
+function arrivesIn(report: CombatReport): string {
+  return formatDuration(
+    Math.max(0, Math.ceil((new Date(report.arrivesAt).getTime() - now.value) / 1000))
+  );
+}
+
+function reportSummary(report: CombatReport): string {
+  if (report.winner === null) return 'Target already destroyed, fleet turned back';
+  const sent = report.attackerAmount === null ? '' : `${report.attackerAmount} sent · `;
+  const integrity = report.stationDestroyed
+    ? ' · station destroyed'
+    : report.integrityDamage > 0
+      ? ` · integrity −${report.integrityDamage} to ${report.defenderIntegrity}`
+      : '';
+  return `${sent}${report.attackerLosses} attacker losses · ${report.defenderLosses} defender losses${integrity}`;
+}
 
 const defenseScore = computed(() =>
   upgrades.value.reduce(
@@ -85,7 +109,9 @@ async function startUpgrade(upgrade: StationDefenseUpgradeWithDefinition): Promi
 
 void load();
 const interval = setInterval(() => void load(), 10_000);
+const unsubscribeIncoming = wsClient.on('incoming_attack', () => void load());
 onUnmounted(() => {
+  unsubscribeIncoming();
   clearInterval(interval);
   clearInterval(nowInterval);
 });
@@ -193,6 +219,18 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <template v-if="incomingAttacks.length > 0">
+        <p class="mb-3 uppercase tracking-[0.3em] text-red-300/70">Incoming attacks</p>
+        <div
+          v-for="report in incomingAttacks"
+          :key="report.id"
+          class="mb-2 flex justify-between rounded border border-red-400/30 bg-red-500/8 p-3"
+        >
+          <span class="text-red-200/80">Hostile fleet inbound · composition unknown</span>
+          <span class="tabular-nums text-red-200">{{ arrivesIn(report) }}</span>
+        </div>
+      </template>
+
       <p class="mb-3 uppercase tracking-[0.3em] text-white/25">Combat reports</p>
       <p v-if="!loading && relevantReports.length === 0" class="text-white/20">
         No combat recorded.
@@ -205,10 +243,7 @@ onUnmounted(() => {
         <span class="uppercase text-white/45">
           {{ report.attackerStationId === stationId ? 'Attack' : 'Defense' }}
         </span>
-        <span class="text-white/45">
-          {{ report.attackerAmount }} sent · {{ report.attackerLosses }} attacker losses ·
-          {{ report.defenderLosses }} defender losses
-        </span>
+        <span class="text-white/45">{{ reportSummary(report) }}</span>
         <span :class="report.winner === 'attacker' ? 'text-amber-300' : 'text-green-300'">
           {{ report.status === 'resolved' ? report.winner : report.status }}
         </span>

@@ -1,4 +1,4 @@
-import { eq, max, and, sql } from 'drizzle-orm';
+import { and, eq, isNull, max, sql } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { publishUserEvent } from '../lib/realtime.js';
 import { stationSpacecrafts } from '../lib/db/schema/station-spacecrafts.js';
@@ -208,7 +208,9 @@ export const buildSpacecrafts = async (
     const [station] = await tx
       .select({ id: stations.id })
       .from(stations)
-      .where(and(eq(stations.id, stationId), eq(stations.userId, userId)))
+      .where(
+        and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+      )
       .for('update');
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 

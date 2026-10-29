@@ -9,5 +9,6 @@ export interface Station {
   y: number;
   scannerRange: number;
   visualProfile: StationVisualProfile;
+  integrity: number;
   createdAt: string;
 }

@@ -747,12 +747,12 @@ test('bot exploration and colonization goal generation', async () => {
   await seedStationSpacecrafts(stationId2);
   await seedStationResources(stationId2);
 
-  // Top up resources so colony can be afforded
+  // Top up resources so a colony can be afforded at the cost for a third station
   await Promise.all(
     (['carbon', 'titanium', 'hydrogenium'] as const).map((key) =>
       db
         .update(stationResources)
-        .set({ amount: 2000 })
+        .set({ amount: 12_000 })
         .where(
           and(eq(stationResources.stationId, stationId2), eq(stationResources.resourceKey, key))
         )

@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { calculateInfluence, type InfluenceInput } from '@orions-frontier/game-config';
 import type { Ranking, RankingEntry } from '@orions-frontier/shared';
 import { getDb } from '../lib/db/index.js';
@@ -22,7 +22,8 @@ export async function getRanking(userId: string, limit: number): Promise<Ranking
     })
     .from(stations)
     .innerJoin(users, eq(users.id, stations.userId))
-    .leftJoin(botControllers, eq(botControllers.userId, users.id));
+    .leftJoin(botControllers, eq(botControllers.userId, users.id))
+    .where(isNull(stations.destroyedAt));
   const stationIds = owners.map((owner) => owner.stationId);
   const [levelRows, researchRows, spacecraftRows] =
     stationIds.length === 0

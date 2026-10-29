@@ -1,5 +1,6 @@
 import type { CombatReport, ResourceMap } from '@orions-frontier/shared';
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -10,7 +11,6 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { spacecraftTrips } from './spacecraft-trips.js';
-import { stationSpacecrafts } from './station-spacecrafts.js';
 import { stations } from './stations.js';
 import { users } from './users.js';
 
@@ -27,18 +27,23 @@ export const combatMissions = pgTable(
     defenderStationId: uuid('defender_station_id')
       .notNull()
       .references(() => stations.id),
-    attackerStationSpacecraftId: uuid('attacker_station_spacecraft_id')
-      .notNull()
-      .references(() => stationSpacecrafts.id),
     outboundTripId: uuid('outbound_trip_id')
       .notNull()
       .references(() => spacecraftTrips.id),
     returnTripId: uuid('return_trip_id').references(() => spacecraftTrips.id),
+    /** Sent fleet as { spacecraftKey: amount }; attackerAmount is its total. */
+    attackerFleet: jsonb('attacker_fleet').$type<Record<string, number>>().notNull(),
+    /** Surviving ships per key, set when the battle resolves. */
+    attackerSurvivors: jsonb('attacker_survivors').$type<Record<string, number>>(),
     attackerAmount: integer('attacker_amount').notNull(),
     attackerLosses: integer('attacker_losses').notNull().default(0),
     defenderLosses: integer('defender_losses').notNull().default(0),
     winner: varchar('winner', { length: 16 }).$type<'attacker' | 'defender'>(),
     loot: jsonb('loot').$type<ResourceMap>(),
+    integrityDamage: integer('integrity_damage').notNull().default(0),
+    /** Defender integrity after this wave; null when no battle took place. */
+    defenderIntegrity: integer('defender_integrity'),
+    stationDestroyed: boolean('station_destroyed').notNull().default(false),
     status: varchar('status', { length: 16 })
       .$type<CombatReport['status']>()
       .notNull()

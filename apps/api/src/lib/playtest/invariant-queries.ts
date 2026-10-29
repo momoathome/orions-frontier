@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { calculateBuildingEffect } from '@orions-frontier/game-config';
 import { getDb } from '../db/index.js';
 import { asteroidVeins } from '../db/schema/asteroids.js';
@@ -265,7 +265,10 @@ export async function queryDatabaseInvariantState(
       .from(combatMissions)
       .leftJoin(
         stationSpacecrafts,
-        eq(stationSpacecrafts.id, combatMissions.attackerStationSpacecraftId)
+        and(
+          eq(stationSpacecrafts.stationId, combatMissions.attackerStationId),
+          sql`${combatMissions.attackerFleet} ? ${stationSpacecrafts.spacecraftKey}`
+        )
       )
       .where(
         and(

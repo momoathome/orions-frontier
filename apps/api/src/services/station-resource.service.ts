@@ -1,4 +1,4 @@
-import { eq, inArray, and, gte } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull } from 'drizzle-orm';
 import { getDb } from '../lib/db/index.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
@@ -63,7 +63,9 @@ export const getStationResources = async (
     .select({ resource: stationResources })
     .from(stationResources)
     .innerJoin(stations, eq(stationResources.stationId, stations.id))
-    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)));
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    );
   if (rows.length === 0) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
   return rows.reduce<ResourceMap>((acc, row) => {
@@ -161,7 +163,9 @@ export const getDeliveredResourceRates = async (
   const [station] = await db
     .select({ id: stations.id })
     .from(stations)
-    .where(and(eq(stations.id, stationId), eq(stations.userId, userId)));
+    .where(
+      and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
+    );
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
   const ssRows = await db
