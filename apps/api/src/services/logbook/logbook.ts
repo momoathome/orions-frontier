@@ -1,4 +1,3 @@
-import { desc, eq, inArray } from 'drizzle-orm';
 import {
   getBuilding,
   getDefenseUpgrade,
@@ -16,11 +15,15 @@ import {
   type ResourceMap,
 } from '@orions-frontier/shared';
 import { getDb } from '../../lib/db/index.js';
-import { logbookEntries } from '../../lib/db/schema/logbook-entries.js';
-import { stations } from '../../lib/db/schema/stations.js';
+import {
+  insertLogbookEntries,
+  listLogbookEntriesByUser,
+  type NewLogbookEntry,
+} from '../../repositories/logbook-entries.js';
+import { listStationOwners } from '../../repositories/stations.js';
 import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
 
-type NewEntry = typeof logbookEntries.$inferInsert;
+type NewEntry = NewLogbookEntry;
 
 const resourceList = (map: ResourceMap): string =>
   entriesOf(map)
@@ -141,13 +144,7 @@ export async function recordLogbookEvents(events: readonly PlaytestCompletionEve
       events.flatMap((event) => (event.type === 'combat_resolved' ? [event.defenderStationId] : []))
     ),
   ];
-  const defenders =
-    defenderIds.length === 0
-      ? []
-      : await db
-          .select({ id: stations.id, userId: stations.userId })
-          .from(stations)
-          .where(inArray(stations.id, defenderIds));
+  const defenders = defenderIds.length === 0 ? [] : await listStationOwners(db, defenderIds);
   const defenderOwner = new Map(defenders.map((station) => [station.id, station.userId]));
   const rows = events.flatMap((event) =>
     entriesFor(
@@ -156,16 +153,11 @@ export async function recordLogbookEvents(events: readonly PlaytestCompletionEve
     )
   );
   if (rows.length === 0) return;
-  await db.insert(logbookEntries).values(rows).onConflictDoNothing();
+  await insertLogbookEntries(db, rows);
 }
 
 export async function getLogbook(userId: string, limit: number): Promise<LogbookEntry[]> {
-  const rows = await getDb()
-    .select()
-    .from(logbookEntries)
-    .where(eq(logbookEntries.userId, userId))
-    .orderBy(desc(logbookEntries.occurredAt), desc(logbookEntries.eventId))
-    .limit(limit);
+  const rows = await listLogbookEntriesByUser(getDb(), userId, limit);
   return rows.map((row) => ({
     id: row.id,
     type: row.type,
