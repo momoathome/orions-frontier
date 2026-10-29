@@ -1,4 +1,18 @@
 /** Abhängigkeitsregeln der API (nach xitavis-next). Schichten und Ordner: apps/api/src/services/README.md. */
+/**
+ * Schichten der Service-Ordner, von unten nach oben. Ein Ordner importiert nur Ordner
+ * niedrigerer Schichten, nie die eigene oder eine höhere. Bezüge nach oben laufen über
+ * Parameter oder Rückgabewerte, nicht über Importe.
+ */
+const LAYERS = [
+  ['auth', 'research', 'map', 'logbook', 'ranking'],
+  ['station'],
+  ['world', 'mining', 'combat', 'missions'],
+  ['transport'],
+  ['bot'],
+  ['simulation'],
+];
+
 module.exports = {
   forbidden: [
     {
@@ -42,6 +56,15 @@ module.exports = {
       to: { path: '^apps/api/src/(routes|tools)/|^apps/api/src/[^/]+\\.ts$' },
     },
     {
+      name: 'routes-use-services',
+      severity: 'error',
+      comment:
+        'Routen fragen die Datenbank nicht selbst ab; das tun Services (Health-Check ausgenommen).',
+      from: { path: '^apps/api/src/routes/', pathNot: '^apps/api/src/routes/health/' },
+      to: { path: '^apps/api/src/lib/db/' },
+    },
+    ...layerRules(),
+    {
       name: 'nobody-imports-tools',
       severity: 'error',
       comment: 'Werkzeuge (Playtest, Reports) sind Einstiegspunkte, kein Baustein.',
@@ -55,3 +78,18 @@ module.exports = {
     tsPreCompilationDeps: true,
   },
 };
+
+function layerRules() {
+  return LAYERS.flatMap((layer, i) =>
+    layer.map((name) => ({
+      name: `layer-${name}`,
+      severity: 'error',
+      comment: `services/${name} (Schicht ${i + 1}) importiert nur niedrigere Schichten.`,
+      from: { path: `^apps/api/src/services/${name}/` },
+      to: {
+        path: `^apps/api/src/services/(${LAYERS.slice(i).flat().join('|')})/`,
+        pathNot: `^apps/api/src/services/${name}/`,
+      },
+    }))
+  );
+}

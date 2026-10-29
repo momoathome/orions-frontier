@@ -21,6 +21,8 @@ gameplay need.
   abstraction, dependency, process, or parallel rule path.
 - Preserve unrelated working-tree changes. Never expose secrets or edit generated output.
 - Schema changes include the matching SQL migration and schema export.
+- API code follows the folders and layers in `apps/api/src/services/README.md`; `npm run check`
+  enforces them.
 - Non-trivial game behavior gets one focused automated check, especially for concurrency, ownership,
   visibility, costs, and time-based completion.
 
