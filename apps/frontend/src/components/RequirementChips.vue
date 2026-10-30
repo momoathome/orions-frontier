@@ -2,6 +2,7 @@
 import type { RequirementBlocker } from '@orions-frontier/shared';
 import { formatBlocker } from '../lib/format';
 import { useResearchStore } from '../stores/research.js';
+import LockIcon from './LockIcon.vue';
 
 const { blockers } = defineProps<{ blockers: readonly RequirementBlocker[] }>();
 const research = useResearchStore();
@@ -18,10 +19,10 @@ const research = useResearchStore();
         :title="`Open ${formatBlocker(blocker)} in research`"
         @click.stop="research.openView(blocker.key)"
       >
-        <span aria-hidden="true">🔒</span> {{ formatBlocker(blocker) }}
+        <LockIcon /> {{ formatBlocker(blocker) }}
       </button>
       <span v-else class="rounded border border-ui-line-strong px-2 py-0.5 text-ui-soft">
-        <span aria-hidden="true">🔒</span> {{ formatBlocker(blocker) }}
+        <LockIcon /> {{ formatBlocker(blocker) }}
       </span>
     </li>
   </ul>

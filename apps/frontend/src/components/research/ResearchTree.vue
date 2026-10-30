@@ -1,24 +1,23 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, useTemplateRef, watch } from 'vue';
 import { requirementBlockers } from '@orions-frontier/game-config';
-import type { ResearchTechnology } from '@orions-frontier/shared';
+import type { ResearchLane, ResearchTechnology } from '@orions-frontier/shared';
 import { formatCountdown } from '../../lib/format';
 import { useOverviewStore } from '../../stores/overview.js';
 import { useResearchStore } from '../../stores/research.js';
+import LockIcon from '../LockIcon.vue';
 import {
-  BAND_HEIGHT,
+  bands,
   boxes,
   columnX,
   CONTENT_HEIGHT,
   CONTENT_WIDTH,
   edges,
   LANES,
-  LEAF_BAND_TOP,
-  laneTop,
-  leaves,
   NODE_WIDTH,
   TIERS,
   tierGate,
+  treeLeaves,
   type NodeBox,
 } from './research-layout';
 
@@ -35,18 +34,12 @@ function techState(tech: ResearchTechnology): NodeState {
   return tech.blockers.length === 0 ? 'available' : 'locked';
 }
 
-const STATE_CLASS: Record<NodeState, string> = {
-  locked: 'border-ui-line bg-ui-card text-ui-muted opacity-60',
-  available: 'border-[#2b8a99] bg-[#10333c] text-ui-bright',
-  running: 'border-[#8a6a24] bg-[#2a200b] text-ui-bright',
-  maxed: 'border-green-500/40 bg-green-500/10 text-ui-bright',
-};
-const LEVEL_CLASS: Record<NodeState, string> = {
-  locked: 'text-ui-dim',
-  available: 'text-ui-cyan',
-  running: 'text-ui-amber',
-  maxed: 'text-ui-green',
-};
+const laneColor = (lane: ResearchLane) =>
+  LANES.find((entry) => entry.key === lane)?.color ?? '#5fd6e6';
+// Lane colour mixed into the page background: opaque, so edges stay behind the nodes.
+const tint = (color: string, percent: number) =>
+  `color-mix(in srgb, ${color} ${percent}%, var(--color-ui-bg))`;
+const FILL: Record<NodeState, number> = { locked: 8, available: 18, running: 24, maxed: 32 };
 
 const box = (id: string): NodeBox => boxes.get(id) ?? { x: 0, y: 0, width: 0, height: 0 };
 
@@ -55,10 +48,15 @@ const nodes = computed(() =>
     const state = techState(tech);
     const endsAt = tech.completesAt ? Date.parse(tech.completesAt) : null;
     const { name, maxLevel } = tech.definition;
+    const color = laneColor(tech.definition.lane);
     return {
       id: tech.definition.key,
       tech,
       state,
+      color,
+      border: state === 'locked' ? tint(color, 40) : color,
+      fill: tint(color, FILL[state]),
+      inner: tint(color, 45),
       box: box(tech.definition.key),
       countdown: endsAt ? formatCountdown(endsAt, overview.state.now) : null,
       label: `${name}, level ${tech.level} of ${maxLevel}, ${state === 'maxed' ? 'max level' : state}`,
@@ -68,21 +66,24 @@ const nodes = computed(() =>
 
 // Building requirements of ships and defenses count per station, so the tree only checks research.
 const leafNodes = computed(() =>
-  leaves.map((leaf) => {
+  treeLeaves.map((leaf) => {
     const unlocked =
       requirementBlockers({ research: leaf.requirements.research }, research.levels, {}).length ===
       0;
+    const color = laneColor(leaf.lane);
     return {
       leaf,
       unlocked,
+      border: unlocked ? color : tint(color, 40),
       box: box(leaf.id),
       label: `${leaf.name}, ${leaf.kind === 'ship' ? 'spacecraft' : 'defense'}, ${unlocked ? 'research done' : 'locked'}`,
     };
   })
 );
 
-const edgePaths = computed(() =>
-  edges
+const edgePaths = computed(() => {
+  const colors = new Map(nodes.value.map((node) => [node.id, node.color]));
+  return edges
     .filter((edge) => !edge.leaf || selected.value === edge.from || selected.value === edge.to)
     .map((edge) => {
       const from = box(edge.from);
@@ -100,15 +101,16 @@ const edgePaths = computed(() =>
           : `M${x1},${y1} C${x1},${y1 + bend} ${x2},${y2 - bend} ${x2},${y2}`,
         met: (research.levels[edge.from] ?? 0) >= edge.level,
         active: selected.value === edge.from || selected.value === edge.to,
+        color: colors.get(edge.from) ?? '#5fd6e6',
       };
     })
-    .map((edge) => {
-      let stroke = '#23344c';
-      if (edge.active) stroke = '#5fd6e6';
-      else if (edge.met) stroke = '#2b8a99';
-      return { ...edge, stroke };
-    })
-);
+    .map((edge) => ({
+      ...edge,
+      // Unmet edges stay neutral; met or selected ones take the colour of their source lane.
+      stroke: edge.active || edge.met ? edge.color : '#23344c',
+      opacity: edge.active ? 1 : edge.met ? 0.5 : 1,
+    }));
+});
 
 // Pan and zoom: one CSS transform on the content, driven by pointer and wheel events.
 const MIN_SCALE = 0.3;
@@ -231,21 +233,23 @@ watch(
         transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
       }"
     >
-      <!-- Lane bands and tier headings -->
+      <!-- Lane bands in their colour and tier headings -->
       <div
-        v-for="(lane, index) in LANES"
-        :key="lane.key"
+        v-for="band in bands"
+        :key="band.lane.key"
         class="absolute inset-x-0 border-t border-ui-line"
-        :class="index % 2 === 0 ? 'bg-white/[0.015]' : ''"
-        :style="{ top: `${laneTop(index)}px`, height: `${BAND_HEIGHT}px` }"
+        :style="{
+          top: `${band.top}px`,
+          height: `${band.height}px`,
+          background: tint(band.lane.color, 6),
+          boxShadow: `inset 4px 0 0 ${band.lane.color}`,
+        }"
       >
-        <span class="ui-label absolute left-6 top-1.5">{{ lane.label }}</span>
-      </div>
-      <div
-        class="absolute inset-x-0 bottom-0 border-t border-ui-line"
-        :style="{ top: `${LEAF_BAND_TOP}px` }"
-      >
-        <span class="ui-label absolute left-6 top-1.5">Ships and defense</span>
+        <span
+          class="absolute left-6 top-1.5 text-xs font-semibold uppercase tracking-[0.12em]"
+          :style="{ color: band.lane.color }"
+          >{{ band.lane.label }}</span
+        >
       </div>
       <div
         v-for="tier in TIERS"
@@ -269,6 +273,7 @@ watch(
           :d="edge.d"
           fill="none"
           :stroke="edge.stroke"
+          :stroke-opacity="edge.opacity"
           :stroke-width="edge.active ? 2 : 1.5"
         />
       </svg>
@@ -277,10 +282,9 @@ watch(
         v-for="node in nodes"
         :key="node.id"
         type="button"
-        class="absolute flex flex-col justify-center gap-0.5 border px-3 text-left transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-ui-cyan"
+        class="absolute flex flex-col justify-center gap-0.5 rounded-md border px-3 text-left transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-ui-cyan"
         :class="[
-          STATE_CLASS[node.state],
-          node.tech.definition.kind === 'capability' ? 'rounded-[27px] px-4' : 'rounded-md',
+          node.state === 'locked' ? 'text-ui-muted' : 'text-ui-bright',
           selected === node.id ? 'ring-2 ring-ui-cyan' : '',
         ]"
         :style="{
@@ -288,21 +292,33 @@ watch(
           top: `${node.box.y}px`,
           width: `${node.box.width}px`,
           height: `${node.box.height}px`,
+          borderColor: node.border,
+          background: node.fill,
         }"
         :aria-label="node.label"
         :aria-pressed="selected === node.id"
         @click="select(node.id, $event)"
       >
-        <span class="truncate text-[13px] font-semibold">
-          <span v-if="node.state === 'locked'" aria-hidden="true">🔒 </span
-          >{{ node.tech.definition.name }}
+        <!-- Capabilities get the inner frame of the mockup, stat research a single border. -->
+        <span
+          v-if="node.tech.definition.kind === 'capability'"
+          class="pointer-events-none absolute inset-[3px] rounded border"
+          :style="{ borderColor: node.inner }"
+          aria-hidden="true"
+        />
+        <span class="flex items-center gap-1.5 text-[13px] font-semibold">
+          <LockIcon v-if="node.state === 'locked'" />
+          <span class="truncate">{{ node.tech.definition.name }}</span>
         </span>
         <span class="flex items-baseline justify-between gap-2 text-xs">
-          <span class="ui-num" :class="LEVEL_CLASS[node.state]"
+          <span
+            class="ui-num"
+            :class="node.state === 'locked' ? 'text-ui-dim' : ''"
+            :style="node.state === 'locked' ? undefined : { color: node.color }"
             >{{ node.tech.level }}/{{ node.tech.definition.maxLevel }}</span
           >
           <span v-if="node.countdown" class="ui-num text-ui-amber">{{ node.countdown }}</span>
-          <span v-else-if="node.state === 'maxed'" class="text-ui-green">Max</span>
+          <span v-else-if="node.state === 'maxed'" :style="{ color: node.color }">Max</span>
         </span>
       </button>
 
@@ -310,9 +326,9 @@ watch(
         v-for="node in leafNodes"
         :key="node.leaf.id"
         type="button"
-        class="absolute flex items-center gap-1.5 truncate rounded border border-dashed px-2 text-left text-xs transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-ui-cyan"
+        class="absolute flex items-center gap-1.5 rounded-full border border-dashed bg-ui-bg px-3 text-left text-xs transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-ui-cyan"
         :class="[
-          node.unlocked ? 'border-ui-line-strong text-ui-soft' : 'border-ui-line text-ui-dim',
+          node.unlocked ? 'text-ui-soft' : 'text-ui-dim',
           selected === node.leaf.id ? 'ring-2 ring-ui-cyan' : '',
         ]"
         :style="{
@@ -320,6 +336,7 @@ watch(
           top: `${node.box.y}px`,
           width: `${node.box.width}px`,
           height: `${node.box.height}px`,
+          borderColor: node.border,
         }"
         :aria-label="node.label"
         :aria-pressed="selected === node.leaf.id"
@@ -327,6 +344,7 @@ watch(
       >
         <span aria-hidden="true">{{ node.leaf.kind === 'ship' ? '▲' : '◆' }}</span>
         <span class="truncate">{{ node.leaf.name }}</span>
+        <LockIcon v-if="!node.unlocked" class="ml-auto" />
       </button>
     </div>
 

@@ -27,13 +27,12 @@ const BAND_TITLE = 28;
 const ROW_HEIGHT = 70;
 const BAND_PAD = 14;
 const LEAF_STEP = 36;
-export const BAND_HEIGHT = BAND_TITLE + 2 * ROW_HEIGHT + BAND_PAD;
 
-export const LANES: { key: ResearchLane; label: string }[] = [
-  { key: 'extraction', label: 'Extraction' },
-  { key: 'sensors', label: 'Navigation and Sensors' },
-  { key: 'engineering', label: 'Engineering' },
-  { key: 'military', label: 'Military' },
+export const LANES: { key: ResearchLane; label: string; color: string }[] = [
+  { key: 'extraction', label: 'Extraction', color: '#e3a94f' },
+  { key: 'sensors', label: 'Navigation and Sensors', color: '#4fc3e8' },
+  { key: 'engineering', label: 'Engineering', color: '#70cf8f' },
+  { key: 'military', label: 'Military', color: '#e46a5e' },
 ];
 export const TIERS: ResearchTier[] = [1, 2, 3, 4, 5];
 
@@ -64,12 +63,11 @@ const LANE_ROW: Record<ResearchKey, 0 | 1> = {
 };
 
 export const columnX = (tier: number) => GUTTER + (tier - 1) * COLUMN_WIDTH;
-export const laneTop = (index: number) => HEADER_HEIGHT + index * BAND_HEIGHT;
-export const LEAF_BAND_TOP = laneTop(LANES.length);
 
 export type Leaf =
   | {
       id: string;
+      lane: ResearchLane;
       kind: 'ship';
       name: string;
       requirements: Requirements;
@@ -77,15 +75,18 @@ export type Leaf =
     }
   | {
       id: string;
+      lane: ResearchLane;
       kind: 'defense';
       name: string;
       requirements: Requirements;
       upgrade: DefenseUpgradeSeedDefinition;
     };
 
+// Miners and salvagers sit in Extraction, combat ships and defenses in Military.
 export const leaves: Leaf[] = [
   ...spacecrafts.map((ship): Leaf => ({
     id: `ship:${ship.key}`,
+    lane: ship.role === 'miner' || ship.role === 'salvager' ? 'extraction' : 'military',
     kind: 'ship',
     name: ship.name,
     requirements: ship.requirements,
@@ -93,6 +94,7 @@ export const leaves: Leaf[] = [
   })),
   ...defenseUpgrades.map((upgrade): Leaf => ({
     id: `defense:${upgrade.key}`,
+    lane: 'military',
     kind: 'defense',
     name: upgrade.name,
     requirements: upgrade.requirements,
@@ -116,32 +118,53 @@ export interface NodeBox {
   height: number;
 }
 
-export const boxes = new Map<string, NodeBox>();
-for (const definition of researchDefinitions) {
-  const lane = LANES.findIndex((entry) => entry.key === definition.lane);
-  boxes.set(definition.key, {
-    x: columnX(definition.tier),
-    y: laneTop(lane) + BAND_TITLE + LANE_ROW[definition.key] * ROW_HEIGHT,
-    width: NODE_WIDTH,
-    height: NODE_HEIGHT,
-  });
+/** Units without research requirements (Mole, Armor Plating) are no step in the tree. */
+export const treeLeaves = leaves.filter(
+  (leaf) => Object.keys(leaf.requirements.research ?? {}).length > 0
+);
+
+export interface Band {
+  lane: (typeof LANES)[number];
+  top: number;
+  height: number;
 }
-const leafCounts = new Map<number, number>();
-for (const leaf of leaves) {
-  const tier = leafTier(leaf);
-  const index = leafCounts.get(tier) ?? 0;
-  leafCounts.set(tier, index + 1);
-  boxes.set(leaf.id, {
-    x: columnX(tier),
-    y: LEAF_BAND_TOP + BAND_TITLE + index * LEAF_STEP,
-    width: LEAF_WIDTH,
-    height: LEAF_HEIGHT,
-  });
+
+// Each lane cell holds its research rows, then its unlocked units stacked below them.
+export const boxes = new Map<string, NodeBox>();
+export const bands: Band[] = [];
+let bandTop = HEADER_HEIGHT;
+for (const lane of LANES) {
+  let bottom = BAND_TITLE + 2 * ROW_HEIGHT;
+  for (const tier of TIERS) {
+    const cell = researchDefinitions.filter(
+      (definition) => definition.lane === lane.key && definition.tier === tier
+    );
+    for (const definition of cell) {
+      boxes.set(definition.key, {
+        x: columnX(tier),
+        y: bandTop + BAND_TITLE + LANE_ROW[definition.key] * ROW_HEIGHT,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
+      });
+    }
+    let y = BAND_TITLE + Math.max(0, ...cell.map((d) => LANE_ROW[d.key] + 1)) * ROW_HEIGHT;
+    for (const leaf of treeLeaves.filter((l) => l.lane === lane.key && leafTier(l) === tier)) {
+      boxes.set(leaf.id, {
+        x: columnX(tier) + 8,
+        y: bandTop + y,
+        width: LEAF_WIDTH,
+        height: LEAF_HEIGHT,
+      });
+      y += LEAF_STEP;
+    }
+    bottom = Math.max(bottom, y);
+  }
+  bands.push({ lane, top: bandTop, height: bottom + BAND_PAD });
+  bandTop += bottom + BAND_PAD;
 }
 
 export const CONTENT_WIDTH = columnX(TIERS.length) + NODE_WIDTH + GUTTER;
-export const CONTENT_HEIGHT =
-  LEAF_BAND_TOP + BAND_TITLE + Math.max(...leafCounts.values()) * LEAF_STEP + BAND_PAD;
+export const CONTENT_HEIGHT = bandTop;
 
 /** Research prerequisites as edges; `leaf` edges only show around the selected node. */
 export interface Edge {
@@ -159,7 +182,7 @@ export const edges: Edge[] = [
       leaf: false,
     }))
   ),
-  ...leaves.flatMap((leaf) =>
+  ...treeLeaves.flatMap((leaf) =>
     entriesOf(leaf.requirements.research ?? {}).map(([from, level]) => ({
       from,
       to: leaf.id,
