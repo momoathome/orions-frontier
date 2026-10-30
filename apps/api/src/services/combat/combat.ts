@@ -358,10 +358,13 @@ async function resolveOutboundCombat(
 
     winner = survivorTotal > 0 && attackerPower > defenderPower ? 'attacker' : 'defender';
     if (winner === 'attacker') {
-      let cargoLeft = groups.reduce(
-        (sum, group) =>
-          sum + (survivors.get(group.key) ?? 0) * group.spacecraft.cargo * attackerResearch.cargo,
-        0
+      // Whole units only: Cargo Compression makes the capacity fractional, resources are bigint.
+      let cargoLeft = Math.floor(
+        groups.reduce(
+          (sum, group) =>
+            sum + (survivors.get(group.key) ?? 0) * group.spacecraft.cargo * attackerResearch.cargo,
+          0
+        )
       );
       const warehouseLevel = await buildingLevel(tx, mission.defenderStationId, 'warehouse');
       const protectedAmount =

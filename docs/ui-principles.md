@@ -57,7 +57,8 @@ heute schon und ist das Vorbild für alle anderen Ansichten.
   Fertigstellung. Ein Klick wählt das Objekt auf der Map und öffnet das Detail-Panel.
 - **Map (Mitte):** wird nie von einem Panel verdeckt.
 - **Detail-Panel (rechts):** ersetzt das untere Stations-Panel. Stationsbereiche bleiben Buildings,
-  Fleet, Logistics, Research, Frontier und Defense.
+  Fleet, Logistics, Frontier und Defense. Research ist account-weit und öffnet sich als Graph über
+  die Top-Bar.
 
 ## Folgerungen für die Bereiche
 
@@ -72,7 +73,7 @@ heute schon und ist das Vorbild für alle anderen Ansichten.
   Objekt (R9).
 - **Ranking:** eigener Rang groß, Nachbarn ±3, Zusammensetzung der Influence. Spieler brauchen einen
   Anzeigenamen; heute erscheinen generierte `user-<uuid>`-Namen.
-- **Research:** dieselben Regeln (R3, R4), sobald das System steht.
+- **Research:** Graph mit Detailpanel; Blocker als Chips, die zum fehlenden Gebäude springen (R3, R4).
 
 ## Datenlage
 

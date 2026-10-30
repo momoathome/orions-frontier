@@ -3,6 +3,7 @@ export const milestoneKeys = [
   'stableInitialStation',
   'threeMolesAndTitan',
   'firstResearch',
+  'spectralAnalysis',
   'firstExpedition',
   'firstColony',
   'stableColony',

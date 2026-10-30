@@ -25,8 +25,8 @@ gescannt(p) = eigenes Objekt
   eigenen Stationsnetz geteilt, Entfernung und Reisezeit bleiben die Kosten.
 
 Die Scannerreichweite liegt ausschließlich in `@orions-frontier/game-config` (`scanner_range`:
-Level 0 = 0, Level 1 = 2.000, je Level +500, Level 15 = 9.000). API, Bots und UI verwenden denselben
-berechneten Wert. `GET /stations` liefert ihn als `scannerRange`; das Frontend rechnet ihn nicht
+Level 0 = 0, Level 1 = 1.000, je Level +500, Level 15 = 8.000, mal Sensor Arrays). API, Bots und
+UI verwenden denselben berechneten Wert. `GET /stations` liefert ihn als `scannerRange`; das Frontend rechnet ihn nicht
 selbst aus.
 
 ## Sichtbarkeit nach Objekttyp
@@ -51,12 +51,15 @@ selbst aus.
   keinen Missionsbesitzer und keine exakte Gruppengröße. Der Client interpoliert kurz zwischen den
   Fünf-Sekunden-Aktualisierungen.
 - Verliert ein Spieler eine Station, laufen eigene Aufträge weiter; die Abdeckung schrumpft sofort.
+- Kyber- und Astatine-Adern sind zusätzlich an Forschung gebunden (Spectral bzw. Deep Spectral
+  Analysis). Gefiltert wird pro Ader in SQL; ein Asteroid ohne sichtbare Ader fehlt ganz. Details in
+  `docs/research.md`.
 
 ## Umsetzung
 
 `services/map/scanner-visibility.ts` enthält nur die gemeinsame Regel:
-`getUserScannerCoverages`, `isPointVisible` (quadrierte Distanz ohne Wurzel),
-`visibleCoverageBounds` und `assertPointVisible`. Objektservices laden ihre Daten selbst; es gibt
+`getUserScannerCoverages`, `getUserResearchModifiers`, `isPointVisible` (quadrierte Distanz ohne
+Wurzel), `visibleChunkBounds` und `scannerChunkBounds`. Objektservices laden ihre Daten selbst; es gibt
 keine zweite Distanzformel in SQL, Bots oder Frontend.
 
 - **Statische Objekte:** PostgreSQL grenzt über Chunkindizes auf Kameraausschnitt ∩

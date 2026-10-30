@@ -539,6 +539,35 @@ test('income expansion prepares enough hangar crew for a Titan', async () => {
   assert.equal(result.intent.buildingKey, 'hangar');
 });
 
+test('income goal hands a Titan that only lacks research to the research goal', () => {
+  const fleets = [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 0 }];
+  const resources = { carbon: 10_000, titanium: 10_000, hydrogenium: 10_000, kyber_crystal: 1_000 };
+  const shipyard = (level: number) =>
+    baseStation().buildings.map((building) =>
+      building.buildingKey === 'shipyard' ? { ...building, level } : building
+    );
+  const income = (station: ReturnType<typeof baseStation>) =>
+    generateIncreaseIncomeCandidate(baseState(station), station)?.goalType;
+
+  // The Shipyard upgrade stays this goal's step.
+  assert.equal(
+    income(baseStation({ resources, fleets, buildings: shipyard(1) })),
+    'increase_income'
+  );
+  assert.equal(income(baseStation({ resources, fleets, buildings: shipyard(5) })), undefined);
+  assert.equal(
+    income(
+      baseStation({
+        resources,
+        fleets,
+        buildings: shipyard(5),
+        research: { extraction_algorithms: 4, cargo_compression: 3 },
+      })
+    ),
+    'increase_income'
+  );
+});
+
 test('saving goals send an idle miner toward their missing resource', async () => {
   const station = baseStation({
     resources: { carbon: 1_000, titanium: 1_000, hydrogenium: 1_000, kyber_crystal: 0 },

@@ -132,6 +132,8 @@ const scenarios = [
     profile: 'pioneer',
     events: ['world_mission_completed'],
     milestone: 'firstExpedition',
+    // Expeditions need Long-Range Survey (Laboratory 3), so the first lands after about 6-10 hours.
+    hours: 12,
   },
 ].map((scenario) => {
   const weights = profiles.flatMap((profile) => [

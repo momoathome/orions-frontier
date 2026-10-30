@@ -90,6 +90,16 @@ export function generateIncreaseIncomeCandidate(
 
   // If both milestones reached, no need for increase_income
   if (totalMoles >= 3 && hasTitan) return null;
+  // Only the Titan is left and only research gates it: the research goal unlocks it first.
+  // A missing Shipyard level stays this goal's step, the research goal waits for it.
+  const titanBlockers = requirementBlockers(
+    requireSpacecraft('titan').requirements,
+    station.research,
+    stationBuildingLevels(station)
+  );
+  const onlyResearchMissing =
+    titanBlockers.length > 0 && titanBlockers.every((blocker) => blocker.type === 'research');
+  if (totalMoles >= 3 && onlyResearchMissing) return null;
   const nextCosts = nextIncomeCosts(station);
   if (!canAfford(station, nextCosts) && !canAcquireCosts(state, station, nextCosts)) return null;
 

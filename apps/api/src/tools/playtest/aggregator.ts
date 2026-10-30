@@ -416,6 +416,10 @@ export class PlaytestAggregator {
         break;
       case 'research_completed':
         recordMilestone(metrics.milestones, 'firstResearch', event.occurredAt);
+        // Spectral is the bridge to Kyber and the midgame.
+        if (event.technologyKey === 'spectral_analysis') {
+          recordMilestone(metrics.milestones, 'spectralAnalysis', event.occurredAt);
+        }
         break;
       case 'defense_completed':
         recordMilestone(metrics.milestones, 'firstDefense', event.occurredAt);
