@@ -1,5 +1,6 @@
 import {
   calculateConstructionSpeedBonus,
+  durationFactor,
   isResearchKey,
   researchModifiers,
   type ResearchModifiers,
@@ -7,9 +8,6 @@ import {
 import type { ResearchLevels } from '@orions-frontier/shared';
 import type { QueryDb } from '../../lib/db/index.js';
 import { listStationOwnerResearch, listUserResearch } from '../../repositories/user-research.js';
-
-/** Speed-ups never cut a duration below this share. */
-const MIN_DURATION_FACTOR = 0.25;
 
 export const toResearchLevels = (rows: { technologyKey: string; level: number }[]) => {
   const levels: ResearchLevels = {};
@@ -62,6 +60,10 @@ export async function applyTravelSpeed(
   );
 }
 
+/** Duration factor of building and defense upgrades: Core and Construction Robotics add up. */
+export const constructionFactor = (researchBonus: number, coreLevel: number) =>
+  durationFactor(calculateConstructionSpeedBonus(coreLevel) + researchBonus);
+
 /**
  * Returns the upgrade end with the Core's construction speed and Construction Robotics applied;
  * both percentages add up.
@@ -72,10 +74,7 @@ export function applyConstructionSpeed(
   baseUpgradeEndsAt: Date,
   startsAt: Date
 ): Date {
-  const factor = Math.max(
-    MIN_DURATION_FACTOR,
-    1 - (calculateConstructionSpeedBonus(coreLevel) + researchBonus) / 100
-  );
+  const factor = constructionFactor(researchBonus, coreLevel);
   const baseDuration = baseUpgradeEndsAt.getTime() - startsAt.getTime();
   return new Date(startsAt.getTime() + Math.round(baseDuration * factor));
 }

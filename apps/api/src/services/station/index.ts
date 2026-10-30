@@ -22,7 +22,7 @@ export {
 export {
   buildSpacecrafts,
   getStationHangar,
-  getStationProductionSlots,
+  getStationShipyard,
   getStationSpacecrafts,
 } from './spacecraft.js';
 export { createStation, getUserStations, ownStation } from './station.js';

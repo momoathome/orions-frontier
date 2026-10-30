@@ -24,6 +24,7 @@ import {
   calculateBuildingEffect,
   calculateHangarCapacity,
   calculateProductionSlots,
+  durationFactor,
   getSpacecraft,
   requirementBlockers,
   researchModifiers,
@@ -148,8 +149,23 @@ const calculateCrewUsage = (
 const hangarCapacity = (hangarLevel: number, crew: number) =>
   Math.floor(calculateHangarCapacity(hangarLevel) * crew);
 
-export const getStationProductionSlots = async (stationId: string) =>
-  calculateProductionSlots((await findBuildingLevel(getDb(), stationId, 'shipyard')) ?? 0);
+/** Build time factor of the Shipyard bonus and Fabrication Lines, which add up. */
+const shipBuildFactor = (shipyardLevel: number, shipBuildBonus: number) =>
+  durationFactor(
+    (calculateBuildingEffect('shipyard', shipyardLevel).find(
+      (effect) => effect.type === 'spacecraft_production_bonus'
+    )?.value ?? 0) + shipBuildBonus
+  );
+
+/** Production slots and build time factor, as the shipyard applies them to new orders. */
+export const getStationShipyard = async (stationId: string) => {
+  const unlocks = await loadUnlockState(getDb(), stationId);
+  const shipyardLevel = unlocks.buildings.shipyard ?? 0;
+  return {
+    productionSlots: calculateProductionSlots(shipyardLevel),
+    buildTimeFactor: shipBuildFactor(shipyardLevel, unlocks.modifiers.shipBuildBonus),
+  };
+};
 
 export async function getStationHangar(stationId: string): Promise<{
   capacity: number;
@@ -257,14 +273,7 @@ export const buildSpacecrafts = async (
       }
     }
 
-    const productionBonus =
-      calculateBuildingEffect('shipyard', shipyardLevel).find(
-        (effect) => effect.type === 'spacecraft_production_bonus'
-      )?.value ?? 0;
-    const buildTimeMultiplier = Math.max(
-      0.25,
-      1 - (productionBonus + unlocks.modifiers.shipBuildBonus) / 100
-    );
+    const buildTimeMultiplier = shipBuildFactor(shipyardLevel, unlocks.modifiers.shipBuildBonus);
     const slots = calculateProductionSlots(shipyardLevel);
     // One queue per station: each order starts when the previous one ends.
     let queueEnd = Math.max(

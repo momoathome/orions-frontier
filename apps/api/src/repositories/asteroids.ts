@@ -87,9 +87,11 @@ export function listAsteroidSummariesInChunks(
       and(
         between(asteroids.chunkX, bounds.minChunkX, bounds.maxChunkX),
         between(asteroids.chunkY, bounds.minChunkY, bounds.maxChunkY),
+        // Only asteroids with visible ore left; a mined-out one would betray its hidden veins.
         sql`EXISTS (
           SELECT 1 FROM asteroid_veins v
           WHERE v.asteroid_id = ${outerAsteroidId} AND v.resource_key IN (${visibleKeysSql(resourceKeys)})
+            AND v.remaining_amount > 0
         )`
       )
     );

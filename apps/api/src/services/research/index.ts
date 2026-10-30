@@ -1,6 +1,7 @@
 export {
   applyConstructionSpeed,
   applySpeed,
+  constructionFactor,
   applyTravelSpeed,
   effectiveCargoCapacity,
   effectiveMiningRate,

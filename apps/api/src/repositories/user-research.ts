@@ -5,6 +5,14 @@ import { userResearch } from '../lib/db/schema/user-research.js';
 
 export type UserResearchRow = typeof userResearch.$inferSelect;
 
+/**
+ * Serializes research starts and cancels of one account. An advisory lock instead of the users row,
+ * so it cannot form a cycle with station locks or user foreign-key locks taken elsewhere.
+ */
+export async function lockUserResearch(tx: Tx, userId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'research:' + userId}))`);
+}
+
 export function listUserResearch(db: QueryDb, userId: string) {
   return db.select().from(userResearch).where(eq(userResearch.userId, userId));
 }

@@ -14,7 +14,9 @@ function confirm() {
 
 <template>
   <span v-if="asking" class="flex items-center gap-2" role="group" aria-label="Confirm cancel">
-    <span class="text-xs text-ui-soft">Cancel with full refund?</span>
+    <span class="text-xs text-ui-soft" title="Costs return to the station, limited by free storage."
+      >Cancel and refund?</span
+    >
     <button
       type="button"
       class="ui-btn ui-btn-danger h-8 px-3 text-xs"

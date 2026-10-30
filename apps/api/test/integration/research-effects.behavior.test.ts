@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { calculateBuildingUpgradeCost, researchModifiers } from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
@@ -15,6 +15,7 @@ import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
+import { userResearch } from '../../src/lib/db/schema/user-research.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
 import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/map/asteroid.js';
@@ -25,10 +26,12 @@ import {
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
 import { assignIdleMiners } from '../../src/services/mining/autonomy.js';
 import { startExpedition } from '../../src/services/missions/world-mission.js';
+import { cancelResearch, startResearch } from '../../src/services/research/index.js';
 import {
   cancelBuildingUpgrade,
   startBuildingUpgrade,
 } from '../../src/services/station/buildings.js';
+import { creditStationResources } from '../../src/services/station/resources.js';
 import {
   createTestSector,
   createTestStation,
@@ -44,6 +47,9 @@ let stationX = 0;
 let stationY = 0;
 const carbonId = crypto.randomUUID();
 const kyberId = crypto.randomUUID();
+// Carbon mined out, Kyber left: hidden ore must not keep it on the map.
+const mixedId = crypto.randomUUID();
+let runningResearch: 'weapons' | 'armor' = 'weapons';
 
 before(async () => {
   await runMigrations();
@@ -58,12 +64,12 @@ before(async () => {
   await getDb()
     .insert(asteroids)
     .values(
-      [carbonId, kyberId].map((id, index) => ({
+      [carbonId, kyberId, mixedId].map((id, index) => ({
         id,
         sectorId,
-        x: stationX + 300 + index * 100,
+        x: stationX + 300 + index * 150,
         y: stationY,
-        chunkX: Math.floor((stationX + 300 + index * 100) / 1_000),
+        chunkX: Math.floor((stationX + 300 + index * 150) / 1_000),
         chunkY: Math.floor(stationY / 1_000),
         size: 'small' as const,
       }))
@@ -78,16 +84,25 @@ before(async () => {
         resourceKey: 'kyber_crystal',
         remainingAmount: 500,
       },
+      { asteroidId: mixedId, veinType: 'primary', resourceKey: 'carbon', remainingAmount: 0 },
+      {
+        asteroidId: mixedId,
+        veinType: 'trace',
+        resourceKey: 'kyber_crystal',
+        remainingAmount: 500,
+      },
     ]);
 });
 
 after(async () => {
   const db = getDb();
-  await db.delete(spacecraftTrips).where(inArray(spacecraftTrips.toId, [carbonId, kyberId]));
+  await db
+    .delete(spacecraftTrips)
+    .where(inArray(spacecraftTrips.toId, [carbonId, kyberId, mixedId]));
   await db
     .delete(asteroidAssignments)
-    .where(inArray(asteroidAssignments.asteroidId, [carbonId, kyberId]));
-  await db.delete(asteroids).where(inArray(asteroids.id, [carbonId, kyberId]));
+    .where(inArray(asteroidAssignments.asteroidId, [carbonId, kyberId, mixedId]));
+  await db.delete(asteroids).where(inArray(asteroids.id, [carbonId, kyberId, mixedId]));
   for (const table of [stationBuildings, stationResources, stationSpacecrafts]) {
     await db.delete(table).where(eq(table.stationId, stationId));
   }
@@ -120,6 +135,27 @@ test('build slots limit parallel upgrades and cancel refunds the full cost', asy
   assert.deepEqual(await resources(), stock);
 });
 
+test('concurrent starts fill one research slot and one build slot exactly once', async () => {
+  await setTestResources(stationId, { carbon: 4_000, titanium: 4_000, hydrogenium: 4_000 });
+  const research = await Promise.allSettled([
+    startResearch(userId, stationId, 'weapons'),
+    startResearch(userId, stationId, 'armor'),
+  ]);
+  assert.deepEqual(research.map((result) => result.status).sort(), ['fulfilled', 'rejected']);
+  runningResearch = research[0].status === 'fulfilled' ? 'weapons' : 'armor';
+
+  const builds = await Promise.allSettled([
+    startBuildingUpgrade(stationId, 'warehouse', userId),
+    startBuildingUpgrade(stationId, 'hangar', userId),
+  ]);
+  assert.deepEqual(builds.map((result) => result.status).sort(), ['fulfilled', 'rejected']);
+  await cancelBuildingUpgrade(
+    stationId,
+    builds[0].status === 'fulfilled' ? 'warehouse' : 'hangar',
+    userId
+  );
+});
+
 test('Kyber asteroids stay hidden until Spectral Analysis', async () => {
   const listed = async () => {
     const modifiers = await getUserResearchModifiers(userId);
@@ -134,7 +170,8 @@ test('Kyber asteroids stay hidden until Spectral Analysis', async () => {
   };
 
   assert.equal(await getAsteroidById(kyberId, userId), null);
-  assert.ok(!(await listed()).includes(kyberId));
+  assert.equal(await getAsteroidById(mixedId, userId), null);
+  assert.ok(!(await listed()).some((id) => id === kyberId || id === mixedId));
   assert.deepEqual(
     await createAsteroidAssignment({
       userId,
@@ -149,6 +186,7 @@ test('Kyber asteroids stay hidden until Spectral Analysis', async () => {
   await grantResearch(userId, { spectral_analysis: 1 });
   assert.equal((await getAsteroidById(kyberId, userId))?.veins[0]?.resourceKey, 'kyber_crystal');
   assert.ok((await listed()).includes(kyberId));
+  assert.ok((await listed()).includes(mixedId));
 });
 
 test('expeditions require Long-Range Survey', async () => {
@@ -175,4 +213,35 @@ test('the Autonomous Mining Fleet sends idle miners to the nearest best asteroid
   assert.equal(event?.type, 'miners_assigned');
   assert.equal(event.asteroidId, carbonId);
   assert.equal(event.rerouted, false);
+});
+
+// Last: it marks the station destroyed.
+test('due research cannot be cancelled and a destroyed payer gets no refund', async () => {
+  const later = createRealtimeExecutionContext(new Date(Date.now() + 3_600_000));
+  await assert.rejects(
+    cancelResearch(userId, runningResearch, creditStationResources, later),
+    /not running/
+  );
+
+  await getDb().update(stations).set({ destroyedAt: new Date() }).where(eq(stations.id, stationId));
+  const hydrogenium = async () =>
+    (
+      await getDb()
+        .select({ amount: stationResources.amount })
+        .from(stationResources)
+        .where(
+          and(
+            eq(stationResources.stationId, stationId),
+            eq(stationResources.resourceKey, 'hydrogenium')
+          )
+        )
+    )[0]?.amount;
+  const before = await hydrogenium();
+  await cancelResearch(userId, runningResearch, creditStationResources);
+  assert.equal(await hydrogenium(), before);
+  const [row] = await getDb()
+    .select({ completesAt: userResearch.completesAt })
+    .from(userResearch)
+    .where(and(eq(userResearch.userId, userId), eq(userResearch.technologyKey, runningResearch)));
+  assert.equal(row?.completesAt, null);
 });

@@ -106,8 +106,9 @@ export const getAsteroidById = async (
     listAsteroidAssignmentsWithOwner(db, id),
     listTravelingTripsByAsteroid(db, id),
   ]);
-  // An asteroid of only unresearched resources does not exist for this viewer.
-  if (veins.length === 0) return null;
+  // Without visible ore left the asteroid does not exist for this viewer; showing a mined-out one
+  // would betray its unresearched veins.
+  if (!veins.some((vein) => vein.remainingAmount > 0)) return null;
 
   // Miners fly individually; each assignment shows its next arrival.
   const activeTrips = new Map(

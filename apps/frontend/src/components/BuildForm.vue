@@ -7,12 +7,14 @@ import { useOverviewStore } from '../stores/overview.js';
 import CostList from './CostList.vue';
 import RequirementChips from './RequirementChips.vue';
 
-const { hangar, ship, stationId, productionSlots } = defineProps<{
+const { hangar, ship, stationId, productionSlots, buildTimeFactor } = defineProps<{
   stationId: string;
   ship: StationSpacecraftWithDefinition;
   hangar: { used: number; capacity: number };
   /** Ships the shipyard builds at once; an order takes ⌈amount / slots⌉ build times. */
   productionSlots: number;
+  /** Server factor from the Shipyard bonus and Fabrication Lines. */
+  buildTimeFactor: number;
 }>();
 
 const emit = defineEmits<{ built: [] }>();
@@ -66,8 +68,12 @@ const lacksResources = computed(
     totalCosts.value.some((cost) => (playerResources.value?.[cost.resourceKey] ?? 0) < cost.amount)
 );
 const locked = computed(() => ship.blockers.length > 0);
-const buildSeconds = computed(
-  () => Math.ceil(amount.value / Math.max(1, productionSlots)) * ship.definition.buildTime
+const buildSeconds = computed(() =>
+  Math.ceil(
+    Math.ceil(amount.value / Math.max(1, productionSlots)) *
+      ship.definition.buildTime *
+      buildTimeFactor
+  )
 );
 const canSubmit = computed(
   () =>

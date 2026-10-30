@@ -64,6 +64,13 @@ export function researchModifiers(research: ResearchLevels): ResearchModifiers {
   };
 }
 
+/** Speed-ups never cut a duration below this share. */
+const MIN_DURATION_FACTOR = 0.25;
+
+/** Duration factor of percent speed-ups that add up, like Core and Construction Robotics. */
+export const durationFactor = (bonusPercent: number): number =>
+  Math.max(MIN_DURATION_FACTOR, 1 - bonusPercent / 100);
+
 /** Nanite Assembly discount on building upgrade costs, rounded like the base costs. */
 export const applyBuildingCostDiscount = <T extends { amount: number }>(
   costs: T[],

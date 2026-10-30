@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
 import {
+  applyBuildingCostDiscount,
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   calculateBuildingUpgradeCost,
@@ -8,12 +9,14 @@ import {
 import type { BuildingKey } from '@orions-frontier/shared';
 import { formatBuildingEffect, formatBuildTime } from '../lib/format';
 import { useOverviewStore } from '../stores/overview.js';
+import { useResearchStore } from '../stores/research.js';
 import CostList from './CostList.vue';
 import UiModal from './UiModal.vue';
 
 const { stationId, initialKey } = defineProps<{ stationId: string; initialKey: BuildingKey }>();
 const emit = defineEmits<{ close: [] }>();
 const overview = useOverviewStore();
+const research = useResearchStore();
 const picked = ref<BuildingKey | null>(null);
 const activeKey = computed(() => picked.value ?? initialKey);
 const table = useTemplateRef('table');
@@ -36,7 +39,14 @@ const rows = computed(() => {
       effects: calculateBuildingEffect(key, level).map((effect) =>
         formatBuildingEffect(effect.type, effect.value)
       ),
-      costs: level > 1 ? calculateBuildingUpgradeCost(key, level) : [],
+      // Nanite Assembly discounts every level, like the building card.
+      costs:
+        level > 1
+          ? applyBuildingCostDiscount(
+              calculateBuildingUpgradeCost(key, level),
+              research.modifiers.buildingCost
+            )
+          : [],
       buildTime: level > 1 ? formatBuildTime(calculateBuildingBuildTime(key, level)) : null,
       unlocks: current.unlockMilestones[level] ?? [],
       state: stateFor(level, current.level, current.isUpgrading),

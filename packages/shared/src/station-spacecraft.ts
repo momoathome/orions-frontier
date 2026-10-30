@@ -49,4 +49,6 @@ export interface StationSpacecraftsResponse {
   hangar: { capacity: number; used: number };
   /** Ships the shipyard builds at the same time. */
   productionSlots: number;
+  /** Factor on build times from the Shipyard bonus and Fabrication Lines. */
+  buildTimeFactor: number;
 }

@@ -1,6 +1,7 @@
 import type { BotProfile } from '../../../lib/db/schema/bot-controllers.js';
 import {
   getSpacecraft,
+  applyBuildingCostDiscount,
   calculateBuildingUpgradeCost,
   getBuilding,
   calculateHangarCapacity,
@@ -256,7 +257,10 @@ export function travelFactor(station: StationSnapshot): number {
 export const buildingUpgradeCost = (station: StationSnapshot, buildingKey: BuildingKey) => {
   const level =
     station.buildings.find((building) => building.buildingKey === buildingKey)?.level ?? 0;
-  return calculateBuildingUpgradeCost(buildingKey, level + 1);
+  return applyBuildingCostDiscount(
+    calculateBuildingUpgradeCost(buildingKey, level + 1),
+    stationModifiers(station).buildingCost
+  );
 };
 
 export const hasStorageHeadroom = (state: GoalBotState, station: StationSnapshot): boolean => {
@@ -328,7 +332,8 @@ export function selectBestAsteroid(
 /** Check hangar crew capacity remaining at a station. */
 export function freeCrewCapacity(station: StationSnapshot): number {
   const hangarLvl = getHangarLevel(station);
-  const capacity = calculateHangarCapacity(hangarLvl);
+  // Fleet Coordination raises the crew the hangar holds, as in the station service.
+  const capacity = Math.floor(calculateHangarCapacity(hangarLvl) * stationModifiers(station).crew);
   const used = station.fleets.reduce((s, f) => {
     const sc = getSpacecraft(f.spacecraftKey);
     return s + f.amount * (sc?.crew ?? 0);

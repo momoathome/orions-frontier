@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import {
   calculateBuildingBuildTime,
   calculateConstructionSpeedBonus,
+  durationFactor,
 } from '@orions-frontier/game-config';
 import {
   getCostShortfall,
@@ -33,10 +34,9 @@ const levelsKey = ref<BuildingKey | null>(null);
 const detail = computed(() => overview.state.details[stationId] ?? null);
 const now = computed(() => overview.state.now);
 
-// Core and Construction Robotics add up; the server never goes below a quarter of the time.
-const speedUp = computed(() =>
-  Math.min(
-    75,
+// Core and Construction Robotics add up, with the server's floor from game-config.
+const speedFactor = computed(() =>
+  durationFactor(
     calculateConstructionSpeedBonus(
       detail.value?.buildings.find((building) => building.definition.key === 'core')?.level ?? 1
     ) + research.modifiers.constructionBonus
@@ -54,9 +54,7 @@ const cards = computed(() =>
     const maxed = building.level >= building.definition.maxLevel;
     const endsAt = building.upgradeEndsAt ? Date.parse(building.upgradeEndsAt) : null;
     const buildSeconds =
-      (calculateBuildingBuildTime(building.definition.key, building.level + 1) *
-        (100 - speedUp.value)) /
-      100;
+      calculateBuildingBuildTime(building.definition.key, building.level + 1) * speedFactor.value;
     const affordable = !maxed && shortfall.missing.length === 0;
     const upgradingNow = building.isUpgrading && endsAt !== null && endsAt > now.value;
     const nextUnlock = Object.entries(building.unlockMilestones)

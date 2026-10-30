@@ -5,6 +5,7 @@ import {
   defenseUpgrades,
   getDefenseUpgrade,
   requirementBlockers,
+  researchModifiers,
 } from '@orions-frontier/game-config';
 import {
   required,
@@ -32,6 +33,7 @@ import {
 import { findOwnedStationForUpdate } from '../../repositories/stations.js';
 import {
   applyConstructionSpeed,
+  constructionFactor,
   describeBlockers,
   getResearchLevels,
   getStationResearchModifiers,
@@ -92,6 +94,11 @@ export const getStationDefenseUpgrades = async (
   const buildingLevels = toBuildingLevels(rows);
   const byKey = new Map(rows.map((row) => [row.buildingKey, row]));
   const now = context.now;
+  // The same speed-up as starting an upgrade, so the shown time matches the real one.
+  const speed = constructionFactor(
+    researchModifiers(research).constructionBonus,
+    buildingLevels.core ?? 1
+  );
 
   return defenseUpgrades.map((definition) => {
     const row = byKey.get(definition.key);
@@ -110,7 +117,7 @@ export const getStationDefenseUpgrades = async (
       upgradeCosts: isAtMax ? [] : calculateDefenseUpgradeCost(definition.key, level + 1),
       upgradeDurationSeconds: isAtMax
         ? null
-        : calculateDefenseUpgradeBuildTime(definition.key, level + 1),
+        : Math.round(calculateDefenseUpgradeBuildTime(definition.key, level + 1) * speed),
       blockers:
         level > definition.startingLevel
           ? []

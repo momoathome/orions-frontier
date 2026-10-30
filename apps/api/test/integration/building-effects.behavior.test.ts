@@ -109,7 +109,8 @@ test('defense upgrades are managed outside station buildings', async () => {
   );
   assert.equal(before?.level, 0);
   assert.deepEqual(before.effects, [{ type: 'defense_score', value: 0 }]);
-  assert.equal(before.upgradeDurationSeconds, 120);
+  // 120 s base, shortened by the Core 5 build speed like a real start.
+  assert.equal(before.upgradeDurationSeconds, 110);
 
   await completeDefenseUpgrade('guardian_cannon');
 

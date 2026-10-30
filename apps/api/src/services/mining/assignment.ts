@@ -65,7 +65,8 @@ export const createAsteroidAssignment = async (
   if (!station) return { code: 'STATION_NOT_FOUND', message: 'Station not found' };
   // Research reveals veins; an asteroid without a visible one does not exist for this player.
   const { visibleResources } = await getStationResearchModifiers(db, stationId);
-  if (!asteroid || (await listAsteroidVeins(db, asteroidId, visibleResources)).length === 0) {
+  const veins = asteroid ? await listAsteroidVeins(db, asteroidId, visibleResources) : [];
+  if (!asteroid || !veins.some((vein) => vein.remainingAmount > 0)) {
     return { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' };
   }
 

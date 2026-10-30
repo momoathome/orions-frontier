@@ -23,6 +23,7 @@ const roleFilter = ref<SpacecraftRole | 'all'>('all');
 const activeShip = ref<StationSpacecraftWithDefinition | null>(null);
 const hangar = ref({ used: 0, capacity: 0 });
 const productionSlots = ref(1);
+const buildTimeFactor = ref(1);
 
 const uniqueRoles = computed(() => [...new Set(fleet.value.map((e) => e.definition.role))]);
 
@@ -125,6 +126,7 @@ async function loadFleet(force = false) {
     fleet.value = response.spacecrafts;
     hangar.value = response.hangar;
     productionSlots.value = response.productionSlots;
+    buildTimeFactor.value = response.buildTimeFactor;
     const activeKey = activeShip.value?.definition.key;
     activeShip.value =
       fleet.value.find((e) => e.definition.key === activeKey) ??
@@ -356,6 +358,7 @@ onUnmounted(() => {
           :ship="activeShip"
           :hangar="hangar"
           :production-slots="productionSlots"
+          :build-time-factor="buildTimeFactor"
           @built="onBuilt"
         />
       </template>

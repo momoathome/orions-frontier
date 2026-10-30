@@ -27,14 +27,14 @@ import {
   completeResearchLevel,
   listDueResearch,
   listUserResearch,
+  lockUserResearch,
   startResearchLevel,
 } from '../../repositories/user-research.js';
 import {
   deductStationResource,
   listStationResourcesForUpdate,
 } from '../../repositories/station-resources.js';
-import { findOwnedStationForUpdate } from '../../repositories/stations.js';
-import { findUserForUpdate } from '../../repositories/users.js';
+import { findOwnedStationForUpdate, findStationForUpdate } from '../../repositories/stations.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -109,12 +109,6 @@ export async function getResearchState(
   };
 }
 
-/** Locks the account so research starts and cancels of one user run one after another. */
-async function lockUser(tx: Tx, userId: string) {
-  if (!(await findUserForUpdate(tx, userId)))
-    throw new AppError(ErrorCode.NOT_FOUND, 'User not found');
-}
-
 export async function startResearch(
   userId: string,
   stationId: string,
@@ -126,7 +120,7 @@ export async function startResearch(
   const key: ResearchKey = definition.key;
 
   const resources = await getDb().transaction(async (tx) => {
-    await lockUser(tx, userId);
+    await lockUserResearch(tx, userId);
     const station = await findOwnedStationForUpdate(tx, stationId, userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
@@ -201,10 +195,13 @@ export async function cancelResearch(
   if (!definition) throw new AppError(ErrorCode.NOT_FOUND, 'Research not found');
 
   const refundedTo = await getDb().transaction(async (tx) => {
-    await lockUser(tx, userId);
+    await lockUserResearch(tx, userId);
     const cancelled = await cancelResearchLevel(tx, userId, definition.key, context.now);
     if (!cancelled) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research is not running');
     if (!cancelled.paidByStationId) return null;
+    // A destroyed payer keeps its id (soft delete); its refund is lost like its other stock.
+    const payer = await findStationForUpdate(tx, cancelled.paidByStationId);
+    if (!payer || payer.destroyedAt) return null;
     const refund: ResourceMap = {};
     for (const cost of calculateResearchCost(definition.key, cancelled.level + 1)) {
       refund[cost.resourceKey] = cost.amount;

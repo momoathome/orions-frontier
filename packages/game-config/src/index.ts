@@ -46,7 +46,11 @@ export {
   RESEARCH_TIERS,
   unlocksByBuildingLevel,
 } from './research.js';
-export { applyBuildingCostDiscount, researchModifiers } from './research-effects.js';
+export {
+  applyBuildingCostDiscount,
+  durationFactor,
+  researchModifiers,
+} from './research-effects.js';
 export type { ResearchModifiers } from './research-effects.js';
 export {
   calculateInfluence,
