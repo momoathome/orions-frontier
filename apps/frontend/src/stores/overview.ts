@@ -209,7 +209,8 @@ function start(): () => void {
         scheduleProgress();
       }),
       wsClient.on('world_mission_completed', scheduleAll),
-      wsClient.on('research_completed', scheduleProgress),
+      // Research changes station modifiers, and Parallel Construction starts queued upgrades.
+      wsClient.on('research_completed', scheduleAll),
       wsClient.on('incoming_attack', () => void refreshCombats()),
     ];
     stopSync = () => {

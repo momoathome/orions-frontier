@@ -15,7 +15,10 @@ export {
   completeDueResearch,
   describeBlockers,
   getResearchState,
+  recheckResearchQueue,
   removeQueuedResearch,
   startResearch,
+  toQueuedJob,
+  toResourceMap,
 } from './research.js';
 export type { CreditStation, ResearchPassResult, ResearchQueueHooks } from './research.js';

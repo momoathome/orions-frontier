@@ -51,6 +51,7 @@ import {
 } from '../../lib/game-execution-context.js';
 import {
   completionEventId,
+  queueJobDropped,
   type QueueJobDroppedEvent,
   type ResearchCompletedEvent,
 } from '../../lib/completion-events.js';
@@ -100,14 +101,7 @@ export async function getResearchState(
   return {
     slots: researchModifiers(levels).researchSlots,
     highestLaboratory: laboratory,
-    queue: queue.map((job): QueuedJob => ({
-      id: job.id,
-      kind: job.kind,
-      key: job.key,
-      targetLevel: job.targetLevel,
-      stationId: job.stationId,
-      paidCost: job.paidCost,
-    })),
+    queue: queue.map(toQueuedJob),
     technologies: researchDefinitions.map((definition) => {
       const row = byKey.get(definition.key);
       const level = levels[definition.key] ?? 0;
@@ -142,11 +136,20 @@ export type CreditStation = (
   resources: ResourceMap
 ) => Promise<ResourceMap>;
 
-const toResourceMap = (costs: BuildingUpgradeCost[]) => {
+export const toResourceMap = (costs: BuildingUpgradeCost[]) => {
   const map: ResourceMap = {};
   for (const cost of costs) map[cost.resourceKey] = (map[cost.resourceKey] ?? 0) + cost.amount;
   return map;
 };
+
+export const toQueuedJob = (row: QueuedJobRow): QueuedJob => ({
+  id: row.id,
+  kind: row.kind,
+  key: row.key,
+  targetLevel: row.targetLevel,
+  stationId: row.stationId,
+  paidCost: row.paidCost,
+});
 
 /** Level each technology reaches once running research and the given jobs are done. */
 function plannedResearch(
@@ -163,23 +166,40 @@ function plannedResearch(
   return planned;
 }
 
-/** Refunds to the paying station; a destroyed payer loses it like the rest of its stock. */
+/**
+ * Refunds to the paying station as far as storage allows; a destroyed payer loses it like the
+ * rest of its stock.
+ */
 async function refundToPayer(
   tx: Tx,
   stationId: string | null,
   costs: BuildingUpgradeCost[],
   credit: CreditStation
-): Promise<{ stationId: string; resources: ResourceMap; refunded: ResourceMap } | null> {
-  if (!stationId) return null;
+): Promise<ResourceMap> {
+  if (!stationId) return {};
   const payer = await findStationForUpdate(tx, stationId);
-  if (!payer || payer.destroyedAt) return null;
-  const refunded = await credit(tx, stationId, toResourceMap(costs));
-  const rows = await listStationResourcesForUpdate(tx, stationId);
-  return {
-    stationId,
-    resources: Object.fromEntries(rows.map((row) => [row.resourceKey, row.amount])),
-    refunded,
-  };
+  if (!payer || payer.destroyedAt) return {};
+  return credit(tx, stationId, toResourceMap(costs));
+}
+
+/** Stock of every station a refund reached, read last so it includes the cascaded refunds. */
+async function refundedStock(
+  tx: Tx,
+  refunds: { stationId: string | null; refunded: ResourceMap }[]
+): Promise<{ stationId: string; resources: ResourceMap }[]> {
+  const stationIds = new Set<string>();
+  for (const { stationId, refunded } of refunds) {
+    if (stationId && Object.keys(refunded).length > 0) stationIds.add(stationId);
+  }
+  const stock = [];
+  for (const stationId of stationIds) {
+    const rows = await listStationResourcesForUpdate(tx, stationId);
+    stock.push({
+      stationId,
+      resources: Object.fromEntries(rows.map((row) => [row.resourceKey, row.amount])),
+    });
+  }
+  return stock;
 }
 
 /**
@@ -211,26 +231,17 @@ async function dropBrokenResearchJobs(
       continue;
     }
     await deleteQueuedJob(tx, job.id);
-    const refund = await refundToPayer(tx, job.stationId, job.paidCost, credit);
-    dropped.push({
-      type: 'queue_job_dropped',
-      eventId: completionEventId('queue_job_dropped', job.id),
-      occurredAt: at,
-      userId,
-      stationId: job.stationId,
-      jobId: job.id,
-      kind: job.kind,
-      key: job.key,
-      targetLevel: job.targetLevel,
-      refunded: refund?.refunded ?? {},
-    });
+    dropped.push(
+      queueJobDropped(job, at, await refundToPayer(tx, job.stationId, job.paidCost, credit))
+    );
   }
   return dropped;
 }
 
 /**
  * Starts waiting research in queue order while research slots are free, at `at`, the moment the
- * slot freed. A job waits while its technology runs or a requirement is still queued.
+ * slot freed (or when queued, if later). A job waits while its technology runs or a requirement
+ * is still queued.
  * Call under the research lock.
  */
 async function startQueuedResearch(tx: Tx, userId: string, at: Date): Promise<string[]> {
@@ -257,13 +268,14 @@ async function startQueuedResearch(tx: Tx, userId: string, at: Date): Promise<st
       job.targetLevel,
       buildings.laboratory ?? 0
     );
+    const startAt = Math.max(at.getTime(), job.createdAt.getTime());
     // The job's id becomes the research row's id if the technology has none yet.
     const ok = await startResearchLevel(tx, {
       id: job.id,
       userId,
       technologyKey: definition.key,
-      startedAt: at,
-      completesAt: new Date(at.getTime() + duration * 1000),
+      startedAt: new Date(startAt),
+      completesAt: new Date(startAt + duration * 1000),
       paidByStationId: job.stationId,
     });
     if (!ok) continue;
@@ -321,8 +333,9 @@ export async function startResearch(
     if (jobs.length >= QUEUE_LIMIT) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, `Queue is full (${QUEUE_LIMIT} jobs)`);
     }
-    // A queued level may rely on earlier jobs of this queue, never on queued buildings.
-    const planned = plannedResearch(rows, jobs);
+    // A queued level may rely on earlier jobs of this queue, never on queued buildings; a direct
+    // start only on what is researched.
+    const planned = plannedResearch(rows, queue ? jobs : []);
     const blockers = researchBlockers(key, planned, buildings);
     if (blockers.length > 0) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, describeBlockers(blockers));
@@ -372,51 +385,79 @@ export async function startResearch(
 /**
  * Stops running research and refunds its cost to the station that paid, as far as storage allows.
  * Queued levels that built on it are dropped with a refund; the freed slot goes to the next job.
+ * Returns the dropped jobs for the logbook.
  */
 export async function cancelResearch(
   userId: string,
   technologyKey: string,
   credit: CreditStation,
   context: GameExecutionContext = createRealtimeExecutionContext()
-): Promise<void> {
+): Promise<QueueJobDroppedEvent[]> {
   const definition = getResearchDefinition(technologyKey);
   if (!definition) throw new AppError(ErrorCode.NOT_FOUND, 'Research not found');
 
-  const refundedTo = await getDb().transaction(async (tx) => {
+  const { stock, dropped } = await getDb().transaction(async (tx) => {
     await lockUserResearch(tx, userId);
     const cancelled = await cancelResearchLevel(tx, userId, definition.key, context.now);
     if (!cancelled) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research is not running');
-    const refund = await refundToPayer(
+    const refunded = await refundToPayer(
       tx,
       cancelled.paidByStationId,
       calculateResearchCost(definition.key, cancelled.level + 1),
       credit
     );
-    await dropBrokenResearchJobs(tx, userId, context.now, credit);
+    const dropped = await dropBrokenResearchJobs(tx, userId, context.now, credit);
     await startQueuedResearch(tx, userId, context.now);
-    return refund;
+    const stock = await refundedStock(tx, [
+      { stationId: cancelled.paidByStationId, refunded },
+      ...dropped,
+    ]);
+    return { stock, dropped };
   });
-  if (refundedTo) publishUserEvent(userId, 'resources_updated', refundedTo);
+  for (const station of stock) publishUserEvent(userId, 'resources_updated', station);
+  return dropped;
 }
 
-/** Removes a waiting research job with a full refund; jobs that built on it are dropped too. */
+/**
+ * Removes a waiting research job and refunds what it paid as far as storage allows; jobs that
+ * built on it are dropped too and returned for the logbook.
+ */
 export async function removeQueuedResearch(
   userId: string,
   jobId: string,
   credit: CreditStation,
   context: GameExecutionContext = createRealtimeExecutionContext()
-): Promise<void> {
-  const refundedTo = await getDb().transaction(async (tx) => {
+): Promise<QueueJobDroppedEvent[]> {
+  const { stock, dropped } = await getDb().transaction(async (tx) => {
     await lockUserResearch(tx, userId);
     const job = (await listResearchQueue(tx, userId)).find((row) => row.id === jobId);
     if (!job) throw new AppError(ErrorCode.NOT_FOUND, 'Queued job not found');
     await deleteQueuedJob(tx, job.id);
-    const refund = await refundToPayer(tx, job.stationId, job.paidCost, credit);
-    await dropBrokenResearchJobs(tx, userId, context.now, credit);
+    const refunded = await refundToPayer(tx, job.stationId, job.paidCost, credit);
+    const dropped = await dropBrokenResearchJobs(tx, userId, context.now, credit);
     await startQueuedResearch(tx, userId, context.now);
-    return refund;
+    const stock = await refundedStock(tx, [{ stationId: job.stationId, refunded }, ...dropped]);
+    return { stock, dropped };
   });
-  if (refundedTo) publishUserEvent(userId, 'resources_updated', refundedTo);
+  for (const station of stock) publishUserEvent(userId, 'resources_updated', station);
+  return dropped;
+}
+
+/**
+ * Re-checks the queue in its own transaction, e.g. once a station holding the laboratory fell,
+ * so jobs that can no longer start are refunded instead of waiting for good.
+ */
+export async function recheckResearchQueue(
+  userId: string,
+  at: Date,
+  credit: CreditStation
+): Promise<QueueJobDroppedEvent[]> {
+  return getDb().transaction(async (tx) => {
+    await lockUserResearch(tx, userId);
+    const dropped = await dropBrokenResearchJobs(tx, userId, at, credit);
+    await startQueuedResearch(tx, userId, at);
+    return dropped;
+  });
 }
 
 export interface ResearchPassResult {
@@ -439,11 +480,11 @@ export interface ResearchQueueHooks {
 
 /**
  * Raises every due research by one level, at most once per started level, and starts the next
- * queued research in the same transaction. Without hooks the queue only starts, never drops.
+ * queued research in the same transaction.
  */
 export async function completeDueResearch(
-  now = new Date(),
-  hooks?: ResearchQueueHooks
+  now: Date,
+  hooks: ResearchQueueHooks
 ): Promise<ResearchPassResult> {
   const db = getDb();
   const result: ResearchPassResult = { completed: 0, failed: 0, events: [] };
@@ -455,17 +496,16 @@ export async function completeDueResearch(
         await lockUserResearch(tx, research.userId);
         const completed = await completeResearchLevel(tx, research.id, now);
         if (!completed) return null;
-        const dropped = hooks
-          ? await dropBrokenResearchJobs(tx, research.userId, completesAt, hooks.credit)
-          : [];
+        const dropped = await dropBrokenResearchJobs(
+          tx,
+          research.userId,
+          completesAt,
+          hooks.credit
+        );
         await startQueuedResearch(tx, research.userId, completesAt);
         const after =
-          (await hooks?.afterComplete?.(
-            tx,
-            research.userId,
-            research.technologyKey,
-            completesAt
-          )) ?? [];
+          (await hooks.afterComplete?.(tx, research.userId, research.technologyKey, completesAt)) ??
+          [];
         return { level: completed.level, dropped: [...dropped, ...after] };
       });
       if (!done) continue;

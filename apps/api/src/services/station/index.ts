@@ -4,12 +4,7 @@ export {
   seedStationBuildings,
   startBuildingUpgrade,
 } from './buildings.js';
-export {
-  advanceStationQueue,
-  getBuildSlots,
-  removeQueuedStationJob,
-  toQueuedJob,
-} from './construction.js';
+export { advanceStationQueue, getBuildSlots, removeQueuedStationJob } from './construction.js';
 export {
   calculateStationDefenseScore,
   cancelDefenseUpgrade,

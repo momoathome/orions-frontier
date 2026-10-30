@@ -68,7 +68,7 @@ async function cancelResearch(key: ResearchKey): Promise<void> {
   await refresh();
 }
 
-/** Removes a waiting entry; later entries that needed its level go too, all refunded. */
+/** Removes a waiting entry; later entries that needed its level go too, all refunded as far as storage allows. */
 async function removeQueued(jobId: string): Promise<void> {
   await apiClient.delete(`/me/research/queue/${jobId}`);
   await refresh();

@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { and, eq } from 'drizzle-orm';
-import { calculateBuildingBuildTime } from '@orions-frontier/game-config';
+import {
+  calculateBuildingBuildTime,
+  calculateResearchDuration,
+} from '@orions-frontier/game-config';
 import { QUEUE_LIMIT, type ResourceMap } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
+import { logbookEntries } from '../../src/lib/db/schema/logbook-entries.js';
 import { queuedJobs } from '../../src/lib/db/schema/queued-jobs.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
@@ -19,8 +23,10 @@ import {
   applyConstructionSpeed,
   cancelResearch,
   getResearchState,
+  recheckResearchQueue,
   removeQueuedResearch,
   startResearch,
+  toResourceMap,
 } from '../../src/services/research/index.js';
 import { runWorldTick } from '../../src/services/simulation/index.js';
 import {
@@ -30,19 +36,24 @@ import {
   creditStationResources,
   getBuildSlots,
   getStationBuildings,
+  getStationDefenseUpgrades,
   removeQueuedStationJob,
   startBuildingUpgrade,
+  startDefenseUpgrade,
 } from '../../src/services/station/index.js';
 import {
   createTestSector,
   createTestStation,
   createTestUser,
+  grantResearch,
   setTestResources,
 } from '../helpers/fixtures.js';
 
 let userId = '';
 let stationId = '';
 let sectorId = '';
+let otherUserId = '';
+let otherStationId = '';
 // Far below storage, so every refund fits.
 const STOCK: ResourceMap = { carbon: 4_000, hydrogenium: 4_000, titanium: 4_000 };
 
@@ -52,6 +63,8 @@ before(async () => {
   sectorId = (await createTestSector()).id;
   userId = (await createTestUser()).id;
   stationId = (await createTestStation({ userId, sectorId })).id;
+  otherUserId = (await createTestUser()).id;
+  otherStationId = (await createTestStation({ userId: otherUserId, sectorId, x: 5_000 })).id;
 });
 
 beforeEach(async () => {
@@ -70,16 +83,16 @@ after(async () => {
   const db = getDb();
   await db.delete(queuedJobs).where(eq(queuedJobs.userId, userId));
   await db.delete(userResearch).where(eq(userResearch.userId, userId));
-  for (const table of [
-    stationBuildings,
-    stationResources,
-    stationSpacecrafts,
-    spacecraftBuildOrders,
-  ]) {
-    await db.delete(table).where(eq(table.stationId, stationId));
+  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
+  for (const id of [stationId, otherStationId]) {
+    for (const table of [stationBuildings, stationResources, stationSpacecrafts]) {
+      await db.delete(table).where(eq(table.stationId, id));
+    }
+    await db.delete(stations).where(eq(stations.id, id));
   }
-  await db.delete(stations).where(eq(stations.id, stationId));
+  await db.delete(logbookEntries).where(eq(logbookEntries.userId, userId));
   await db.delete(users).where(eq(users.id, userId));
+  await db.delete(users).where(eq(users.id, otherUserId));
   await db.delete(sectors).where(eq(sectors.id, sectorId));
   await closeDb();
 });
@@ -92,6 +105,14 @@ const stock = async () =>
   );
 const queueCore = () => startBuildingUpgrade(stationId, 'core', userId, undefined, true);
 const queue = async () => (await getBuildSlots(stationId, new Date())).queue;
+const setLevel = (buildingKey: string, level: number) =>
+  getDb()
+    .update(stationBuildings)
+    .set({ level })
+    .where(
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, buildingKey))
+    );
+const MONTH_MS = 30 * 24 * 3_600_000;
 
 test('cancelling a level drops the queued levels that built on it and refunds everything', async () => {
   await queueCore(); // core 2 runs
@@ -105,6 +126,11 @@ test('cancelling a level drops the queued levels that built on it and refunds ev
   // Removing core 3 leaves core 4 without its step, so it goes too.
   await removeQueuedStationJob(stationId, userId, (await queue())[0]!.id);
   assert.deepEqual(await queue(), []);
+  const logged = await getDb()
+    .select()
+    .from(logbookEntries)
+    .where(and(eq(logbookEntries.userId, userId), eq(logbookEntries.type, 'queue_job_dropped')));
+  assert.equal(logged.length, 1, 'the cascaded core 4 is logged');
 
   await queueCore(); // core 3 again
   await cancelBuildingUpgrade(stationId, 'core', userId);
@@ -212,4 +238,157 @@ test('cancelling a ship order refunds it and moves later orders up', async () =>
   );
   await cancelBuildOrder(stationId, userId, second!.id, context);
   assert.deepEqual(await stock(), STOCK);
+});
+
+test('queue jobs of another station or account cannot be removed or refunded', async () => {
+  const foreign = async (kind: 'building' | 'research') => {
+    const [job] = await getDb()
+      .insert(queuedJobs)
+      .values({
+        userId: otherUserId,
+        stationId: otherStationId,
+        kind,
+        key: kind === 'building' ? 'core' : 'weapons',
+        targetLevel: 2,
+        paidCost: [{ resourceKey: 'carbon', amount: 100 }],
+      })
+      .returning();
+    return job!.id;
+  };
+  const buildingJob = await foreign('building');
+  const researchJob = await foreign('research');
+
+  await assert.rejects(removeQueuedStationJob(stationId, userId, buildingJob), /not found/i);
+  await assert.rejects(
+    removeQueuedResearch(userId, researchJob, creditStationResources),
+    /not found/i
+  );
+  const left = await getDb().select().from(queuedJobs).where(eq(queuedJobs.userId, otherUserId));
+  assert.equal(left.length, 2);
+  assert.deepEqual(await stock(), STOCK);
+  await getDb().delete(queuedJobs).where(eq(queuedJobs.userId, otherUserId));
+});
+
+test('finishing Parallel Construction starts a waiting upgrade in the new slot', async () => {
+  await queueCore(); // core 2 takes the only slot
+  await startBuildingUpgrade(stationId, 'laboratory', userId, undefined, true);
+  assert.equal((await queue()).length, 1);
+
+  const now = new Date();
+  await getDb()
+    .insert(userResearch)
+    .values({
+      userId,
+      technologyKey: 'parallel_construction',
+      level: 0,
+      startedAt: new Date(now.getTime() - 60_000),
+      completesAt: new Date(now.getTime() - 1_000),
+      paidByStationId: stationId,
+    });
+  await runWorldTick(now);
+
+  assert.deepEqual(await queue(), []);
+  const lab = (await getStationBuildings(stationId)).find((b) => b.definition.key === 'laboratory');
+  assert.equal(lab?.isUpgrading, true);
+});
+
+test('queued research whose laboratory fell is dropped with a refund', async () => {
+  await setLevel('laboratory', 3);
+  await startResearch(userId, stationId, 'weapons', undefined, true); // runs
+  await startResearch(userId, stationId, 'weapons', undefined, true); // waits
+  const [waiting] = (await getResearchState(userId)).queue;
+  const paid = toResourceMap(waiting!.paidCost);
+  const before = await stock();
+  await setLevel('laboratory', 1);
+
+  const dropped = await recheckResearchQueue(userId, new Date(), creditStationResources);
+  assert.deepEqual(
+    dropped.map((event) => [event.type, event.refunded]),
+    [['queue_job_dropped', paid]]
+  );
+  assert.deepEqual((await getResearchState(userId)).queue, []);
+  const expected: Record<string, number> = { ...before };
+  for (const [key, amount] of Object.entries(paid)) expected[key] = (expected[key] ?? 0) + amount;
+  assert.deepEqual(await stock(), expected);
+});
+
+test('a level queued after its slot freed starts when it was queued, not before', async () => {
+  await queueCore(); // core 2 runs
+  await getDb()
+    .update(stationBuildings)
+    .set({ upgradeEndsAt: new Date(Date.now() - 60_000) })
+    .where(
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'core'))
+    );
+  await queueCore(); // core 3 waits for the due core 2
+  const [job] = await getDb().select().from(queuedJobs).where(eq(queuedJobs.stationId, stationId));
+
+  await runWorldTick(new Date());
+  const core = (await getStationBuildings(stationId)).find((b) => b.definition.key === 'core');
+  assert.equal(core?.level, 2);
+  const expected = applyConstructionSpeed(
+    0,
+    2,
+    new Date(job!.createdAt.getTime() + calculateBuildingBuildTime('core', 3) * 1000),
+    job!.createdAt
+  );
+  assert.equal(Date.parse(core.upgradeEndsAt!), expected.getTime());
+});
+
+test('a queued defense waits for the queued building it needs and goes when that is cancelled', async () => {
+  await grantResearch(userId, { weapons: 1 });
+  await setLevel('defense_drones', 0);
+  const queueDrones = () =>
+    startDefenseUpgrade(stationId, 'defense_drones', userId, undefined, true);
+  await queueCore(); // core 2 runs
+  await queueDrones(); // needs core 2
+  assert.deepEqual(
+    (await queue()).map((job) => [job.key, job.targetLevel]),
+    [['defense_drones', 1]]
+  );
+  await cancelBuildingUpgrade(stationId, 'core', userId);
+  assert.deepEqual(await queue(), []);
+  assert.deepEqual(await stock(), STOCK);
+
+  await queueCore();
+  await queueDrones();
+  await runWorldTick(new Date(Date.now() + MONTH_MS));
+  const drones = (await getStationDefenseUpgrades(stationId, userId)).find(
+    (upgrade) => upgrade.definition.key === 'defense_drones'
+  );
+  assert.equal(drones?.level, 1);
+});
+
+test('queued research starts when the running level completes, also while nobody watches', async () => {
+  await setLevel('laboratory', 3);
+  await startResearch(userId, stationId, 'weapons', undefined, true); // weapons 1 runs
+  await startResearch(userId, stationId, 'weapons', undefined, true); // weapons 2 waits
+  const running = (await getResearchState(userId)).technologies.find(
+    (t) => t.definition.key === 'weapons'
+  );
+  const firstEnd = Date.parse(running!.completesAt!);
+
+  const tick = await runWorldTick(new Date(Date.now() + MONTH_MS));
+  const ends = tick.events
+    .filter((event) => event.type === 'research_completed' && event.userId === userId)
+    .map((event) => event.occurredAt.getTime());
+  // Weapons 2 began when weapons 1 ended, not at the tick.
+  assert.deepEqual(ends, [firstEnd, firstEnd + calculateResearchDuration('weapons', 2, 3) * 1000]);
+  assert.deepEqual((await getResearchState(userId)).queue, []);
+});
+
+test('a laboratory that is only upgrading or queued does not unlock the next research level', async () => {
+  await startBuildingUpgrade(stationId, 'laboratory', userId, undefined, true); // lab 2 runs
+  await startBuildingUpgrade(stationId, 'laboratory', userId, undefined, true); // lab 3 waits
+  await startResearch(userId, stationId, 'weapons', undefined, true); // weapons 1 needs lab 1
+
+  await assert.rejects(
+    startResearch(userId, stationId, 'weapons', undefined, true),
+    /Requires Laboratory 2/
+  );
+  const state = await getResearchState(userId);
+  assert.deepEqual(state.queue, []);
+  assert.deepEqual(state.technologies.find((t) => t.definition.key === 'weapons')?.blockers, [
+    { type: 'lab_cap', level: 2, current: 1 },
+  ]);
 });

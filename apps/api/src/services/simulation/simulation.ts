@@ -30,7 +30,11 @@ import {
   creditStationResources,
   defenseUpgradeMaxLevel,
 } from '../station/index.js';
-import { completeDueResearch, type ResearchQueueHooks } from '../research/index.js';
+import {
+  completeDueResearch,
+  recheckResearchQueue,
+  type ResearchQueueHooks,
+} from '../research/index.js';
 import { settleTripArrivalDetailed } from '../transport/index.js';
 import { completeDueWorldMissionsDetailed } from '../missions/index.js';
 import { recordLogbookEvents } from '../logbook/index.js';
@@ -85,6 +89,16 @@ async function completeDueTransports(
         if (trip.purpose === 'combat' && trip.toType === 'station') {
           const defender = await findStation(db, trip.toId);
           if (defender && defender.userId !== userId) notify(defender.userId);
+          // A fallen laboratory can strand queued research; drop it with a refund instead.
+          if (defender?.destroyedAt) {
+            events.push(
+              ...(await recheckResearchQueue(
+                defender.userId,
+                trip.arrivesAt,
+                creditStationResources
+              ))
+            );
+          }
         }
       }
     } catch (error) {

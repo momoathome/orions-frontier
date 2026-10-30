@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { buildings, defenseUpgrades, getResearchDefinition } from '@orions-frontier/game-config';
-import { QUEUE_LIMIT, type QueuedJob } from '@orions-frontier/shared';
+import {
+  getBuilding,
+  getDefenseUpgrade,
+  getResearchDefinition,
+} from '@orions-frontier/game-config';
+import {
+  QUEUE_LIMIT,
+  buildingKeys,
+  defenseUpgradeKeys,
+  isOneOf,
+  type QueuedJob,
+} from '@orions-frontier/shared';
 import ConfirmCancelButton from './ConfirmCancelButton.vue';
 
 // Waiting jobs in start order; each one is already paid and can be removed for a refund.
@@ -8,10 +18,13 @@ const { jobs, busyId } = defineProps<{ jobs: QueuedJob[]; busyId: string | null 
 const emit = defineEmits<{ remove: [jobId: string] }>();
 
 const jobName = (job: QueuedJob) =>
-  (job.kind === 'research'
-    ? getResearchDefinition(job.key)
-    : [...buildings, ...defenseUpgrades].find((entry) => entry.key === job.key)
-  )?.name ?? job.key;
+  job.kind === 'research'
+    ? (getResearchDefinition(job.key)?.name ?? job.key)
+    : isOneOf(buildingKeys, job.key)
+      ? getBuilding(job.key).name
+      : isOneOf(defenseUpgradeKeys, job.key)
+        ? getDefenseUpgrade(job.key).name
+        : job.key;
 </script>
 
 <template>

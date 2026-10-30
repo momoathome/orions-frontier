@@ -1,4 +1,4 @@
-import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
+import { entriesOf, type QueuedJobKind, type ResourceMap } from '@orions-frontier/shared';
 
 interface CompletionEventBase {
   eventId: string;
@@ -60,7 +60,7 @@ export interface ResearchCompletedEvent extends CompletionEventBase {
 export interface QueueJobDroppedEvent extends CompletionEventBase {
   type: 'queue_job_dropped';
   jobId: string;
-  kind: string;
+  kind: QueuedJobKind;
   key: string;
   targetLevel: number;
   refunded: ResourceMap;
@@ -147,6 +147,31 @@ export type PlaytestCompletionEvent =
   | FleetLossesEvent
   | DebrisCreatedEvent
   | SalvageCompletedEvent;
+
+/** The logbook event for a queued job a queue dropped at `at`. */
+export const queueJobDropped = (
+  job: {
+    id: string;
+    userId: string;
+    stationId: string;
+    kind: QueuedJobKind;
+    key: string;
+    targetLevel: number;
+  },
+  at: Date,
+  refunded: ResourceMap
+): QueueJobDroppedEvent => ({
+  type: 'queue_job_dropped',
+  eventId: completionEventId('queue_job_dropped', job.id),
+  occurredAt: at,
+  userId: job.userId,
+  stationId: job.stationId,
+  jobId: job.id,
+  kind: job.kind,
+  key: job.key,
+  targetLevel: job.targetLevel,
+  refunded,
+});
 
 export function completionEventId(
   kind: PlaytestCompletionEvent['type'],

@@ -29,7 +29,7 @@ export const queuedJobs = pgTable(
     kind: varchar('kind', { length: 16 }).$type<QueuedJobKind>().notNull(),
     key: varchar('key', { length: 64 }).notNull(),
     targetLevel: integer('target_level').notNull(),
-    /** Refunded in full when the job is removed or dropped. */
+    /** Refunded, as far as storage allows, when the job is removed or dropped. */
     paidCost: jsonb('paid_cost').$type<BuildingUpgradeCost[]>().notNull(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },

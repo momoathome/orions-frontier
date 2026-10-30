@@ -17,6 +17,7 @@ import { PlaytestCollector } from '../../src/tools/playtest/collector.js';
 import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 import { loadPlaytestSnapshot } from '../../src/tools/playtest/snapshot-loader.js';
 import { completeDueResearch } from '../../src/services/research/research.js';
+import { creditStationResources } from '../../src/services/station/index.js';
 import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
 
 let userId = '';
@@ -89,8 +90,8 @@ function member(): PlaytestPopulationMember {
 
 test('an atomically claimed completion emits once and snapshots remain compact and read-only', async () => {
   const results = await Promise.all([
-    completeDueResearch(completedAt),
-    completeDueResearch(completedAt),
+    completeDueResearch(completedAt, { credit: creditStationResources }),
+    completeDueResearch(completedAt, { credit: creditStationResources }),
   ]);
   // Other files may leave due research behind; only this row's claim matters here.
   const events = results

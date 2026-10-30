@@ -3,7 +3,7 @@ import { authenticate } from '../../../middleware/auth.js';
 import { cancelBuildOrder, ownStation } from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
-/** DELETE /api/stations/:stationId/spacecrafts/orders/:orderId: cancels with a full refund. */
+/** DELETE /api/stations/:stationId/spacecrafts/orders/:orderId: cancels; refunds as far as storage allows. */
 export default defineRoute(async (app) => {
   app.delete(
     '/spacecrafts/orders/:orderId',

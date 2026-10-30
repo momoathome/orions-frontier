@@ -288,7 +288,9 @@ test('Laboratory research spends resources, fills one slot and refunds on cancel
 
   await startResearch(userId, stationId, 'extraction_algorithms');
   const [project] = await db.select().from(userResearch).where(eq(userResearch.userId, userId));
-  await completeDueResearch(new Date(project!.completesAt!.getTime() + 1));
+  await completeDueResearch(new Date(project!.completesAt!.getTime() + 1), {
+    credit: creditStationResources,
+  });
   const state = await getResearchState(userId);
   assert.equal(
     state.technologies.find((tech) => tech.definition.key === 'extraction_algorithms')?.level,

@@ -8,10 +8,8 @@ import {
   type BuildingLevels,
   type BuildingUpgradeCost,
   type BuildSlots,
-  type QueuedJob,
   type RequirementBlocker,
   type ResearchLevels,
-  type ResourceMap,
 } from '@orions-frontier/shared';
 import {
   applyBuildingCostDiscount,
@@ -26,7 +24,7 @@ import {
 } from '@orions-frontier/game-config';
 import { getDb, type QueryDb, type Tx } from '../../lib/db/index.js';
 import { publishUserEvent } from '../../lib/realtime.js';
-import { completionEventId, type QueueJobDroppedEvent } from '../../lib/completion-events.js';
+import { queueJobDropped, type QueueJobDroppedEvent } from '../../lib/completion-events.js';
 import {
   findStationBuildingByKeyForUpdate,
   insertStationBuildingIfMissing,
@@ -54,7 +52,10 @@ import {
   describeBlockers,
   getResearchLevels,
   getStationResearchModifiers,
+  toQueuedJob,
+  toResourceMap,
 } from '../research/index.js';
+import { recordLogbookEvents } from '../logbook/index.js';
 import { creditStationResources } from './resources.js';
 
 export const toBuildingLevels = (rows: { buildingKey: string; level: number }[]) => {
@@ -120,21 +121,6 @@ function upgradeRules(kind: string, key: string): UpgradeRules | null {
 const countRunningUpgrades = (rows: StationBuildingRow[], now: Date) =>
   rows.filter((row) => row.upgradeEndsAt !== null && row.upgradeEndsAt > now).length;
 
-const toResourceMap = (costs: BuildingUpgradeCost[]) => {
-  const map: ResourceMap = {};
-  for (const cost of costs) map[cost.resourceKey] = (map[cost.resourceKey] ?? 0) + cost.amount;
-  return map;
-};
-
-export const toQueuedJob = (row: QueuedJobRow): QueuedJob => ({
-  id: row.id,
-  kind: row.kind,
-  key: row.key,
-  targetLevel: row.targetLevel,
-  stationId: row.stationId,
-  paidCost: row.paidCost,
-});
-
 /** Build slots in use by building and defense upgrades, and the jobs waiting for one. */
 export async function getBuildSlots(stationId: string, now: Date): Promise<BuildSlots> {
   const db = getDb();
@@ -187,8 +173,9 @@ export const asBuildingLevels = (levels: Map<string, number>) =>
 /**
  * Re-checks the queue as a chain and starts waiting jobs while build slots are free. A job whose
  * level no longer follows (an earlier level was cancelled) or whose requirement fell away is
- * dropped with a full refund, and so is everything that built on it. Jobs start at `at`, the
- * moment the slot freed, so an offline chain plays out the same as a watched one.
+ * dropped with a refund, and so is everything that built on it. Jobs start at `at`, the moment
+ * the slot freed (or when queued, if later), so an offline chain plays out the same as a watched
+ * one.
  * Call under the station lock.
  */
 export async function advanceStationQueue(
@@ -221,18 +208,7 @@ export async function advanceStationQueue(
     }
     await deleteQueuedJob(tx, job.id);
     const refunded = await creditStationResources(tx, station.id, toResourceMap(job.paidCost));
-    dropped.push({
-      type: 'queue_job_dropped',
-      eventId: completionEventId('queue_job_dropped', job.id),
-      occurredAt: at,
-      userId: station.userId,
-      stationId: station.id,
-      jobId: job.id,
-      kind: job.kind,
-      key: job.key,
-      targetLevel: job.targetLevel,
-      refunded,
-    });
+    dropped.push(queueJobDropped(job, at, refunded));
   }
 
   const byKey = new Map(rows.map((row) => [row.buildingKey, row]));
@@ -247,12 +223,14 @@ export async function advanceStationQueue(
     if (busy.has(job.key) || job.targetLevel !== (row?.level ?? rules.startingLevel) + 1) continue;
     if (rules.blockers(job.targetLevel, research, built).length > 0) continue;
 
-    const baseEndsAt = new Date(at.getTime() + rules.buildSeconds(job.targetLevel) * 1000);
+    // Never before it was paid: a level queued after the slot freed starts when it was queued.
+    const startAt = new Date(Math.max(at.getTime(), job.createdAt.getTime()));
+    const baseEndsAt = new Date(startAt.getTime() + rules.buildSeconds(job.targetLevel) * 1000);
     const upgradeEndsAt = applyConstructionSpeed(
       modifiers.constructionBonus,
       built.core ?? 1,
       baseEndsAt,
-      at
+      startAt
     );
     // A defense row is created on its first upgrade; it takes the job's id.
     const target =
@@ -262,15 +240,15 @@ export async function advanceStationQueue(
         stationId: station.id,
         buildingKey: job.key,
         level: rules.startingLevel,
-        createdAt: at,
-        updatedAt: at,
+        createdAt: startAt,
+        updatedAt: startAt,
       })) ??
       (await findStationBuildingByKeyForUpdate(tx, station.id, job.key));
     if (!target) continue;
     await updateStationBuilding(tx, target.id, {
       upgradeEndsAt,
       upgradePaidCost: job.paidCost,
-      updatedAt: at,
+      updatedAt: startAt,
     });
     await deleteQueuedJob(tx, job.id);
     busy.add(job.key);
@@ -280,13 +258,20 @@ export async function advanceStationQueue(
   return { started, dropped };
 }
 
-const publishResources = async (tx: QueryDb, userId: string, stationId: string) => {
+/** After commit: push the new stock and log queued jobs the change dropped. */
+const afterCommit = async (
+  tx: QueryDb,
+  userId: string,
+  stationId: string,
+  dropped: QueueJobDroppedEvent[]
+) => {
   const rows = await listStationResources(tx, stationId);
-  return () => {
+  return async () => {
     publishUserEvent(userId, 'resources_updated', {
       stationId,
       resources: Object.fromEntries(rows.map((row) => [row.resourceKey, row.amount])),
     });
+    await recordLogbookEvents(dropped);
   };
 };
 
@@ -367,16 +352,19 @@ export async function queueStationUpgrade(
       paidCost: costs,
       createdAt: context.now,
     });
-    const { started } = await advanceStationQueue(tx, station, context.now);
+    const { started, dropped } = await advanceStationQueue(tx, station, context.now);
     if (!queue && !started.includes(jobId)) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'No free build slot');
     }
-    return publishResources(tx, userId, stationId);
+    return afterCommit(tx, userId, stationId, dropped);
   });
-  publish();
+  await publish();
 }
 
-/** Removes a waiting job with a full refund; jobs that built on it are dropped too. */
+/**
+ * Removes a waiting job and refunds what it paid as far as storage allows; jobs that built on it
+ * are dropped too.
+ */
 export async function removeQueuedStationJob(
   stationId: string,
   userId: string,
@@ -390,10 +378,10 @@ export async function removeQueuedStationJob(
     if (!job) throw new AppError(ErrorCode.NOT_FOUND, 'Queued job not found');
     await deleteQueuedJob(tx, job.id);
     await creditStationResources(tx, stationId, toResourceMap(job.paidCost));
-    await advanceStationQueue(tx, station, context.now);
-    return publishResources(tx, userId, stationId);
+    const { dropped } = await advanceStationQueue(tx, station, context.now);
+    return afterCommit(tx, userId, stationId, dropped);
   });
-  publish();
+  await publish();
 }
 
 /**
@@ -422,8 +410,8 @@ export async function cancelStationUpgrade(
       updatedAt: context.now,
     });
     await creditStationResources(tx, stationId, toResourceMap(row.upgradePaidCost ?? refund(row)));
-    await advanceStationQueue(tx, station, context.now);
-    return publishResources(tx, userId, stationId);
+    const { dropped } = await advanceStationQueue(tx, station, context.now);
+    return afterCommit(tx, userId, stationId, dropped);
   });
-  publish();
+  await publish();
 }

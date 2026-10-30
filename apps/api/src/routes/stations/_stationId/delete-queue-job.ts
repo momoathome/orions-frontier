@@ -3,7 +3,7 @@ import { authenticate } from '../../../middleware/auth.js';
 import { ownStation, removeQueuedStationJob } from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
-/** DELETE /api/stations/:stationId/queue/:jobId: removes a waiting upgrade with a full refund. */
+/** DELETE /api/stations/:stationId/queue/:jobId: removes a waiting upgrade; refunds as far as storage allows. */
 export default defineRoute(async (app) => {
   app.delete(
     '/queue/:jobId',

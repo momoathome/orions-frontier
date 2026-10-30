@@ -157,7 +157,8 @@ const lockReason = computed(() => {
   const value = tech.value;
   if (!value?.next) return null;
   if (value.blockers.length > 0) return formatBlockers(value.blockers);
-  if (!startsNow.value && queue.value.length >= QUEUE_LIMIT) {
+  // The server refuses a full queue even when the level would start at once.
+  if (queue.value.length >= QUEUE_LIMIT) {
     return `Queue is full (${QUEUE_LIMIT} jobs)`;
   }
   return shortfall.value;
@@ -185,9 +186,16 @@ const startResearch = () => {
 };
 const removing = ref<string | null>(null);
 const removeQueued = async (jobId: string) => {
+  // Not through act(): `busy` would relabel the start button as "Starting…".
   removing.value = jobId;
-  await act(() => research.removeQueued(jobId), 'Queue entry could not be removed');
-  removing.value = null;
+  error.value = null;
+  try {
+    await research.removeQueued(jobId);
+  } catch (cause) {
+    error.value = apiErrorMessage(cause, 'Queue entry could not be removed');
+  } finally {
+    removing.value = null;
+  }
 };
 const cancelResearch = () => {
   const key = tech.value?.definition.key;
