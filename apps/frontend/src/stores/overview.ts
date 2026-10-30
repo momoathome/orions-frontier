@@ -4,6 +4,7 @@ import {
   getCostShortfall,
   getMiningTripPhase,
   getMiningTripPhaseEndsAt,
+  QUEUE_LIMIT,
   summarizeStationIncome,
   type AsteroidDetail,
   type BuildSlots,
@@ -235,7 +236,8 @@ function stationQueue(id: string): { count: number; nextEndsAt: number | null } 
       s.buildOrders.map((order) => Date.parse(order.endsAt))
     ),
   ].filter((time) => time > state.now);
-  return { count: endsAt.length, nextEndsAt: endsAt.length ? Math.min(...endsAt) : null };
+  const queued = detail?.buildSlots?.queue.length ?? 0;
+  return { count: endsAt.length + queued, nextEndsAt: endsAt.length ? Math.min(...endsAt) : null };
 }
 
 function stationFleet(id: string): { total: number; idle: number; idleMiners: number } {
@@ -277,14 +279,26 @@ function hasFreeBuildSlot(id: string): boolean {
   return !slots || slots.used < slots.total;
 }
 
-/** Upgrades the station could start right now: paid for and a build slot free. */
+/** Whether a new level starts at once; otherwise it waits in the station queue. */
+function startsNow(
+  id: string,
+  item: { isUpgrading: boolean; level: number; queuedLevel: number }
+): boolean {
+  return hasFreeBuildSlot(id) && !item.isUpgrading && item.queuedLevel === item.level;
+}
+
+function queueFull(id: string): boolean {
+  return (state.details[id]?.buildSlots?.queue.length ?? 0) >= QUEUE_LIMIT;
+}
+
+/** Upgrades the station could start right now: paid for, a build slot free and nothing queued. */
 function affordableUpgrades(id: string): StationBuildingWithDefinition[] {
   const detail = state.details[id];
-  if (!detail?.resources || !hasFreeBuildSlot(id)) return [];
+  if (!detail?.resources || !hasFreeBuildSlot(id) || detail.buildSlots?.queue.length) return [];
   const { resources, rates } = detail.resources;
   return detail.buildings.filter(
     (b) =>
-      !b.isUpgrading &&
+      startsNow(id, b) &&
       b.level < b.definition.maxLevel &&
       getCostShortfall(b.upgradeCosts, resources, rates).missing.length === 0
   );
@@ -451,6 +465,8 @@ const overviewStore = reactive({
   stationName,
   stationQueue,
   hasFreeBuildSlot,
+  startsNow,
+  queueFull,
   upgradeTimeFactor,
   stationFleet,
   stationStorage,

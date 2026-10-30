@@ -16,7 +16,7 @@ export default defineRoute(async (app) => {
 
       const ownedStationId = await ownStation(request.user.userId, stationId);
 
-      return startDefenseUpgrade(ownedStationId, upgradeKey, request.user.userId);
+      return startDefenseUpgrade(ownedStationId, upgradeKey, request.user.userId, undefined, true);
     }
   );
 });

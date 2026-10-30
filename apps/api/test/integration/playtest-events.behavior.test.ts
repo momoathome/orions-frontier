@@ -95,7 +95,7 @@ test('an atomically claimed completion emits once and snapshots remain compact a
   // Other files may leave due research behind; only this row's claim matters here.
   const events = results
     .flatMap((result) => result.events)
-    .filter((event) => event.researchId === researchId);
+    .filter((event) => event.type === 'research_completed' && event.researchId === researchId);
   assert.equal(events.length, 1);
   assert.equal(events[0]?.type, 'research_completed');
   assert.equal(events[0].eventId, `research_completed:${researchId}:1`);

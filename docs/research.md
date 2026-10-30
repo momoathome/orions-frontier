@@ -91,7 +91,23 @@ fasst alles zusammen; der Server liest die Stufen bei jeder Regelanwendung frisc
 - **Bau-Slots:** Gebäude und Verteidigung einer Station teilen sich die Slots. Laufende Upgrades
   lassen sich vor Fälligkeit mit voller Rückerstattung abbrechen.
 - **Werft:** eine Bauschlange pro Station. Produktions-Slots (1, 2 ab Shipyard 5, 3 ab Shipyard 10)
-  bauen parallel: Dauer = ⌈Menge / Slots⌉ × Bauzeit × Bonus.
+  bauen parallel: Dauer = ⌈Menge / Slots⌉ × Bauzeit × Bonus. Jeder Auftrag lässt sich einzeln
+  abbrechen; spätere Aufträge rücken um die frei gewordene Zeit vor.
+
+## Warteschlangen
+
+- Gebäude und Verteidigung haben eine Queue pro Station, Forschung eine pro Account. Höchstens
+  10 wartende Einträge je Queue, ebenso 10 Werftaufträge.
+- Bezahlt wird beim Einreihen. Bezahlte Rohstoffe sind vor Beute sicher. Die Erstattung entspricht
+  genau dem gezahlten Betrag, begrenzt durch freien Lagerplatz.
+- Dieselbe Stufe kann mehrfach hintereinander eingereiht werden (Core 3 → 4 → 5). Eingereihte
+  Stufen zählen als erfüllte Voraussetzung nur innerhalb derselben Queue.
+- Ein Eintrag startet, sobald ein Slot frei wird, auch offline zum Zeitpunkt des Freiwerdens. Die
+  Bauzeit wird beim Start berechnet.
+- Entfernen oder Abbrechen prüft die Kette neu: Einträge, die auf der entfernten Stufe aufbauten
+  (Core 4 entfernt → Core 5 und 6), fallen mit voller Erstattung mit heraus.
+- Kann ein Eintrag beim Start nicht beginnen, fällt er mit Erstattung heraus und das Logbuch nennt
+  ihn. Keine Umsortierung. Bots nutzen keine Queue.
 - **Stationen:** Limit = 1 + Colony Logistics + Frontier Charter. Kolonisierungen im Flug zählen mit.
 - **Expeditionen:** brauchen Long-Range Survey, gleichzeitig 1 + Frontier Charter pro Account.
 

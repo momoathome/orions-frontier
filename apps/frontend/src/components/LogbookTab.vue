@@ -18,6 +18,7 @@ const TYPE_STYLE: Record<LogbookEntryType, { label: string; dot: string }> = {
   spacecraft_completed: { label: 'Shipyard', dot: 'bg-indigo-400' },
   miners_assigned: { label: 'Mining', dot: 'bg-yellow-300' },
   research_completed: { label: 'Research', dot: 'bg-green-400' },
+  queue_job_dropped: { label: 'Queue', dot: 'bg-slate-400' },
   world_mission_completed: { label: 'Mission', dot: 'bg-amber-300' },
   colony_established: { label: 'Colony', dot: 'bg-amber-400' },
   combat_resolved: { label: 'Attack', dot: 'bg-rose-400' },

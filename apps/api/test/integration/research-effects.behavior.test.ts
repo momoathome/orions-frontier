@@ -134,13 +134,13 @@ test('build slots limit parallel upgrades, show their use and cancel refunds the
         .map((row) => [row.resourceKey, row.amount])
     );
 
-  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 0, total: 1 });
+  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 0, total: 1, queue: [] });
   await startBuildingUpgrade(stationId, 'warehouse', userId);
-  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 1, total: 1 });
+  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 1, total: 1, queue: [] });
   await assert.rejects(startBuildingUpgrade(stationId, 'hangar', userId), /No free build slot/);
   await cancelBuildingUpgrade(stationId, 'warehouse', userId);
   assert.deepEqual(await resources(), stock);
-  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 0, total: 1 });
+  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 0, total: 1, queue: [] });
 });
 
 test('concurrent starts fill one research slot and one build slot exactly once', async () => {

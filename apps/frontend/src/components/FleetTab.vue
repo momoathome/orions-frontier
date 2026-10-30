@@ -2,7 +2,7 @@
 import { ref, computed, onUnmounted } from 'vue';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
-import { apiClient } from '../lib/api-client';
+import { apiClient, apiErrorMessage } from '../lib/api-client';
 import type {
   StationSpacecraftsResponse,
   StationSpacecraftWithDefinition,
@@ -10,6 +10,7 @@ import type {
 } from '@orions-frontier/shared';
 import { roleTheme, formatBuildTime, hideBrokenImage } from '../lib/spacecraft-utils';
 import BuildForm from './BuildForm.vue';
+import ConfirmCancelButton from './ConfirmCancelButton.vue';
 import { useOverviewStore } from '../stores/overview.js';
 import type { BuildOrder } from '../lib/spacecraft-utils';
 
@@ -160,6 +161,21 @@ function timeUntil(isoStr: string): string {
 }
 
 void loadFleet();
+
+const cancellingOrder = ref<string | null>(null);
+const orderError = ref<string | null>(null);
+async function cancelOrder(orderId: string) {
+  cancellingOrder.value = orderId;
+  orderError.value = null;
+  try {
+    await apiClient.delete(`/stations/${stationId}/spacecrafts/orders/${orderId}`);
+    onBuilt();
+  } catch (cause) {
+    orderError.value = apiErrorMessage(cause, 'Order could not be cancelled');
+  } finally {
+    cancellingOrder.value = null;
+  }
+}
 
 function onBuilt() {
   void loadFleet(true);
@@ -390,7 +406,12 @@ onUnmounted(() => {
           >×{{ order.amount }}</span
         >
         <span class="ui-num text-ui-muted">{{ timeUntil(order.endsAt) }}</span>
+        <ConfirmCancelButton
+          :busy="cancellingOrder === order.id"
+          @confirm="cancelOrder(order.id)"
+        />
       </div>
+      <span v-if="orderError" class="shrink-0 text-xs text-ui-red">{{ orderError }}</span>
     </div>
   </div>
 </template>

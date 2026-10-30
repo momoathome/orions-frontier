@@ -68,6 +68,12 @@ async function cancelResearch(key: ResearchKey): Promise<void> {
   await refresh();
 }
 
+/** Removes a waiting entry; later entries that needed its level go too, all refunded. */
+async function removeQueued(jobId: string): Promise<void> {
+  await apiClient.delete(`/me/research/queue/${jobId}`);
+  await refresh();
+}
+
 function openView(focus: string | null = null): void {
   state.focus = focus;
   state.viewOpen = true;
@@ -86,6 +92,7 @@ const researchStore = reactive({
   refresh,
   startResearch,
   cancelResearch,
+  removeQueued,
   openView,
   closeView,
 });

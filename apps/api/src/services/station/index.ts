@@ -4,7 +4,12 @@ export {
   seedStationBuildings,
   startBuildingUpgrade,
 } from './buildings.js';
-export { getBuildSlots } from './construction.js';
+export {
+  advanceStationQueue,
+  getBuildSlots,
+  removeQueuedStationJob,
+  toQueuedJob,
+} from './construction.js';
 export {
   calculateStationDefenseScore,
   cancelDefenseUpgrade,
@@ -22,6 +27,7 @@ export {
 } from './resources.js';
 export {
   buildSpacecrafts,
+  cancelBuildOrder,
   getStationHangar,
   getStationShipyard,
   getStationSpacecrafts,

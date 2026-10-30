@@ -1,4 +1,4 @@
-import type { BuildingKey } from './building.js';
+import type { BuildingKey, QueuedJob } from './building.js';
 import type { ResourceKey } from './resource.js';
 
 export const researchKeys = [
@@ -80,13 +80,16 @@ export interface ResearchTechnology {
   level: number;
   startedAt: string | null;
   completesAt: string | null;
-  /** The next level to research; null once maxed. */
+  /** Level once running and queued research is done. */
+  queuedLevel: number;
+  /** The next level to order, `queuedLevel + 1`; null once maxed. */
   next: {
     level: number;
     costs: ResearchCost[];
     durationSeconds: number;
     requirements: Requirements;
   } | null;
+  /** Against queued levels, so a level whose prerequisite is queued can be queued too. */
   blockers: RequirementBlocker[];
 }
 
@@ -94,5 +97,7 @@ export interface ResearchTechnology {
 export interface ResearchState {
   slots: number;
   highestLaboratory: number;
+  /** Research waiting for a slot, in order. */
+  queue: QueuedJob[];
   technologies: ResearchTechnology[];
 }

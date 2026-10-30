@@ -16,13 +16,21 @@ import {
   listDueBuildingUpgrades,
 } from '../../repositories/station-buildings.js';
 import { addBuiltSpacecraft } from '../../repositories/station-spacecrafts.js';
-import { findStation } from '../../repositories/stations.js';
+import {
+  findStation,
+  findStationForUpdate,
+  listActiveStationsByUser,
+} from '../../repositories/stations.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import { completionEventId, type PlaytestCompletionEvent } from '../../lib/completion-events.js';
 import { type BotDecisionOutcome, runBotDecisionTick } from '../bot/index.js';
-import { defenseUpgradeMaxLevel } from '../station/index.js';
-import { completeDueResearch } from '../research/index.js';
+import {
+  advanceStationQueue,
+  creditStationResources,
+  defenseUpgradeMaxLevel,
+} from '../station/index.js';
+import { completeDueResearch, type ResearchQueueHooks } from '../research/index.js';
 import { settleTripArrivalDetailed } from '../transport/index.js';
 import { completeDueWorldMissionsDetailed } from '../missions/index.js';
 import { recordLogbookEvents } from '../logbook/index.js';
@@ -104,21 +112,25 @@ async function completeDueBuildings(
       const maxLevel = isOneOf(buildingKeys, building.buildingKey)
         ? getBuilding(building.buildingKey).maxLevel
         : defenseUpgradeMaxLevel(building.buildingKey);
-      if (maxLevel === null || building.upgradeEndsAt === null) continue;
-      const completed = await completeBuildingUpgrade(
-        db,
-        building.id,
-        maxLevel,
-        building.upgradeEndsAt,
-        context.now
-      );
+      const endsAt = building.upgradeEndsAt;
+      if (maxLevel === null || endsAt === null) continue;
+      // The freed slot goes to the next queued job at the moment it freed.
+      const completed = await db.transaction(async (tx) => {
+        const station = await findStationForUpdate(tx, building.stationId);
+        const done = await completeBuildingUpgrade(tx, building.id, maxLevel, endsAt, context.now);
+        if (!done) return null;
+        const queue =
+          station && !station.destroyedAt ? await advanceStationQueue(tx, station, endsAt) : null;
+        return { level: done.level, dropped: queue?.dropped ?? [] };
+      });
       if (!completed) continue;
       completedCount += 1;
+      events.push(...completed.dropped);
       if (isOneOf(defenseUpgradeKeys, building.buildingKey)) {
         events.push({
           type: 'defense_completed',
           eventId: completionEventId('defense_completed', building.id, String(completed.level)),
-          occurredAt: building.upgradeEndsAt,
+          occurredAt: endsAt,
           userId: building.userId,
           stationId: building.stationId,
           defenseKey: building.buildingKey,
@@ -133,7 +145,7 @@ async function completeDueBuildings(
         events.push({
           type: 'building_completed',
           eventId: completionEventId('building_completed', building.id, String(completed.level)),
-          occurredAt: building.upgradeEndsAt,
+          occurredAt: endsAt,
           userId: building.userId,
           stationId: building.stationId,
           buildingKey: building.buildingKey,
@@ -217,6 +229,20 @@ async function completeDueSpacecraft(
   return { phase: 'spacecraft', completed: completedCount, failed, events };
 }
 
+/** Parallel Construction adds a build slot, which every station's queue may use at once. */
+const researchQueueHooks: ResearchQueueHooks = {
+  credit: creditStationResources,
+  afterComplete: async (tx, userId, technologyKey, at) => {
+    if (technologyKey !== 'parallel_construction') return [];
+    const dropped = [];
+    for (const { id } of await listActiveStationsByUser(tx, userId)) {
+      const station = await findStationForUpdate(tx, id);
+      if (station) dropped.push(...(await advanceStationQueue(tx, station, at)).dropped);
+    }
+    return dropped;
+  },
+};
+
 async function runCompletionPass(
   context: GameExecutionContext,
   includeWorldMissions: boolean
@@ -226,7 +252,10 @@ async function runCompletionPass(
     await completeDueBuildings(context),
     await completeDueSpacecraft(context),
   ];
-  results.push({ phase: 'research', ...(await completeDueResearch(context.now)) });
+  results.push({
+    phase: 'research',
+    ...(await completeDueResearch(context.now, researchQueueHooks)),
+  });
   if (includeWorldMissions) {
     const worldMissions = await completeDueWorldMissionsDetailed(context);
     results.push({

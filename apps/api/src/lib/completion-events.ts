@@ -56,6 +56,16 @@ export interface ResearchCompletedEvent extends CompletionEventBase {
   newLevel: number;
 }
 
+/** A queued job that could not start was removed and refunded to the station that paid. */
+export interface QueueJobDroppedEvent extends CompletionEventBase {
+  type: 'queue_job_dropped';
+  jobId: string;
+  kind: string;
+  key: string;
+  targetLevel: number;
+  refunded: ResourceMap;
+}
+
 export interface WorldMissionCompletedEvent extends CompletionEventBase {
   type: 'world_mission_completed';
   missionId: string;
@@ -128,6 +138,7 @@ export type PlaytestCompletionEvent =
   | DefenseCompletedEvent
   | SpacecraftCompletedEvent
   | ResearchCompletedEvent
+  | QueueJobDroppedEvent
   | WorldMissionCompletedEvent
   | ColonyEstablishedEvent
   | CombatResolvedEvent

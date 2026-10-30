@@ -57,6 +57,8 @@ export interface BuildingEffect {
 export interface BuildSlots {
   used: number;
   total: number;
+  /** Building and defense jobs waiting for a slot, in order. */
+  queue: QueuedJob[];
 }
 
 export interface StationBuildingWithDefinition {
@@ -66,6 +68,28 @@ export interface StationBuildingWithDefinition {
   isUpgrading: boolean;
   effects: BuildingEffect[];
   nextLevelEffects: BuildingEffect[] | null;
+  /** Level once the running upgrade and the queued jobs are done. */
+  queuedLevel: number;
+  /** Cost of the next level to order, `queuedLevel + 1`. */
   upgradeCosts: BuildingUpgradeCost[];
   unlockMilestones: Record<number, string[]>;
 }
+
+export const queuedJobKinds = ['building', 'defense', 'research'] as const;
+export type QueuedJobKind = (typeof queuedJobKinds)[number];
+
+/**
+ * A paid upgrade or research level waiting for a free slot. Building and defense jobs queue per
+ * station, research per account; `stationId` is the station that paid.
+ */
+export interface QueuedJob {
+  id: string;
+  kind: QueuedJobKind;
+  key: string;
+  targetLevel: number;
+  stationId: string;
+  paidCost: BuildingUpgradeCost[];
+}
+
+/** At most this many waiting jobs per station queue and per research queue. */
+export const QUEUE_LIMIT = 10;

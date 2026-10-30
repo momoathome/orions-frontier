@@ -88,6 +88,23 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
       const name = getResearchDefinition(event.technologyKey)?.name ?? event.technologyKey;
       return [entry(event, event.type, `Research completed: ${name} ${event.newLevel}`)];
     }
+    case 'queue_job_dropped': {
+      const name =
+        event.kind === 'research'
+          ? (getResearchDefinition(event.key)?.name ?? event.key)
+          : isOneOf(buildingKeys, event.key)
+            ? getBuilding(event.key).name
+            : isOneOf(defenseUpgradeKeys, event.key)
+              ? getDefenseUpgrade(event.key).name
+              : event.key;
+      return [
+        entry(
+          event,
+          event.type,
+          `Queued ${name} ${event.targetLevel} could not start, refunded ${resourceList(event.refunded)}`
+        ),
+      ];
+    }
     case 'world_mission_completed': {
       const mission = event.missionType === 'expedition' ? 'Expedition' : 'Colony ship';
       const stage = MISSION_STAGE[event.stage] ?? event.stage;

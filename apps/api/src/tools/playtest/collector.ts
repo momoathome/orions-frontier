@@ -140,6 +140,13 @@ function normalizeCompletion(
         newLevel: event.newLevel,
       });
       break;
+    case 'queue_job_dropped':
+      Object.assign(details, {
+        kind: event.kind,
+        key: event.key,
+        targetLevel: event.targetLevel,
+      });
+      break;
     case 'miners_assigned':
       Object.assign(details, {
         asteroidAlias: aliases.entity('asteroid', event.asteroidId),

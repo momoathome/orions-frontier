@@ -39,6 +39,9 @@ export interface StationDefenseUpgradeWithDefinition {
   isUpgrading: boolean;
   effects: DefenseUpgradeEffect[];
   nextLevelEffects: DefenseUpgradeEffect[] | null;
+  /** Level once the running upgrade and the queued jobs are done. */
+  queuedLevel: number;
+  /** Cost and time of the next level to order, `queuedLevel + 1`. */
   upgradeCosts: DefenseUpgradeCost[];
   upgradeDurationSeconds: number | null;
   /** Blocks the first level only; empty once unlocked. */

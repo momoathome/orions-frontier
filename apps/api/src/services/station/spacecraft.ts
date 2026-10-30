@@ -7,10 +7,12 @@ import {
   listStationSpacecrafts,
 } from '../../repositories/station-spacecrafts.js';
 import {
+  deleteBuildOrderBefore,
   findLatestBuildOrderEnd,
   insertBuildOrder,
   listBuildOrderAmounts,
   listBuildOrders,
+  updateBuildOrderEnd,
   type BuildOrderRow,
 } from '../../repositories/spacecraft-build-orders.js';
 import {
@@ -30,11 +32,16 @@ import {
   researchModifiers,
   spacecrafts,
 } from '@orions-frontier/game-config';
-import type { ResourceKey, StationSpacecraftWithDefinition } from '@orions-frontier/shared';
-import { required, AppError, ErrorCode } from '@orions-frontier/shared';
+import type {
+  ResourceKey,
+  ResourceMap,
+  StationSpacecraftWithDefinition,
+} from '@orions-frontier/shared';
+import { required, AppError, ErrorCode, QUEUE_LIMIT } from '@orions-frontier/shared';
 import type { QueryDb } from '../../lib/db/index.js';
 import { describeBlockers, toResearchLevels } from '../research/index.js';
 import { toBuildingLevels } from './construction.js';
+import { creditStationResources } from './resources.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -245,6 +252,9 @@ export const buildSpacecrafts = async (
       listSpacecraftAmounts(tx, stationId),
       listBuildOrderAmounts(tx, stationId),
     ]);
+    if (queued.length + orders.length > QUEUE_LIMIT) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Queue is full (${QUEUE_LIMIT} orders)`);
+    }
     const capacity = hangarCapacity(unlocks.buildings.hangar ?? 0, unlocks.modifiers.crew);
     const hangarUsed = calculateCrewUsage(fleet) + calculateCrewUsage(queued);
     const requestedCrew = orders.reduce(
@@ -320,5 +330,51 @@ export const buildSpacecrafts = async (
   publishUserEvent(userId, 'resources_updated', {
     stationId,
     resources: Object.fromEntries(resourceMap),
+  });
+};
+
+/**
+ * Cancels one build order with a full refund, as far as storage allows. Later orders move up by
+ * the time it no longer takes: all of it while it waited, the rest of it while it ran.
+ */
+export const cancelBuildOrder = async (
+  stationId: string,
+  userId: string,
+  orderId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> => {
+  const resources = await getDb().transaction(async (tx) => {
+    const station = await findOwnedStationForUpdate(tx, stationId, userId);
+    if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+    const orders = (await listBuildOrders(tx, stationId)).sort(
+      (a, b) => a.endsAt.getTime() - b.endsAt.getTime()
+    );
+    const index = orders.findIndex((order) => order.id === orderId);
+    const order = orders[index];
+    if (!order) throw new AppError(ErrorCode.NOT_FOUND, 'Build order not found');
+    if (!(await deleteBuildOrderBefore(tx, order.id, context.now))) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Build order is already completing');
+    }
+
+    const startedAt = Math.max(
+      orders[index - 1]?.endsAt.getTime() ?? 0,
+      order.createdAt.getTime(),
+      context.now.getTime()
+    );
+    const saved = order.endsAt.getTime() - startedAt;
+    for (const later of orders.slice(index + 1)) {
+      await updateBuildOrderEnd(tx, later.id, new Date(later.endsAt.getTime() - saved));
+    }
+
+    const refund: ResourceMap = {};
+    for (const cost of getSpacecraft(order.spacecraftKey)?.costs ?? []) {
+      refund[cost.resourceKey] = (refund[cost.resourceKey] ?? 0) + cost.amount * order.amount;
+    }
+    await creditStationResources(tx, stationId, refund);
+    return listStationResources(tx, stationId);
+  });
+  publishUserEvent(userId, 'resources_updated', {
+    stationId,
+    resources: Object.fromEntries(resources.map((row) => [row.resourceKey, row.amount])),
   });
 };

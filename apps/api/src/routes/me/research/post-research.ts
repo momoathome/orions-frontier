@@ -3,7 +3,7 @@ import { authenticate } from '../../../middleware/auth.js';
 import { startResearch } from '../../../services/research/index.js';
 import { defineRoute } from '../../../lib/route.js';
 
-/** POST /api/me/research/:technologyKey: starts the next level, paid by `stationId`. */
+/** POST /api/me/research/:technologyKey: pays the next level from `stationId` and starts or queues it. */
 export default defineRoute(async (app) => {
   app.post(
     '/:technologyKey',
@@ -18,7 +18,9 @@ export default defineRoute(async (app) => {
       await startResearch(
         request.user.userId,
         request.body.stationId,
-        request.params.technologyKey
+        request.params.technologyKey,
+        undefined,
+        true
       );
       return reply.status(202).send();
     }

@@ -203,9 +203,10 @@ test('all economic work starts from one virtual time with deterministic work IDs
     .where(
       and(eq(userResearch.userId, userId), eq(userResearch.technologyKey, 'extraction_algorithms'))
     );
-  // startDefenseUpgrade attempts the backwards-compatible insert before locking the existing row.
-  expected.nextId('station-defense');
-  assert.equal(research?.id, expected.nextId('user-research'));
+  // Building, defense and research each pass through the queue; research keeps its job id.
+  expected.nextId('queued-job');
+  expected.nextId('queued-job');
+  assert.equal(research?.id, expected.nextId('queued-job'));
   assert.equal(research.startedAt?.toISOString(), actionContext.now.toISOString());
   assert.equal(
     research.completesAt?.toISOString(),

@@ -15,6 +15,7 @@ import type { Tx } from '../../lib/db/index.js';
 import { deleteStationAssignments } from '../../repositories/asteroids.js';
 import { resolveCombatMissionByTrip } from '../../repositories/combat-missions.js';
 import { resolveSalvageMissionByTrip } from '../../repositories/debris-fields.js';
+import { deleteStationQueue } from '../../repositories/queued-jobs.js';
 import { deleteBuildOrders } from '../../repositories/spacecraft-build-orders.js';
 import {
   cancelTrip,
@@ -221,6 +222,7 @@ export async function destroyStation(
 
   await clearStationSpacecrafts(tx, station.id, now);
   await deleteStationBuildings(tx, station.id);
+  await deleteStationQueue(tx, station.id);
   await deleteStationResources(tx, station.id);
   await deleteBuildOrders(tx, station.id);
   await deleteStationAssignments(tx, station.id);

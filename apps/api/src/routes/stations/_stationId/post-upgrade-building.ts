@@ -6,7 +6,7 @@ import { defineRoute, stationParams } from '../../../lib/route.js';
 
 /**
  * POST /api/stations/:stationId/buildings/:buildingKey/upgrade
- * Starts upgrading a building if the station has sufficient resources.
+ * Pays the next level and starts it, or queues it while the build slots are busy.
  */
 export default defineRoute(async (app) => {
   app.post(
@@ -23,7 +23,9 @@ export default defineRoute(async (app) => {
       const updatedBuilding = await startBuildingUpgrade(
         ownedStationId,
         buildingKey,
-        request.user.userId
+        request.user.userId,
+        undefined,
+        true
       );
 
       return updatedBuilding;

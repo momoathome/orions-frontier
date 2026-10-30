@@ -4,6 +4,7 @@ export const logbookEntryTypes = [
   'spacecraft_completed',
   'miners_assigned',
   'research_completed',
+  'queue_job_dropped',
   'world_mission_completed',
   'colony_established',
   'combat_resolved',

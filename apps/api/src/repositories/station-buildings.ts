@@ -120,6 +120,7 @@ export async function completeBuildingUpgrade(
     .set({
       level: sql`least(${stationBuildings.level} + 1, ${maxLevel})`,
       upgradeEndsAt: null,
+      upgradePaidCost: null,
       updatedAt: completedAt,
     })
     .where(and(eq(stationBuildings.id, id), lte(stationBuildings.upgradeEndsAt, now)))

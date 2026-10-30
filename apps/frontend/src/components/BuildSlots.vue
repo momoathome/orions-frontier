@@ -1,11 +1,30 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { useOverviewStore } from '../stores/overview.js';
+import QueueList from './QueueList.vue';
 
 const { stationId } = defineProps<{ stationId: string }>();
+const emit = defineEmits<{ changed: [] }>();
 const overview = useOverviewStore();
 const slots = computed(() => overview.state.details[stationId]?.buildSlots ?? null);
 const full = computed(() => slots.value !== null && slots.value.used >= slots.value.total);
+const removing = ref<string | null>(null);
+const error = ref<string | null>(null);
+
+async function remove(jobId: string) {
+  removing.value = jobId;
+  error.value = null;
+  try {
+    await apiClient.delete(`/stations/${stationId}/queue/${jobId}`);
+    await overview.refreshStation(stationId);
+    emit('changed');
+  } catch (cause) {
+    error.value = apiErrorMessage(cause, 'Queue entry could not be removed');
+  } finally {
+    removing.value = null;
+  }
+}
 </script>
 
 <template>
@@ -32,7 +51,9 @@ const full = computed(() => slots.value !== null && slots.value.used >= slots.va
       </span>
     </div>
     <span v-if="full" class="text-xs text-ui-muted"
-      >All slots busy. Wait for an upgrade or research Parallel Construction for more.</span
+      >All slots busy. New upgrades wait in the queue; Parallel Construction adds slots.</span
     >
+    <QueueList :jobs="slots.queue" :busy-id="removing" @remove="remove" />
+    <p v-if="error" class="text-xs text-ui-red">{{ error }}</p>
   </div>
 </template>

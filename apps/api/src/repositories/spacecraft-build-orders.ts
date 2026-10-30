@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, max } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lte, max } from 'drizzle-orm';
 import type { QueryDb, Tx } from '../lib/db/index.js';
 import { spacecraftBuildOrders } from '../lib/db/schema/spacecraft-build-orders.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -33,6 +33,19 @@ export async function findLatestBuildOrderEnd(db: QueryDb, stationId: string) {
 
 export async function insertBuildOrder(tx: Tx, values: typeof spacecraftBuildOrders.$inferInsert) {
   await tx.insert(spacecraftBuildOrders).values(values);
+}
+
+/** Deletes the order unless it is due by `now`; false if it was due or gone. */
+export async function deleteBuildOrderBefore(tx: Tx, id: string, now: Date) {
+  const [deleted] = await tx
+    .delete(spacecraftBuildOrders)
+    .where(and(eq(spacecraftBuildOrders.id, id), gt(spacecraftBuildOrders.endsAt, now)))
+    .returning({ id: spacecraftBuildOrders.id });
+  return deleted !== undefined;
+}
+
+export async function updateBuildOrderEnd(tx: Tx, id: string, endsAt: Date) {
+  await tx.update(spacecraftBuildOrders).set({ endsAt }).where(eq(spacecraftBuildOrders.id, id));
 }
 
 export async function deleteBuildOrders(tx: Tx, stationId: string) {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
-import { getSpacecraft } from '@orions-frontier/game-config';
+import { calculateDefenseUpgradeBuildTime, getSpacecraft } from '@orions-frontier/game-config';
 import {
   getCostShortfall,
   type CombatReport,
@@ -82,18 +82,28 @@ const cards = computed(() =>
       stock.value?.rates ?? {}
     );
     const maxed = upgrade.level >= upgrade.definition.maxLevel;
+    // Costs, time and blockers are for the level after everything already queued.
+    const canQueue = upgrade.queuedLevel < upgrade.definition.maxLevel;
     const locked = upgrade.blockers.length > 0;
     const endsAt = upgrade.upgradeEndsAt ? Date.parse(upgrade.upgradeEndsAt) : null;
     const upgradingNow = upgrade.isUpgrading && endsAt !== null && endsAt > now.value;
-    const affordable = !maxed && !locked && shortfall.missing.length === 0;
-    const ready = affordable && overview.hasFreeBuildSlot(stationId);
-    const durationMs = (upgrade.upgradeDurationSeconds ?? 0) * 1_000;
+    const affordable = canQueue && !locked && shortfall.missing.length === 0;
+    const startsNow = overview.startsNow(stationId, upgrade);
+    const ready = affordable && startsNow;
+    const durationMs =
+      calculateDefenseUpgradeBuildTime(upgrade.definition.key, upgrade.level + 1) *
+      overview.upgradeTimeFactor(stationId) *
+      1_000;
     return {
       upgrade,
       maxed,
+      canQueue,
       locked,
       affordable,
       ready,
+      startsNow,
+      action: startsNow ? 'Upgrade' : 'Add to queue',
+      queueable: affordable && !overview.queueFull(stationId),
       upgradingNow,
       accent: upgradingNow
         ? 'border-[#5a4317]'
@@ -139,7 +149,7 @@ async function load(): Promise<void> {
 }
 
 async function startUpgrade(upgrade: StationDefenseUpgradeWithDefinition): Promise<void> {
-  if (upgrading.value || upgrade.isUpgrading) return;
+  if (upgrading.value) return;
   upgrading.value = upgrade.definition.key;
   try {
     await apiClient.post(`/stations/${stationId}/defense/${upgrade.definition.key}/upgrade`);
@@ -182,6 +192,8 @@ void load();
 const unsubscribe = [
   wsClient.on('incoming_attack', () => void load()),
   wsClient.on('defense_upgrade_completed', () => void load()),
+  // A finished building can start a queued defense upgrade.
+  wsClient.on('building_upgrade_completed', () => void load()),
   wsClient.on('world_mission_completed', () => void load()),
   wsClient.on('research_completed', () => void load()),
 ];
@@ -214,7 +226,7 @@ onUnmounted(() => {
     </template>
 
     <h3 class="ui-label mt-2">Upgrades</h3>
-    <BuildSlots :station-id="stationId" />
+    <BuildSlots :station-id="stationId" @changed="load" />
     <p v-if="loading" class="animate-pulse text-ui-muted">Loading defense…</p>
     <article
       v-for="card in cards"
@@ -228,6 +240,11 @@ onUnmounted(() => {
             {{ card.upgrade.definition.name }}
           </h4>
           <span class="ui-num text-[13px] text-ui-muted">Lv. {{ card.upgrade.level }}</span>
+          <span
+            v-if="card.upgrade.queuedLevel > card.upgrade.level"
+            class="ui-num text-[13px] text-ui-amber"
+            >→ {{ card.upgrade.queuedLevel }}</span
+          >
         </div>
         <span
           v-if="card.upgradingNow"
@@ -248,7 +265,7 @@ onUnmounted(() => {
         <span
           v-else-if="card.affordable"
           class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted"
-          >No free slot</span
+          >Will queue</span
         >
         <span v-else class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted">Saving</span>
       </div>
@@ -283,9 +300,9 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <RequirementChips v-else-if="card.locked" :blockers="card.upgrade.blockers" />
+      <RequirementChips v-if="card.locked" :blockers="card.upgrade.blockers" />
 
-      <template v-else-if="!card.maxed">
+      <template v-else-if="card.canQueue">
         <div class="flex items-center justify-between gap-3">
           <CostList
             :costs="card.upgrade.upgradeCosts"
@@ -298,10 +315,10 @@ onUnmounted(() => {
             :class="{
               'border-rose-400/35 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20': card.ready,
             }"
-            :disabled="!card.ready || upgrading !== null"
+            :disabled="!card.queueable || upgrading !== null"
             @click="startUpgrade(card.upgrade)"
           >
-            {{ upgrading === card.upgrade.definition.key ? 'Starting…' : 'Upgrade' }}
+            {{ upgrading === card.upgrade.definition.key ? 'Starting…' : card.action }}
           </button>
         </div>
         <span v-if="card.missing" class="text-xs text-ui-amber">{{ card.missing }}</span>

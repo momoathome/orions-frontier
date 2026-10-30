@@ -40,11 +40,15 @@ const cards = computed(() =>
       resources?.rates ?? {}
     );
     const maxed = building.level >= building.definition.maxLevel;
+    // Costs and time are for the level after everything already queued.
+    const canQueue = building.queuedLevel < building.definition.maxLevel;
     const endsAt = building.upgradeEndsAt ? Date.parse(building.upgradeEndsAt) : null;
-    const buildSeconds =
-      calculateBuildingBuildTime(building.definition.key, building.level + 1) * speedFactor.value;
-    const affordable = !maxed && shortfall.missing.length === 0;
-    const ready = affordable && overview.hasFreeBuildSlot(stationId);
+    const buildTime = (level: number) =>
+      calculateBuildingBuildTime(building.definition.key, level) * speedFactor.value;
+    const buildSeconds = buildTime(building.level + 1);
+    const affordable = canQueue && shortfall.missing.length === 0;
+    const startsNow = overview.startsNow(stationId, building);
+    const ready = affordable && startsNow;
     const upgradingNow = building.isUpgrading && endsAt !== null && endsAt > now.value;
     const nextUnlock = Object.entries(building.unlockMilestones)
       .map(([level, keys]) => ({ level: Number(level), keys }))
@@ -53,8 +57,12 @@ const cards = computed(() =>
     return {
       building,
       maxed,
+      canQueue,
       affordable,
       ready,
+      startsNow,
+      action: startsNow ? 'Upgrade' : 'Add to queue',
+      queueable: affordable && !overview.queueFull(stationId),
       upgradingNow,
       accent: upgradingNow ? 'border-[#5a4317]' : ready ? 'border-[#1f5b66]' : '',
       endsAt,
@@ -63,7 +71,7 @@ const cards = computed(() =>
       progress: endsAt
         ? Math.min(100, Math.max(0, 100 - ((endsAt - now.value) / (buildSeconds * 1_000)) * 100))
         : 0,
-      buildTime: formatBuildTime(buildSeconds),
+      buildTime: formatBuildTime(buildTime(building.queuedLevel + 1)),
       effects: building.effects.map((effect) => {
         const next = building.nextLevelEffects?.find((n) => n.type === effect.type);
         return {
@@ -136,6 +144,11 @@ async function cancelUpgrade(building: StationBuildingWithDefinition) {
             </button>
           </h3>
           <span class="ui-num text-[13px] text-ui-muted">Lv. {{ card.building.level }}</span>
+          <span
+            v-if="card.building.queuedLevel > card.building.level"
+            class="ui-num text-[13px] text-ui-amber"
+            >→ {{ card.building.queuedLevel }}</span
+          >
         </div>
         <span
           v-if="card.upgradingNow"
@@ -151,7 +164,7 @@ async function cancelUpgrade(building: StationBuildingWithDefinition) {
         <span
           v-else-if="card.affordable"
           class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted"
-          >No free slot</span
+          >Will queue</span
         >
         <span v-else class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted">Saving</span>
       </div>
@@ -192,7 +205,7 @@ async function cancelUpgrade(building: StationBuildingWithDefinition) {
         </div>
       </div>
 
-      <template v-else-if="!card.maxed">
+      <template v-if="card.canQueue">
         <div class="flex items-center justify-between gap-3">
           <CostList
             :costs="card.building.upgradeCosts"
@@ -203,10 +216,10 @@ async function cancelUpgrade(building: StationBuildingWithDefinition) {
             type="button"
             class="ui-btn"
             :class="{ 'ui-btn-primary': card.ready }"
-            :disabled="!card.ready || upgrading !== null"
+            :disabled="!card.queueable || upgrading !== null"
             @click.stop="startUpgrade(card.building)"
           >
-            {{ upgrading === card.building.definition.key ? 'Starting…' : 'Upgrade' }}
+            {{ upgrading === card.building.definition.key ? 'Starting…' : card.action }}
           </button>
         </div>
         <span v-if="card.missing" class="text-xs text-ui-amber">{{ card.missing }}</span>

@@ -4,6 +4,7 @@ import { getBuilding, getResearchDefinition } from '@orions-frontier/game-config
 import {
   buildingKeys,
   getCostShortfall,
+  QUEUE_LIMIT,
   researchKeys,
   type BuildingKey,
   type Requirements,
@@ -20,6 +21,7 @@ import { useOverviewStore } from '../../stores/overview.js';
 import { useResearchStore } from '../../stores/research.js';
 import ConfirmCancelButton from '../ConfirmCancelButton.vue';
 import CostList from '../CostList.vue';
+import QueueList from '../QueueList.vue';
 import { LANES, leaves } from './research-layout';
 
 const { nodeId, stationId } = defineProps<{ nodeId: string | null; stationId: string }>();
@@ -140,15 +142,23 @@ const shortfall = computed(() => {
     : null;
 });
 
+const queue = computed(() => research.state.research?.queue ?? []);
+/** A new level waits in the queue while every slot is busy or an earlier level is still pending. */
+const startsNow = computed(() => {
+  const value = tech.value;
+  const slots = research.state.research?.slots ?? 1;
+  return value !== null && research.running.length < slots && value.queuedLevel === value.level;
+});
+
+const startLabel = computed(() => (startsNow.value ? 'Start research' : 'Add to queue'));
+
 /** The exact reason the start button is disabled, in the order a player fixes it. */
 const lockReason = computed(() => {
   const value = tech.value;
   if (!value?.next) return null;
   if (value.blockers.length > 0) return formatBlockers(value.blockers);
-  const slots = research.state.research?.slots ?? 1;
-  const blocking = research.running[0];
-  if (research.running.length >= slots && blocking?.completesAt) {
-    return `No free research slot: ${blocking.definition.name} finishes in ${formatCountdown(Date.parse(blocking.completesAt), now.value)}`;
+  if (!startsNow.value && queue.value.length >= QUEUE_LIMIT) {
+    return `Queue is full (${QUEUE_LIMIT} jobs)`;
   }
   return shortfall.value;
 });
@@ -172,6 +182,12 @@ const startResearch = () => {
       () => research.startResearch(key, payingStationId.value),
       'Research could not be started'
     );
+};
+const removing = ref<string | null>(null);
+const removeQueued = async (jobId: string) => {
+  removing.value = jobId;
+  await act(() => research.removeQueued(jobId), 'Queue entry could not be removed');
+  removing.value = null;
 };
 const cancelResearch = () => {
   const key = tech.value?.definition.key;
@@ -208,7 +224,10 @@ const shipStats = computed(() => {
           <span class="ui-label">Tier {{ tech.definition.tier }} {{ lane?.label }}</span>
           <h3 class="text-lg font-semibold text-ui-bright">{{ tech.definition.name }}</h3>
           <span class="ui-num text-[13px] text-ui-muted"
-            >Level {{ tech.level }} of {{ tech.definition.maxLevel }}</span
+            >Level {{ tech.level }} of {{ tech.definition.maxLevel
+            }}<span v-if="tech.queuedLevel > tech.level" class="text-ui-amber">
+              · queued to {{ tech.queuedLevel }}</span
+            ></span
           >
         </div>
         <button
@@ -301,7 +320,7 @@ const shipStats = computed(() => {
         </div>
       </section>
 
-      <section v-else-if="tech.next" class="flex flex-col gap-2.5">
+      <section v-if="tech.next" class="flex flex-col gap-2.5">
         <h4 class="ui-label">Cost and duration</h4>
         <CostList
           :costs="tech.next.costs"
@@ -327,13 +346,15 @@ const shipStats = computed(() => {
           :disabled="lockReason !== null || busy"
           @click="startResearch"
         >
-          {{ busy ? 'Starting…' : 'Start research' }}
+          {{ busy ? 'Starting…' : startLabel }}
         </button>
         <p v-if="lockReason" class="text-xs text-ui-amber">{{ lockReason }}</p>
       </section>
 
-      <p v-else class="text-[13px] text-ui-green">Max level reached.</p>
+      <p v-else-if="!running" class="text-[13px] text-ui-green">Max level reached.</p>
     </template>
+
+    <QueueList :jobs="queue" :busy-id="removing" @remove="removeQueued" />
 
     <button
       v-if="leaf"
