@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
-import { calculateBuildingUpgradeCost, researchModifiers } from '@orions-frontier/game-config';
+import {
+  applyBuildingCostDiscount,
+  calculateBuildingUpgradeCost,
+  researchModifiers,
+} from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import {
@@ -158,6 +162,45 @@ test('concurrent starts fill one research slot and one build slot exactly once',
     builds[0].status === 'fulfilled' ? 'warehouse' : 'hangar',
     userId
   );
+});
+
+test('Research Network runs a second research in parallel', async () => {
+  await setTestResources(stationId, { carbon: 4_000, titanium: 4_000, hydrogenium: 4_000 });
+  const second = runningResearch === 'weapons' ? 'armor' : 'weapons';
+  await assert.rejects(startResearch(userId, stationId, second), /slot/i);
+  await grantResearch(userId, { research_network: 1 });
+  await startResearch(userId, stationId, second);
+  await cancelResearch(userId, second, creditStationResources);
+});
+
+test('Nanite Assembly lowers the paid upgrade cost and cancel refunds what was paid', async () => {
+  await grantResearch(userId, { nanite_assembly: 5 });
+  const full = calculateBuildingUpgradeCost('warehouse', 2);
+  const paid = applyBuildingCostDiscount(full, 0.8);
+  assert.ok(paid.every((cost, index) => cost.amount < full[index]!.amount));
+  const stock = Object.fromEntries(full.map((cost) => [cost.resourceKey, cost.amount]));
+  await setTestResources(stationId, stock);
+  const resources = async () =>
+    Object.fromEntries(
+      (
+        await getDb()
+          .select()
+          .from(stationResources)
+          .where(eq(stationResources.stationId, stationId))
+      )
+        .filter((row) => row.resourceKey in stock)
+        .map((row) => [row.resourceKey, row.amount])
+    );
+
+  await startBuildingUpgrade(stationId, 'warehouse', userId);
+  assert.deepEqual(
+    await resources(),
+    Object.fromEntries(
+      full.map((cost, index) => [cost.resourceKey, cost.amount - paid[index]!.amount])
+    )
+  );
+  await cancelBuildingUpgrade(stationId, 'warehouse', userId);
+  assert.deepEqual(await resources(), stock);
 });
 
 test('Kyber asteroids stay hidden until Spectral Analysis', async () => {

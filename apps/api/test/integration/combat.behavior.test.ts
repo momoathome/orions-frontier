@@ -16,7 +16,13 @@ import { getUserCombatReports, startAttack } from '../../src/services/combat/com
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
 import { startSalvage } from '../../src/services/combat/salvage.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import { entriesOf, type CombatReport, type ResearchLevels } from '@orions-frontier/shared';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  grantResearch,
+} from '../helpers/fixtures.js';
 
 let attackerUserId = '';
 let defenderUserId = '';
@@ -229,6 +235,131 @@ test('debris can be salvaged and combat does not change station ownership', asyn
   assert.equal(defenderStation?.userId, defenderUserId);
 });
 
+// 3 Merlins (attack 15, defense 8, cargo 10) against Moles (defense 3) and defense upgrades.
+const researchCases: {
+  name: string;
+  attacker?: ResearchLevels;
+  defender?: ResearchLevels;
+  moles?: number;
+  armorPlating?: number;
+  expected: Partial<CombatReport>;
+}[] = [
+  {
+    name: 'without research 45 attack destroys 15 Moles',
+    moles: 20,
+    expected: { defenderLosses: 15 },
+  },
+  {
+    name: 'Weapons raises the attack',
+    attacker: { weapons: 4 },
+    moles: 20,
+    expected: { defenderLosses: 18 },
+  },
+  {
+    name: 'Armor protects defending ships',
+    defender: { armor: 4 },
+    moles: 20,
+    expected: { defenderLosses: 12 },
+  },
+  {
+    name: 'Armor protects attacking ships',
+    attacker: { armor: 4 },
+    expected: { attackerLosses: 0 },
+  },
+  {
+    name: 'Cargo Compression carries more loot',
+    attacker: { cargo_compression: 4 },
+    expected: { loot: { carbon: 15, hydrogenium: 9 } },
+  },
+  {
+    name: 'without research Armor Plating 2 destroys one Merlin',
+    moles: 0,
+    armorPlating: 2,
+    expected: { attackerLosses: 1 },
+  },
+  {
+    name: 'Shields raise the station defense',
+    defender: { shields: 7 },
+    moles: 0,
+    armorPlating: 2,
+    expected: { attackerLosses: 2 },
+  },
+];
+
+for (const { name, attacker, defender, moles, armorPlating, expected } of researchCases) {
+  test(`combat research: ${name}`, async () => {
+    await grantResearch(attackerUserId, attacker ?? {});
+    await grantResearch(defenderUserId, defender ?? {});
+    if (moles !== undefined) {
+      await getDb()
+        .update(stationSpacecrafts)
+        .set({ amount: moles })
+        .where(
+          and(
+            eq(stationSpacecrafts.stationId, defenderStationId),
+            eq(stationSpacecrafts.spacecraftKey, 'mole')
+          )
+        );
+    }
+    if (armorPlating !== undefined) {
+      await getDb()
+        .update(stationBuildings)
+        .set({ level: armorPlating })
+        .where(
+          and(
+            eq(stationBuildings.stationId, defenderStationId),
+            eq(stationBuildings.buildingKey, 'armor_plating')
+          )
+        );
+    }
+
+    const resolved = await report((await arriveWithAttack()).id);
+    for (const [key, value] of entriesOf(expected)) {
+      assert.deepEqual(resolved[key], value, key);
+    }
+  });
+}
+
+test('Signature Analysis reveals an incoming fleet before it arrives', async () => {
+  const started = await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: defenderStationId,
+    fleet: { merlin: 3 },
+  });
+  const incoming = async () =>
+    (await getUserCombatReports(defenderUserId)).find(
+      (combatReport) => combatReport.id === started.id
+    )?.attackerFleet;
+
+  assert.equal(await incoming(), null);
+  await grantResearch(defenderUserId, { signature_analysis: 1 });
+  assert.deepEqual(await incoming(), { merlin: 3 });
+});
+
+test('Fleet Coordination raises the hangar crew capacity', async () => {
+  await grantResearch(defenderUserId, { fleet_coordination: 2 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 22, used: 6 });
+});
+
+test('Cargo Compression lets a salvager carry more debris', async () => {
+  const [field] = await getDb()
+    .insert(debrisFields)
+    .values({ sectorId, x: 2, y: 0, chunkX: 0, chunkY: 0, resources: { carbon: 400 } })
+    .returning();
+  await getDb().insert(stationSpacecrafts).values({
+    stationId: attackerStationId,
+    spacecraftKey: 'collector',
+    amount: 1,
+  });
+  await setCarbon(attackerStationId, 0);
+  await grantResearch(attackerUserId, { cargo_compression: 4 });
+
+  await resolveSalvage(field!.id);
+  // Collector cargo 250 × 1.2.
+  assert.equal(await getCarbon(attackerStationId), 300);
+});
+
 test('attack on a young protected account is rejected', async () => {
   const young = await createTestUser();
   const youngStation = await createTestStation({
@@ -435,7 +566,8 @@ test('attack protection is broken after the first own attack', async () => {
     .where(inArray(users.id, [youngDefender.id, oldDefender.id]));
 });
 
-async function resolveAttack() {
+/** Sends the three Merlins and lets them arrive; the fight resolves on arrival. */
+async function arriveWithAttack() {
   const started = await startAttack({
     userId: attackerUserId,
     stationId: attackerStationId,
@@ -451,6 +583,17 @@ async function resolveAttack() {
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, mission!.outboundTripId));
   assert.equal(await settleTripArrival(outbound!), true);
+  return started;
+}
+
+async function report(id: string) {
+  return (await getUserCombatReports(attackerUserId)).find(
+    (combatReport) => combatReport.id === id
+  )!;
+}
+
+async function resolveAttack() {
+  const started = await arriveWithAttack();
 
   const [returning] = await getDb()
     .select()
@@ -462,7 +605,7 @@ async function resolveAttack() {
     .where(eq(spacecraftTrips.id, returning!.returnTripId!));
   assert.equal(await settleTripArrival(returnTrip!), true);
 
-  return (await getUserCombatReports(attackerUserId)).find((report) => report.id === started.id)!;
+  return report(started.id);
 }
 
 async function resolveSalvage(debrisFieldId: string): Promise<void> {
