@@ -102,12 +102,15 @@ export const leaves: Leaf[] = [
   })),
 ];
 
-/** A ship or defense sits under the tier of its latest research requirement. */
+/** Tier in which a research level is usually reached: 1, 2, 3–4, 5–6, 7+. */
+const LEVEL_TIER = [1, 1, 2, 3, 3, 4, 4] as const;
+
+/** A ship or defense sits in the tier its highest research level needs, never before that research. */
 const leafTier = (leaf: Leaf) =>
   Math.max(
     1,
-    ...entriesOf(leaf.requirements.research ?? {}).map(
-      ([key]) => getResearchDefinition(key)?.tier ?? 1
+    ...entriesOf(leaf.requirements.research ?? {}).map(([key, level]) =>
+      Math.max(getResearchDefinition(key)?.tier ?? 1, LEVEL_TIER[level] ?? 5)
     )
   );
 
