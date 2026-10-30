@@ -4,6 +4,7 @@ export {
   seedStationBuildings,
   startBuildingUpgrade,
 } from './buildings.js';
+export { getBuildSlots } from './construction.js';
 export {
   calculateStationDefenseScore,
   cancelDefenseUpgrade,

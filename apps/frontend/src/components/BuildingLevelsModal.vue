@@ -47,7 +47,13 @@ const rows = computed(() => {
               research.modifiers.buildingCost
             )
           : [],
-      buildTime: level > 1 ? formatBuildTime(calculateBuildingBuildTime(key, level)) : null,
+      // Today's Core and Construction Robotics, like the building card.
+      buildTime:
+        level > 1
+          ? formatBuildTime(
+              calculateBuildingBuildTime(key, level) * overview.upgradeTimeFactor(stationId)
+            )
+          : null,
       unlocks: current.unlockMilestones[level] ?? [],
       state: stateFor(level, current.level, current.isUpgrading),
     };

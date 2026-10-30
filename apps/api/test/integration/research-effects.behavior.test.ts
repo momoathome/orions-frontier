@@ -31,6 +31,7 @@ import {
   cancelBuildingUpgrade,
   startBuildingUpgrade,
 } from '../../src/services/station/buildings.js';
+import { getBuildSlots } from '../../src/services/station/construction.js';
 import { creditStationResources } from '../../src/services/station/resources.js';
 import {
   createTestSector,
@@ -112,7 +113,7 @@ after(async () => {
   await closeDb();
 });
 
-test('build slots limit parallel upgrades and cancel refunds the full cost', async () => {
+test('build slots limit parallel upgrades, show their use and cancel refunds the full cost', async () => {
   const stock = Object.fromEntries(
     calculateBuildingUpgradeCost('warehouse', 2).map((cost) => [cost.resourceKey, cost.amount])
   );
@@ -129,10 +130,13 @@ test('build slots limit parallel upgrades and cancel refunds the full cost', asy
         .map((row) => [row.resourceKey, row.amount])
     );
 
+  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 0, total: 1 });
   await startBuildingUpgrade(stationId, 'warehouse', userId);
+  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 1, total: 1 });
   await assert.rejects(startBuildingUpgrade(stationId, 'hangar', userId), /No free build slot/);
   await cancelBuildingUpgrade(stationId, 'warehouse', userId);
   assert.deepEqual(await resources(), stock);
+  assert.deepEqual(await getBuildSlots(stationId, new Date()), { used: 0, total: 1 });
 });
 
 test('concurrent starts fill one research slot and one build slot exactly once', async () => {
@@ -213,6 +217,22 @@ test('the Autonomous Mining Fleet sends idle miners to the nearest best asteroid
   assert.equal(event?.type, 'miners_assigned');
   assert.equal(event.asteroidId, carbonId);
   assert.equal(event.rerouted, false);
+
+  // Salvagers stay home for salvage orders.
+  const salvage = await getDb().transaction((tx) =>
+    assignIdleMiners(
+      tx,
+      {
+        stationId,
+        spacecraftKey: 'collector',
+        amount: 1,
+        resourceKey: null,
+        departedAt: new Date(),
+      },
+      createRealtimeExecutionContext()
+    )
+  );
+  assert.equal(salvage, null);
 });
 
 // Last: it marks the station destroyed.

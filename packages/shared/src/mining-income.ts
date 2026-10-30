@@ -60,10 +60,12 @@ const add = (rates: ResourceMap, key: ResourceKey, amount: number) => {
 /**
  * Expected mining income of one station. Each cargo is split by remaining vein amounts
  * (see claimMiningCargo), so a vein yields its share of the asteroid's delivery rate.
+ * `yieldFactor` is the owner's Deep Core Drilling: deliveries grow, the asteroid's loss does not.
  */
 export function summarizeStationIncome(
   stationId: string,
-  asteroids: readonly AsteroidDetail[]
+  asteroids: readonly AsteroidDetail[],
+  yieldFactor = 1
 ): StationIncome {
   const income: StationIncome = {
     perHour: {},
@@ -80,7 +82,7 @@ export function summarizeStationIncome(
     const own = asteroid.assignments.filter((assignment) => assignment.stationId === stationId);
     if (own.length === 0) continue;
 
-    const perHour = own.reduce((sum, assignment) => sum + rate(assignment), 0);
+    const perHour = own.reduce((sum, assignment) => sum + rate(assignment), 0) * yieldFactor;
     const allPerHour = asteroid.assignments.reduce((sum, assignment) => sum + rate(assignment), 0);
     const byResource =
       remaining > 0

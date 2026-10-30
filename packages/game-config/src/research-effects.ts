@@ -46,7 +46,8 @@ export function researchModifiers(research: ResearchLevels): ResearchModifiers {
     crew: percent('fleet_coordination'),
     yield: percent('deep_core_drilling', 6),
     constructionBonus: level('construction_robotics') * 3,
-    shipBuildBonus: level('fabrication_lines') * 4,
+    // 3 % per level: with the Shipyard's 45 % at level 15 it ends exactly at the 75 % floor.
+    shipBuildBonus: level('fabrication_lines') * 3,
     buildingCost: 1 - level('nanite_assembly') * 0.04,
     researchSlots: 1 + level('research_network'),
     buildSlots: 1 + level('parallel_construction'),

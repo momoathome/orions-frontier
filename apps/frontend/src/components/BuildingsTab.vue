@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import {
-  calculateBuildingBuildTime,
-  calculateConstructionSpeedBonus,
-  durationFactor,
-} from '@orions-frontier/game-config';
+import { calculateBuildingBuildTime } from '@orions-frontier/game-config';
 import {
   getCostShortfall,
   type BuildingKey,
@@ -18,14 +14,13 @@ import {
   formatShortfall,
 } from '../lib/format';
 import BuildingLevelsModal from './BuildingLevelsModal.vue';
+import BuildSlots from './BuildSlots.vue';
 import ConfirmCancelButton from './ConfirmCancelButton.vue';
 import CostList from './CostList.vue';
 import { useOverviewStore } from '../stores/overview.js';
-import { useResearchStore } from '../stores/research.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const overview = useOverviewStore();
-const research = useResearchStore();
 const upgrading = ref<string | null>(null);
 const cancelling = ref<string | null>(null);
 const error = ref<string | null>(null);
@@ -34,14 +29,7 @@ const levelsKey = ref<BuildingKey | null>(null);
 const detail = computed(() => overview.state.details[stationId] ?? null);
 const now = computed(() => overview.state.now);
 
-// Core and Construction Robotics add up, with the server's floor from game-config.
-const speedFactor = computed(() =>
-  durationFactor(
-    calculateConstructionSpeedBonus(
-      detail.value?.buildings.find((building) => building.definition.key === 'core')?.level ?? 1
-    ) + research.modifiers.constructionBonus
-  )
-);
+const speedFactor = computed(() => overview.upgradeTimeFactor(stationId));
 
 const cards = computed(() =>
   (detail.value?.buildings ?? []).map((building) => {
@@ -56,6 +44,7 @@ const cards = computed(() =>
     const buildSeconds =
       calculateBuildingBuildTime(building.definition.key, building.level + 1) * speedFactor.value;
     const affordable = !maxed && shortfall.missing.length === 0;
+    const ready = affordable && overview.hasFreeBuildSlot(stationId);
     const upgradingNow = building.isUpgrading && endsAt !== null && endsAt > now.value;
     const nextUnlock = Object.entries(building.unlockMilestones)
       .map(([level, keys]) => ({ level: Number(level), keys }))
@@ -65,8 +54,9 @@ const cards = computed(() =>
       building,
       maxed,
       affordable,
+      ready,
       upgradingNow,
-      accent: upgradingNow ? 'border-[#5a4317]' : affordable ? 'border-[#1f5b66]' : '',
+      accent: upgradingNow ? 'border-[#5a4317]' : ready ? 'border-[#1f5b66]' : '',
       endsAt,
       // ponytail: assumes today's Core and Construction Robotics levels; a level reached mid-upgrade
       // makes the bar jump. Send `upgradeStartedAt` from the API if that ever matters.
@@ -121,6 +111,7 @@ async function cancelUpgrade(building: StationBuildingWithDefinition) {
   <div class="flex flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5">
     <p v-if="!detail" class="animate-pulse text-ui-muted">Loading buildings…</p>
     <p v-else-if="detail.buildings.length === 0" class="text-ui-soft">No buildings found.</p>
+    <BuildSlots :station-id="stationId" />
     <p v-if="error" class="rounded-md border border-[#6b2f2c] bg-[#2a1214] px-3 py-2 text-ui-red">
       {{ error }}
     </p>
@@ -154,10 +145,13 @@ async function cancelUpgrade(building: StationBuildingWithDefinition) {
         <span v-else-if="card.maxed" class="rounded bg-ui-line px-2 py-0.5 text-xs text-ui-muted"
           >Max level</span
         >
+        <span v-else-if="card.ready" class="rounded bg-[#0c2a30] px-2 py-0.5 text-xs text-ui-cyan"
+          >Affordable</span
+        >
         <span
           v-else-if="card.affordable"
-          class="rounded bg-[#0c2a30] px-2 py-0.5 text-xs text-ui-cyan"
-          >Affordable</span
+          class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted"
+          >No free slot</span
         >
         <span v-else class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted">Saving</span>
       </div>
@@ -208,8 +202,8 @@ async function cancelUpgrade(building: StationBuildingWithDefinition) {
           <button
             type="button"
             class="ui-btn"
-            :class="{ 'ui-btn-primary': card.affordable }"
-            :disabled="!card.affordable || upgrading !== null"
+            :class="{ 'ui-btn-primary': card.ready }"
+            :disabled="!card.ready || upgrading !== null"
             @click.stop="startUpgrade(card.building)"
           >
             {{ upgrading === card.building.definition.key ? 'Starting…' : 'Upgrade' }}

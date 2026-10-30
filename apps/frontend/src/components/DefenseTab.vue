@@ -10,7 +10,9 @@ import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { formatBuildTime, formatCountdown, formatShortfall } from '../lib/format';
 import { useOverviewStore } from '../stores/overview.js';
+import { useResearchStore } from '../stores/research.js';
 import ConfirmCancelButton from './ConfirmCancelButton.vue';
+import BuildSlots from './BuildSlots.vue';
 import CostList from './CostList.vue';
 import RequirementChips from './RequirementChips.vue';
 
@@ -22,6 +24,7 @@ const error = ref<string | null>(null);
 const upgrading = ref<string | null>(null);
 const cancelling = ref<string | null>(null);
 const overview = useOverviewStore();
+const research = useResearchStore();
 const now = computed(() => overview.state.now);
 const stock = computed(() => overview.state.details[stationId]?.resources ?? null);
 
@@ -59,11 +62,14 @@ function reportSummary(report: CombatReport): string {
   return `${sent}${report.attackerLosses} attacker losses, ${report.defenderLosses} defender losses${integrity}`;
 }
 
+// Combat multiplies the upgrades' score by Shield Technology, so the shown score does too.
 const defenseScore = computed(() =>
-  upgrades.value.reduce(
-    (sum, upgrade) =>
-      sum + upgrade.effects.reduce((effectSum, effect) => effectSum + effect.value, 0),
-    0
+  Math.round(
+    upgrades.value.reduce(
+      (sum, upgrade) =>
+        sum + upgrade.effects.reduce((effectSum, effect) => effectSum + effect.value, 0),
+      0
+    ) * research.modifiers.stationDefense
   )
 );
 
@@ -80,16 +86,18 @@ const cards = computed(() =>
     const endsAt = upgrade.upgradeEndsAt ? Date.parse(upgrade.upgradeEndsAt) : null;
     const upgradingNow = upgrade.isUpgrading && endsAt !== null && endsAt > now.value;
     const affordable = !maxed && !locked && shortfall.missing.length === 0;
+    const ready = affordable && overview.hasFreeBuildSlot(stationId);
     const durationMs = (upgrade.upgradeDurationSeconds ?? 0) * 1_000;
     return {
       upgrade,
       maxed,
       locked,
       affordable,
+      ready,
       upgradingNow,
       accent: upgradingNow
         ? 'border-[#5a4317]'
-        : affordable
+        : ready
           ? 'border-rose-400/35'
           : locked
             ? 'opacity-60'
@@ -206,6 +214,7 @@ onUnmounted(() => {
     </template>
 
     <h3 class="ui-label mt-2">Upgrades</h3>
+    <BuildSlots :station-id="stationId" />
     <p v-if="loading" class="animate-pulse text-ui-muted">Loading defense…</p>
     <article
       v-for="card in cards"
@@ -232,9 +241,14 @@ onUnmounted(() => {
           >Locked</span
         >
         <span
-          v-else-if="card.affordable"
+          v-else-if="card.ready"
           class="rounded bg-rose-500/10 px-2 py-0.5 text-xs text-rose-200"
           >Affordable</span
+        >
+        <span
+          v-else-if="card.affordable"
+          class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted"
+          >No free slot</span
         >
         <span v-else class="rounded bg-[#141d2c] px-2 py-0.5 text-xs text-ui-muted">Saving</span>
       </div>
@@ -282,10 +296,9 @@ onUnmounted(() => {
             type="button"
             class="ui-btn"
             :class="{
-              'border-rose-400/35 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20':
-                card.affordable,
+              'border-rose-400/35 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20': card.ready,
             }"
-            :disabled="!card.affordable || upgrading !== null"
+            :disabled="!card.ready || upgrading !== null"
             @click="startUpgrade(card.upgrade)"
           >
             {{ upgrading === card.upgrade.definition.key ? 'Starting…' : 'Upgrade' }}

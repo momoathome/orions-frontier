@@ -54,6 +54,7 @@ import {
   type Coordinate,
 } from '../../lib/travel.js';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
+import { applyTravelSpeed } from '../research/index.js';
 import { creditStationResources } from '../station/index.js';
 
 type Trip = TripRow;
@@ -183,10 +184,15 @@ export async function destroyStation(
         toX: target.x,
         toY: target.y,
         departedAt: now,
-        arrivesAt: calcArrivesAt(
-          now,
-          calcDistance(position, target),
-          requireSpacecraft(spacecraftKey).speed
+        arrivesAt: await applyTravelSpeed(
+          tx,
+          target.id,
+          calcArrivesAt(
+            now,
+            calcDistance(position, target),
+            requireSpacecraft(spacecraftKey).speed
+          ),
+          now
         ),
         purpose: 'relocate',
         cargoManifest: cargo,

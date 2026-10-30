@@ -1,10 +1,12 @@
 import { computed, reactive } from 'vue';
+import { calculateConstructionSpeedBonus, durationFactor } from '@orions-frontier/game-config';
 import {
   getCostShortfall,
   getMiningTripPhase,
   getMiningTripPhaseEndsAt,
   summarizeStationIncome,
   type AsteroidDetail,
+  type BuildSlots,
   type CombatReport,
   type LogbookEntry,
   type Ranking,
@@ -39,6 +41,7 @@ export interface OverviewTrip {
 export interface StationDetail {
   resources: UserResourceSummary | null;
   buildings: StationBuildingWithDefinition[];
+  buildSlots: BuildSlots | null;
   fleet: StationSpacecraftsResponse | null;
   income: StationIncome | null;
 }
@@ -112,17 +115,25 @@ async function loadStationIncome(id: string): Promise<StationIncome> {
   const asteroids = await Promise.all(
     asteroidIds.map((asteroidId) => apiClient.get<AsteroidDetail>(`/asteroids/${asteroidId}`))
   );
-  return summarizeStationIncome(id, asteroids);
+  return summarizeStationIncome(id, asteroids, research.modifiers.yield);
 }
 
 async function loadStationDetail(id: string): Promise<void> {
   const [resources, buildings, fleet, income] = await Promise.all([
     apiClient.get<UserResourceSummary>('/me/resources', { params: { stationId: id } }),
-    apiClient.get<{ buildings: StationBuildingWithDefinition[] }>(`/stations/${id}/buildings`),
+    apiClient.get<{ buildings: StationBuildingWithDefinition[]; buildSlots: BuildSlots }>(
+      `/stations/${id}/buildings`
+    ),
     apiClient.get<StationSpacecraftsResponse>(`/stations/${id}/spacecrafts`),
     loadStationIncome(id),
   ]);
-  state.details[id] = { resources, buildings: buildings.buildings, fleet, income };
+  state.details[id] = {
+    resources,
+    buildings: buildings.buildings,
+    buildSlots: buildings.buildSlots,
+    fleet,
+    income,
+  };
 }
 
 async function guarded(load: () => Promise<unknown>): Promise<void> {
@@ -188,7 +199,10 @@ function start(): () => void {
         void refreshStation(stationId);
         scheduleProgress();
       }),
-      wsClient.on('defense_upgrade_completed', scheduleProgress),
+      wsClient.on('defense_upgrade_completed', ({ stationId }) => {
+        void refreshStation(stationId);
+        scheduleProgress();
+      }),
       wsClient.on('spacecraft_build_completed', ({ stationId }) => {
         void refreshStation(stationId);
         scheduleProgress();
@@ -249,9 +263,24 @@ function stationStorage(id: string): { fill: number; resourceKey: string | null 
   return best;
 }
 
+/** Factor on building upgrade times: Core and Construction Robotics add up, with the server floor. */
+function upgradeTimeFactor(id: string): number {
+  const core = state.details[id]?.buildings.find((b) => b.definition.key === 'core')?.level ?? 1;
+  return durationFactor(
+    calculateConstructionSpeedBonus(core) + research.modifiers.constructionBonus
+  );
+}
+
+/** Unknown slots count as free; the server checks again on start. */
+function hasFreeBuildSlot(id: string): boolean {
+  const slots = state.details[id]?.buildSlots;
+  return !slots || slots.used < slots.total;
+}
+
+/** Upgrades the station could start right now: paid for and a build slot free. */
 function affordableUpgrades(id: string): StationBuildingWithDefinition[] {
   const detail = state.details[id];
-  if (!detail?.resources) return [];
+  if (!detail?.resources || !hasFreeBuildSlot(id)) return [];
   const { resources, rates } = detail.resources;
   return detail.buildings.filter(
     (b) =>
@@ -421,6 +450,8 @@ const overviewStore = reactive({
   refreshTrips,
   stationName,
   stationQueue,
+  hasFreeBuildSlot,
+  upgradeTimeFactor,
   stationFleet,
   stationStorage,
   markLogbookSeen,

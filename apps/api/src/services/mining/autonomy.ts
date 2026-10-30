@@ -79,7 +79,13 @@ export async function assignIdleMiners(
   context: GameExecutionContext
 ): Promise<MinersAssignedEvent | null> {
   const spacecraft = getSpacecraft(params.spacecraftKey);
-  if (!spacecraft || spacecraft.miningRate <= 0 || spacecraft.cargo <= 0 || params.amount <= 0) {
+  // Salvagers can mine too, but they are built for debris and stay home for salvage orders.
+  if (
+    spacecraft?.role !== 'miner' ||
+    spacecraft.miningRate <= 0 ||
+    spacecraft.cargo <= 0 ||
+    params.amount <= 0
+  ) {
     return null;
   }
   const modifiers = await getStationResearchModifiers(tx, params.stationId);

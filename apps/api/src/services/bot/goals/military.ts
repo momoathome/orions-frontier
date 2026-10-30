@@ -30,12 +30,14 @@ import {
 const TARGET_DEFENSE_SCORE = 50;
 const TARGET_STRIKE_ATTACK = 80;
 
-/** Current defense score for a station from its defense upgrades. */
+/** Defense score as combat counts it: defense upgrades times Shield Technology. */
 function defenseScore(station: StationSnapshot): number {
-  return station.defense.reduce((sum, d) => {
-    const effect = calculateDefenseUpgradeEffect(d.upgradeKey, d.level);
-    return sum + effect.reduce((s, e) => s + e.value, 0);
-  }, 0);
+  return (
+    station.defense.reduce((sum, d) => {
+      const effect = calculateDefenseUpgradeEffect(d.upgradeKey, d.level);
+      return sum + effect.reduce((s, e) => s + e.value, 0);
+    }, 0) * stationModifiers(station).stationDefense
+  );
 }
 
 /** Available defense upgrades that can still be raised. */

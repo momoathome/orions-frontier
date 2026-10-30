@@ -1,10 +1,11 @@
 import { authenticate } from '../../../middleware/auth.js';
-import { getStationBuildings, ownStation } from '../../../services/station/index.js';
+import { getBuildSlots, getStationBuildings, ownStation } from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 /**
  * GET /api/stations/:stationId/buildings
- * Returns all buildings for the station with computed effects, costs, and milestones.
+ * Returns all buildings for the station with computed effects, costs, and milestones, plus the
+ * build slots that building and defense upgrades share.
  */
 export default defineRoute(async (app) => {
   app.get(
@@ -14,9 +15,12 @@ export default defineRoute(async (app) => {
       const { stationId } = request.params;
       const ownedStationId = await ownStation(request.user.userId, stationId);
 
-      const buildings = await getStationBuildings(ownedStationId);
+      const [buildings, buildSlots] = await Promise.all([
+        getStationBuildings(ownedStationId),
+        getBuildSlots(ownedStationId, new Date()),
+      ]);
 
-      return { stationId: ownedStationId, buildings };
+      return { stationId: ownedStationId, buildings, buildSlots };
     }
   );
 });

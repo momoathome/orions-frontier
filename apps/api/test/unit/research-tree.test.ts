@@ -184,3 +184,37 @@ test('research modifiers follow the levels', () => {
     'astatine',
   ]);
 });
+
+test('the effect shown in the tree matches what one level changes', () => {
+  const base = researchModifiers({});
+  const field: Partial<Record<ResearchKey, keyof typeof base>> = {
+    extraction_algorithms: 'miningRate',
+    cargo_compression: 'cargo',
+    deep_core_drilling: 'yield',
+    ion_propulsion: 'speed',
+    sensor_arrays: 'scannerRange',
+    colony_logistics: 'stationLimit',
+    frontier_charter: 'expeditionLimit',
+    construction_robotics: 'constructionBonus',
+    fabrication_lines: 'shipBuildBonus',
+    parallel_construction: 'buildSlots',
+    research_network: 'researchSlots',
+    nanite_assembly: 'buildingCost',
+    weapons: 'attack',
+    armor: 'shipDefense',
+    shields: 'stationDefense',
+    fleet_coordination: 'crew',
+  };
+  for (const definition of researchDefinitions.filter((d) => d.effect)) {
+    const key = field[definition.key];
+    assert.ok(key, `${definition.key} has no modifier mapping`);
+    const delta = Math.abs(
+      Number(researchModifiers({ [definition.key]: 1 })[key]) - Number(base[key])
+    );
+    const expected = definition.effect!.format === 'count' || key.endsWith('Bonus') ? 1 : 0.01;
+    assert.ok(
+      Math.abs(delta - definition.effect!.perLevel * expected) < 1e-9,
+      `${definition.key}: tree says ${definition.effect!.perLevel}, code changes ${delta}`
+    );
+  }
+});

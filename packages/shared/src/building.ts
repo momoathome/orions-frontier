@@ -53,6 +53,12 @@ export interface BuildingEffect {
 
 // Full station building with computed data
 
+/** Build slots of a station; building and defense upgrades share them. */
+export interface BuildSlots {
+  used: number;
+  total: number;
+}
+
 export interface StationBuildingWithDefinition {
   definition: BuildingDefinition;
   level: number;

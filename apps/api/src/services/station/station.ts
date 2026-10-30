@@ -28,6 +28,7 @@ import {
   calculateScannerRange,
   currentIntegrity,
 } from '@orions-frontier/game-config';
+import { getResearchModifiers } from '../research/index.js';
 import { getStationVisualProfiles, starterStationVisualProfile } from './visual.js';
 import {
   createRealtimeExecutionContext,
@@ -78,6 +79,9 @@ export const createStation = async (
   const slotType = data.slotType ?? 'player';
 
   return db.transaction(async (tx) => {
+    // A new station starts with a level 1 scanner; Sensor Arrays is account-wide.
+    const scannerRange = async () =>
+      calculateScannerRange(1) * (await getResearchModifiers(tx, userId)).scannerRange;
     await lockStationCreation(tx);
     if (slotType === 'player') {
       const owned = await listStationDestroyedAtByUser(tx, userId);
@@ -93,7 +97,7 @@ export const createStation = async (
       }
     } else if (data.sectorId) {
       const existing = await findOwnedStationInSector(tx, userId, data.sectorId);
-      if (existing) return toStation(existing, calculateScannerRange(1));
+      if (existing) return toStation(existing, await scannerRange());
     }
 
     const findSlot = () => findFreeSpawnSlotForUpdate(tx, slotType, data.sectorId);
@@ -133,6 +137,6 @@ export const createStation = async (
       context
     );
 
-    return toStation(station, calculateScannerRange(1));
+    return toStation(station, await scannerRange());
   });
 };

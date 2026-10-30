@@ -4,11 +4,12 @@ import {
   buildingKeys,
   isOneOf,
   type BuildingLevels,
+  type BuildSlots,
   type ResourceKey,
   type ResourceMap,
 } from '@orions-frontier/shared';
 import type { ResearchModifiers } from '@orions-frontier/game-config';
-import { getDb, type Tx } from '../../lib/db/index.js';
+import { getDb, type QueryDb, type Tx } from '../../lib/db/index.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import {
   findStationBuildingByKeyForUpdate,
@@ -19,6 +20,7 @@ import {
 import { listStationResources } from '../../repositories/station-resources.js';
 import { findOwnedStationForUpdate } from '../../repositories/stations.js';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
+import { getStationResearchModifiers } from '../research/index.js';
 import { creditStationResources } from './resources.js';
 
 export const toBuildingLevels = (rows: { buildingKey: string; level: number }[]) => {
@@ -28,6 +30,21 @@ export const toBuildingLevels = (rows: { buildingKey: string; level: number }[])
   }
   return levels;
 };
+
+const countRunningUpgrades = async (db: QueryDb, stationId: string, now: Date) =>
+  (await listStationBuildings(db, stationId)).filter(
+    (row) => row.upgradeEndsAt !== null && row.upgradeEndsAt > now
+  ).length;
+
+/** Build slots in use by building and defense upgrades, for the station views. */
+export async function getBuildSlots(stationId: string, now: Date): Promise<BuildSlots> {
+  const db = getDb();
+  const [used, modifiers] = await Promise.all([
+    countRunningUpgrades(db, stationId, now),
+    getStationResearchModifiers(db, stationId),
+  ]);
+  return { used, total: modifiers.buildSlots };
+}
 
 /**
  * Building and defense upgrades share the station's build slots. Call under the station lock so
@@ -39,9 +56,7 @@ export async function assertFreeBuildSlot(
   modifiers: ResearchModifiers,
   now: Date
 ): Promise<void> {
-  const running = (await listStationBuildings(tx, stationId)).filter(
-    (row) => row.upgradeEndsAt !== null && row.upgradeEndsAt > now
-  ).length;
+  const running = await countRunningUpgrades(tx, stationId, now);
   if (running >= modifiers.buildSlots) {
     throw new AppError(
       ErrorCode.VALIDATION_ERROR,

@@ -313,7 +313,7 @@ test('Fabrication Lines shortens ship construction on top of the shipyard bonus'
     calculateBuildingEffect('shipyard', 5).find(
       (effect) => effect.type === 'spacecraft_production_bonus'
     )?.value ?? 0;
-  const expected = Math.ceil(60 * (1 - (shipyardBonus + 8) / 100)) * 1000;
+  const expected = Math.ceil(60 * (1 - (shipyardBonus + 6) / 100)) * 1000;
   assert.ok(order);
   assert.ok(Math.abs(order.endsAt.getTime() - startedAt - expected) < 1_500);
   await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));

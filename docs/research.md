@@ -62,7 +62,7 @@ Die genauen Voraussetzungen und Maximalstufen stehen in `researchDefinitions`.
 | Shields                | +5 % Verteidigung der Station                                      |
 | Fleet Coordination     | +5 % Crew-Slots                                                    |
 | Construction Robotics  | −3 % Bauzeit von Gebäuden und Verteidigung, addiert zum Core-Bonus |
-| Fabrication Lines      | −4 % Schiffsbauzeit, addiert zum Shipyard-Bonus                    |
+| Fabrication Lines      | −3 % Schiffsbauzeit, addiert zum Shipyard-Bonus                    |
 | Nanite Assembly        | −4 % Gebäudekosten                                                 |
 | Parallel Construction  | +1 Bau-Slot (Basis 1)                                              |
 | Research Network       | +1 Forschungs-Slot                                                 |

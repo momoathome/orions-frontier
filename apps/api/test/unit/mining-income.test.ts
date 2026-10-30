@@ -93,6 +93,13 @@ test('station income splits own yield by vein share and lists own cargo only', (
   assert.equal(source.depletionHours?.toFixed(2), '7.50');
 });
 
+test('Deep Core Drilling raises own income but not the depletion time', () => {
+  const income = summarizeStationIncome('own', [asteroid], 1.3);
+
+  assert.equal(income.perHour.carbon?.toFixed(2), '65.00');
+  assert.equal(income.sources[0]?.depletionHours?.toFixed(2), '7.50');
+});
+
 test('unknown composition still counts toward income', () => {
   const income = summarizeStationIncome('own', [{ ...asteroid, scanned: false, veins: [] }]);
 

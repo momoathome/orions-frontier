@@ -5,6 +5,7 @@ import {
   findAsteroidForUpdate,
   findAssignmentRouteForUpdate,
   hasAsteroidAssignments,
+  listAsteroidVeins,
   sumAsteroidRemainingAmount,
   updateAsteroidAssignment,
 } from '../../repositories/asteroids.js';
@@ -184,6 +185,17 @@ export async function handleMiningReturnArrival(
 
   if (exhausted) {
     if (delivery) delivery.asteroidExhausted = true;
+    // Miners that came back empty still reroute to the asteroid's main resource.
+    const resourceKey =
+      largestResource(trip.cargoManifest ?? {}) ??
+      largestResource(
+        Object.fromEntries(
+          (await listAsteroidVeins(tx, assignment.asteroidId, visibleResources)).map((vein) => [
+            vein.resourceKey,
+            vein.initialAmount,
+          ])
+        )
+      );
     if (
       (await sumAsteroidRemainingAmount(tx, assignment.asteroidId)) <= 0 &&
       !(await hasAsteroidAssignments(tx, assignment.asteroidId))
@@ -197,7 +209,7 @@ export async function handleMiningReturnArrival(
         stationId: assignment.stationId,
         spacecraftKey: assignment.spacecraftKey,
         amount: trip.groupSize - recalledAmount,
-        resourceKey: largestResource(trip.cargoManifest ?? {}),
+        resourceKey,
         departedAt: trip.arrivesAt,
       },
       context

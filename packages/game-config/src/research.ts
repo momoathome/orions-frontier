@@ -241,7 +241,7 @@ export const researchDefinitions: ResearchDefinition[] = [
     kind: 'stat',
     maxLevel: 10,
     requirements: { buildings: { shipyard: 3 } },
-    effect: { label: 'Ship build time', perLevel: 4, format: 'percent_less' },
+    effect: { label: 'Ship build time', perLevel: 3, format: 'percent_less' },
   },
   {
     key: 'parallel_construction',
