@@ -25,6 +25,8 @@ import {
   startExpedition,
 } from '../../src/services/missions/world-mission.js';
 
+import { grantResearch } from '../helpers/fixtures.js';
+
 const userId = randomUUID();
 const secondUserId = randomUUID();
 const botUserId = randomUUID();
@@ -59,6 +61,8 @@ before(async () => {
       role: 'bot',
     },
   ]);
+  const expansion = { long_range_survey: 1, colony_logistics: 3, frontier_charter: 2 };
+  await Promise.all([userId, secondUserId, botUserId].map((id) => grantResearch(id, expansion)));
   const settlement = await db.transaction((tx) => ensureSector(tx, 100, 100, 'settlement'));
   sectorIds.push(settlement.id);
   const station = await createStation(userId, {

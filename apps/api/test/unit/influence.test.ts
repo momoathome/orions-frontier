@@ -12,7 +12,8 @@ test('influence counts invested resources per category, the fleet at half its bu
       { key: 'armor_plating', level: 1 },
       { key: 'unknown_building', level: 9 },
     ],
-    completedResearch: ['automated_shipyard'],
+    // Weapons 1 and 2 cost 150 + 230 Hydrogenium.
+    research: { weapons: 2 },
     // Two Merlins cost 400, counted at 50%.
     spacecrafts: [
       { key: 'merlin', amount: 2 },

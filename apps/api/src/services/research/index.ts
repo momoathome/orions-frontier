@@ -1,13 +1,19 @@
 export {
   applyConstructionSpeed,
-  applyVectorNavigation,
-  effectiveAttackPower,
+  applySpeed,
+  applyTravelSpeed,
   effectiveCargoCapacity,
   effectiveMiningRate,
+  getResearchLevels,
+  getResearchModifiers,
+  getStationResearchModifiers,
+  toResearchLevels,
 } from './effects.js';
 export {
-  completeDueResearchDetailed,
+  cancelResearch,
+  completeDueResearch,
+  describeBlockers,
   getResearchState,
-  hasCompletedResearch,
   startResearch,
 } from './research.js';
+export type { ResearchPassResult } from './research.js';

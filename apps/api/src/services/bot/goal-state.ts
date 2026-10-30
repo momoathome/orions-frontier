@@ -1,6 +1,8 @@
 import type {
   BuildingKey,
   DefenseUpgradeKey,
+  ResearchKey,
+  ResearchLevels,
   ResourceMap,
   VisibleStation,
 } from '@orions-frontier/shared';
@@ -23,7 +25,8 @@ export interface StationSnapshot {
   defense: { upgradeKey: DefenseUpgradeKey; level: number; upgradeEndsAt: Date | null }[];
   fleets: { spacecraftKey: string; amount: number; lockedAmount: number }[];
   builds: { spacecraftKey: string; amount: number }[];
-  research: { technologyKey: string; status: string; completesAt: Date | null }[];
+  /** Account-wide research levels, copied onto every station for the station-level helpers. */
+  research: ResearchLevels;
   miningAssignments: {
     id: string;
     asteroidId: string;
@@ -64,6 +67,7 @@ export interface GoalBotState {
   userId: string;
   now: Date;
   completedExpeditions: number;
+  research: { levels: ResearchLevels; active: ResearchKey[]; slots: number };
   ownStations: StationSnapshot[];
   visibleAsteroids: {
     id: string;

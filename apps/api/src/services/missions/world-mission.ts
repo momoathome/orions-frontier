@@ -4,7 +4,7 @@ import {
   entriesOf,
   type KnownSector,
   ErrorCode,
-  type FrontierTarget,
+  type FrontierResponse,
   type WorldMission,
 } from '@orions-frontier/shared';
 import {
@@ -12,7 +12,7 @@ import {
   getSpacecraft,
   requireSpacecraft,
 } from '@orions-frontier/game-config';
-import { getDb, type Tx } from '../../lib/db/index.js';
+import { getDb, type QueryDb, type Tx } from '../../lib/db/index.js';
 import { listAsteroidPositionsInSector } from '../../repositories/asteroids.js';
 import {
   findSectorByCoordinates,
@@ -42,6 +42,7 @@ import {
   listActiveStationSectorIdsByUser,
 } from '../../repositories/stations.js';
 import {
+  countMovingWorldMissionsByUser,
   findDueWorldMissionForUpdate,
   findWorldMission,
   hasTravelingWorldMission,
@@ -63,7 +64,11 @@ import {
   seedStationResources,
 } from '../station/index.js';
 import { ensureSector } from '../map/index.js';
-import { applyVectorNavigation, hasCompletedResearch } from '../research/index.js';
+import {
+  applyTravelSpeed,
+  getResearchModifiers,
+  getStationResearchModifiers,
+} from '../research/index.js';
 import {
   createRealtimeExecutionContext,
   resolveGameExecutionContext,
@@ -82,22 +87,45 @@ const fastestAvailable = <T extends { spacecraftKey: string }>(rows: T[], role?:
     .filter((row) => row.definition.speed > 0 && (!role || row.definition.role === role))
     .sort((a, b) => b.definition.speed - a.definition.speed)[0];
 
+/** Research limits for expeditions and colonies; shared by the frontier view and the starts. */
+async function worldMissionLimits(db: QueryDb, userId: string) {
+  const [modifiers, expeditions, stationCount, colonizations] = await Promise.all([
+    getResearchModifiers(db, userId),
+    countMovingWorldMissionsByUser(db, userId, 'expedition'),
+    countActiveStationsByUser(db, userId),
+    countMovingWorldMissionsByUser(db, userId, 'colonization'),
+  ]);
+  return {
+    expeditions: {
+      active: expeditions,
+      limit: modifiers.expeditionLimit,
+      canExplore: modifiers.canExplore,
+    },
+    colonization: {
+      cost: calculateColonizationCost(stationCount),
+      stations: stationCount + colonizations,
+      limit: modifiers.stationLimit,
+    },
+  };
+}
+
 export async function getFrontierTargets(
   userId: string,
   stationId: string
-): Promise<FrontierTarget[]> {
+): Promise<FrontierResponse> {
   const db = getDb();
   const station = await findOwnedStationWithSector(db, stationId, userId);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-  const [frontier, fastestShip, hasVectorNavigation] = await Promise.all([
+  const [frontier, fastestShip, modifiers, limits] = await Promise.all([
     listFrontierCoordinates(db, station, WORLD_CONFIG.SECTOR, 32),
     listAvailableStationSpacecrafts(db, stationId),
-    hasCompletedResearch(db, stationId, 'vector_navigation'),
+    getStationResearchModifiers(db, stationId),
+    worldMissionLimits(db, userId),
   ]);
   const fastest = fastestAvailable(fastestShip);
 
-  return frontier
+  const targets = frontier
     .map(({ sectorX, sectorY }) => {
       const center = sectorCenter(sectorX, sectorY);
       const distance = calcDistance(station, center);
@@ -107,7 +135,7 @@ export async function getFrontierTargets(
         ...center,
         distance,
         travelHours: fastest
-          ? calcTravelHours(distance, fastest.definition.speed) * (hasVectorNavigation ? 0.9 : 1)
+          ? calcTravelHours(distance, fastest.definition.speed) / modifiers.speed
           : null,
       };
     })
@@ -117,17 +145,18 @@ export async function getFrontierTargets(
         left.sectorY - right.sectorY ||
         left.sectorX - right.sectorX
     );
+  return { targets, ...limits };
 }
 
 export async function getKnownSectors(userId: string, stationId: string): Promise<KnownSector[]> {
   const db = getDb();
   const station = await findOwnedStationWithSector(db, stationId, userId);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-  const [sectorRows, ownStations, fastestShip, hasVectorNavigation] = await Promise.all([
+  const [sectorRows, ownStations, fastestShip, modifiers] = await Promise.all([
     listNearestSectors(db, station, WORLD_CONFIG.SECTOR, 32),
     listActiveStationSectorIdsByUser(db, userId),
     listAvailableStationSpacecrafts(db, stationId),
-    hasCompletedResearch(db, stationId, 'vector_navigation'),
+    getStationResearchModifiers(db, stationId),
   ]);
   const ownSectorIds = new Set(ownStations.map((entry) => entry.sectorId));
   const fastestMiner = fastestAvailable(fastestShip, 'miner');
@@ -144,8 +173,7 @@ export async function getKnownSectors(userId: string, stationId: string): Promis
         ...center,
         distance,
         travelHours: fastestMiner
-          ? calcTravelHours(distance, fastestMiner.definition.speed) *
-            (hasVectorNavigation ? 0.9 : 1)
+          ? calcTravelHours(distance, fastestMiner.definition.speed) / modifiers.speed
           : null,
       };
     })
@@ -191,6 +219,17 @@ export async function startExpedition(
     await lockUserWorldMissions(tx, params.userId);
     const station = await findOwnedStationWithSectorForUpdate(tx, params.stationId, params.userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+    // The user lock above serializes starts, so the limit cannot be overrun.
+    const { expeditions } = await worldMissionLimits(tx, params.userId);
+    if (!expeditions.canExplore) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Requires Long-Range Survey');
+    }
+    if (expeditions.active >= expeditions.limit) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Expedition limit reached (${expeditions.active}/${expeditions.limit})`
+      );
+    }
 
     if (!(await isUnknownFrontierCoordinate(tx, params.sectorX, params.sectorY))) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target is not an unknown frontier sector');
@@ -206,7 +245,7 @@ export async function startExpedition(
     const ship = await lockAvailableShip(tx, station.id);
     const departedAt = context.now;
     const target = sectorCenter(params.sectorX, params.sectorY);
-    const arrivesAt = await applyVectorNavigation(
+    const arrivesAt = await applyTravelSpeed(
       tx,
       station.id,
       calcArrivesAt(departedAt, calcDistance(station, target), ship.speed),
@@ -287,8 +326,14 @@ export async function startColonization(
     await lockSectorColonization(tx, targetSector.id);
     const existing = await findOwnedStationInSector(tx, params.userId, targetSector.id);
     if (existing) throw new AppError(ErrorCode.ALREADY_EXISTS, 'You already have a station there');
-    const owned = await countActiveStationsByUser(tx, params.userId);
-    const colonyCost = calculateColonizationCost(owned);
+    const { colonization } = await worldMissionLimits(tx, params.userId);
+    if (colonization.stations >= colonization.limit) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Colony limit reached (${colonization.stations}/${colonization.limit}): research Colony Logistics`
+      );
+    }
+    const colonyCost = colonization.cost;
     const active = await hasTravelingWorldMission(tx, {
       userId: params.userId,
       missionType: 'colonization',
@@ -313,7 +358,7 @@ export async function startColonization(
     const ship = await lockAvailableShip(tx, station.id, 'miner');
     const target = await colonyPosition(tx, targetSector, params.userId);
     const departedAt = context.now;
-    const arrivesAt = await applyVectorNavigation(
+    const arrivesAt = await applyTravelSpeed(
       tx,
       station.id,
       calcArrivesAt(departedAt, calcDistance(station, target), ship.speed),
@@ -404,7 +449,7 @@ export async function completeDueWorldMissionsDetailed(
         if (!origin || !spacecraft) throw new Error('Expedition origin or spacecraft is missing');
         const departedAt = mission.arrivesAt;
         const target = sectorCenter(mission.targetSectorX, mission.targetSectorY);
-        const returnArrivesAt = await applyVectorNavigation(
+        const returnArrivesAt = await applyTravelSpeed(
           tx,
           mission.originStationId,
           calcArrivesAt(departedAt, calcDistance(target, origin), spacecraft.speed),

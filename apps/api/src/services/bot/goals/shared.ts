@@ -4,8 +4,14 @@ import {
   calculateBuildingUpgradeCost,
   getBuilding,
   calculateHangarCapacity,
+  researchModifiers,
 } from '@orions-frontier/game-config';
-import { entriesOf, type BuildingKey, type ResourceKey } from '@orions-frontier/shared';
+import {
+  entriesOf,
+  type BuildingKey,
+  type BuildingLevels,
+  type ResourceKey,
+} from '@orions-frontier/shared';
 import { calculateMiningCycle } from '../../../lib/mining-cycle.js';
 import { calcDistance } from '../../../lib/travel.js';
 import type { GoalBotState, StationSnapshot, GoalResult } from '../goal-state.js';
@@ -61,10 +67,8 @@ export const getHangarLevel = (station: StationSnapshot): number => {
   return b?.level ?? 0;
 };
 
-export const getLaboratoryLevel = (station: StationSnapshot): number => {
-  const b = station.buildings.find((bld) => bld.buildingKey === 'laboratory');
-  return b?.level ?? 0;
-};
+export const stationBuildingLevels = (station: StationSnapshot): BuildingLevels =>
+  Object.fromEntries(station.buildings.map((building) => [building.buildingKey, building.level]));
 
 export const isUpgrading = (station: StationSnapshot, key: string): boolean => {
   const b = station.buildings.find((bld) => bld.buildingKey === key);
@@ -238,18 +242,15 @@ export const canAfford = (station: StationSnapshot, costs: readonly ResourceCost
 export const moleCost = () => MINER_COST;
 export const titanCost = () => TITAN_COST;
 
-export function hasCompletedTechnology(station: StationSnapshot, technologyKey: string): boolean {
-  return station.research.some(
-    (research) => research.technologyKey === technologyKey && research.status === 'completed'
-  );
-}
+/** The same research multipliers the services apply to the owner's stations. */
+export const stationModifiers = (station: StationSnapshot) => researchModifiers(station.research);
 
 export function effectiveCargo(station: StationSnapshot, baseCargo: number): number {
-  return hasCompletedTechnology(station, 'modular_cargo_frames') ? baseCargo * 1.1 : baseCargo;
+  return baseCargo * stationModifiers(station).cargo;
 }
 
 export function travelFactor(station: StationSnapshot): number {
-  return hasCompletedTechnology(station, 'vector_navigation') ? 0.9 : 1;
+  return 1 / stationModifiers(station).speed;
 }
 
 export const buildingUpgradeCost = (station: StationSnapshot, buildingKey: BuildingKey) => {
@@ -306,9 +307,7 @@ export function selectBestAsteroid(
     .map((a) => {
       const storageFit = asteroidStorageFit(station, a);
       const distance = calcDistance(station, a);
-      const miningRate = hasCompletedTechnology(station, 'extraction_algorithms')
-        ? spacecraft.miningRate * 1.1
-        : spacecraft.miningRate;
+      const miningRate = spacecraft.miningRate * stationModifiers(station).miningRate;
       const cargoCapacity = effectiveCargo(station, spacecraft.cargo);
       const delivery = calculateMiningCycle({
         distance,

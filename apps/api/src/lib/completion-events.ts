@@ -4,7 +4,8 @@ interface CompletionEventBase {
   eventId: string;
   occurredAt: Date;
   userId: string;
-  stationId: string;
+  /** Null for account-wide events such as research. */
+  stationId: string | null;
 }
 
 export interface MiningDeliveryCompletedEvent extends CompletionEventBase {
@@ -16,6 +17,17 @@ export interface MiningDeliveryCompletedEvent extends CompletionEventBase {
   discarded: ResourceMap;
   targetVisibilityVerified: boolean;
   asteroidExhausted: boolean;
+}
+
+/** Idle miners sent to a new asteroid by Autonomous Rerouting or the Autonomous Mining Fleet. */
+export interface MinersAssignedEvent extends CompletionEventBase {
+  type: 'miners_assigned';
+  assignmentId: string;
+  asteroidId: string;
+  spacecraftKey: string;
+  amount: number;
+  resourceKey: string;
+  rerouted: boolean;
 }
 
 export interface BuildingCompletedEvent extends CompletionEventBase {
@@ -41,6 +53,7 @@ export interface ResearchCompletedEvent extends CompletionEventBase {
   type: 'research_completed';
   researchId: string;
   technologyKey: string;
+  newLevel: number;
 }
 
 export interface WorldMissionCompletedEvent extends CompletionEventBase {
@@ -110,6 +123,7 @@ export interface SalvageCompletedEvent extends CompletionEventBase {
 
 export type PlaytestCompletionEvent =
   | MiningDeliveryCompletedEvent
+  | MinersAssignedEvent
   | BuildingCompletedEvent
   | DefenseCompletedEvent
   | SpacecraftCompletedEvent

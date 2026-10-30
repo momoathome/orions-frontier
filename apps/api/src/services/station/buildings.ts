@@ -18,15 +18,21 @@ import {
   calculateBuildingEffect,
   buildings,
   getBuilding,
-  SHIPYARD_UNLOCKS,
+  applyBuildingCostDiscount,
+  unlocksByBuildingLevel,
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
 import { isOneOf, AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
-import { applyConstructionSpeed, hasCompletedResearch } from '../research/index.js';
+import { applyConstructionSpeed, getStationResearchModifiers } from '../research/index.js';
+import { assertFreeBuildSlot, cancelStationUpgrade } from './construction.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
+
+/** Upgrade cost after the Nanite Assembly discount. */
+const upgradeCost = (key: BuildingKey, targetLevel: number, factor: number) =>
+  applyBuildingCostDiscount(calculateBuildingUpgradeCost(key, targetLevel), factor);
 
 // Seed station buildings (initialize all buildings at level 1 for new station)
 
@@ -58,7 +64,10 @@ export const getStationBuildings = async (
 ): Promise<StationBuildingWithDefinition[]> => {
   const db = getDb();
 
-  const rows = await listStationBuildings(db, stationId);
+  const [rows, modifiers] = await Promise.all([
+    listStationBuildings(db, stationId),
+    getStationResearchModifiers(db, stationId),
+  ]);
 
   const now = context.now;
 
@@ -79,8 +88,8 @@ export const getStationBuildings = async (
         isUpgrading,
         effects: calculateBuildingEffect(key, level),
         nextLevelEffects: isAtMax ? null : calculateBuildingEffect(key, level + 1),
-        upgradeCosts: isAtMax ? [] : calculateBuildingUpgradeCost(key, level + 1),
-        unlockMilestones: key === 'shipyard' ? SHIPYARD_UNLOCKS : {},
+        upgradeCosts: isAtMax ? [] : upgradeCost(key, level + 1, modifiers.buildingCost),
+        unlockMilestones: unlocksByBuildingLevel(key),
       };
     })
     .sort((a, b) => a.definition.key.localeCompare(b.definition.key));
@@ -114,8 +123,11 @@ export const startBuildingUpgrade = async (
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Building is already at max level');
     }
 
+    const modifiers = await getStationResearchModifiers(tx, stationId);
+    await assertFreeBuildSlot(tx, stationId, modifiers, context.now);
+
     const targetLevel = stationBuilding.level + 1;
-    const costs = calculateBuildingUpgradeCost(buildingKey, targetLevel);
+    const costs = upgradeCost(buildingKey, targetLevel, modifiers.buildingCost);
     const resourceRows = await listStationResources(tx, stationId);
     const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
 
@@ -131,12 +143,11 @@ export const startBuildingUpgrade = async (
 
     const buildTimeSeconds = calculateBuildingBuildTime(buildingKey, targetLevel);
     const baseUpgradeEndsAt = new Date(context.now.getTime() + buildTimeSeconds * 1000);
-    const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
     const coreLevel =
       (await listBuildingLevels(tx, stationId)).find((row) => row.buildingKey === 'core')?.level ??
       1;
     const upgradeEndsAt = applyConstructionSpeed(
-      hasGridOpt,
+      modifiers.constructionBonus,
       coreLevel,
       baseUpgradeEndsAt,
       context.now
@@ -167,4 +178,22 @@ export const startBuildingUpgrade = async (
   }
 
   return result;
+};
+
+/** Cancels a running building upgrade and refunds its cost. */
+export const cancelBuildingUpgrade = async (
+  stationId: string,
+  buildingKey: BuildingKey,
+  userId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> => {
+  // ponytail: refunds at today's Nanite discount, which can only be lower than what was paid.
+  const factor = (await getStationResearchModifiers(getDb(), stationId)).buildingCost;
+  await cancelStationUpgrade(
+    stationId,
+    userId,
+    buildingKey,
+    (row) => upgradeCost(buildingKey, row.level + 1, factor),
+    context
+  );
 };

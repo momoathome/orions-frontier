@@ -1,3 +1,4 @@
+import type { RequirementBlocker, Requirements } from './research.js';
 import type { ResourceKey } from './resource.js';
 
 export type SpacecraftRole = 'fighter' | 'bomber' | 'miner' | 'salvager';
@@ -30,7 +31,12 @@ export interface SpacecraftBuildOrder {
 }
 
 export interface StationSpacecraftWithDefinition {
-  definition: SpacecraftDefinition & { costs: SpacecraftDefinitionCost[] };
+  definition: SpacecraftDefinition & {
+    costs: SpacecraftDefinitionCost[];
+    requirements: Requirements;
+  };
+  /** Empty when the station can build it. */
+  blockers: RequirementBlocker[];
   amount: number;
   lockedAmount: number;
   buildOrders: SpacecraftBuildOrder[];
@@ -41,4 +47,6 @@ export interface StationSpacecraftsResponse {
   stationId: string;
   spacecrafts: StationSpacecraftWithDefinition[];
   hangar: { capacity: number; used: number };
+  /** Ships the shipyard builds at the same time. */
+  productionSlots: number;
 }

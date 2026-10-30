@@ -18,6 +18,7 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/map/asteroid.js';
+import { researchModifiers } from '@orions-frontier/game-config';
 import { startAttack } from '../../src/services/combat/combat.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
 import {
@@ -264,7 +265,7 @@ test('each station keeps its own scanner range', async () => {
 test('the map lists everything while the scanner decides the detail level', async () => {
   const coverages = await getUserScannerCoverages(viewerId);
   const [listedAsteroids, listedStations, visibleDebris] = await Promise.all([
-    getVisibleChunkAsteroids(range, coverages),
+    getVisibleChunkAsteroids(range, coverages, researchModifiers({}).visibleResources),
     getVisibleChunkStations(range, viewerId, coverages),
     getVisibleDebris(range, coverages),
   ]);
@@ -476,7 +477,7 @@ test('a trip crossing the view stays visible although both endpoints lie outside
 test('dev scanner bypass projects the requested chunks without scanner coverage', async () => {
   const [visibleAsteroids, visibleStations, visibleDebris, hiddenMovement, hiddenAsteroid] =
     await Promise.all([
-      getVisibleChunkAsteroids(range, [], undefined, true),
+      getVisibleChunkAsteroids(range, [], [], undefined, true),
       getVisibleChunkStations(range, viewerId, [], undefined, true),
       getVisibleDebris(range, [], undefined, true),
       getVisibleWorldMovements(range, viewerId, new Date(now.getTime() - 5_000), true),

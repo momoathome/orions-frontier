@@ -1,5 +1,9 @@
 import type { BotProfile } from '../../../lib/db/schema/bot-controllers.js';
-import { getSpacecraft, calculateColonizationCost } from '@orions-frontier/game-config';
+import {
+  calculateColonizationCost,
+  getSpacecraft,
+  researchModifiers,
+} from '@orions-frontier/game-config';
 import { entriesOf } from '@orions-frontier/shared';
 import type { GoalBotState, StationSnapshot, GoalResult } from '../goal-state.js';
 import type { GoalCandidate } from '../goal-driven-v1.js';
@@ -151,9 +155,19 @@ export async function generateExploreSectorCandidate(
       (mission.status === 'traveling' || mission.status === 'returning')
   );
   if (hasActiveExpedition) return null;
+  // Without Long-Range Survey or a free expedition slot the research goal carries the need.
+  const modifiers = researchModifiers(state.research.levels);
+  const expeditions = state.ownStations
+    .flatMap((own) => own.missions)
+    .filter(
+      (mission) =>
+        mission.missionType === 'expedition' &&
+        (mission.status === 'traveling' || mission.status === 'returning')
+    ).length;
+  if (!modifiers.canExplore || expeditions >= modifiers.expeditionLimit) return null;
 
   // Get frontier targets for this station
-  const frontiers = (await getFrontierTargets(state.userId, station.id)).map((target) => ({
+  const frontiers = (await getFrontierTargets(state.userId, station.id)).targets.map((target) => ({
     sectorX: target.sectorX,
     sectorY: target.sectorY,
     distance: target.distance,
@@ -203,6 +217,15 @@ export async function generateEstablishColonyCandidate(
     (m) => m.missionType === 'colonization' && m.status === 'traveling'
   );
   if (hasActiveColony) return null;
+  const colonizations = state.ownStations
+    .flatMap((own) => own.missions)
+    .filter((m) => m.missionType === 'colonization' && m.status === 'traveling').length;
+  if (
+    state.ownStations.length + colonizations >=
+    researchModifiers(state.research.levels).stationLimit
+  ) {
+    return null;
+  }
 
   // Get known sectors and check which are frontier without own station
   const known = (await getKnownSectors(state.userId, station.id))

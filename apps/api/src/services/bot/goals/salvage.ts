@@ -17,7 +17,7 @@ import {
   freeCrewCapacity,
   getShipyardLevel,
   hasActiveMining,
-  hasCompletedTechnology,
+  stationModifiers,
   isUpgrading,
   travelFactor,
 } from './shared.js';
@@ -97,9 +97,7 @@ function bestMiningRate(state: GoalBotState, station: StationSnapshot): number {
 
   const mole = getSpacecraft('mole');
   if (!mole) return 0;
-  const miningRate = hasCompletedTechnology(station, 'extraction_algorithms')
-    ? mole.miningRate * 1.1
-    : mole.miningRate;
+  const miningRate = mole.miningRate * stationModifiers(station).miningRate;
   const cargo = effectiveCargo(station, mole.cargo);
   const miningHours = cargo / miningRate;
   const roundTripHours =

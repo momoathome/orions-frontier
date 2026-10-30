@@ -7,7 +7,7 @@ import { salvageMissions } from '../../lib/db/schema/debris-fields.js';
 import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationResearch } from '../../lib/db/schema/station-research.js';
+import { userResearch } from '../../lib/db/schema/user-research.js';
 import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
@@ -182,19 +182,14 @@ export async function queryDatabaseInvariantState(
       ),
     db
       .select({
-        id: stationResearch.id,
-        userId: stations.userId,
-        stationId: stationResearch.stationId,
-        dueAt: stationResearch.completesAt,
+        id: userResearch.id,
+        userId: userResearch.userId,
+        stationId: userResearch.paidByStationId,
+        dueAt: userResearch.completesAt,
       })
-      .from(stationResearch)
-      .innerJoin(stations, eq(stations.id, stationResearch.stationId))
+      .from(userResearch)
       .where(
-        and(
-          inArray(stations.userId, controlledUserIds),
-          eq(stationResearch.status, 'researching'),
-          lte(stationResearch.completesAt, now)
-        )
+        and(inArray(userResearch.userId, controlledUserIds), lte(userResearch.completesAt, now))
       ),
     db
       .select({
@@ -381,7 +376,7 @@ export async function queryDatabaseInvariantState(
       violations.push({
         code: 'overdue_active_work',
         userId: row.userId,
-        stationId: row.stationId,
+        stationId: row.stationId ?? undefined,
         entityKind,
         entityId: row.id,
         values: { dueAt: row.dueAt?.toISOString() ?? null, now: now.toISOString() },

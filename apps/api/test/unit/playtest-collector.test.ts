@@ -64,7 +64,8 @@ function completionEvents(): PlaytestCompletionEvent[] {
       type: 'research_completed',
       eventId: `research:${sourceId}`,
       researchId: sourceId,
-      technologyKey: 'grid_optimization',
+      technologyKey: 'construction_robotics',
+      newLevel: 1,
     },
     {
       ...base,

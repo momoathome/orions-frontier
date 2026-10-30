@@ -178,3 +178,22 @@ export async function countArrivedExpeditionsByUser(db: QueryDb, userId: string)
     );
   return row?.count ?? 0;
 }
+
+/** Missions of that type still under way: traveling out or returning. */
+export async function countMovingWorldMissionsByUser(
+  db: QueryDb,
+  userId: string,
+  missionType: WorldMissionType
+) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(worldMissions)
+    .where(
+      and(
+        eq(worldMissions.userId, userId),
+        eq(worldMissions.missionType, missionType),
+        inArray(worldMissions.status, ['traveling', 'returning'])
+      )
+    );
+  return row?.count ?? 0;
+}

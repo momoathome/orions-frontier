@@ -1,3 +1,4 @@
+import type { RequirementBlocker, Requirements } from './research.js';
 import type { ResourceKey } from './resource.js';
 
 export const defenseUpgradeKeys = [
@@ -18,6 +19,7 @@ export interface DefenseUpgradeDefinition {
   image: string | null;
   baseBuildTime: number;
   maxLevel: number;
+  requirements: Requirements;
 }
 
 export interface DefenseUpgradeCost {
@@ -39,4 +41,6 @@ export interface StationDefenseUpgradeWithDefinition {
   nextLevelEffects: DefenseUpgradeEffect[] | null;
   upgradeCosts: DefenseUpgradeCost[];
   upgradeDurationSeconds: number | null;
+  /** Blocks the first level only; empty once unlocked. */
+  blockers: RequirementBlocker[];
 }

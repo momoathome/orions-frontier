@@ -2,6 +2,7 @@ export const logbookEntryTypes = [
   'building_completed',
   'defense_completed',
   'spacecraft_completed',
+  'miners_assigned',
   'research_completed',
   'world_mission_completed',
   'colony_established',

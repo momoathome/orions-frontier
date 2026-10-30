@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
-import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
+import { and, eq, sql } from 'drizzle-orm';
+import { entriesOf, type ResearchLevels, type ResourceMap } from '@orions-frontier/shared';
 import { getDb } from '../../src/lib/db/index.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
+import { userResearch } from '../../src/lib/db/schema/user-research.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { seedStationBuildings } from '../../src/services/station/buildings.js';
 import { seedStationDefenseUpgrades } from '../../src/services/station/defense.js';
@@ -96,4 +97,21 @@ export async function setTestResources(stationId: string, amounts: ResourceMap):
         )
     )
   );
+}
+
+/** Sets completed research levels for the user, replacing earlier levels of the same technology. */
+export async function grantResearch(userId: string, levels: ResearchLevels): Promise<void> {
+  const rows = entriesOf(levels).map(([technologyKey, level]) => ({
+    userId,
+    technologyKey,
+    level,
+  }));
+  if (rows.length === 0) return;
+  await getDb()
+    .insert(userResearch)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [userResearch.userId, userResearch.technologyKey],
+      set: { level: sql`excluded.level` },
+    });
 }

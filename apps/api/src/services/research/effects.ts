@@ -1,78 +1,81 @@
-import { calculateConstructionSpeedBonus } from '@orions-frontier/game-config';
+import {
+  calculateConstructionSpeedBonus,
+  isResearchKey,
+  researchModifiers,
+  type ResearchModifiers,
+} from '@orions-frontier/game-config';
+import type { ResearchLevels } from '@orions-frontier/shared';
 import type { QueryDb } from '../../lib/db/index.js';
-import { hasCompletedResearch } from './research.js';
+import { listStationOwnerResearch, listUserResearch } from '../../repositories/user-research.js';
 
-const EXTRACTION_ALGORITHMS = 'extraction_algorithms';
-const MODULAR_CARGO_FRAMES = 'modular_cargo_frames';
-const VECTOR_NAVIGATION = 'vector_navigation';
-const COMBAT_ANALYTICS = 'combat_analytics';
+/** Speed-ups never cut a duration below this share. */
+const MIN_DURATION_FACTOR = 0.25;
 
-/** Returns the effective mining rate for a miner at the given station. */
-export async function effectiveMiningRate(
-  db: QueryDb,
-  stationId: string,
-  baseRate: number
-): Promise<number> {
-  if (await hasCompletedResearch(db, stationId, EXTRACTION_ALGORITHMS)) {
-    return baseRate * 1.1;
+export const toResearchLevels = (rows: { technologyKey: string; level: number }[]) => {
+  const levels: ResearchLevels = {};
+  for (const row of rows) {
+    if (isResearchKey(row.technologyKey) && row.level > 0) levels[row.technologyKey] = row.level;
   }
-  return baseRate;
+  return levels;
+};
+
+export async function getResearchLevels(db: QueryDb, userId: string): Promise<ResearchLevels> {
+  return toResearchLevels(await listUserResearch(db, userId));
 }
 
-/** Returns the effective cargo capacity for a miner or salvager at the given station. */
-export async function effectiveCargoCapacity(
-  db: QueryDb,
-  stationId: string,
-  baseCargo: number
-): Promise<number> {
-  if (await hasCompletedResearch(db, stationId, MODULAR_CARGO_FRAMES)) {
-    return baseCargo * 1.1;
-  }
-  return baseCargo;
+export async function getResearchModifiers(db: QueryDb, userId: string) {
+  return researchModifiers(await getResearchLevels(db, userId));
 }
 
-/**
- * Adjusts a `calcArrivesAt` timestamp if the station has completed vector_navigation.
- * Should be called right after creating a new trip arrival time.
- */
-export async function applyVectorNavigation(
+/** Modifiers of the station's owner; research is account-wide. */
+export async function getStationResearchModifiers(
+  db: QueryDb,
+  stationId: string
+): Promise<ResearchModifiers> {
+  return researchModifiers(toResearchLevels(await listStationOwnerResearch(db, stationId)));
+}
+
+export async function effectiveMiningRate(db: QueryDb, stationId: string, baseRate: number) {
+  return baseRate * (await getStationResearchModifiers(db, stationId)).miningRate;
+}
+
+/** Cargo of any ship from the station: mining, salvage and loot. */
+export async function effectiveCargoCapacity(db: QueryDb, stationId: string, baseCargo: number) {
+  return baseCargo * (await getStationResearchModifiers(db, stationId)).cargo;
+}
+
+/** Shortens a trip by Ion Propulsion: duration ÷ speed. */
+export const applySpeed = (arrivesAt: Date, departedAt: Date, speed: number): Date =>
+  new Date(departedAt.getTime() + Math.round((arrivesAt.getTime() - departedAt.getTime()) / speed));
+
+/** `applySpeed` with the speed of the station's owner. */
+export async function applyTravelSpeed(
   db: QueryDb,
   stationId: string,
   arrivesAt: Date,
   departedAt: Date
 ): Promise<Date> {
-  if (await hasCompletedResearch(db, stationId, VECTOR_NAVIGATION)) {
-    const originalDuration = arrivesAt.getTime() - departedAt.getTime();
-    return new Date(departedAt.getTime() + Math.round(originalDuration * 0.9));
-  }
-  return arrivesAt;
+  return applySpeed(
+    arrivesAt,
+    departedAt,
+    (await getStationResearchModifiers(db, stationId)).speed
+  );
 }
 
 /**
- * Returns the effective attack power for a fighter from the given station.
- */
-export async function effectiveAttackPower(
-  db: QueryDb,
-  stationId: string,
-  baseAttack: number
-): Promise<number> {
-  if (await hasCompletedResearch(db, stationId, COMBAT_ANALYTICS)) {
-    return baseAttack * 1.1;
-  }
-  return baseAttack;
-}
-
-/**
- * Returns the upgrade end timestamp with the Core's construction speed and
- * station_grid_optimization (10%) applied; both percentages add up.
+ * Returns the upgrade end with the Core's construction speed and Construction Robotics applied;
+ * both percentages add up.
  */
 export function applyConstructionSpeed(
-  hasGridOptimization: boolean,
+  researchBonus: number,
   coreLevel: number,
   baseUpgradeEndsAt: Date,
   startsAt: Date
 ): Date {
-  const speedUp = calculateConstructionSpeedBonus(coreLevel) + (hasGridOptimization ? 10 : 0);
+  const factor = Math.max(
+    MIN_DURATION_FACTOR,
+    1 - (calculateConstructionSpeedBonus(coreLevel) + researchBonus) / 100
+  );
   const baseDuration = baseUpgradeEndsAt.getTime() - startsAt.getTime();
-  return new Date(startsAt.getTime() + Math.round((baseDuration * (100 - speedUp)) / 100));
+  return new Date(startsAt.getTime() + Math.round(baseDuration * factor));
 }

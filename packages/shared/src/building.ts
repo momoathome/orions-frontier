@@ -18,12 +18,12 @@ export type BuildingKey = (typeof buildingKeys)[number];
 export type BuildingEffectType =
   | 'construction_speed'
   | 'hangar_capacity'
-  | 'spacecraft_unlock'
+  | 'production_slots'
   | 'spacecraft_production_bonus'
   | 'storage_capacity'
   | 'protected_storage'
   | 'scanner_range'
-  | 'research_capacity';
+  | 'research_speed';
 
 // Building Definition (static game config)
 

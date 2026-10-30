@@ -2,6 +2,7 @@ import {
   required,
   type SpacecraftRole,
   type SpacecraftDefinitionCost,
+  type Requirements,
 } from '@orions-frontier/shared';
 
 export interface SpacecraftSeedDefinition {
@@ -17,6 +18,8 @@ export interface SpacecraftSeedDefinition {
   miningRate: number;
   buildTime: number;
   crew: number;
+  /** Research and station buildings needed before the first one can be built. */
+  requirements: Requirements;
   costs: SpacecraftDefinitionCost[];
 }
 
@@ -34,6 +37,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 30,
     crew: 1,
+    requirements: { research: { weapons: 1 }, buildings: { shipyard: 2 } },
     costs: [
       { resourceKey: 'carbon', amount: 120 },
       { resourceKey: 'titanium', amount: 80 },
@@ -52,6 +56,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 45,
     crew: 2,
+    requirements: { research: { weapons: 2, ion_propulsion: 2 }, buildings: { shipyard: 3 } },
     costs: [
       { resourceKey: 'carbon', amount: 160 },
       { resourceKey: 'titanium', amount: 120 },
@@ -71,6 +76,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 75,
     crew: 4,
+    requirements: { research: { weapons: 3, armor: 2 }, buildings: { shipyard: 4 } },
     costs: [
       { resourceKey: 'carbon', amount: 220 },
       { resourceKey: 'titanium', amount: 200 },
@@ -90,6 +96,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 90,
     crew: 5,
+    requirements: { research: { armor: 3, shields: 1 }, buildings: { shipyard: 4 } },
     costs: [
       { resourceKey: 'carbon', amount: 200 },
       { resourceKey: 'titanium', amount: 180 },
@@ -109,6 +116,10 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 360,
     crew: 15,
+    requirements: {
+      research: { weapons: 5, armor: 5, ion_propulsion: 4 },
+      buildings: { shipyard: 7 },
+    },
     costs: [
       { resourceKey: 'carbon', amount: 450 },
       { resourceKey: 'titanium', amount: 400 },
@@ -129,6 +140,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 600,
     crew: 12,
+    requirements: { research: { weapons: 4, armor: 5 }, buildings: { shipyard: 7 } },
     costs: [
       { resourceKey: 'carbon', amount: 800 },
       { resourceKey: 'titanium', amount: 900 },
@@ -149,6 +161,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 400,
     crew: 20,
+    requirements: { research: { armor: 6, shields: 4 }, buildings: { shipyard: 8 } },
     costs: [
       { resourceKey: 'carbon', amount: 500 },
       { resourceKey: 'titanium', amount: 500 },
@@ -169,6 +182,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 1200,
     crew: 60,
+    requirements: { research: { weapons: 8, armor: 8, shields: 5 }, buildings: { shipyard: 10 } },
     costs: [
       { resourceKey: 'carbon', amount: 900 },
       { resourceKey: 'titanium', amount: 950 },
@@ -190,6 +204,10 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 0,
     buildTime: 2400,
     crew: 120,
+    requirements: {
+      research: { weapons: 10, armor: 10, shields: 8, fabrication_lines: 6 },
+      buildings: { shipyard: 12 },
+    },
     costs: [
       { resourceKey: 'carbon', amount: 1500 },
       { resourceKey: 'titanium', amount: 1500 },
@@ -212,6 +230,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 600,
     buildTime: 60,
     crew: 2,
+    requirements: {},
     costs: [
       { resourceKey: 'carbon', amount: 80 },
       { resourceKey: 'titanium', amount: 60 },
@@ -231,6 +250,10 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 1600,
     buildTime: 360,
     crew: 6,
+    requirements: {
+      research: { extraction_algorithms: 4, cargo_compression: 3 },
+      buildings: { shipyard: 5 },
+    },
     costs: [
       { resourceKey: 'carbon', amount: 250 },
       { resourceKey: 'titanium', amount: 240 },
@@ -252,6 +275,7 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 250,
     buildTime: 60,
     crew: 2,
+    requirements: { research: { cargo_compression: 2 }, buildings: { shipyard: 2 } },
     costs: [
       { resourceKey: 'carbon', amount: 150 },
       { resourceKey: 'titanium', amount: 150 },
@@ -271,6 +295,10 @@ export const spacecrafts: SpacecraftSeedDefinition[] = [
     miningRate: 1000,
     buildTime: 480,
     crew: 8,
+    requirements: {
+      research: { cargo_compression: 6, extraction_algorithms: 4 },
+      buildings: { shipyard: 6 },
+    },
     costs: [
       { resourceKey: 'carbon', amount: 300 },
       { resourceKey: 'titanium', amount: 350 },

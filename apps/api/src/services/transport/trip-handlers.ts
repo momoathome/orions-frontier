@@ -16,20 +16,22 @@ import {
 } from '../../repositories/spacecraft-trips.js';
 import { releaseSpacecraftClamped } from '../../repositories/station-spacecrafts.js';
 import { findStation } from '../../repositories/stations.js';
-import { claimMiningCargo } from '../mining/index.js';
+import { assignIdleMiners, claimMiningCargo, largestResource } from '../mining/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
 import { creditStationResources } from '../station/index.js';
 import {
-  applyVectorNavigation,
+  applyTravelSpeed,
   effectiveCargoCapacity,
   effectiveMiningRate,
+  getStationResearchModifiers,
 } from '../research/index.js';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
 import {
   completionEventId,
   discardedResources,
   type MiningDeliveryCompletedEvent,
+  type PlaytestCompletionEvent,
 } from '../../lib/completion-events.js';
 
 // Trip Handlers
@@ -42,6 +44,12 @@ import {
 //   handleMiningReturnArrival  purpose='mining_return' toType='station'
 
 type Trip = TripRow;
+
+// Deep Core Drilling delivers more than the asteroid loses.
+const withYield = (manifest: Record<string, number>, factor: number) =>
+  Object.fromEntries(
+    Object.entries(manifest).map(([key, amount]) => [key, Math.floor(amount * factor)])
+  );
 // Each arriving miner claims one load and creates its timed mining return trip.
 export async function handleMineArrival(
   tx: Tx,
@@ -61,12 +69,13 @@ export async function handleMineArrival(
   const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
   const unclaimedRecall = Math.max(0, assignment.recallRequestedAmount - homebound);
   const activeGroupSize = Math.max(0, groupSize - unclaimedRecall);
+  const modifiers = await getStationResearchModifiers(tx, assignment.stationId);
   const effectiveCargo = await effectiveCargoCapacity(tx, assignment.stationId, spacecraft.cargo);
   const cargoCapacity = Math.floor(activeGroupSize * effectiveCargo);
   const claim =
     activeGroupSize === 0
       ? { claimedAmount: 0, cargoManifest: {} }
-      : await claimMiningCargo(tx, trip.toId, cargoCapacity);
+      : await claimMiningCargo(tx, trip.toId, cargoCapacity, modifiers.visibleResources);
   const effectiveRate = await effectiveMiningRate(tx, assignment.stationId, spacecraft.miningRate);
   const miningHours =
     claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (activeGroupSize * effectiveRate);
@@ -76,12 +85,7 @@ export async function handleMineArrival(
     { x: assignment.stationX, y: assignment.stationY }
   );
   const baseArrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
-  const arrivesAt = await applyVectorNavigation(
-    tx,
-    assignment.stationId,
-    baseArrivesAt,
-    departedAt
-  );
+  const arrivesAt = await applyTravelSpeed(tx, assignment.stationId, baseArrivesAt, departedAt);
 
   await insertTrip(tx, {
     id: context.nextId('trip'),
@@ -99,7 +103,7 @@ export async function handleMineArrival(
     departedAt,
     arrivesAt,
     purpose: 'mining_return',
-    cargoManifest: claim.claimedAmount > 0 ? claim.cargoManifest : null,
+    cargoManifest: claim.claimedAmount > 0 ? withYield(claim.cargoManifest, modifiers.yield) : null,
     // Mining starts on arrival; the map orbits the asteroid from this moment.
     createdAt: trip.arrivesAt,
   });
@@ -113,8 +117,9 @@ export async function handleMiningReturnArrival(
   tx: Tx,
   trip: Trip,
   context: GameExecutionContext
-): Promise<MiningDeliveryCompletedEvent | null> {
+): Promise<PlaytestCompletionEvent[]> {
   let delivery: MiningDeliveryCompletedEvent | null = null;
+  const events: PlaytestCompletionEvent[] = [];
   if (trip.cargoManifest) {
     const requested = { ...trip.cargoManifest };
     const credited = await creditStationResources(tx, trip.toId, requested);
@@ -135,10 +140,11 @@ export async function handleMiningReturnArrival(
         targetVisibilityVerified: true,
         asteroidExhausted: false,
       };
+      events.push(delivery);
     }
   }
 
-  if (!trip.assignmentId) return delivery;
+  if (!trip.assignmentId) return events;
 
   // Serialize returns for one asteroid (trip.fromId). Without this lock, two miners
   // could both observe the other assignment and leave an exhausted asteroid behind.
@@ -146,11 +152,14 @@ export async function handleMiningReturnArrival(
 
   const assignment = await findAssignmentRouteForUpdate(tx, trip.assignmentId);
 
-  if (!assignment) return delivery;
+  if (!assignment) return events;
   if (delivery) delivery.asteroidId = assignment.asteroidId;
   const spacecraft = requireSpacecraft(assignment.spacecraftKey);
 
-  const exhausted = (await sumAsteroidRemainingAmount(tx, assignment.asteroidId)) <= 0;
+  // Miners only see researched veins; the asteroid itself lasts until every vein is empty.
+  const { visibleResources } = await getStationResearchModifiers(tx, assignment.stationId);
+  const exhausted =
+    (await sumAsteroidRemainingAmount(tx, assignment.asteroidId, visibleResources)) <= 0;
 
   // Recalls stop the arriving miners; an exhausted asteroid stops all of them.
   const recalledAmount = Math.min(assignment.recallRequestedAmount, trip.groupSize);
@@ -175,12 +184,28 @@ export async function handleMiningReturnArrival(
 
   if (exhausted) {
     if (delivery) delivery.asteroidExhausted = true;
-    if (!(await hasAsteroidAssignments(tx, assignment.asteroidId))) {
+    if (
+      (await sumAsteroidRemainingAmount(tx, assignment.asteroidId)) <= 0 &&
+      !(await hasAsteroidAssignments(tx, assignment.asteroidId))
+    ) {
       await deleteAsteroid(tx, assignment.asteroidId);
     }
+    // Recalled miners stay home; the rest may move on to the next asteroid.
+    const rerouted = await assignIdleMiners(
+      tx,
+      {
+        stationId: assignment.stationId,
+        spacecraftKey: assignment.spacecraftKey,
+        amount: trip.groupSize - recalledAmount,
+        resourceKey: largestResource(trip.cargoManifest ?? {}),
+        departedAt: trip.arrivesAt,
+      },
+      context
+    );
+    if (rerouted) events.push(rerouted);
   }
 
-  if (continuingAmount <= 0) return delivery;
+  if (continuingAmount <= 0) return events;
 
   const departedAt = trip.arrivesAt;
   const distance = calcDistance(
@@ -188,12 +213,7 @@ export async function handleMiningReturnArrival(
     { x: assignment.asteroidX, y: assignment.asteroidY }
   );
   const baseArrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
-  const arrivesAt = await applyVectorNavigation(
-    tx,
-    assignment.stationId,
-    baseArrivesAt,
-    departedAt
-  );
+  const arrivesAt = await applyTravelSpeed(tx, assignment.stationId, baseArrivesAt, departedAt);
   await insertTrip(tx, {
     id: context.nextId('trip'),
     stationSpacecraftId: trip.stationSpacecraftId,
@@ -215,5 +235,5 @@ export async function handleMiningReturnArrival(
 
   await updateAsteroidAssignment(tx, assignment.id, { status: 'traveling_to_asteroid' });
 
-  return delivery;
+  return events;
 }

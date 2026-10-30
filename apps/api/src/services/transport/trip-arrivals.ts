@@ -39,8 +39,7 @@ export async function settleTripArrivalDetailed(
     if (trip.purpose === 'mine' && trip.toType === 'asteroid') {
       await handleMineArrival(tx, trip, context);
     } else if (trip.purpose === 'mining_return' && trip.toType === 'station') {
-      const delivery = await handleMiningReturnArrival(tx, trip, context);
-      if (delivery) events = [delivery];
+      events = await handleMiningReturnArrival(tx, trip, context);
     } else if (trip.purpose === 'combat' || trip.purpose === 'combat_return') {
       events = await handleCombatTripArrival(tx, trip, context);
     } else if (trip.purpose === 'salvage' || trip.purpose === 'salvage_return') {

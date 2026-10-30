@@ -10,6 +10,7 @@ import {
   defenseUpgradeKeys,
   entriesOf,
   isOneOf,
+  resourceKeys,
   type LogbookEntry,
   type LogbookEntryType,
   type ResourceMap,
@@ -73,9 +74,19 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
       const name = getSpacecraft(event.spacecraftKey)?.name ?? event.spacecraftKey;
       return [entry(event, event.type, `${event.amount}× ${name} built`)];
     }
+    case 'miners_assigned': {
+      const name = getSpacecraft(event.spacecraftKey)?.name ?? event.spacecraftKey;
+      const resource = isOneOf(resourceKeys, event.resourceKey)
+        ? resources[event.resourceKey].name
+        : event.resourceKey;
+      const verb = event.rerouted ? 'rerouted' : 'sent';
+      return [
+        entry(event, event.type, `${event.amount}× ${name} ${verb} to a ${resource} asteroid`),
+      ];
+    }
     case 'research_completed': {
       const name = getResearchDefinition(event.technologyKey)?.name ?? event.technologyKey;
-      return [entry(event, event.type, `Research completed: ${name}`)];
+      return [entry(event, event.type, `Research completed: ${name} ${event.newLevel}`)];
     }
     case 'world_mission_completed': {
       const mission = event.missionType === 'expedition' ? 'Expedition' : 'Colony ship';

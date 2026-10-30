@@ -296,6 +296,10 @@ import {
 } from '../../src/services/bot/goals/economy.js';
 import { stepEstablishColony } from '../../src/services/bot/goals/expansion.js';
 import {
+  generateBuildStrikeForceCandidate,
+  stepBuildStrikeForce,
+} from '../../src/services/bot/goals/military.js';
+import {
   generateResearchCandidates,
   stepResearchTechnology,
 } from '../../src/services/bot/goals/research.js';
@@ -333,7 +337,7 @@ const baseStation = (overrides: Partial<StationSnapshot> = {}): StationSnapshot 
   defense: [],
   fleets: [],
   builds: [],
-  research: [],
+  research: {},
   miningAssignments: [],
   trips: [],
   missions: [],
@@ -363,6 +367,7 @@ const baseState = (
   visibleDebris: [],
   combatReports: [],
   conflictDiagnostics: { protectedOwnerIds: [] },
+  research: { levels: station.research, active: [], slots: 1 },
   ...overrides,
 });
 
@@ -393,34 +398,6 @@ test('station stabilization uses real assignments and storage headroom', async (
 test('capacity goals exist only for a demonstrated local bottleneck', () => {
   const ordinary = baseStation();
   assert.equal(generateIncreaseCapacityCandidate(baseState(ordinary), ordinary), null);
-
-  const labBlocked = baseStation({
-    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 0 }],
-    research: [
-      {
-        technologyKey: 'automated_shipyard',
-        status: 'completed',
-        completesAt: new Date(0),
-      },
-    ],
-  });
-  assert.equal(
-    generateIncreaseCapacityCandidate(
-      baseState(labBlocked, {
-        visibleAsteroids: [
-          {
-            id: 'asteroid-1',
-            x: 100,
-            y: 0,
-            remainingByResource: { carbon: 1_000, kyber_crystal: 1_000 },
-            remainingAmount: 2_000,
-          },
-        ],
-      }),
-      labBlocked
-    )?.targetRef,
-    'station:station-1:laboratory'
-  );
 });
 
 test('storage pressure keeps warehouse expansion urgent at higher levels', () => {
@@ -553,6 +530,7 @@ test('income expansion prepares enough hangar crew for a Titan', async () => {
       { spacecraftKey: 'mole', amount: 3, lockedAmount: 3 },
       { spacecraftKey: 'merlin', amount: 14, lockedAmount: 0 },
     ],
+    research: { extraction_algorithms: 4, cargo_compression: 3 },
   });
   const result = await stepIncreaseIncome(baseState(station), station, 'warlord');
 
@@ -568,6 +546,7 @@ test('saving goals send an idle miner toward their missing resource', async () =
       building.buildingKey === 'shipyard' ? { ...building, level: 5 } : building
     ),
     fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 2 }],
+    research: { extraction_algorithms: 4, cargo_compression: 3 },
     miningAssignments: [
       {
         id: 'assignment-1',
@@ -735,7 +714,7 @@ test('research does not claim to save when the station has no income', async () 
   const result = await stepResearchTechnology(
     baseState(station),
     station,
-    'tech:station-1:extraction_algorithms',
+    'tech:station-1:extraction_algorithms:1',
     'technocrat'
   );
   assert.equal(result.type, 'blocked');
@@ -744,13 +723,7 @@ test('research does not claim to save when the station has no income', async () 
 test('research candidates require a reachable resource and laboratory path', () => {
   const noIncome = baseStation({
     resources: { carbon: 1, titanium: 1, hydrogenium: 1 },
-    research: [
-      {
-        technologyKey: 'extraction_algorithms',
-        status: 'completed',
-        completesAt: new Date(0),
-      },
-    ],
+    research: { extraction_algorithms: 1 },
   });
   assert.deepEqual(generateResearchCandidates(baseState(noIncome), noIncome), []);
 
@@ -777,7 +750,7 @@ test('research candidates require a reachable resource and laboratory path', () 
             remainingByResource: {
               carbon: 1_000,
               titanium: 1_000,
-              kyber_crystal: 1_000,
+              hydrogenium: 1_000,
             },
             remainingAmount: 3_000,
           },
@@ -830,77 +803,52 @@ test('urgent miner maintenance acts on an unstable colony first', async () => {
   assert.equal(result.intent.spacecraftKey, 'titan');
 });
 
-test('research with active miners gives extraction_algorithms a high score', () => {
-  const station = baseStation({
-    fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 1 }],
-    miningAssignments: [
-      {
-        id: 'assignment-1',
-        asteroidId: 'asteroid-1',
-        spacecraftKey: 'mole',
-        assignedAmount: 1,
-        status: 'traveling_to_asteroid',
-      },
-    ],
-  });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
-  assert.ok(extraction, 'extraction_algorithms should be a candidate');
-  assert.ok(
-    extraction.baseNeed > 30,
-    'extraction_algorithms should have high baseNeed with active miners'
+const shipyardAt = (level: number, laboratory = 1) =>
+  baseStation().buildings.map((building) =>
+    building.buildingKey === 'shipyard'
+      ? { ...building, level }
+      : building.buildingKey === 'laboratory'
+        ? { ...building, level: laboratory }
+        : building
   );
-});
 
-test('research with many ships gives modular_cargo_frames a high score', () => {
+test('a warlord without Weapons researches Weapons before it builds Merlins', async () => {
   const station = baseStation({
-    fleets: [
-      { spacecraftKey: 'mole', amount: 5, lockedAmount: 0 },
-      { spacecraftKey: 'collector', amount: 2, lockedAmount: 0 },
-    ],
+    buildings: shipyardAt(2),
+    resources: { carbon: 1_000, titanium: 1_000, hydrogenium: 1_000 },
   });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const cargo = candidates.find((c) => c.targetRef.includes('modular_cargo_frames'));
-  assert.ok(cargo, 'modular_cargo_frames should be a candidate');
-  assert.ok(
-    cargo.baseNeed > 30,
-    'modular_cargo_frames should have high baseNeed with many cargo ships'
+  const state = baseState(station);
+  assert.equal(generateBuildStrikeForceCandidate(state, station), null);
+  const strike = await stepBuildStrikeForce(state, station, `station:${station.id}`, 'warlord');
+  assert.equal(strike.type === 'blocked' && strike.detail, 'research_locked');
+  const [best] = generateResearchCandidates(state, station, 'warlord').sort(
+    (a, b) => b.baseNeed - a.baseNeed
   );
+  assert.equal(best?.targetRef, 'tech:station-1:weapons:1');
 });
 
-test('research with active trips gives vector_navigation a high score', () => {
+test('a needed research behind the laboratory cap upgrades the laboratory first', async () => {
   const station = baseStation({
-    trips: [
-      {
-        id: 'trip-1',
-        purpose: 'mine',
-        status: 'traveling',
-        arrivesAt: new Date(),
-        toId: 'asteroid-1',
-      },
-      {
-        id: 'trip-2',
-        purpose: 'salvage',
-        status: 'traveling',
-        arrivesAt: new Date(),
-        toId: 'debris-1',
-      },
-    ],
+    buildings: shipyardAt(5, 3),
+    resources: { carbon: 5_000, titanium: 5_000, hydrogenium: 5_000, kyber_crystal: 500 },
+    fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 0 }],
+    research: { extraction_algorithms: 3, cargo_compression: 3 },
   });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const vector = candidates.find((c) => c.targetRef.includes('vector_navigation'));
-  assert.ok(vector, 'vector_navigation should be a candidate');
-  assert.ok(vector.baseNeed > 30, 'vector_navigation should have high baseNeed with active trips');
-});
+  const state = baseState(station);
+  const titanStep = await stepIncreaseIncome(state, station, 'industrialist');
+  assert.equal(titanStep.type, 'blocked');
 
-test('research with fighters gives combat_analytics a non-zero score', () => {
-  const station = baseStation({
-    fleets: [{ spacecraftKey: 'javelin', amount: 2, lockedAmount: 0 }],
+  const extraction = generateResearchCandidates(state, station).find((candidate) =>
+    candidate.targetRef.endsWith(':extraction_algorithms:4')
+  );
+  assert.ok(extraction, 'the Titan unlock should stay a candidate despite the lab cap');
+  const step = await stepResearchTechnology(state, station, extraction.targetRef, 'technocrat');
+  assert.equal(step.type, 'success');
+  assert.deepEqual(step.intent, {
+    type: 'upgrade_building',
+    stationId: 'station-1',
+    buildingKey: 'laboratory',
   });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const combat = candidates.find((c) => c.targetRef.includes('combat_analytics'));
-  assert.ok(combat, 'combat_analytics should be a candidate');
-  assert.ok(combat.baseNeed > 10, 'combat_analytics should have non-zero baseNeed with fighters');
 });
 
 test('raid sends the smallest sufficient fighter group with every docked bomber', async () => {
@@ -1058,30 +1006,12 @@ test('collector construction requires one-trip salvage payback', async () => {
   assert.equal(result.intent.spacecraftKey, 'collector');
 });
 
-test('research with upgrades in progress gives station_grid_optimization a boost', () => {
-  const station = baseStation({
-    buildings: [
-      { buildingKey: 'shipyard', level: 1, upgradeEndsAt: new Date(Date.now() + 3600000) },
-      { buildingKey: 'warehouse', level: 1, upgradeEndsAt: null },
-      { buildingKey: 'hangar', level: 1, upgradeEndsAt: null },
-      { buildingKey: 'laboratory', level: 1, upgradeEndsAt: null },
-      { buildingKey: 'scanner', level: 1, upgradeEndsAt: null },
-      { buildingKey: 'core', level: 1, upgradeEndsAt: null },
-    ],
-  });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const grid = candidates.find((c) => c.targetRef.includes('station_grid_optimization'));
-  assert.ok(grid, 'station_grid_optimization should be a candidate');
-  assert.ok(grid.baseNeed > 15, 'station_grid_optimization should benefit from active upgrades');
-});
-
 test('started research is excluded from candidates', () => {
-  const station = baseStation({
-    research: [
-      { technologyKey: 'extraction_algorithms', status: 'researching', completesAt: new Date() },
-    ],
-  });
-  const candidates = generateResearchCandidates(baseState(station), station);
+  const station = baseStation();
+  const candidates = generateResearchCandidates(
+    baseState(station, { research: { levels: {}, active: ['extraction_algorithms'], slots: 2 } }),
+    station
+  );
   const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
   assert.equal(extraction, undefined, 'started research should be excluded');
 });

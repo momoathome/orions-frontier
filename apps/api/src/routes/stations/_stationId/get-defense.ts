@@ -10,7 +10,7 @@ export default defineRoute(async (app) => {
       const { stationId } = request.params;
       const ownedStationId = await ownStation(request.user.userId, stationId);
 
-      const upgrades = await getStationDefenseUpgrades(ownedStationId);
+      const upgrades = await getStationDefenseUpgrades(ownedStationId, request.user.userId);
       return { stationId: ownedStationId, upgrades };
     }
   );

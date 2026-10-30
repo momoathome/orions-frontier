@@ -6,8 +6,12 @@ import {
   listAsteroidVeins,
 } from '../../repositories/asteroids.js';
 import { listTravelingTripsByAsteroid } from '../../repositories/spacecraft-trips.js';
-import { listCompletedResearchByStations } from '../../repositories/station-research.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
+import {
+  isOneOf,
+  resourceKeys as allResourceKeys,
+  type ResourceKey,
+} from '@orions-frontier/shared';
 import type {
   AsteroidDetail,
   AsteroidDetailAssignment,
@@ -15,6 +19,7 @@ import type {
   VisibleAsteroid,
 } from '@orions-frontier/shared';
 import {
+  getUserResearchModifiers,
   getUserRevealedAsteroidIds,
   getUserScannerCoverages,
   isPointVisible,
@@ -29,16 +34,24 @@ export interface ChunkQueryParams {
   maxChunkY: number;
 }
 
-/** Every asteroid in the view is listed; size, resource and reserve only inside scanner coverage. */
+/**
+ * Every asteroid with a vein the viewer's research reveals is listed; size, resource and reserve
+ * only inside scanner coverage.
+ */
 export const getVisibleChunkAsteroids = async (
   params: ChunkQueryParams,
   coverages: readonly ScannerCoverage[],
+  visibleResources: readonly ResourceKey[],
   stats?: VisibilityProjectionStats,
   scannerBypass = false,
   revealedIds: ReadonlySet<string> = new Set()
 ): Promise<VisibleAsteroid[]> => {
   const db = getDb();
-  const rows = await listAsteroidSummariesInChunks(db, params);
+  const rows = await listAsteroidSummariesInChunks(
+    db,
+    params,
+    scannerBypass ? allResourceKeys : visibleResources
+  );
   if (stats) stats.asteroidCandidates = rows.length;
 
   return rows.map((row) =>
@@ -51,7 +64,7 @@ export const getVisibleChunkAsteroids = async (
           chunkY: row.chunkY,
           scanned: true,
           size: row.size,
-          primaryResourceKey: row.primaryResourceKey ?? 'carbon',
+          primaryResourceKey: row.primaryResourceKey,
           remainingFraction: row.remainingFraction,
         }
       : {
@@ -75,20 +88,26 @@ export const getAsteroidById = async (
 ): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
-  const [row, coverages, revealedIds] = await Promise.all([
+  const [row, coverages, revealedIds, modifiers] = await Promise.all([
     findAsteroid(db, id),
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
     scannerBypass ? Promise.resolve(new Set<string>()) : getUserRevealedAsteroidIds(userId),
+    getUserResearchModifiers(userId, db),
   ]);
 
   if (!row) return null;
   const scanned = scannerBypass || revealedIds.has(id) || isPointVisible(coverages, row);
+  const visibleResources: readonly ResourceKey[] = scannerBypass
+    ? allResourceKeys
+    : modifiers.visibleResources;
 
   const [veins, assignmentRows, travelingTrips] = await Promise.all([
-    listAsteroidVeins(db, id),
+    listAsteroidVeins(db, id, visibleResources),
     listAsteroidAssignmentsWithOwner(db, id),
     listTravelingTripsByAsteroid(db, id),
   ]);
+  // An asteroid of only unresearched resources does not exist for this viewer.
+  if (veins.length === 0) return null;
 
   // Miners fly individually; each assignment shows its next arrival.
   const activeTrips = new Map(
@@ -106,6 +125,7 @@ export const getAsteroidById = async (
   for (const trip of travelingTrips) {
     if (!trip.cargoManifest) continue;
     for (const [key, amount] of Object.entries(trip.cargoManifest)) {
+      if (!isOneOf(visibleResources, key)) continue;
       inTransit[key] = (inTransit[key] ?? 0) + amount;
     }
   }
@@ -113,33 +133,12 @@ export const getAsteroidById = async (
   const mayObserveOperations =
     scannerBypass || assignmentRows.some((assignment) => assignment.ownerUserId === userId);
   const visibleAssignments = mayObserveOperations ? assignmentRows : [];
-  const ownStationIds = [
-    ...new Set(
-      visibleAssignments
-        .filter((assignment) => assignment.ownerUserId === userId)
-        .map((assignment) => assignment.stationId)
-    ),
-  ];
-  const completedResearch =
-    ownStationIds.length > 0 ? await listCompletedResearchByStations(getDb(), ownStationIds) : [];
-  const completedByStation = new Map<string, Set<string>>();
-  for (const research of completedResearch) {
-    const technologies = completedByStation.get(research.stationId) ?? new Set<string>();
-    technologies.add(research.technologyKey);
-    completedByStation.set(research.stationId, technologies);
-  }
+  // Research is account-wide; only the viewer's own assignments show it.
   const assignmentViews = visibleAssignments.map((assignment): AsteroidDetailAssignment => {
     const spacecraft = requireSpacecraft(assignment.spacecraftKey);
     const isOwnAssignment = assignment.ownerUserId === userId;
-    const technologies = completedByStation.get(assignment.stationId);
-    const miningRate =
-      isOwnAssignment && technologies?.has('extraction_algorithms')
-        ? spacecraft.miningRate * 1.1
-        : spacecraft.miningRate;
-    const cargo =
-      isOwnAssignment && technologies?.has('modular_cargo_frames')
-        ? spacecraft.cargo * 1.1
-        : spacecraft.cargo;
+    const miningRate = spacecraft.miningRate * (isOwnAssignment ? modifiers.miningRate : 1);
+    const cargo = spacecraft.cargo * (isOwnAssignment ? modifiers.cargo : 1);
     const activeTrip = activeTrips.get(assignment.id);
     return {
       id: assignment.id,

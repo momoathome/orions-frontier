@@ -2,11 +2,13 @@ import {
   buildingKeys,
   defenseUpgradeKeys,
   isOneOf,
+  researchKeys,
   type InfluenceBreakdown,
+  type ResearchLevels,
 } from '@orions-frontier/shared';
 import { calculateBuildingUpgradeCost } from './buildings.js';
 import { calculateDefenseUpgradeCost, getDefenseUpgrade } from './defense.js';
-import { getResearchDefinition } from './research.js';
+import { calculateResearchCost } from './research.js';
 import { getSpacecraft } from './spacecrafts.js';
 
 /** Resource units per Influence point. */
@@ -19,7 +21,7 @@ const BUILDING_STARTING_LEVEL = 1;
 export interface InfluenceInput {
   /** Building and defense levels keyed by `station_buildings.building_key`. */
   levels: { key: string; level: number }[];
-  completedResearch: string[];
+  research: ResearchLevels;
   spacecrafts: { key: string; amount: number }[];
 }
 
@@ -41,10 +43,12 @@ export function calculateInfluence(input: InfluenceInput): InfluenceBreakdown {
       }
     }
   }
-  const research = input.completedResearch.reduce(
-    (sum, key) => sum + sumAmounts(getResearchDefinition(key)?.costs ?? []),
-    0
-  );
+  let research = 0;
+  for (const key of researchKeys) {
+    for (let level = 1; level <= (input.research[key] ?? 0); level++) {
+      research += sumAmounts(calculateResearchCost(key, level));
+    }
+  }
   const fleet = input.spacecrafts.reduce(
     (sum, { key, amount }) =>
       sum + sumAmounts(getSpacecraft(key)?.costs ?? []) * amount * INFLUENCE_FLEET_SHARE,

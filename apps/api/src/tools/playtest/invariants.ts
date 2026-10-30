@@ -99,7 +99,7 @@ export class PlaytestInvariantAuditor {
             virtualTime: tick.now.toISOString(),
             affectedAliases: [
               this.aliases.user(event.userId),
-              this.aliases.station(event.stationId),
+              ...(event.stationId ? [this.aliases.station(event.stationId)] : []),
             ],
             values: { eventType: event.type },
           })

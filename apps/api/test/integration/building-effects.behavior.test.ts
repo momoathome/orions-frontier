@@ -23,6 +23,7 @@ import {
   createTestSector,
   createTestStation,
   createTestUser,
+  grantResearch,
   setTestResources,
 } from '../helpers/fixtures.js';
 
@@ -95,7 +96,15 @@ test('defense upgrades are managed outside station buildings', async () => {
     false
   );
 
-  const before = (await getStationDefenseUpgrades(stationId)).find(
+  // Guardian Cannon unlocks with Weapons 4, Shields 2 and Core 5.
+  await grantResearch(userId, { weapons: 4, shields: 2 });
+  await getDb()
+    .update(stationBuildings)
+    .set({ level: 5 })
+    .where(
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'core'))
+    );
+  const before = (await getStationDefenseUpgrades(stationId, userId)).find(
     (upgrade) => upgrade.definition.key === 'guardian_cannon'
   );
   assert.equal(before?.level, 0);
@@ -104,7 +113,7 @@ test('defense upgrades are managed outside station buildings', async () => {
 
   await completeDefenseUpgrade('guardian_cannon');
 
-  const after = (await getStationDefenseUpgrades(stationId)).find(
+  const after = (await getStationDefenseUpgrades(stationId, userId)).find(
     (upgrade) => upgrade.definition.key === 'guardian_cannon'
   );
   assert.equal(after?.level, 1);

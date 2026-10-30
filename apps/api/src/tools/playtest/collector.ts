@@ -28,7 +28,8 @@ export interface NormalizedCompletionEvent {
   eventAlias: string;
   occurredAt: string;
   userAlias: string;
-  stationAlias: string;
+  /** Null for account-wide events such as research. */
+  stationAlias: string | null;
   details: Record<string, PlaytestDetailValue>;
 }
 
@@ -136,6 +137,16 @@ function normalizeCompletion(
       Object.assign(details, {
         researchAlias: aliases.entity('research', event.researchId),
         technologyKey: event.technologyKey,
+        newLevel: event.newLevel,
+      });
+      break;
+    case 'miners_assigned':
+      Object.assign(details, {
+        asteroidAlias: aliases.entity('asteroid', event.asteroidId),
+        spacecraftKey: event.spacecraftKey,
+        amount: event.amount,
+        resourceKey: event.resourceKey,
+        rerouted: event.rerouted,
       });
       break;
     case 'world_mission_completed':
@@ -202,7 +213,7 @@ function normalizeCompletion(
     eventAlias: aliases.entity('completion', event.eventId),
     occurredAt: event.occurredAt.toISOString(),
     userAlias: aliases.user(event.userId),
-    stationAlias: aliases.station(event.stationId),
+    stationAlias: event.stationId ? aliases.station(event.stationId) : null,
     details,
   };
 }

@@ -22,10 +22,11 @@ import { publishUserEvent } from '../../lib/realtime.js';
 import { completionEventId, type PlaytestCompletionEvent } from '../../lib/completion-events.js';
 import { type BotDecisionOutcome, runBotDecisionTick } from '../bot/index.js';
 import { defenseUpgradeMaxLevel } from '../station/index.js';
-import { completeDueResearchDetailed } from '../research/index.js';
+import { completeDueResearch } from '../research/index.js';
 import { settleTripArrivalDetailed } from '../transport/index.js';
 import { completeDueWorldMissionsDetailed } from '../missions/index.js';
 import { recordLogbookEvents } from '../logbook/index.js';
+import { assignIdleMiners } from '../mining/index.js';
 
 const logger = rootLogger.child({ name: 'simulation' });
 const MAX_DRAIN_PASSES = 10_000;
@@ -173,7 +174,19 @@ async function completeDueSpacecraft(
           order.amount,
           order.endsAt
         );
-        return true;
+        // The Autonomous Mining Fleet sends new miners out right away.
+        const assigned = await assignIdleMiners(
+          tx,
+          {
+            stationId: order.stationId,
+            spacecraftKey: order.spacecraftKey,
+            amount: order.amount,
+            resourceKey: null,
+            departedAt: order.endsAt,
+          },
+          context
+        );
+        return { assigned };
       });
 
       if (completed) {
@@ -188,6 +201,7 @@ async function completeDueSpacecraft(
           spacecraftKey: order.spacecraftKey,
           amount: order.amount,
         });
+        if (completed.assigned) events.push(completed.assigned);
         publishUserEvent(order.userId, 'spacecraft_build_completed', {
           stationId: order.stationId,
           spacecraftKey: order.spacecraftKey,
@@ -212,13 +226,7 @@ async function runCompletionPass(
     await completeDueBuildings(context),
     await completeDueSpacecraft(context),
   ];
-  const researchEvents = await completeDueResearchDetailed(context.now);
-  results.push({
-    phase: 'research',
-    completed: researchEvents.length,
-    failed: 0,
-    events: researchEvents,
-  });
+  results.push({ phase: 'research', ...(await completeDueResearch(context.now)) });
   if (includeWorldMissions) {
     const worldMissions = await completeDueWorldMissionsDetailed(context);
     results.push({

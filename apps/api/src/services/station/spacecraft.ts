@@ -17,35 +17,49 @@ import {
   deductStationResource,
   listStationResources,
 } from '../../repositories/station-resources.js';
-import { findBuildingLevel } from '../../repositories/station-buildings.js';
+import { findBuildingLevel, listBuildingLevels } from '../../repositories/station-buildings.js';
 import { findOwnedStationForUpdate } from '../../repositories/stations.js';
+import { listStationOwnerResearch } from '../../repositories/user-research.js';
 import {
   calculateBuildingEffect,
   calculateHangarCapacity,
+  calculateProductionSlots,
   getSpacecraft,
-  SHIPYARD_UNLOCKS,
+  requirementBlockers,
+  researchModifiers,
   spacecrafts,
 } from '@orions-frontier/game-config';
 import type { ResourceKey, StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { required, AppError, ErrorCode } from '@orions-frontier/shared';
-import { hasCompletedResearch } from '../research/index.js';
+import type { QueryDb } from '../../lib/db/index.js';
+import { describeBlockers, toResearchLevels } from '../research/index.js';
+import { toBuildingLevels } from './construction.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
+
+/** Owner research and this station's building levels: what decides which ships it can build. */
+async function loadUnlockState(db: QueryDb, stationId: string) {
+  const [research, buildings] = await Promise.all([
+    listStationOwnerResearch(db, stationId),
+    listBuildingLevels(db, stationId),
+  ]);
+  const levels = toResearchLevels(research);
+  return {
+    research: levels,
+    buildings: toBuildingLevels(buildings),
+    modifiers: researchModifiers(levels),
+  };
+}
 
 export const getStationSpacecrafts = async (
   stationId: string
 ): Promise<StationSpacecraftWithDefinition[]> => {
   const db = getDb();
 
-  const shipyardLevel = await findBuildingLevel(db, stationId, 'shipyard');
-  const unlockedKeys = Object.entries(SHIPYARD_UNLOCKS)
-    .filter(([level]) => (shipyardLevel ?? 0) >= Number(level))
-    .flatMap(([, keys]) => keys);
-  if (unlockedKeys.length === 0) return [];
-
-  const definitions = spacecrafts.filter((definition) => unlockedKeys.includes(definition.key));
+  const unlocks = await loadUnlockState(db, stationId);
+  const definitions = [...spacecrafts];
   const stationRows = await listStationSpacecrafts(db, stationId);
   const stationRowByDefinition = new Map(stationRows.map((row) => [row.spacecraftKey, row]));
 
@@ -76,6 +90,7 @@ export const getStationSpacecrafts = async (
     const stationRow = stationRowByDefinition.get(def.key);
     return {
       definition: def,
+      blockers: requirementBlockers(def.requirements, unlocks.research, unlocks.buildings),
       amount: stationRow?.amount ?? 0,
       lockedAmount: stationRow?.lockedAmount ?? 0,
       buildOrders: (buildOrdersByKey[def.key] ?? []).map((o) => ({
@@ -129,18 +144,26 @@ const calculateCrewUsage = (
     return used + entry.amount * definition.crew;
   }, 0);
 
+/** Fleet Coordination raises the crew the hangar holds. */
+const hangarCapacity = (hangarLevel: number, crew: number) =>
+  Math.floor(calculateHangarCapacity(hangarLevel) * crew);
+
+export const getStationProductionSlots = async (stationId: string) =>
+  calculateProductionSlots((await findBuildingLevel(getDb(), stationId, 'shipyard')) ?? 0);
+
 export async function getStationHangar(stationId: string): Promise<{
   capacity: number;
   used: number;
 }> {
   const db = getDb();
-  const [hangarLevel, fleet, queued] = await Promise.all([
+  const [hangarLevel, fleet, queued, unlocks] = await Promise.all([
     findBuildingLevel(db, stationId, 'hangar'),
     listSpacecraftAmounts(db, stationId),
     listBuildOrderAmounts(db, stationId),
+    loadUnlockState(db, stationId),
   ]);
   return {
-    capacity: calculateHangarCapacity(hangarLevel ?? 0),
+    capacity: hangarCapacity(hangarLevel ?? 0, unlocks.modifiers.crew),
     used: calculateCrewUsage(fleet) + calculateCrewUsage(queued),
   };
 }
@@ -190,26 +213,23 @@ export const buildSpacecrafts = async (
     const station = await findOwnedStationForUpdate(tx, stationId, userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-    const shipyardLevel = (await findBuildingLevel(tx, stationId, 'shipyard')) ?? 0;
-    const unlockedKeys = new Set<string>();
-    for (const [level, keys] of Object.entries(SHIPYARD_UNLOCKS)) {
-      if (shipyardLevel >= Number(level)) keys.forEach((key) => unlockedKeys.add(key));
-    }
-    for (const order of orders) {
-      if (!unlockedKeys.has(order.spacecraftKey)) {
+    const unlocks = await loadUnlockState(tx, stationId);
+    const shipyardLevel = unlocks.buildings.shipyard ?? 0;
+    for (const def of defs) {
+      const blockers = requirementBlockers(def.requirements, unlocks.research, unlocks.buildings);
+      if (blockers.length > 0) {
         throw new AppError(
           ErrorCode.VALIDATION_ERROR,
-          `Spacecraft '${order.spacecraftKey}' is not unlocked at current shipyard level`
+          `${def.name}: ${describeBlockers(blockers)}`
         );
       }
     }
 
-    const [hangarLevel, fleet, queued] = await Promise.all([
-      findBuildingLevel(tx, stationId, 'hangar'),
+    const [fleet, queued] = await Promise.all([
       listSpacecraftAmounts(tx, stationId),
       listBuildOrderAmounts(tx, stationId),
     ]);
-    const hangarCapacity = calculateHangarCapacity(hangarLevel ?? 0);
+    const capacity = hangarCapacity(unlocks.buildings.hangar ?? 0, unlocks.modifiers.crew);
     const hangarUsed = calculateCrewUsage(fleet) + calculateCrewUsage(queued);
     const requestedCrew = orders.reduce(
       (sum, order) =>
@@ -218,10 +238,10 @@ export const buildSpacecrafts = async (
           required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)').crew,
       0
     );
-    if (hangarUsed + requestedCrew > hangarCapacity) {
+    if (hangarUsed + requestedCrew > capacity) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
-        `Hangar crew capacity exceeded: ${hangarUsed}/${hangarCapacity} occupied`
+        `Hangar crew capacity exceeded: ${hangarUsed}/${capacity} occupied`
       );
     }
 
@@ -237,28 +257,25 @@ export const buildSpacecrafts = async (
       }
     }
 
-    const researchBonus = (await hasCompletedResearch(tx, stationId, 'automated_shipyard'))
-      ? 10
-      : 0;
     const productionBonus =
       calculateBuildingEffect('shipyard', shipyardLevel).find(
         (effect) => effect.type === 'spacecraft_production_bonus'
       )?.value ?? 0;
-    const buildTimeMultiplier = Math.max(0.25, 1 - (productionBonus + researchBonus) / 100);
-    const endsAtByKey = new Map<string, Date>();
-    for (const def of defs) {
-      const maxEndsAt = await findLatestBuildOrderEnd(tx, stationId, def.key);
-      if (maxEndsAt) endsAtByKey.set(def.key, maxEndsAt);
-    }
-    const now = context.now.getTime();
+    const buildTimeMultiplier = Math.max(
+      0.25,
+      1 - (productionBonus + unlocks.modifiers.shipBuildBonus) / 100
+    );
+    const slots = calculateProductionSlots(shipyardLevel);
+    // One queue per station: each order starts when the previous one ends.
+    let queueEnd = Math.max(
+      (await findLatestBuildOrderEnd(tx, stationId))?.getTime() ?? 0,
+      context.now.getTime()
+    );
     const orderEndsAt = orders.map((order) => {
       const def = required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)');
-      const baseline = Math.max((endsAtByKey.get(def.key) ?? new Date(0)).getTime(), now);
-      const endsAt = new Date(
-        baseline + Math.ceil(order.amount * def.buildTime * buildTimeMultiplier) * 1000
-      );
-      endsAtByKey.set(def.key, endsAt);
-      return { order, def, endsAt };
+      queueEnd +=
+        Math.ceil(Math.ceil(order.amount / slots) * def.buildTime * buildTimeMultiplier) * 1000;
+      return { order, def, endsAt: new Date(queueEnd) };
     });
 
     for (const [resourceKey, amount] of totalCosts.entries()) {

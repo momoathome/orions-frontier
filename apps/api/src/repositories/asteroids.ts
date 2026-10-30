@@ -1,5 +1,5 @@
 import { and, between, eq, inArray, or, sql } from 'drizzle-orm';
-import { required } from '@orions-frontier/shared';
+import { required, type ResourceKey } from '@orions-frontier/shared';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { asteroidAssignments, asteroids, asteroidVeins } from '../lib/db/schema/asteroids.js';
 import { spacecraftTrips } from '../lib/db/schema/spacecraft-trips.js';
@@ -15,6 +15,27 @@ export interface ChunkBounds {
   minChunkY: number;
   maxChunkY: number;
 }
+
+/** Resources a viewer's research reveals; veins of other resources stay hidden. */
+type VisibleResources = readonly ResourceKey[];
+
+const visibleKeysSql = (resourceKeys: VisibleResources) =>
+  sql.join(
+    resourceKeys.map((key) => sql`${key}`),
+    sql`, `
+  );
+
+// Drizzle renders columns unqualified in single-table selects, so `id` would bind to `v.id`.
+const outerAsteroidId = sql.raw('"asteroids"."id"');
+
+/** First visible vein by rank: primary, then secondary, then trace. */
+const visiblePrimaryResourceSql = (resourceKeys: VisibleResources) =>
+  sql<ResourceKey>`(
+    SELECT v.resource_key FROM asteroid_veins v
+    WHERE v.asteroid_id = ${outerAsteroidId} AND v.resource_key IN (${visibleKeysSql(resourceKeys)})
+    ORDER BY CASE v.vein_type WHEN 'primary' THEN 0 WHEN 'secondary' THEN 1 ELSE 2 END, v.id
+    LIMIT 1
+  )`;
 
 export async function insertAsteroids(db: InsertDb, rows: (typeof asteroids.$inferInsert)[]) {
   await db.insert(asteroids).values(rows);
@@ -37,8 +58,15 @@ export async function findAsteroidForUpdate(tx: Tx, id: string) {
   return row;
 }
 
-/** Asteroids in the chunk range with their primary resource and remaining reserve fraction. */
-export function listAsteroidSummariesInChunks(db: QueryDb, bounds: ChunkBounds) {
+/**
+ * Asteroids in the chunk range with a visible vein, their first visible resource and the
+ * remaining fraction of their visible veins.
+ */
+export function listAsteroidSummariesInChunks(
+  db: QueryDb,
+  bounds: ChunkBounds,
+  resourceKeys: VisibleResources
+) {
   return db
     .select({
       id: asteroids.id,
@@ -47,31 +75,44 @@ export function listAsteroidSummariesInChunks(db: QueryDb, bounds: ChunkBounds) 
       chunkX: asteroids.chunkX,
       chunkY: asteroids.chunkY,
       size: asteroids.size,
-      primaryResourceKey: asteroidVeins.resourceKey,
+      primaryResourceKey: visiblePrimaryResourceSql(resourceKeys),
       remainingFraction: sql<number>`(
         SELECT LEAST(1, COALESCE(SUM(v.remaining_amount)::float / NULLIF(SUM(v.initial_amount), 0), 1))
-        FROM asteroid_veins v WHERE v.asteroid_id = ${asteroids.id}
+        FROM asteroid_veins v
+        WHERE v.asteroid_id = ${outerAsteroidId} AND v.resource_key IN (${visibleKeysSql(resourceKeys)})
       )`,
     })
     .from(asteroids)
-    .leftJoin(
-      asteroidVeins,
-      and(eq(asteroidVeins.asteroidId, asteroids.id), eq(asteroidVeins.veinType, 'primary'))
-    )
     .where(
       and(
         between(asteroids.chunkX, bounds.minChunkX, bounds.maxChunkX),
-        between(asteroids.chunkY, bounds.minChunkY, bounds.maxChunkY)
+        between(asteroids.chunkY, bounds.minChunkY, bounds.maxChunkY),
+        sql`EXISTS (
+          SELECT 1 FROM asteroid_veins v
+          WHERE v.asteroid_id = ${outerAsteroidId} AND v.resource_key IN (${visibleKeysSql(resourceKeys)})
+        )`
       )
     );
 }
 
-export function listAsteroidVeins(db: QueryDb, asteroidId: string) {
-  return db.select().from(asteroidVeins).where(eq(asteroidVeins.asteroidId, asteroidId));
+export function listAsteroidVeins(db: QueryDb, asteroidId: string, resourceKeys: VisibleResources) {
+  return db
+    .select()
+    .from(asteroidVeins)
+    .where(
+      and(
+        eq(asteroidVeins.asteroidId, asteroidId),
+        inArray(asteroidVeins.resourceKey, [...resourceKeys])
+      )
+    );
 }
 
-/** Locks the asteroid's veins oldest first, so concurrent claims cannot deadlock. */
-export function listAsteroidVeinsForUpdate(tx: Tx, asteroidId: string) {
+/** Locks the asteroid's visible veins oldest first, so concurrent claims cannot deadlock. */
+export function listAsteroidVeinsForUpdate(
+  tx: Tx,
+  asteroidId: string,
+  resourceKeys: VisibleResources
+) {
   return tx
     .select({
       id: asteroidVeins.id,
@@ -79,7 +120,12 @@ export function listAsteroidVeinsForUpdate(tx: Tx, asteroidId: string) {
       remainingAmount: asteroidVeins.remainingAmount,
     })
     .from(asteroidVeins)
-    .where(eq(asteroidVeins.asteroidId, asteroidId))
+    .where(
+      and(
+        eq(asteroidVeins.asteroidId, asteroidId),
+        inArray(asteroidVeins.resourceKey, [...resourceKeys])
+      )
+    )
     .orderBy(asteroidVeins.createdAt, asteroidVeins.id)
     .for('update');
 }
@@ -88,12 +134,21 @@ export async function updateAsteroidVeinRemaining(tx: Tx, id: string, remainingA
   await tx.update(asteroidVeins).set({ remainingAmount }).where(eq(asteroidVeins.id, id));
 }
 
-/** Total reserve left in the asteroid's veins; 0 if it has none. */
-export async function sumAsteroidRemainingAmount(db: QueryDb, asteroidId: string) {
+/** Total reserve left in the asteroid's veins, only the visible ones if given; 0 if none. */
+export async function sumAsteroidRemainingAmount(
+  db: QueryDb,
+  asteroidId: string,
+  resourceKeys?: VisibleResources
+) {
   const [reserve] = await db
     .select({ amount: sql<number>`coalesce(sum(${asteroidVeins.remainingAmount}), 0)::int` })
     .from(asteroidVeins)
-    .where(eq(asteroidVeins.asteroidId, asteroidId));
+    .where(
+      and(
+        eq(asteroidVeins.asteroidId, asteroidId),
+        resourceKeys ? inArray(asteroidVeins.resourceKey, [...resourceKeys]) : undefined
+      )
+    );
   return reserve?.amount ?? 0;
 }
 
@@ -144,8 +199,12 @@ export async function addAssignmentRecallRequest(
   return result.length > 0;
 }
 
-/** The station's assignments with asteroid position, size, primary resource and reserve left. */
-export function listStationAssignmentsWithAsteroid(db: QueryDb, stationId: string) {
+/** The station's assignments with asteroid position, size, visible resource and reserve left. */
+export function listStationAssignmentsWithAsteroid(
+  db: QueryDb,
+  stationId: string,
+  resourceKeys: VisibleResources
+) {
   return db
     .select({
       id: asteroidAssignments.id,
@@ -159,21 +218,15 @@ export function listStationAssignmentsWithAsteroid(db: QueryDb, stationId: strin
       asteroidX: asteroids.x,
       asteroidY: asteroids.y,
       asteroidSize: asteroids.size,
-      asteroidPrimaryResourceKey: asteroidVeins.resourceKey,
+      asteroidPrimaryResourceKey: visiblePrimaryResourceSql(resourceKeys),
       asteroidRemainingAmount: sql<number>`(
         SELECT COALESCE(SUM(v.remaining_amount), 0)::int
-        FROM asteroid_veins v WHERE v.asteroid_id = ${asteroids.id}
+        FROM asteroid_veins v
+        WHERE v.asteroid_id = ${outerAsteroidId} AND v.resource_key IN (${visibleKeysSql(resourceKeys)})
       )`,
     })
     .from(asteroidAssignments)
     .innerJoin(asteroids, eq(asteroids.id, asteroidAssignments.asteroidId))
-    .leftJoin(
-      asteroidVeins,
-      and(
-        eq(asteroidVeins.asteroidId, asteroidAssignments.asteroidId),
-        eq(asteroidVeins.veinType, 'primary')
-      )
-    )
     .where(eq(asteroidAssignments.stationId, stationId));
 }
 
@@ -278,8 +331,12 @@ export function listAsteroidAssignmentsByStations(db: QueryDb, stationIds: strin
     .where(inArray(asteroidAssignments.stationId, stationIds));
 }
 
-/** One row per vein of every asteroid in any of the chunk ranges. */
-export function listAsteroidVeinsInChunks(db: QueryDb, bounds: readonly ChunkBounds[]) {
+/** One row per visible vein of every asteroid in any of the chunk ranges. */
+export function listAsteroidVeinsInChunks(
+  db: QueryDb,
+  bounds: readonly ChunkBounds[],
+  resourceKeys: VisibleResources
+) {
   return db
     .select({
       id: asteroids.id,
@@ -291,11 +348,14 @@ export function listAsteroidVeinsInChunks(db: QueryDb, bounds: readonly ChunkBou
     .from(asteroids)
     .innerJoin(asteroidVeins, eq(asteroidVeins.asteroidId, asteroids.id))
     .where(
-      or(
-        ...bounds.map((bound) =>
-          and(
-            between(asteroids.chunkX, bound.minChunkX, bound.maxChunkX),
-            between(asteroids.chunkY, bound.minChunkY, bound.maxChunkY)
+      and(
+        inArray(asteroidVeins.resourceKey, [...resourceKeys]),
+        or(
+          ...bounds.map((bound) =>
+            and(
+              between(asteroids.chunkX, bound.minChunkX, bound.maxChunkX),
+              between(asteroids.chunkY, bound.minChunkY, bound.maxChunkY)
+            )
           )
         )
       )

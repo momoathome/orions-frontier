@@ -1,6 +1,7 @@
 import { authenticate } from '../../../middleware/auth.js';
 import {
   getStationHangar,
+  getStationProductionSlots,
   getStationSpacecrafts,
   ownStation,
 } from '../../../services/station/index.js';
@@ -19,12 +20,13 @@ export default defineRoute(async (app) => {
       const { stationId } = request.params;
       const ownedStationId = await ownStation(request.user.userId, stationId);
 
-      const [spacecrafts, hangar] = await Promise.all([
+      const [spacecrafts, hangar, productionSlots] = await Promise.all([
         getStationSpacecrafts(ownedStationId),
         getStationHangar(ownedStationId),
+        getStationProductionSlots(ownedStationId),
       ]);
 
-      return { stationId: ownedStationId, spacecrafts, hangar };
+      return { stationId: ownedStationId, spacecrafts, hangar, productionSlots };
     }
   );
 });

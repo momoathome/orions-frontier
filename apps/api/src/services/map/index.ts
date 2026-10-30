@@ -1,5 +1,6 @@
 export { getAsteroidById, getVisibleChunkAsteroids } from './asteroid.js';
 export {
+  getUserResearchModifiers,
   getUserRevealedAsteroidIds,
   getUserScannerCoverages,
   isPointVisible,

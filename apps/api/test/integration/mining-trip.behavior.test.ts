@@ -12,7 +12,8 @@ import {
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResearch } from '../../src/lib/db/schema/station-research.js';
+import { userResearch } from '../../src/lib/db/schema/user-research.js';
+import { grantResearch } from '../helpers/fixtures.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
@@ -125,9 +126,7 @@ after(async () => {
   await db
     .delete(stationBuildings)
     .where(inArray(stationBuildings.stationId, [stationId, secondStationId]));
-  await db
-    .delete(stationResearch)
-    .where(inArray(stationResearch.stationId, [stationId, secondStationId]));
+  await db.delete(userResearch).where(inArray(userResearch.userId, [userId, secondUserId]));
   if (assignmentId) {
     await db.delete(asteroidAssignments).where(eq(asteroidAssignments.id, assignmentId));
   }
@@ -571,21 +570,14 @@ test('a miner group launches together and a recall stops a single miner', async 
   assert.equal(fleet?.lockedAmount, 2);
 });
 
-test('modular cargo frames claims whole resource units for a Mole', async () => {
+test('cargo compression claims whole units and deep core drilling delivers more than it mines', async () => {
   const db = getDb();
   await resetMiningState();
   await db
     .update(asteroidVeins)
     .set({ remainingAmount: 1_000 })
     .where(eq(asteroidVeins.asteroidId, asteroidId));
-  const completedAt = new Date();
-  await db.insert(stationResearch).values({
-    stationId,
-    technologyKey: 'modular_cargo_frames',
-    status: 'completed',
-    completesAt: completedAt,
-    completedAt,
-  });
+  await grantResearch(userId, { cargo_compression: 2, deep_core_drilling: 1 });
 
   try {
     const created = await createAsteroidAssignment({
@@ -621,10 +613,16 @@ test('modular cargo frames claims whole resource units for a Mole', async () => 
         )
       );
     assert.ok(returnTrip);
-    assert.deepEqual(returnTrip.cargoManifest, { carbon: 110 });
+    // 110 units leave the asteroid; Deep Core Drilling 1 delivers floor(110 × 1.06).
+    assert.deepEqual(returnTrip.cargoManifest, { carbon: 116 });
+    const [vein] = await db
+      .select({ remainingAmount: asteroidVeins.remainingAmount })
+      .from(asteroidVeins)
+      .where(eq(asteroidVeins.asteroidId, asteroidId));
+    assert.equal(vein?.remainingAmount, 890);
   } finally {
     await resetMiningState();
-    await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
+    await db.delete(userResearch).where(eq(userResearch.userId, userId));
   }
 });
 

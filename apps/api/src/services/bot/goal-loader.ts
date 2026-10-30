@@ -11,7 +11,7 @@ import {
 import { listBuildOrdersByStations } from '../../repositories/spacecraft-build-orders.js';
 import { listTravelingTripsByStations } from '../../repositories/spacecraft-trips.js';
 import { listStationBuildingsByStations } from '../../repositories/station-buildings.js';
-import { listStationResearchByStations } from '../../repositories/station-research.js';
+import { listUserResearch } from '../../repositories/user-research.js';
 import { listStationResourcesByStations } from '../../repositories/station-resources.js';
 import { listStationSpacecraftsByStations } from '../../repositories/station-spacecrafts.js';
 import { listActiveStationsWithSectorByUser } from '../../repositories/stations.js';
@@ -20,8 +20,12 @@ import {
   listMovingWorldMissionsByStations,
 } from '../../repositories/world-missions.js';
 import { buildingKeys, defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
-import type { ResourceMap } from '@orions-frontier/shared';
-import { calculateBuildingEffect } from '@orions-frontier/game-config';
+import type { ResearchKey, ResearchLevels, ResourceMap } from '@orions-frontier/shared';
+import {
+  calculateBuildingEffect,
+  isResearchKey,
+  researchModifiers,
+} from '@orions-frontier/game-config';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { getUserScannerCoverages, isPointVisible, scannerChunkBounds } from '../map/index.js';
 import { getVisibleChunkStations } from '../world/index.js';
@@ -55,7 +59,7 @@ export async function loadGoalBotState(
     listStationBuildingsByStations(db, stationIds),
     listStationSpacecraftsByStations(db, stationIds),
     listBuildOrdersByStations(db, stationIds),
-    listStationResearchByStations(db, stationIds),
+    listUserResearch(db, userId),
     listAsteroidAssignmentsByStations(db, stationIds),
     listTravelingTripsByStations(db, stationIds),
     listMovingWorldMissionsByStations(db, stationIds),
@@ -80,7 +84,13 @@ export async function loadGoalBotState(
   const buildingsByStation = groupByStation(allBuildings);
   const fleetsByStation = groupByStation(allFleets);
   const buildsByStation = groupByStation(allBuildOrders);
-  const researchByStation = groupByStation(allResearch);
+  const researchLevels: ResearchLevels = {};
+  const activeResearch: ResearchKey[] = [];
+  for (const row of allResearch) {
+    if (!isResearchKey(row.technologyKey)) continue;
+    if (row.level > 0) researchLevels[row.technologyKey] = row.level;
+    if (row.completesAt) activeResearch.push(row.technologyKey);
+  }
   const assignmentsByStation = groupByStation(allAssignments);
   const tripsByStation = groupByStation(allTrips);
   const missionsByStation = groupByStation(
@@ -96,7 +106,6 @@ export async function loadGoalBotState(
     const stBuildings = buildingsByStation.get(station.id) ?? [];
     const stFleets = fleetsByStation.get(station.id) ?? [];
     const stBuildOrders = buildsByStation.get(station.id) ?? [];
-    const stResearch = researchByStation.get(station.id) ?? [];
     const stAssignments = assignmentsByStation.get(station.id) ?? [];
     const stTrips = tripsByStation.get(station.id) ?? [];
     const stMissions = missionsByStation.get(station.id) ?? [];
@@ -143,11 +152,7 @@ export async function loadGoalBotState(
         spacecraftKey: o.spacecraftKey,
         amount: o.amount,
       })),
-      research: stResearch.map((r) => ({
-        technologyKey: r.technologyKey,
-        status: r.status,
-        completesAt: r.completesAt,
-      })),
+      research: researchLevels,
       miningAssignments: stAssignments.map((assignment) => ({
         id: assignment.id,
         asteroidId: assignment.asteroidId,
@@ -198,7 +203,13 @@ export async function loadGoalBotState(
   );
   const conflictDiagnostics = { now, protectedOwnerIds: new Set<string>() };
   const [asteroidRows, debrisRows, viewStations, combatReports] = await Promise.all([
-    coverageBounds.length > 0 ? listAsteroidVeinsInChunks(db, coverageBounds) : Promise.resolve([]),
+    coverageBounds.length > 0
+      ? listAsteroidVeinsInChunks(
+          db,
+          coverageBounds,
+          researchModifiers(researchLevels).visibleResources
+        )
+      : Promise.resolve([]),
     coverageBounds.length > 0 ? listDebrisFieldsInChunks(db, coverageBounds) : Promise.resolve([]),
     coverageBounds.length > 0
       ? getVisibleChunkStations(allBounds, userId, coverages, undefined, false, conflictDiagnostics)
@@ -244,6 +255,11 @@ export async function loadGoalBotState(
     userId,
     now,
     completedExpeditions,
+    research: {
+      levels: researchLevels,
+      active: activeResearch,
+      slots: researchModifiers(researchLevels).researchSlots,
+    },
     ownStations,
     visibleAsteroids: [...visibleAsteroidsMap.values()],
     visibleStations,

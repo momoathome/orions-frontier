@@ -4,7 +4,8 @@ import {
   calculateDefenseUpgradeCost,
   calculateDefenseUpgradeEffect,
   getDefenseUpgrade,
-  SHIPYARD_UNLOCKS,
+  requirementBlockers,
+  spacecrafts,
 } from '@orions-frontier/game-config';
 import { type DefenseUpgradeKey } from '@orions-frontier/shared';
 import type { GoalBotState, StationSnapshot, GoalResult } from '../goal-state.js';
@@ -18,6 +19,8 @@ import {
   freeCrewCapacity,
   getShipyardLevel,
   hasActiveMining,
+  stationBuildingLevels,
+  stationModifiers,
 } from './shared.js';
 
 // ---------------------------------------------------------------------------
@@ -39,19 +42,20 @@ function defenseScore(station: StationSnapshot): number {
 function upgradeableDefenses(
   station: StationSnapshot
 ): { upgradeKey: DefenseUpgradeKey; level: number }[] {
+  const buildings = stationBuildingLevels(station);
   return station.defense.filter((d) => {
     const def = getDefenseUpgrade(d.upgradeKey);
-    return d.level < def.maxLevel && d.upgradeEndsAt === null;
+    return (
+      d.level < def.maxLevel &&
+      d.upgradeEndsAt === null &&
+      requirementBlockers(def.requirements, station.research, buildings).length === 0
+    );
   });
 }
 
 /** Total attack power of all fighters owned + in build at this station. */
 function localFighterAttack(station: StationSnapshot): number {
-  const analyticsFactor = station.research.some(
-    (research) => research.technologyKey === 'combat_analytics' && research.status === 'completed'
-  )
-    ? 1.1
-    : 1;
+  const analyticsFactor = stationModifiers(station).attack;
   const fleetPower = station.fleets
     .filter((f) => {
       const sc = getSpacecraft(f.spacecraftKey);
@@ -74,11 +78,7 @@ function localFighterAttack(station: StationSnapshot): number {
 }
 
 export function availableFighterAttack(station: StationSnapshot): number {
-  const analyticsFactor = station.research.some(
-    (research) => research.technologyKey === 'combat_analytics' && research.status === 'completed'
-  )
-    ? 1.1
-    : 1;
+  const analyticsFactor = stationModifiers(station).attack;
   return Math.floor(
     station.fleets.reduce((sum, fleet) => {
       const spacecraft = getSpacecraft(fleet.spacecraftKey);
@@ -103,18 +103,16 @@ export function wasRecentlyAttacked(
   );
 }
 
-/** Fighter types unlocked at the station's shipyard level. */
+/** Fighter types the station can build with its buildings and the owner's research. */
 export function unlockedFighters(station: StationSnapshot): { key: string; attack: number }[] {
-  const syLevel = getShipyardLevel(station);
-  const keys = new Set<string>();
-  for (let lvl = 2; lvl <= syLevel; lvl++) {
-    const unlocks = SHIPYARD_UNLOCKS[lvl] ?? [];
-    for (const k of unlocks) {
-      const sc = getSpacecraft(k);
-      if (sc?.role === 'fighter') keys.add(k);
-    }
-  }
-  return [...keys].map((k) => ({ key: k, attack: getSpacecraft(k)?.attack ?? 0 }));
+  const buildings = stationBuildingLevels(station);
+  return spacecrafts
+    .filter(
+      (definition) =>
+        definition.role === 'fighter' &&
+        requirementBlockers(definition.requirements, station.research, buildings).length === 0
+    )
+    .map((definition) => ({ key: definition.key, attack: definition.attack }));
 }
 
 /** Choose the best defense upgrade by defense gain per cost. */
@@ -268,7 +266,6 @@ export function generateBuildStrikeForceCandidate(
   _state: GoalBotState,
   station: StationSnapshot
 ): GoalCandidate | null {
-  if (!hasShipyardLevel(station, 2)) return null; // Need at least Merlin
   const unlocked = unlockedFighters(station);
   if (unlocked.length === 0) return null;
   if (
@@ -319,6 +316,10 @@ export async function stepBuildStrikeForce(
     };
   }
 
+  // Missing research ends the goal so the research goal can pick up the unlock.
+  if (unlockedFighters(station).length === 0 && hasShipyardLevel(station, 2)) {
+    return { type: 'blocked', detail: 'research_locked', reason: 'Fighters need research' };
+  }
   // Need shipyard level 2 for first fighter
   if (!hasShipyardLevel(station, 2)) {
     // Check if shipyard can be upgraded

@@ -28,6 +28,7 @@ import {
   createTestSector,
   createTestStation,
   createTestUser,
+  grantResearch,
 } from '../helpers/fixtures.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import {
@@ -67,6 +68,7 @@ before(async () => {
     createdAt: new Date('2030-01-01T00:00:00.000Z'),
   });
   ownerId = owner.id;
+  await grantResearch(owner.id, { long_range_survey: 1, colony_logistics: 3 });
   userIds.push(owner.id, target.id);
 
   const ownerStation = await createTestStation({

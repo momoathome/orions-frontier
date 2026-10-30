@@ -1,137 +1,259 @@
-import { AppError, ErrorCode, type ResearchState } from '@orions-frontier/shared';
 import {
-  calculateBuildingEffect,
+  AppError,
+  ErrorCode,
+  buildingKeys,
+  isOneOf,
+  type BuildingLevels,
+  type RequirementBlocker,
+  type ResearchKey,
+  type ResearchState,
+  type ResourceMap,
+} from '@orions-frontier/shared';
+import {
+  calculateResearchCost,
+  calculateResearchDuration,
   getResearchDefinition,
+  researchBlockers,
   researchDefinitions,
+  researchModifiers,
+  researchRequirements,
 } from '@orions-frontier/game-config';
-import { getDb, type QueryDb } from '../../lib/db/index.js';
-import { findBuildingLevel } from '../../repositories/station-buildings.js';
+import { getDb, type QueryDb, type Tx } from '../../lib/db/index.js';
+import { logger } from '../../lib/logger.js';
+import { publishUserEvent } from '../../lib/realtime.js';
+import { listHighestBuildingLevelsByUser } from '../../repositories/station-buildings.js';
 import {
-  claimDueResearch,
-  insertStationResearch,
+  cancelResearchLevel,
+  completeResearchLevel,
   listDueResearch,
-  listStationResearch,
-} from '../../repositories/station-research.js';
+  listUserResearch,
+  startResearchLevel,
+} from '../../repositories/user-research.js';
 import {
   deductStationResource,
   listStationResourcesForUpdate,
 } from '../../repositories/station-resources.js';
-import { findOwnedStation, findOwnedStationForUpdate } from '../../repositories/stations.js';
+import { findOwnedStationForUpdate } from '../../repositories/stations.js';
+import { findUserForUpdate } from '../../repositories/users.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { completionEventId, type ResearchCompletedEvent } from '../../lib/completion-events.js';
+import { toResearchLevels } from './effects.js';
 
-const researchCapacity = (level: number) =>
-  calculateBuildingEffect('laboratory', level).find((effect) => effect.type === 'research_capacity')
-    ?.value ?? 0;
-
-async function laboratoryLevel(db: QueryDb, stationId: string): Promise<number> {
-  return (await findBuildingLevel(db, stationId, 'laboratory')) ?? 0;
+async function highestBuildingLevels(db: QueryDb, userId: string): Promise<BuildingLevels> {
+  const levels: BuildingLevels = {};
+  for (const row of await listHighestBuildingLevelsByUser(db, userId)) {
+    if (isOneOf(buildingKeys, row.buildingKey)) levels[row.buildingKey] = row.level;
+  }
+  return levels;
 }
 
-export async function getResearchState(stationId: string, userId: string): Promise<ResearchState> {
-  const db = getDb();
-  const station = await findOwnedStation(db, stationId, userId);
-  if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+/** "Requires Laboratory 5 and Weapons 3", for API errors. */
+export function describeBlockers(blockers: RequirementBlocker[]): string {
+  const parts = blockers.map((blocker) => {
+    switch (blocker.type) {
+      case 'maxed':
+        return 'max level';
+      case 'lab_cap':
+        return `Laboratory ${blocker.level}`;
+      case 'building':
+        return `${blocker.key[0]?.toUpperCase()}${blocker.key.slice(1)} ${blocker.level}`;
+      case 'research':
+        return `${getResearchDefinition(blocker.key)?.name ?? blocker.key} ${blocker.level}`;
+    }
+  });
+  return blockers[0]?.type === 'maxed'
+    ? 'Research is at max level'
+    : `Requires ${parts.join(' and ')}`;
+}
 
-  const [level, rows] = await Promise.all([
-    laboratoryLevel(db, stationId),
-    listStationResearch(db, stationId),
+export async function getResearchState(
+  userId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<ResearchState> {
+  const db = getDb();
+  const [rows, buildings] = await Promise.all([
+    listUserResearch(db, userId),
+    highestBuildingLevels(db, userId),
   ]);
+  const levels = toResearchLevels(rows);
   const byKey = new Map(rows.map((row) => [row.technologyKey, row]));
-  const used = rows.reduce(
-    (sum, row) => sum + (getResearchDefinition(row.technologyKey)?.points ?? 0),
-    0
-  );
+  const laboratory = buildings.laboratory ?? 0;
   return {
-    capacity: researchCapacity(level),
-    used,
+    slots: researchModifiers(levels).researchSlots,
+    highestLaboratory: laboratory,
     technologies: researchDefinitions.map((definition) => {
       const row = byKey.get(definition.key);
+      const level = levels[definition.key] ?? 0;
+      const running = row?.completesAt && row.completesAt > context.now ? row : null;
+      const nextLevel = level + 1;
       return {
-        ...definition,
-        status: row?.status ?? 'available',
-        completesAt: row?.completesAt.toISOString() ?? null,
+        definition,
+        level,
+        startedAt: running?.startedAt?.toISOString() ?? null,
+        completesAt: running?.completesAt?.toISOString() ?? null,
+        next:
+          nextLevel > definition.maxLevel
+            ? null
+            : {
+                level: nextLevel,
+                costs: calculateResearchCost(definition.key, nextLevel),
+                durationSeconds: calculateResearchDuration(definition.key, nextLevel, laboratory),
+                requirements: researchRequirements(definition.key, nextLevel),
+              },
+        blockers: researchBlockers(definition.key, levels, buildings),
       };
     }),
   };
 }
 
+/** Locks the account so research starts and cancels of one user run one after another. */
+async function lockUser(tx: Tx, userId: string) {
+  if (!(await findUserForUpdate(tx, userId)))
+    throw new AppError(ErrorCode.NOT_FOUND, 'User not found');
+}
+
 export async function startResearch(
-  stationId: string,
   userId: string,
+  stationId: string,
   technologyKey: string,
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<void> {
   const definition = getResearchDefinition(technologyKey);
   if (!definition) throw new AppError(ErrorCode.NOT_FOUND, 'Research not found');
+  const key: ResearchKey = definition.key;
 
-  await getDb().transaction(async (tx) => {
+  const resources = await getDb().transaction(async (tx) => {
+    await lockUser(tx, userId);
     const station = await findOwnedStationForUpdate(tx, stationId, userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-    const [level, rows] = await Promise.all([
-      laboratoryLevel(tx, stationId),
-      listStationResearch(tx, stationId),
+    const [rows, buildings] = await Promise.all([
+      listUserResearch(tx, userId),
+      highestBuildingLevels(tx, userId),
     ]);
-    if (rows.some((row) => row.technologyKey === technologyKey)) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research already started');
+    const levels = toResearchLevels(rows);
+    const running = rows.filter((row) => row.completesAt && row.completesAt > context.now);
+    if (running.some((row) => row.technologyKey === key)) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research is already running');
     }
-    const used = rows.reduce(
-      (sum, row) => sum + (getResearchDefinition(row.technologyKey)?.points ?? 0),
-      0
-    );
-    if (used + definition.points > researchCapacity(level)) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Laboratory capacity exceeded');
+    if (rows.some((row) => row.technologyKey === key && row.completesAt)) {
+      // Due but not claimed yet; the next simulation pass raises the level.
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research is completing, try again shortly');
+    }
+    const blockers = researchBlockers(key, levels, buildings);
+    if (blockers.length > 0) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, describeBlockers(blockers));
+    }
+    if (running.length >= researchModifiers(levels).researchSlots) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'No free research slot');
     }
 
-    const resources = await listStationResourcesForUpdate(tx, stationId);
-    const amounts = new Map(resources.map((row) => [row.resourceKey, row.amount]));
-    for (const cost of definition.costs) {
-      if ((amounts.get(cost.resourceKey) ?? 0) < cost.amount) {
-        throw new AppError(ErrorCode.VALIDATION_ERROR, `Insufficient ${cost.resourceKey}`);
+    const nextLevel = (levels[key] ?? 0) + 1;
+    const costs = calculateResearchCost(key, nextLevel);
+    const stock = new Map(
+      (await listStationResourcesForUpdate(tx, stationId)).map((row) => [
+        row.resourceKey,
+        row.amount,
+      ])
+    );
+    for (const cost of costs) {
+      const have = stock.get(cost.resourceKey) ?? 0;
+      if (have < cost.amount) {
+        throw new AppError(
+          ErrorCode.VALIDATION_ERROR,
+          `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${have}`
+        );
       }
     }
-    for (const cost of definition.costs) {
+    for (const cost of costs) {
       await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
+      stock.set(cost.resourceKey, (stock.get(cost.resourceKey) ?? 0) - cost.amount);
     }
-    await insertStationResearch(tx, {
-      id: context.nextId('station-research'),
-      stationId,
-      technologyKey,
-      completesAt: new Date(context.now.getTime() + definition.duration * 1000),
-      createdAt: context.now,
+    const duration = calculateResearchDuration(key, nextLevel, buildings.laboratory ?? 0);
+    const started = await startResearchLevel(tx, {
+      id: context.nextId('user-research'),
+      userId,
+      technologyKey: key,
+      startedAt: context.now,
+      completesAt: new Date(context.now.getTime() + duration * 1000),
+      paidByStationId: stationId,
     });
+    if (!started) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research is already running');
+    return Object.fromEntries(stock);
   });
+  publishUserEvent(userId, 'resources_updated', { stationId, resources });
 }
 
-export { hasCompletedResearch } from '../../repositories/station-research.js';
+/**
+ * Stops running research and refunds its cost to the station that paid, as far as storage allows.
+ * `credit` is the station service's storage-capped credit; research sits below it.
+ */
+export async function cancelResearch(
+  userId: string,
+  technologyKey: string,
+  credit: (tx: Tx, stationId: string, resources: ResourceMap) => Promise<ResourceMap>,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> {
+  const definition = getResearchDefinition(technologyKey);
+  if (!definition) throw new AppError(ErrorCode.NOT_FOUND, 'Research not found');
 
-export async function completeDueResearchDetailed(
-  now = new Date()
-): Promise<ResearchCompletedEvent[]> {
+  const refundedTo = await getDb().transaction(async (tx) => {
+    await lockUser(tx, userId);
+    const cancelled = await cancelResearchLevel(tx, userId, definition.key, context.now);
+    if (!cancelled) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research is not running');
+    if (!cancelled.paidByStationId) return null;
+    const refund: ResourceMap = {};
+    for (const cost of calculateResearchCost(definition.key, cancelled.level + 1)) {
+      refund[cost.resourceKey] = cost.amount;
+    }
+    await credit(tx, cancelled.paidByStationId, refund);
+    const rows = await listStationResourcesForUpdate(tx, cancelled.paidByStationId);
+    return {
+      stationId: cancelled.paidByStationId,
+      resources: Object.fromEntries(rows.map((row) => [row.resourceKey, row.amount])),
+    };
+  });
+  if (refundedTo) publishUserEvent(userId, 'resources_updated', refundedTo);
+}
+
+export interface ResearchPassResult {
+  completed: number;
+  failed: number;
+  events: ResearchCompletedEvent[];
+}
+
+/** Raises every due research by one level, at most once per started level. */
+export async function completeDueResearch(now = new Date()): Promise<ResearchPassResult> {
   const db = getDb();
-  const due = await listDueResearch(db, now);
-  const events: ResearchCompletedEvent[] = [];
-  for (const research of due) {
-    const claimed = await claimDueResearch(db, research.id, research.completesAt, now);
-    if (claimed) {
-      events.push({
+  const result: ResearchPassResult = { completed: 0, failed: 0, events: [] };
+  for (const research of await listDueResearch(db, now)) {
+    try {
+      const completesAt = research.completesAt;
+      if (!completesAt) continue;
+      const completed = await completeResearchLevel(db, research.id, now);
+      if (!completed) continue;
+      result.completed += 1;
+      result.events.push({
         type: 'research_completed',
-        eventId: completionEventId('research_completed', research.id),
-        occurredAt: research.completesAt,
+        eventId: completionEventId('research_completed', research.id, String(completed.level)),
+        occurredAt: completesAt,
         userId: research.userId,
-        stationId: research.stationId,
+        stationId: null,
         researchId: research.id,
         technologyKey: research.technologyKey,
+        newLevel: completed.level,
       });
+      publishUserEvent(research.userId, 'research_completed', {
+        technologyKey: research.technologyKey,
+        newLevel: completed.level,
+      });
+    } catch (error) {
+      result.failed += 1;
+      logger.error({ researchId: research.id, err: error }, 'Failed to complete research');
     }
   }
-  return events;
-}
-
-export async function completeDueResearch(now = new Date()): Promise<number> {
-  return (await completeDueResearchDetailed(now)).length;
+  return result;
 }

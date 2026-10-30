@@ -21,7 +21,7 @@ export {
   calculateConstructionSpeedBonus,
   calculateHangarCapacity,
   calculateScannerRange,
-  SHIPYARD_UNLOCKS,
+  calculateProductionSlots,
 } from './buildings.js';
 export type { BuildingSeedDefinition } from './buildings.js';
 export {
@@ -32,8 +32,22 @@ export {
   getDefenseUpgrade,
 } from './defense.js';
 export type { DefenseUpgradeSeedDefinition } from './defense.js';
-export { getResearchDefinition, researchDefinitions } from './research.js';
-export type { ResearchDefinition } from './research.js';
+export {
+  calculateResearchCost,
+  calculateResearchDuration,
+  getResearchDefinition,
+  isResearchKey,
+  LAB_SPEED_PER_LEVEL,
+  requireResearchDefinition,
+  requirementBlockers,
+  researchBlockers,
+  researchDefinitions,
+  researchRequirements,
+  RESEARCH_TIERS,
+  unlocksByBuildingLevel,
+} from './research.js';
+export { applyBuildingCostDiscount, researchModifiers } from './research-effects.js';
+export type { ResearchModifiers } from './research-effects.js';
 export {
   calculateInfluence,
   INFLUENCE_FLEET_SHARE,

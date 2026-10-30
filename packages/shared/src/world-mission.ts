@@ -1,3 +1,5 @@
+import type { ResourceMap } from './resource.js';
+
 export type WorldMissionType = 'expedition' | 'colonization';
 export type WorldMissionStatus = 'traveling' | 'returning' | 'arrived' | 'cancelled';
 
@@ -23,6 +25,14 @@ export interface FrontierTarget {
   y: number;
   distance: number;
   travelHours: number | null;
+}
+
+/** GET /world/frontier: targets plus the research limits for expeditions and colonies. */
+export interface FrontierResponse {
+  targets: FrontierTarget[];
+  expeditions: { active: number; limit: number; canExplore: boolean };
+  /** `stations` counts own stations plus colonization missions under way. */
+  colonization: { cost: ResourceMap; stations: number; limit: number };
 }
 
 export interface KnownSector extends FrontierTarget {

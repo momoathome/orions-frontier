@@ -64,7 +64,7 @@ function classifyDomainError(error: AppError): BotIntentRejected {
     return new BotIntentRejected('waiting', message, PROTECTED_TARGET_RETRY_MS);
   }
   if (
-    /already underway|already upgrading|already started|not enough spacecraft|no (miner|spacecraft) is available/i.test(
+    /already underway|already upgrading|already started|already running|no free (build|research) slot|not enough spacecraft|no (miner|spacecraft) is available/i.test(
       message
     )
   ) {
@@ -114,7 +114,7 @@ export async function executeBotIntent(
         await startBuildingUpgrade(intent.stationId, intent.buildingKey, userId, context);
         break;
       case 'start_research':
-        await startResearch(intent.stationId, userId, intent.technologyKey, context);
+        await startResearch(userId, intent.stationId, intent.technologyKey, context);
         break;
       case 'start_expedition':
         await startExpedition(

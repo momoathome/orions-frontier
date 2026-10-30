@@ -4,6 +4,7 @@ import {
   calculateDefenseUpgradeEffect,
   defenseUpgrades,
   getDefenseUpgrade,
+  requirementBlockers,
 } from '@orions-frontier/game-config';
 import {
   required,
@@ -29,7 +30,13 @@ import {
   listStationResources,
 } from '../../repositories/station-resources.js';
 import { findOwnedStationForUpdate } from '../../repositories/stations.js';
-import { applyConstructionSpeed, hasCompletedResearch } from '../research/index.js';
+import {
+  applyConstructionSpeed,
+  describeBlockers,
+  getResearchLevels,
+  getStationResearchModifiers,
+} from '../research/index.js';
+import { assertFreeBuildSlot, cancelStationUpgrade, toBuildingLevels } from './construction.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -74,9 +81,15 @@ export function calculateStationDefenseScore(
 
 export const getStationDefenseUpgrades = async (
   stationId: string,
+  userId: string,
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<StationDefenseUpgradeWithDefinition[]> => {
-  const rows = await listStationBuildings(getDb(), stationId);
+  const db = getDb();
+  const [rows, research] = await Promise.all([
+    listStationBuildings(db, stationId),
+    getResearchLevels(db, userId),
+  ]);
+  const buildingLevels = toBuildingLevels(rows);
   const byKey = new Map(rows.map((row) => [row.buildingKey, row]));
   const now = context.now;
 
@@ -98,6 +111,10 @@ export const getStationDefenseUpgrades = async (
       upgradeDurationSeconds: isAtMax
         ? null
         : calculateDefenseUpgradeBuildTime(definition.key, level + 1),
+      blockers:
+        level > definition.startingLevel
+          ? []
+          : requirementBlockers(definition.requirements, research, buildingLevels),
     };
   });
 };
@@ -145,6 +162,18 @@ export const startDefenseUpgrade = async (
     if (stationUpgrade.level >= def.maxLevel) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Defense upgrade is already at max level');
     }
+    if (stationUpgrade.level === def.startingLevel) {
+      const blockers = requirementBlockers(
+        def.requirements,
+        await getResearchLevels(tx, userId),
+        toBuildingLevels(await listBuildingLevels(tx, stationId))
+      );
+      if (blockers.length > 0) {
+        throw new AppError(ErrorCode.VALIDATION_ERROR, describeBlockers(blockers));
+      }
+    }
+    const modifiers = await getStationResearchModifiers(tx, stationId);
+    await assertFreeBuildSlot(tx, stationId, modifiers, context.now);
 
     const targetLevel = stationUpgrade.level + 1;
     const costs = calculateDefenseUpgradeCost(upgradeKey, targetLevel);
@@ -164,12 +193,11 @@ export const startDefenseUpgrade = async (
     const baseUpgradeEndsAt = new Date(
       context.now.getTime() + calculateDefenseUpgradeBuildTime(upgradeKey, targetLevel) * 1000
     );
-    const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
     const coreLevel =
       (await listBuildingLevels(tx, stationId)).find((row) => row.buildingKey === 'core')?.level ??
       1;
     const upgradeEndsAt = applyConstructionSpeed(
-      hasGridOpt,
+      modifiers.constructionBonus,
       coreLevel,
       baseUpgradeEndsAt,
       context.now
@@ -193,9 +221,24 @@ export const startDefenseUpgrade = async (
   });
 
   return required(
-    (await getStationDefenseUpgrades(stationId, context)).find(
+    (await getStationDefenseUpgrades(stationId, userId, context)).find(
       (upgrade) => upgrade.definition.key === upgradeKey
     ),
     `defense upgrade ${upgradeKey}`
   );
 };
+
+/** Cancels a running defense upgrade and refunds its cost. */
+export const cancelDefenseUpgrade = (
+  stationId: string,
+  upgradeKey: DefenseUpgradeKey,
+  userId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> =>
+  cancelStationUpgrade(
+    stationId,
+    userId,
+    upgradeKey,
+    (row) => calculateDefenseUpgradeCost(upgradeKey, row.level + 1),
+    context
+  );

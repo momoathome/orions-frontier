@@ -14,7 +14,8 @@ import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationResearch } from '../../src/lib/db/schema/station-research.js';
+import { userResearch } from '../../src/lib/db/schema/user-research.js';
+import { grantResearch } from '../helpers/fixtures.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -348,6 +349,8 @@ test('typed economic intents execute through the authoritative domain services',
     .update(stationResources)
     .set({ amount: 10_000 })
     .where(eq(stationResources.stationId, localStationId));
+  // Building and defense upgrades share the build slots.
+  await grantResearch(botUserId, { parallel_construction: 1 });
   const now = new Date();
 
   await executeBotIntent(
@@ -384,11 +387,10 @@ test('typed economic intents execute through the authoritative domain services',
     ).length,
     1
   );
-  assert.equal(
-    (
-      await db.select().from(stationResearch).where(eq(stationResearch.stationId, localStationId))
-    )[0]?.technologyKey,
-    'extraction_algorithms'
+  assert.ok(
+    (await db.select().from(userResearch).where(eq(userResearch.userId, botUserId))).some(
+      (row) => row.technologyKey === 'extraction_algorithms' && row.completesAt
+    )
   );
   const upgradingKeys = (
     await db.select().from(stationBuildings).where(eq(stationBuildings.stationId, localStationId))
@@ -398,7 +400,7 @@ test('typed economic intents execute through the authoritative domain services',
   assert.deepEqual(new Set(upgradingKeys), new Set(['warehouse', 'armor_plating']));
 
   await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, localStationId));
-  await db.delete(stationResearch).where(eq(stationResearch.stationId, localStationId));
+  await db.delete(userResearch).where(eq(userResearch.userId, botUserId));
   await db.delete(stationResources).where(eq(stationResources.stationId, localStationId));
   await db.delete(stationBuildings).where(eq(stationBuildings.stationId, localStationId));
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
@@ -616,7 +618,7 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
     strategyVersion: '1',
     profile: 'industrialist',
     activeGoalType: 'research_technology',
-    activeGoalTarget: `tech:${stationId}:extraction_algorithms`,
+    activeGoalTarget: `tech:${stationId}:extraction_algorithms:1`,
     goalStartedAt: now,
     lastProgressAt: now,
     blockedCount: 0,
@@ -664,20 +666,12 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
   // Completing an active goal remains observable even if another goal is selected in the same
   // decision. This is required by playtest goal-completion metrics.
   const completedAt = new Date(now.getTime() + 5 * 120_000);
-  await db.insert(stationResearch).values({
-    id: randomUUID(),
-    stationId,
-    technologyKey: 'extraction_algorithms',
-    status: 'completed',
-    completesAt: completedAt,
-    createdAt: completedAt,
-    completedAt,
-  });
+  await grantResearch(botUserId, { extraction_algorithms: 1 });
   await db
     .update(botControllers)
     .set({
       activeGoalType: 'research_technology',
-      activeGoalTarget: `tech:${stationId}:extraction_algorithms`,
+      activeGoalTarget: `tech:${stationId}:extraction_algorithms:1`,
       goalStartedAt: now,
       nextDecisionAt: completedAt,
     })
@@ -688,7 +682,7 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
 
   // Cleanup
   await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
-  await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
+  await db.delete(userResearch).where(eq(userResearch.userId, botUserId));
   await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
   await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
   await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
@@ -774,6 +768,7 @@ test('bot exploration and colonization goal generation', async () => {
   await seedStationSpacecrafts(colonyStationId);
   await seedStationResources(colonyStationId);
 
+  await grantResearch(botUserId, { long_range_survey: 1, colony_logistics: 2 });
   // Set up bot controller with goal_v1
   const now = new Date();
   await db.insert(botControllers).values({
@@ -1028,7 +1023,8 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     .update(stationBuildings)
     .set({ level: 15 })
     .where(eq(stationBuildings.stationId, botStationId));
-  // Give the bot some fighters (Merlins)
+  // Give the bot some fighters (Merlins) and the research that unlocks them
+  await grantResearch(botUserId, { weapons: 1 });
   await db.insert(stationSpacecrafts).values({
     stationId: botStationId,
     spacecraftKey: 'merlin',

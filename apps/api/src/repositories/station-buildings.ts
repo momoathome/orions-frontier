@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { stationBuildings } from '../lib/db/schema/station-buildings.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -125,4 +125,17 @@ export async function completeBuildingUpgrade(
     .where(and(eq(stationBuildings.id, id), lte(stationBuildings.upgradeEndsAt, now)))
     .returning({ level: stationBuildings.level });
   return completed;
+}
+
+/** Highest level of each building across the user's active stations. */
+export function listHighestBuildingLevelsByUser(db: QueryDb, userId: string) {
+  return db
+    .select({
+      buildingKey: stationBuildings.buildingKey,
+      level: sql<number>`max(${stationBuildings.level})::int`,
+    })
+    .from(stationBuildings)
+    .innerJoin(stations, eq(stations.id, stationBuildings.stationId))
+    .where(and(eq(stations.userId, userId), isNull(stations.destroyedAt)))
+    .groupBy(stationBuildings.buildingKey);
 }

@@ -1,16 +1,16 @@
 import type { BotProfile } from '../../../lib/db/schema/bot-controllers.js';
 import {
   getSpacecraft,
+  requireSpacecraft,
+  requirementBlockers,
   calculateDefenseUpgradeCost,
-  getResearchDefinition,
-  researchDefinitions,
 } from '@orions-frontier/game-config';
 import { buildingKeys, isOneOf, type BuildingKey } from '@orions-frontier/shared';
 import type { GoalBotState, StationSnapshot, GoalResult } from '../goal-state.js';
 import type { GoalCandidate } from '../goal-driven-v1.js';
 import { GOAL_CATEGORY } from '../goal-driven-v1.js';
 import { bestDefenseUpgrade, unlockedFighters } from './military.js';
-import { RESEARCH_LAB_CAPACITY_PER_LEVEL, generateResearchCandidates } from './research.js';
+import { generateResearchCandidates } from './research.js';
 import {
   assignMinerTowardCosts,
   buildingCanUpgrade,
@@ -19,7 +19,6 @@ import {
   canAfford,
   freeCrewCapacity,
   getHangarLevel,
-  getLaboratoryLevel,
   getShipyardLevel,
   hasActiveMining,
   hasInBuild,
@@ -35,6 +34,7 @@ import {
   prioritizeStationsForStabilization,
   seeksMoreForeignContact,
   selectBestAsteroid,
+  stationBuildingLevels,
   storageFillRatio,
   titanCost,
   waitForCosts,
@@ -118,25 +118,12 @@ export function generateIncreaseCapacityCandidate(
 ): GoalCandidate | null {
   // Find the bottleneck: which building is worth upgrading?
   const hangar = getHangarLevel(station);
-  const lab = getLaboratoryLevel(station);
 
   const candidates: { key: BuildingKey; need: number }[] = [];
 
   const storagePressure = storageFillRatio(station);
   const storageTight = hasActiveMining(station) && storagePressure >= 0.85;
   const crewBlocked = freeCrewCapacity(station) <= 0;
-  const researchPointsUsed = station.research.reduce(
-    (sum, research) => sum + (getResearchDefinition(research.technologyKey)?.points ?? 0),
-    0
-  );
-  const researchCapacityBlocked =
-    researchDefinitions.some(
-      (definition) =>
-        !station.research.some((research) => research.technologyKey === definition.key)
-    ) &&
-    researchPointsUsed + Math.min(...researchDefinitions.map((definition) => definition.points)) >
-      lab * RESEARCH_LAB_CAPACITY_PER_LEVEL;
-
   // Capacity goals only exist for an observed bottleneck.
   if (storageTight && buildingCanUpgrade(station, 'warehouse')) {
     candidates.push({
@@ -146,12 +133,6 @@ export function generateIncreaseCapacityCandidate(
   }
   if (crewBlocked && buildingCanUpgrade(station, 'hangar')) {
     candidates.push({ key: 'hangar', need: Math.max(45, 70 - hangar * 5) });
-  }
-  if (researchCapacityBlocked && buildingCanUpgrade(station, 'laboratory')) {
-    candidates.push({
-      key: 'laboratory',
-      need: Math.max(35, 60 - lab * 5),
-    });
   }
 
   const contactSearch = seeksMoreForeignContact(state, profile);
@@ -242,7 +223,7 @@ export function generateEconomicCandidates(
     if (cap) candidates.push(cap);
 
     // Research candidates per station
-    const researchCands = generateResearchCandidates(state, station);
+    const researchCands = generateResearchCandidates(state, station, profile);
     candidates.push(...researchCands);
   }
 
@@ -567,6 +548,15 @@ export async function stepIncreaseIncome(
         `Saving for Shipyard upgrade at ${station.name}`,
         `Shipyard resources for Titan are not reachable at ${station.name}`
       );
+    }
+    if (
+      requirementBlockers(
+        requireSpacecraft('titan').requirements,
+        station.research,
+        stationBuildingLevels(station)
+      ).length > 0
+    ) {
+      return { type: 'blocked', detail: 'research_locked', reason: 'Titan needs research' };
     }
     const titanCrewPreparation = prepareCrewCapacity(
       state,

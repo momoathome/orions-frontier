@@ -53,7 +53,11 @@ import { destroyStation } from './destruction.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import { getUserScannerCoverages, isPointVisible } from '../map/index.js';
 import { calculateStationDefenseScore, creditStationResources } from '../station/index.js';
-import { applyVectorNavigation, effectiveAttackPower } from '../research/index.js';
+import {
+  applyTravelSpeed,
+  getResearchModifiers,
+  getStationResearchModifiers,
+} from '../research/index.js';
 import {
   resolveGameExecutionContext,
   type GameExecutionContext,
@@ -70,10 +74,11 @@ const toReport = (
   row: CombatMissionRow,
   defenderUserId: string,
   arrivesAt: Date,
-  viewerUserId: string
+  viewerUserId: string,
+  signatureAnalysis: boolean
 ): CombatReport => {
-  // The defender learns the composition of an incoming attack only when it arrives.
-  const hidden = row.status === 'traveling' && viewerUserId !== row.userId;
+  // The defender learns the composition of an incoming attack on arrival, or earlier with Signature Analysis.
+  const hidden = row.status === 'traveling' && viewerUserId !== row.userId && !signatureAnalysis;
   return {
     id: row.id,
     attackerStationId: row.attackerStationId,
@@ -190,7 +195,7 @@ export async function startAttack(params: {
       calcDistance(attacker, defender),
       requireSpacecraft(slowest[0]).speed
     );
-    const arrivesAt = await applyVectorNavigation(tx, attacker.id, baseArrivesAt, departedAt);
+    const arrivesAt = await applyTravelSpeed(tx, attacker.id, baseArrivesAt, departedAt);
     const tripId = await insertTrip(tx, {
       id: context.nextId('trip'),
       stationSpacecraftId: required(rowIdByKey.get(slowest[0]), 'slowest group'),
@@ -225,16 +230,20 @@ export async function startAttack(params: {
     defenderStationId: mission.mission.defenderStationId,
     arrivesAt: mission.arrivesAt.toISOString(),
   });
-  return toReport(mission.mission, mission.defenderUserId, mission.arrivesAt, params.userId);
+  return toReport(mission.mission, mission.defenderUserId, mission.arrivesAt, params.userId, false);
 }
 
 export async function getUserCombatReports(
   userId: string,
   options: { since?: Date } = {}
 ): Promise<CombatReport[]> {
-  const rows = await listCombatMissionsByUser(getDb(), userId, options.since);
+  const db = getDb();
+  const [rows, modifiers] = await Promise.all([
+    listCombatMissionsByUser(db, userId, options.since),
+    getResearchModifiers(db, userId),
+  ]);
   return rows.map(({ mission, defenderUserId, arrivesAt }) =>
-    toReport(mission, defenderUserId, arrivesAt, userId)
+    toReport(mission, defenderUserId, arrivesAt, userId, modifiers.signatureAnalysis)
   );
 }
 
@@ -295,24 +304,31 @@ async function resolveOutboundCombat(
 
   // A wave that arrives at a destroyed station finds nothing to fight and turns around.
   if (!defenderStation.destroyedAt) {
+    const [attackerResearch, defenderResearch] = await Promise.all([
+      getStationResearchModifiers(tx, mission.attackerStationId),
+      getStationResearchModifiers(tx, mission.defenderStationId),
+    ]);
     const defenderRows = await listStationSpacecraftsForUpdate(tx, mission.defenderStationId);
     const defenderFleets = defenderRows
-      .map((fleet) => ({ ...fleet, defense: requireSpacecraft(fleet.spacecraftKey).defense }))
+      .map((fleet) => ({
+        ...fleet,
+        defense: requireSpacecraft(fleet.spacecraftKey).defense * defenderResearch.shipDefense,
+      }))
       .sort((a, b) => a.defense - b.defense || a.id.localeCompare(b.id));
     const defenderFleetPower = defenderFleets.reduce(
       (sum, fleet) => sum + Math.max(0, fleet.amount - fleet.lockedAmount) * fleet.defense,
       0
     );
     const defenderPower =
-      defenderFleetPower + (await stationDefenseScore(tx, mission.defenderStationId));
-    let attackerPower = 0;
-    for (const group of groups) {
-      attackerPower +=
-        group.amount *
-        (await effectiveAttackPower(tx, mission.attackerStationId, group.spacecraft.attack));
-    }
+      defenderFleetPower +
+      (await stationDefenseScore(tx, mission.defenderStationId)) * defenderResearch.stationDefense;
+    const attackerPower = groups.reduce(
+      (sum, group) => sum + group.amount * group.spacecraft.attack * attackerResearch.attack,
+      0
+    );
     const attackerDefense = groups.reduce(
-      (sum, group) => sum + group.amount * Math.max(1, group.spacecraft.defense),
+      (sum, group) =>
+        sum + group.amount * Math.max(1, group.spacecraft.defense * attackerResearch.shipDefense),
       0
     );
     // Every group loses the same share, so bombers are neither shielded nor singled out.
@@ -343,7 +359,8 @@ async function resolveOutboundCombat(
     winner = survivorTotal > 0 && attackerPower > defenderPower ? 'attacker' : 'defender';
     if (winner === 'attacker') {
       let cargoLeft = groups.reduce(
-        (sum, group) => sum + (survivors.get(group.key) ?? 0) * group.spacecraft.cargo,
+        (sum, group) =>
+          sum + (survivors.get(group.key) ?? 0) * group.spacecraft.cargo * attackerResearch.cargo,
         0
       );
       const warehouseLevel = await buildingLevel(tx, mission.defenderStationId, 'warehouse');
@@ -483,7 +500,7 @@ async function resolveOutboundCombat(
     calcDistance(defenderStation, attackerStation),
     returning.spacecraft.speed
   );
-  const arrivesAt = await applyVectorNavigation(
+  const arrivesAt = await applyTravelSpeed(
     tx,
     mission.attackerStationId,
     baseArrivesAt,

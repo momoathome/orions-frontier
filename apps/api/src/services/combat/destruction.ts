@@ -28,7 +28,6 @@ import {
   deleteStationBuildings,
   listBuildingLevels,
 } from '../../repositories/station-buildings.js';
-import { deleteStationResearch } from '../../repositories/station-research.js';
 import {
   deleteStationResources,
   listStationResources,
@@ -217,7 +216,6 @@ export async function destroyStation(
   await clearStationSpacecrafts(tx, station.id, now);
   await deleteStationBuildings(tx, station.id);
   await deleteStationResources(tx, station.id);
-  await deleteStationResearch(tx, station.id);
   await deleteBuildOrders(tx, station.id);
   await deleteStationAssignments(tx, station.id);
   await releaseSpawnSlots(tx, station.id);

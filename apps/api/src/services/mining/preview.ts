@@ -12,7 +12,7 @@ import {
 import {
   effectiveCargoCapacity,
   effectiveMiningRate,
-  hasCompletedResearch,
+  getStationResearchModifiers,
 } from '../research/index.js';
 
 export interface MiningPreviewInput {
@@ -54,7 +54,12 @@ export async function getMiningPreview({
     return { ok: false, status: 400, message: `Only ${row.available} miners available` } as const;
   }
 
-  const remainingAmount = await sumAsteroidRemainingAmount(db, asteroidId);
+  const modifiers = await getStationResearchModifiers(db, stationId);
+  const remainingAmount = await sumAsteroidRemainingAmount(
+    db,
+    asteroidId,
+    modifiers.visibleResources
+  );
   const scanned =
     revealedIds.has(asteroidId) ||
     isPointVisible(coverages, { x: row.asteroidX, y: row.asteroidY });
@@ -64,10 +69,9 @@ export async function getMiningPreview({
   );
   const effectiveRate = await effectiveMiningRate(db, stationId, spacecraft.miningRate);
   const effectiveCargo = await effectiveCargoCapacity(db, stationId, spacecraft.cargo);
-  const hasVectorNav = await hasCompletedResearch(db, stationId, 'vector_navigation');
-  const effectiveSpeed = hasVectorNav ? spacecraft.speed / 0.9 : spacecraft.speed;
+  const effectiveSpeed = spacecraft.speed * modifiers.speed;
 
-  const cycle = calculateMiningCycle({
+  const mined = calculateMiningCycle({
     distance,
     speed: effectiveSpeed,
     miningRate: effectiveRate,
@@ -75,6 +79,12 @@ export async function getMiningPreview({
     minerCount,
     remainingAmount,
   });
+  // Deep Core Drilling raises what arrives, not what the asteroid loses.
+  const cycle = {
+    ...mined,
+    deliveryPerHourPerMiner: mined.deliveryPerHourPerMiner * modifiers.yield,
+    totalDeliveryPerHour: mined.totalDeliveryPerHour * modifiers.yield,
+  };
 
   // Blind mining: timing is known, the reserve is not.
   const preview = scanned

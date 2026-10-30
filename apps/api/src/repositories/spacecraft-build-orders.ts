@@ -22,21 +22,12 @@ export function listBuildOrderAmounts(db: QueryDb, stationId: string) {
     .where(eq(spacecraftBuildOrders.stationId, stationId));
 }
 
-/** When the station's queue for that spacecraft ends; null or undefined if it is empty. */
-export async function findLatestBuildOrderEnd(
-  db: QueryDb,
-  stationId: string,
-  spacecraftKey: string
-) {
+/** When the station's shipyard queue ends; null or undefined if it is empty. */
+export async function findLatestBuildOrderEnd(db: QueryDb, stationId: string) {
   const [row] = await db
     .select({ maxEndsAt: max(spacecraftBuildOrders.endsAt) })
     .from(spacecraftBuildOrders)
-    .where(
-      and(
-        eq(spacecraftBuildOrders.stationId, stationId),
-        eq(spacecraftBuildOrders.spacecraftKey, spacecraftKey)
-      )
-    );
+    .where(eq(spacecraftBuildOrders.stationId, stationId));
   return row?.maxEndsAt;
 }
 

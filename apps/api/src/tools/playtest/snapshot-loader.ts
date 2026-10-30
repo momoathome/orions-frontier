@@ -4,11 +4,13 @@ import {
   entriesOf,
   isOneOf,
   defenseUpgradeKeys,
+  type ResearchLevels,
   type ResourceMap,
 } from '@orions-frontier/shared';
 import {
   calculateBuildingEffect,
   calculateInfluence,
+  isResearchKey,
   type InfluenceInput,
 } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
@@ -20,7 +22,7 @@ import { sectors } from '../../lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationResearch } from '../../lib/db/schema/station-research.js';
+import { userResearch } from '../../lib/db/schema/user-research.js';
 import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
@@ -40,10 +42,8 @@ interface StationAccumulator {
   spacecraftByKey: Record<string, number>;
   spacecraftUnits: number;
   lockedSpacecraftUnits: number;
-  completedResearch: number;
   activeBuildingUpgrades: number;
   activeBuildOrders: number;
-  activeResearch: number;
   activeTrips: number;
   activeWorldMissions: number;
   activeCombatMissions: number;
@@ -99,10 +99,8 @@ function emptyStation(): StationAccumulator {
     spacecraftByKey: {},
     spacecraftUnits: 0,
     lockedSpacecraftUnits: 0,
-    completedResearch: 0,
     activeBuildingUpgrades: 0,
     activeBuildOrders: 0,
-    activeResearch: 0,
     activeTrips: 0,
     activeWorldMissions: 0,
     activeCombatMissions: 0,
@@ -217,12 +215,13 @@ export async function loadPlaytestSnapshot(
       .where(inArray(stationSpacecrafts.stationId, stationIds)),
     db
       .select({
-        stationId: stationResearch.stationId,
-        technologyKey: stationResearch.technologyKey,
-        status: stationResearch.status,
+        userId: userResearch.userId,
+        technologyKey: userResearch.technologyKey,
+        level: userResearch.level,
+        completesAt: userResearch.completesAt,
       })
-      .from(stationResearch)
-      .where(inArray(stationResearch.stationId, stationIds)),
+      .from(userResearch)
+      .where(inArray(userResearch.userId, userIds)),
     db
       .select({ stationId: spacecraftBuildOrders.stationId })
       .from(spacecraftBuildOrders)
@@ -304,7 +303,7 @@ export async function loadPlaytestSnapshot(
     );
   }
   const influenceInputs = new Map<string, InfluenceInput>(
-    stationIds.map((id) => [id, { levels: [], completedResearch: [], spacecrafts: [] }])
+    stationIds.map((id) => [id, { levels: [], research: {}, spacecrafts: [] }])
   );
   for (const building of buildingRows) {
     influenceInputs
@@ -316,15 +315,18 @@ export async function loadPlaytestSnapshot(
       .get(spacecraft.stationId)
       ?.spacecrafts.push({ key: spacecraft.spacecraftKey, amount: spacecraft.amount });
   }
+  // Research is account-wide, so it counts per bot, not per station.
+  const researchByUser = new Map<
+    string,
+    { levels: ResearchLevels; completed: number; active: number }
+  >();
   for (const research of researchRows) {
-    if (research.status === 'completed') {
-      influenceInputs.get(research.stationId)?.completedResearch.push(research.technologyKey);
-    }
-    incrementStation(
-      byStation,
-      research.stationId,
-      research.status === 'completed' ? 'completedResearch' : 'activeResearch'
-    );
+    const entry = researchByUser.get(research.userId) ?? { levels: {}, completed: 0, active: 0 };
+    if (isResearchKey(research.technologyKey))
+      entry.levels[research.technologyKey] = research.level;
+    entry.completed += research.level;
+    if (research.completesAt) entry.active += 1;
+    researchByUser.set(research.userId, entry);
   }
   for (const order of buildOrderRows) {
     incrementStation(byStation, order.stationId, 'activeBuildOrders');
@@ -375,18 +377,18 @@ export async function loadPlaytestSnapshot(
       const owned = stationSnapshots.filter(
         (station) => station.ownerAlias === aliases.user(userId)
       );
-      const activeWork = owned.reduce(
-        (sum, station) =>
-          sum +
-          station.activeBuildingUpgrades +
-          station.activeBuildOrders +
-          station.activeResearch +
-          station.activeTrips +
-          station.activeWorldMissions +
-          station.activeCombatMissions +
-          station.activeSalvageMissions,
-        0
-      );
+      const activeWork =
+        owned.reduce(
+          (sum, station) =>
+            sum +
+            station.activeBuildingUpgrades +
+            station.activeBuildOrders +
+            station.activeTrips +
+            station.activeWorldMissions +
+            station.activeCombatMissions +
+            station.activeSalvageMissions,
+          0
+        ) + (researchByUser.get(userId)?.active ?? 0);
       const values = {
         stationCount: owned.length,
         resourceUnits: owned.reduce((sum, station) => sum + station.resourceUnits, 0),
@@ -395,12 +397,10 @@ export async function loadPlaytestSnapshot(
           (sum, station) => sum + station.lockedSpacecraftUnits,
           0
         ),
-        completedResearch: owned.reduce((sum, station) => sum + station.completedResearch, 0),
+        completedResearch: researchByUser.get(userId)?.completed ?? 0,
         influence: calculateInfluence({
           levels: ownedStations.flatMap((station) => influenceInputs.get(station.id)?.levels ?? []),
-          completedResearch: ownedStations.flatMap(
-            (station) => influenceInputs.get(station.id)?.completedResearch ?? []
-          ),
+          research: researchByUser.get(userId)?.levels ?? {},
           spacecrafts: ownedStations.flatMap(
             (station) => influenceInputs.get(station.id)?.spacecrafts ?? []
           ),

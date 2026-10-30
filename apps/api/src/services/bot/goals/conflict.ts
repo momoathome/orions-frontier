@@ -11,7 +11,7 @@ import {
   scoreConflictTarget,
 } from '../conflict-intel.js';
 import { availableFighterAttack, wasRecentlyAttacked } from './military.js';
-import { hasActiveMining } from './shared.js';
+import { hasActiveMining, stationModifiers } from './shared.js';
 
 // ---------------------------------------------------------------------------
 // Raid & Retaliate
@@ -44,13 +44,7 @@ function smallestSufficientGroup(
       spacecraftKey: f.spacecraftKey,
       available: f.amount - f.lockedAmount,
       attackPerShip: Math.floor(
-        (getSpacecraft(f.spacecraftKey)?.attack ?? 0) *
-          (station.research.some(
-            (research) =>
-              research.technologyKey === 'combat_analytics' && research.status === 'completed'
-          )
-            ? 1.1
-            : 1)
+        (getSpacecraft(f.spacecraftKey)?.attack ?? 0) * stationModifiers(station).attack
       ),
     }))
     .filter((f) => f.attackPerShip > 0)

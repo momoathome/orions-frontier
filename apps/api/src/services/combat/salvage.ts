@@ -41,7 +41,7 @@ import {
   visibleChunkBounds,
 } from '../map/index.js';
 import { creditStationResources } from '../station/index.js';
-import { applyVectorNavigation, effectiveCargoCapacity } from '../research/index.js';
+import { applyTravelSpeed, effectiveCargoCapacity } from '../research/index.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -204,7 +204,7 @@ export async function startSalvage(
       toX: debris.x,
       toY: debris.y,
       departedAt,
-      arrivesAt: await applyVectorNavigation(
+      arrivesAt: await applyTravelSpeed(
         tx,
         station.id,
         calcArrivesAt(departedAt, calcDistance(station, debris), spacecraft.speed),
@@ -272,7 +272,7 @@ async function resolveSalvageOutbound(
     toX: station.x,
     toY: station.y,
     departedAt,
-    arrivesAt: await applyVectorNavigation(
+    arrivesAt: await applyTravelSpeed(
       tx,
       mission.stationId,
       calcArrivesAt(departedAt, calcDistance(debris, station), spacecraft.speed),

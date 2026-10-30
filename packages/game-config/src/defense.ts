@@ -20,6 +20,7 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
     baseBuildTime: 75,
     maxLevel: 15,
     startingLevel: 0,
+    requirements: {},
   },
   {
     key: 'guardian_cannon',
@@ -29,6 +30,7 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
     baseBuildTime: 120,
     maxLevel: 12,
     startingLevel: 0,
+    requirements: { research: { weapons: 4, shields: 2 }, buildings: { core: 5 } },
   },
   {
     key: 'defense_drones',
@@ -38,6 +40,7 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
     baseBuildTime: 90,
     maxLevel: 15,
     startingLevel: 0,
+    requirements: { research: { weapons: 1 }, buildings: { core: 2 } },
   },
   {
     key: 'minefield',
@@ -47,6 +50,7 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
     baseBuildTime: 105,
     maxLevel: 12,
     startingLevel: 0,
+    requirements: { research: { weapons: 2, sensor_arrays: 1 }, buildings: { core: 3 } },
   },
 ];
 
