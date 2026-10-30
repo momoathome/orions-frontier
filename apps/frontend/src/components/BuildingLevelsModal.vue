@@ -4,7 +4,6 @@ import {
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   calculateBuildingUpgradeCost,
-  getSpacecraft,
 } from '@orions-frontier/game-config';
 import type { BuildingKey } from '@orions-frontier/shared';
 import { formatBuildingEffect, formatBuildTime } from '../lib/format';
@@ -39,9 +38,7 @@ const rows = computed(() => {
       ),
       costs: level > 1 ? calculateBuildingUpgradeCost(key, level) : [],
       buildTime: level > 1 ? formatBuildTime(calculateBuildingBuildTime(key, level)) : null,
-      unlocks: (current.unlockMilestones[level] ?? []).map(
-        (spacecraftKey) => getSpacecraft(spacecraftKey)?.name ?? spacecraftKey
-      ),
+      unlocks: current.unlockMilestones[level] ?? [],
       state: stateFor(level, current.level, current.isUpgrading),
     };
   });
@@ -163,7 +160,9 @@ watch(
           </tbody>
         </table>
       </div>
-      <p class="text-xs text-ui-dim">Build times before Core and research speed-ups.</p>
+      <p class="text-xs text-ui-dim">
+        Build times before Core and Construction Robotics speed-ups.
+      </p>
     </div>
   </UiModal>
 </template>

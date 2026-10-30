@@ -16,6 +16,7 @@ const TYPE_STYLE: Record<LogbookEntryType, { label: string; dot: string }> = {
   building_completed: { label: 'Building', dot: 'bg-cyan-400' },
   defense_completed: { label: 'Defense', dot: 'bg-sky-400' },
   spacecraft_completed: { label: 'Shipyard', dot: 'bg-indigo-400' },
+  miners_assigned: { label: 'Mining', dot: 'bg-yellow-300' },
   research_completed: { label: 'Research', dot: 'bg-green-400' },
   world_mission_completed: { label: 'Mission', dot: 'bg-amber-300' },
   colony_established: { label: 'Colony', dot: 'bg-amber-400' },
@@ -58,6 +59,7 @@ const unsubscribers = [
   wsClient.on('defense_upgrade_completed', scheduleLoad),
   wsClient.on('spacecraft_build_completed', scheduleLoad),
   wsClient.on('world_mission_completed', scheduleLoad),
+  wsClient.on('research_completed', scheduleLoad),
   wsClient.on('transport_tick_completed', scheduleLoad),
 ];
 onUnmounted(() => {

@@ -1,35 +1,48 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { calculateColonizationCost, resources } from '@orions-frontier/game-config';
+import { resources } from '@orions-frontier/game-config';
 import {
   entriesOf,
-  type KnownSector,
+  type FrontierResponse,
   type FrontierTarget,
+  type KnownSector,
   type WorldMission,
 } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
+import { useResearchStore } from '../stores/research.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
-const frontier = ref<FrontierTarget[]>([]);
+const research = useResearchStore();
+const frontier = ref<FrontierResponse | null>(null);
 const sectors = ref<KnownSector[]>([]);
 const missions = ref<WorldMission[]>([]);
 const colonyName = ref('Frontier Outpost');
 const busy = ref(false);
 const error = ref<string | null>(null);
-let unsubscribe: (() => void) | null = null;
+let unsubscribers: (() => void)[] = [];
 
 const colonizable = computed(() =>
   sectors.value.filter((sector) => sector.role === 'frontier' && !sector.hasOwnStation)
 );
-// Each own station sits in its own sector, so this counts the stations the cost scales with.
 const colonizationCostLabel = computed(() =>
-  entriesOf(
-    calculateColonizationCost(sectors.value.filter((sector) => sector.hasOwnStation).length)
-  )
+  entriesOf(frontier.value?.colonization.cost ?? {})
     .map(([resourceKey, amount]) => `${amount.toLocaleString()} ${resources[resourceKey].name}`)
     .join(', ')
 );
+// The server enforces both limits; these only explain a disabled button.
+const exploreBlocker = computed(() => {
+  const expeditions = frontier.value?.expeditions;
+  if (!expeditions) return null;
+  if (!expeditions.canExplore) return 'research';
+  return expeditions.active >= expeditions.limit
+    ? `Expedition limit reached (${expeditions.active}/${expeditions.limit})`
+    : null;
+});
+const colonyLimitReached = computed(() => {
+  const colonization = frontier.value?.colonization;
+  return colonization ? colonization.stations >= colonization.limit : false;
+});
 
 const formatDuration = (hours: number | null) => {
   if (hours === null) return 'no ship available';
@@ -39,7 +52,7 @@ const formatDuration = (hours: number | null) => {
 
 async function load() {
   const [frontierResponse, sectorResponse, missionResponse] = await Promise.all([
-    apiClient.get<FrontierTarget[]>('/world/frontier', {
+    apiClient.get<FrontierResponse>('/world/frontier', {
       params: { stationId },
     }),
     apiClient.get<KnownSector[]>('/world/sectors', {
@@ -88,23 +101,46 @@ onMounted(async () => {
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Frontier data could not be loaded');
   }
-  unsubscribe = wsClient.on('world_mission_completed', () => {
+  const reload = () => {
     void load().catch((cause: unknown) => {
       error.value = apiErrorMessage(cause, 'Frontier data could not be loaded');
     });
-  });
+  };
+  unsubscribers = [
+    wsClient.on('world_mission_completed', reload),
+    wsClient.on('research_completed', reload),
+  ];
 });
 
-onUnmounted(() => unsubscribe?.());
+onUnmounted(() => {
+  for (const unsubscribe of unsubscribers) unsubscribe();
+});
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-auto px-[18px] py-4">
     <section>
       <h3 class="mb-2 text-xs uppercase tracking-[0.28em] text-cyan-300/70">Unknown frontier</h3>
+      <p v-if="frontier" class="mb-2 text-xs text-ui-muted">
+        Expeditions
+        <span class="ui-num text-ui-text"
+          >{{ frontier.expeditions.active }}/{{ frontier.expeditions.limit }}</span
+        >
+      </p>
+      <p v-if="exploreBlocker === 'research'" class="mb-2 text-xs text-ui-amber">
+        Requires
+        <button
+          type="button"
+          class="text-ui-cyan hover:underline"
+          @click="research.openView('long_range_survey')"
+        >
+          Long-Range Survey</button
+        >.
+      </p>
+      <p v-else-if="exploreBlocker" class="mb-2 text-xs text-ui-amber">{{ exploreBlocker }}</p>
       <div class="space-y-2">
         <div
-          v-for="target in frontier.slice(0, 8)"
+          v-for="target in frontier?.targets.slice(0, 8) ?? []"
           :key="`${target.sectorX}:${target.sectorY}`"
           class="flex items-center justify-between rounded border border-ui-line bg-white/3 p-2"
         >
@@ -115,7 +151,7 @@ onUnmounted(() => unsubscribe?.());
           <button
             type="button"
             class="rounded border border-cyan-400/25 px-2 py-1 text-xs text-cyan-200 disabled:opacity-30"
-            :disabled="busy || target.travelHours === null"
+            :disabled="busy || exploreBlocker !== null || target.travelHours === null"
             @click="explore(target)"
           >
             Explore
@@ -132,6 +168,22 @@ onUnmounted(() => unsubscribe?.());
         class="mb-2 w-full rounded border border-ui-line-strong bg-white/5 px-2 py-1 text-xs"
       />
       <p class="mb-2 text-xs text-ui-muted">Cost: {{ colonizationCostLabel }}</p>
+      <p v-if="frontier" class="mb-2 text-xs text-ui-muted">
+        Colonies
+        <span class="ui-num text-ui-text"
+          >{{ frontier.colonization.stations }}/{{ frontier.colonization.limit }}</span
+        >
+      </p>
+      <p v-if="colonyLimitReached" class="mb-2 text-xs text-ui-amber">
+        Colony limit reached. Raise it with
+        <button
+          type="button"
+          class="text-ui-cyan hover:underline"
+          @click="research.openView('colony_logistics')"
+        >
+          Colony Logistics</button
+        >.
+      </p>
       <div class="space-y-2">
         <div
           v-for="sector in colonizable.slice(0, 8)"
@@ -147,7 +199,7 @@ onUnmounted(() => unsubscribe?.());
           <button
             type="button"
             class="rounded border border-amber-400/25 px-2 py-1 text-xs text-amber-200 disabled:opacity-30"
-            :disabled="busy || !colonyName || sector.travelHours === null"
+            :disabled="busy || colonyLimitReached || !colonyName || sector.travelHours === null"
             @click="colonize(sector)"
           >
             Colonize

@@ -4,7 +4,6 @@ import BuildingsTab from './BuildingsTab.vue';
 import FleetTab from './FleetTab.vue';
 import LogisticsTab from './LogisticsTab.vue';
 import FrontierTab from './FrontierTab.vue';
-import ResearchTab from './ResearchTab.vue';
 import DefenseTab from './DefenseTab.vue';
 import { stationSections, useOverviewStore, type StationSection } from '../stores/overview.js';
 import { formatCountdown } from '../lib/format.js';
@@ -22,7 +21,6 @@ const LABELS: Record<StationSection, string> = {
   buildings: 'Buildings',
   fleet: 'Fleet',
   logistics: 'Logistics',
-  research: 'Research',
   frontier: 'Frontier',
   defense: 'Defense',
 };
@@ -112,11 +110,6 @@ const hangar = computed(() => overview.state.details[stationId]?.fleet?.hangar ?
     />
     <FrontierTab
       v-if="section === 'frontier'"
-      :station-id="stationId"
-      class="flex-1 overflow-hidden"
-    />
-    <ResearchTab
-      v-if="section === 'research'"
       :station-id="stationId"
       class="flex-1 overflow-hidden"
     />

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue';
+import { getSpacecraft } from '@orions-frontier/game-config';
 import {
   getCostShortfall,
   type CombatReport,
@@ -9,7 +10,9 @@ import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { formatBuildTime, formatCountdown, formatShortfall } from '../lib/format';
 import { useOverviewStore } from '../stores/overview.js';
+import ConfirmCancelButton from './ConfirmCancelButton.vue';
 import CostList from './CostList.vue';
+import RequirementChips from './RequirementChips.vue';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const reports = ref<CombatReport[]>([]);
@@ -17,6 +20,7 @@ const upgrades = ref<StationDefenseUpgradeWithDefinition[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const upgrading = ref<string | null>(null);
+const cancelling = ref<string | null>(null);
 const overview = useOverviewStore();
 const now = computed(() => overview.state.now);
 const stock = computed(() => overview.state.details[stationId]?.resources ?? null);
@@ -35,6 +39,13 @@ const incomingAttacks = computed(() =>
 
 function arrivesIn(report: CombatReport): string {
   return formatCountdown(Date.parse(report.arrivesAt), now.value);
+}
+
+/** Signature Analysis reveals the incoming fleet to the defender; otherwise it stays unknown. */
+function incomingComposition(report: CombatReport): string {
+  const fleet = Object.entries(report.attackerFleet ?? {}).filter(([, amount]) => amount > 0);
+  if (fleet.length === 0) return 'composition unknown';
+  return fleet.map(([key, amount]) => `${amount}× ${getSpacecraft(key)?.name ?? key}`).join(', ');
 }
 
 function reportSummary(report: CombatReport): string {
@@ -65,16 +76,24 @@ const cards = computed(() =>
       stock.value?.rates ?? {}
     );
     const maxed = upgrade.level >= upgrade.definition.maxLevel;
+    const locked = upgrade.blockers.length > 0;
     const endsAt = upgrade.upgradeEndsAt ? Date.parse(upgrade.upgradeEndsAt) : null;
     const upgradingNow = upgrade.isUpgrading && endsAt !== null && endsAt > now.value;
-    const affordable = !maxed && shortfall.missing.length === 0;
+    const affordable = !maxed && !locked && shortfall.missing.length === 0;
     const durationMs = (upgrade.upgradeDurationSeconds ?? 0) * 1_000;
     return {
       upgrade,
       maxed,
+      locked,
       affordable,
       upgradingNow,
-      accent: upgradingNow ? 'border-[#5a4317]' : affordable ? 'border-rose-400/35' : '',
+      accent: upgradingNow
+        ? 'border-[#5a4317]'
+        : affordable
+          ? 'border-rose-400/35'
+          : locked
+            ? 'opacity-60'
+            : '',
       endsAt,
       progress:
         endsAt && durationMs > 0
@@ -124,6 +143,18 @@ async function startUpgrade(upgrade: StationDefenseUpgradeWithDefinition): Promi
   }
 }
 
+async function cancelUpgrade(upgrade: StationDefenseUpgradeWithDefinition): Promise<void> {
+  cancelling.value = upgrade.definition.key;
+  try {
+    await apiClient.delete(`/stations/${stationId}/defense/${upgrade.definition.key}/upgrade`);
+    await Promise.all([load(), overview.refreshStation(stationId)]);
+  } catch (cause) {
+    error.value = apiErrorMessage(cause, 'Defense upgrade could not be cancelled');
+  } finally {
+    cancelling.value = null;
+  }
+}
+
 // The defender gets no event when a battle resolves, so reload once at the next arrival.
 let arrivalTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleNextArrival() {
@@ -144,6 +175,7 @@ const unsubscribe = [
   wsClient.on('incoming_attack', () => void load()),
   wsClient.on('defense_upgrade_completed', () => void load()),
   wsClient.on('world_mission_completed', () => void load()),
+  wsClient.on('research_completed', () => void load()),
 ];
 onUnmounted(() => {
   for (const off of unsubscribe) off();
@@ -168,7 +200,7 @@ onUnmounted(() => {
         :key="report.id"
         class="flex justify-between gap-3 rounded-lg border border-[#6b2f2c] bg-[#2a1214] px-3 py-2.5 text-ui-red"
       >
-        <span>Hostile fleet inbound, composition unknown</span>
+        <span>Hostile fleet inbound, {{ incomingComposition(report) }}</span>
         <span class="ui-num font-semibold">{{ arrivesIn(report) }}</span>
       </div>
     </template>
@@ -196,6 +228,9 @@ onUnmounted(() => {
         <span v-else-if="card.maxed" class="rounded bg-ui-line px-2 py-0.5 text-xs text-ui-muted"
           >Max level</span
         >
+        <span v-else-if="card.locked" class="rounded bg-ui-line px-2 py-0.5 text-xs text-ui-muted"
+          >Locked</span
+        >
         <span
           v-else-if="card.affordable"
           class="rounded bg-rose-500/10 px-2 py-0.5 text-xs text-rose-200"
@@ -222,11 +257,19 @@ onUnmounted(() => {
             :style="{ width: `${card.progress}%` }"
           />
         </div>
-        <span class="text-[13px] text-ui-soft">
-          Lv. {{ card.upgrade.level + 1 }} done in
-          <strong class="ui-num text-ui-amber">{{ formatCountdown(card.endsAt, now) }}</strong>
-        </span>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-[13px] text-ui-soft">
+            Lv. {{ card.upgrade.level + 1 }} done in
+            <strong class="ui-num text-ui-amber">{{ formatCountdown(card.endsAt, now) }}</strong>
+          </span>
+          <ConfirmCancelButton
+            :busy="cancelling === card.upgrade.definition.key"
+            @confirm="cancelUpgrade(card.upgrade)"
+          />
+        </div>
       </div>
+
+      <RequirementChips v-else-if="card.locked" :blockers="card.upgrade.blockers" />
 
       <template v-else-if="!card.maxed">
         <div class="flex items-center justify-between gap-3">

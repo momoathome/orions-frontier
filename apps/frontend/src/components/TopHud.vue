@@ -3,36 +3,54 @@ import { computed } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { resourceKeys } from '@orions-frontier/shared';
 import { useOverviewStore } from '../stores/overview.js';
-import { formatAmount } from '../lib/format.js';
+import { useResearchStore } from '../stores/research.js';
+import { formatAmount, formatCountdown } from '../lib/format.js';
 import { resourceColor } from '../lib/mining-utils.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const emit = defineEmits<{ logbook: []; ranking: [] }>();
 const overview = useOverviewStore();
+const research = useResearchStore();
 
 const summary = computed(() => overview.state.details[stationId]?.resources ?? null);
 const entries = computed(() => {
   const value = summary.value;
   if (!value) return [];
-  return resourceKeys
-    .filter((key) => value.resources[key] !== undefined)
-    .map((key) => {
-      const amount = value.resources[key] ?? 0;
-      const fill = value.storageCapacity > 0 ? amount / value.storageCapacity : 0;
-      return {
-        key,
-        name: resources[key].name,
-        image: resources[key].image,
-        amount,
-        capacity: value.storageCapacity,
-        // Expected mining income, the same figure as the Logistics tab.
-        rate: overview.state.details[stationId]?.income?.perHour[key] ?? 0,
-        fill: Math.min(1, fill),
-        barColor: fill >= 0.9 ? 'var(--color-ui-amber)' : resourceColor(key),
-      };
-    });
+  return (
+    resourceKeys
+      // Kyber and Astatine stay hidden until Spectral scans reveal them or the station holds some.
+      .filter(
+        (key) =>
+          value.resources[key] !== undefined &&
+          (research.modifiers.visibleResources.includes(key) || (value.resources[key] ?? 0) > 0)
+      )
+      .map((key) => {
+        const amount = value.resources[key] ?? 0;
+        const fill = value.storageCapacity > 0 ? amount / value.storageCapacity : 0;
+        return {
+          key,
+          name: resources[key].name,
+          image: resources[key].image,
+          amount,
+          capacity: value.storageCapacity,
+          // Expected mining income, the same figure as the Logistics tab.
+          rate: overview.state.details[stationId]?.income?.perHour[key] ?? 0,
+          fill: Math.min(1, fill),
+          barColor: fill >= 0.9 ? 'var(--color-ui-amber)' : resourceColor(key),
+        };
+      })
+  );
 });
 const rank = computed(() => overview.state.ranking?.me ?? null);
+const runningResearch = computed(() => {
+  const tech = research.running[0];
+  return tech?.completesAt
+    ? {
+        name: tech.definition.name,
+        countdown: formatCountdown(Date.parse(tech.completesAt), overview.state.now),
+      }
+    : null;
+});
 </script>
 
 <template>
@@ -88,6 +106,19 @@ const rank = computed(() => overview.state.ranking?.me ?? null);
     </ul>
 
     <nav class="flex shrink-0 items-center gap-2">
+      <button type="button" class="ui-btn" @click="research.openView()">
+        Research
+        <template v-if="runningResearch">
+          <span class="hidden max-w-[140px] truncate text-xs font-normal text-ui-soft xl:inline">{{
+            runningResearch.name
+          }}</span>
+          <span
+            class="ui-num text-xs text-ui-amber"
+            :title="`${runningResearch.name} in progress`"
+            >{{ runningResearch.countdown }}</span
+          >
+        </template>
+      </button>
       <button type="button" class="ui-btn" @click="emit('logbook')">
         Logbook
         <span

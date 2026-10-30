@@ -35,6 +35,7 @@ const unsubscribers = [
   wsClient.on('defense_upgrade_completed', scheduleLoad),
   wsClient.on('spacecraft_build_completed', scheduleLoad),
   wsClient.on('world_mission_completed', scheduleLoad),
+  wsClient.on('research_completed', scheduleLoad),
 ];
 onUnmounted(() => {
   scheduleLoad.cancel();

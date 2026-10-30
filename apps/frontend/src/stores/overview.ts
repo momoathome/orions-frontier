@@ -13,12 +13,14 @@ import {
   type StationBuildingWithDefinition,
   type StationSpacecraftsResponse,
   type UserResourceSummary,
+  type ResearchKey,
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
 import { apiClient } from '../lib/api-client.js';
 import { wsClient } from '../lib/ws-client.js';
 import { debounced } from '../lib/debounce.js';
 import { resourceName } from '../lib/mining-utils.js';
+import { useResearchStore } from './research.js';
 
 /** Row of GET /me/trips. */
 export interface OverviewTrip {
@@ -41,14 +43,7 @@ export interface StationDetail {
   income: StationIncome | null;
 }
 
-export const stationSections = [
-  'buildings',
-  'fleet',
-  'logistics',
-  'research',
-  'frontier',
-  'defense',
-] as const;
+export const stationSections = ['buildings', 'fleet', 'logistics', 'frontier', 'defense'] as const;
 export type StationSection = (typeof stationSections)[number];
 
 export type AlertTone = 'danger' | 'warning' | 'info';
@@ -61,15 +56,22 @@ export interface Alert {
   section: StationSection;
 }
 
-export interface Operation {
+interface OperationBase {
   id: string;
-  kind: 'outbound' | 'mining' | 'returning' | 'mission' | 'build';
   title: string;
   detail: string;
-  stationId: string;
-  section: StationSection;
   endsAt: number;
 }
+/** Station work opens its station section; research is account-wide and opens the research view. */
+export type Operation = OperationBase &
+  (
+    | {
+        kind: 'outbound' | 'mining' | 'returning' | 'mission' | 'build';
+        stationId: string;
+        section: StationSection;
+      }
+    | { kind: 'research'; research: ResearchKey }
+  );
 
 const LOGBOOK_SEEN_KEY = 'logbook_seen_at';
 const STORAGE_WARNING = 0.9;
@@ -192,6 +194,7 @@ function start(): () => void {
         scheduleProgress();
       }),
       wsClient.on('world_mission_completed', scheduleAll),
+      wsClient.on('research_completed', scheduleProgress),
       wsClient.on('incoming_attack', () => void refreshCombats()),
     ];
     stopSync = () => {
@@ -207,7 +210,7 @@ function start(): () => void {
   };
 }
 
-/** Running building upgrades and spacecraft orders of one station. */
+/** Running building upgrades and spacecraft orders of one station; research is account-wide. */
 function stationQueue(id: string): { count: number; nextEndsAt: number | null } {
   const detail = state.details[id];
   const endsAt = [
@@ -329,8 +332,20 @@ const MISSION_TITLES: Partial<Record<WorldTripPurpose, string>> = {
   relocate: 'Station relocating',
 };
 
+const research = useResearchStore();
+
 const operations = computed<Operation[]>(() => {
   const list: Operation[] = [];
+  for (const tech of research.running) {
+    list.push({
+      id: `research:${tech.definition.key}`,
+      kind: 'research',
+      title: `${tech.definition.name} ${tech.level + 1}`,
+      detail: 'Research',
+      research: tech.definition.key,
+      endsAt: Date.parse(tech.completesAt ?? ''),
+    });
+  }
   for (const trip of state.trips) {
     const timing = {
       purpose: trip.purpose,

@@ -1,9 +1,19 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 
-const { title, eyebrow, wide } = defineProps<{ title: string; eyebrow?: string; wide?: boolean }>();
+// `full` is for content that needs the whole screen, like the research graph; it brings no padding.
+const { title, eyebrow, wide, full } = defineProps<{
+  title: string;
+  eyebrow?: string;
+  wide?: boolean;
+  full?: boolean;
+}>();
 const emit = defineEmits<{ close: [] }>();
 defineSlots<{ default(): unknown }>();
+const sectionClass = computed(() => {
+  if (full) return 'h-full sm:h-[92vh] sm:max-w-[1440px] sm:rounded-xl';
+  return ['max-h-[85vh] rounded-xl', wide ? 'max-w-[720px]' : 'max-w-[520px]'];
+});
 
 const onKey = (event: KeyboardEvent) => {
   if (event.key === 'Escape') emit('close');
@@ -19,15 +29,16 @@ onUnmounted(() => {
 <template>
   <Teleport to="body">
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-[#02050b]/70 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-[#02050b]/70 backdrop-blur-sm"
+      :class="full ? 'sm:p-4' : 'p-4'"
       @click.self="emit('close')"
     >
       <section
         role="dialog"
         aria-modal="true"
         :aria-label="title"
-        class="flex max-h-[85vh] w-full flex-col rounded-xl border border-ui-line-strong bg-ui-panel text-left text-sm text-ui-text shadow-2xl shadow-black/50"
-        :class="wide ? 'max-w-[720px]' : 'max-w-[520px]'"
+        class="flex w-full flex-col border border-ui-line-strong bg-ui-panel text-left text-sm text-ui-text shadow-2xl shadow-black/50"
+        :class="sectionClass"
       >
         <header class="flex items-start justify-between gap-4 border-b border-ui-line px-5 py-4">
           <div class="flex flex-col gap-1">
@@ -43,7 +54,7 @@ onUnmounted(() => {
             ✕
           </button>
         </header>
-        <div class="flex-1 overflow-y-auto px-5 py-4">
+        <div class="min-h-0 flex-1" :class="full ? 'overflow-hidden' : 'overflow-y-auto px-5 py-4'">
           <slot />
         </div>
       </section>

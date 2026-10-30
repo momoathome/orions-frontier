@@ -6,6 +6,7 @@ import {
   type Operation,
   type StationSection,
 } from '../stores/overview.js';
+import { useResearchStore } from '../stores/research.js';
 import { formatAgo, formatCountdown } from '../lib/format.js';
 
 const { activeStationId } = defineProps<{ activeStationId: string }>();
@@ -14,6 +15,7 @@ const emit = defineEmits<{
   logbook: [];
 }>();
 const overview = useOverviewStore();
+const research = useResearchStore();
 
 // Caps keep the column readable with many stations; the rest is one click away.
 const ALERT_LIMIT = 4;
@@ -50,7 +52,13 @@ const OPERATION_DOT: Record<Operation['kind'], string> = {
   returning: 'bg-ui-orange',
   mission: 'bg-ui-purple',
   build: 'bg-ui-cyan',
+  research: 'bg-ui-green',
 };
+
+function openOperation(op: Operation) {
+  if (op.kind === 'research') research.openView(op.research);
+  else emit('open', op.stationId, op.section);
+}
 
 function queueLabel(stationId: string): string {
   const queue = overview.stationQueue(stationId);
@@ -174,7 +182,7 @@ function queueLabel(stationId: string): string {
         :key="op.id"
         type="button"
         class="-mx-2 flex items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-ui-card"
-        @click="emit('open', op.stationId, op.section)"
+        @click="openOperation(op)"
       >
         <span class="h-2 w-2 shrink-0 rounded-full" :class="OPERATION_DOT[op.kind]" />
         <span class="flex min-w-0 flex-1 flex-col">

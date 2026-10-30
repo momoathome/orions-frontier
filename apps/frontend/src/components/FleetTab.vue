@@ -22,6 +22,7 @@ const fleetError = ref<string | null>(null);
 const roleFilter = ref<SpacecraftRole | 'all'>('all');
 const activeShip = ref<StationSpacecraftWithDefinition | null>(null);
 const hangar = ref({ used: 0, capacity: 0 });
+const productionSlots = ref(1);
 
 const uniqueRoles = computed(() => [...new Set(fleet.value.map((e) => e.definition.role))]);
 
@@ -123,6 +124,7 @@ async function loadFleet(force = false) {
     );
     fleet.value = response.spacecrafts;
     hangar.value = response.hangar;
+    productionSlots.value = response.productionSlots;
     const activeKey = activeShip.value?.definition.key;
     activeShip.value =
       fleet.value.find((e) => e.definition.key === activeKey) ??
@@ -168,9 +170,11 @@ const unsubscribeBuild = wsClient.on('spacecraft_build_completed', (payload) => 
 const reloadFleet = debounced(() => loadFleet(true), 500);
 const unsubscribeMining = wsClient.on('mining_tick_completed', reloadFleet);
 const unsubscribeTransport = wsClient.on('transport_tick_completed', reloadFleet);
+// Hangar, Shipyard and research change crew slots, production slots and which ships unlock.
 const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) => {
-  if (payload.stationId === stationId && payload.buildingKey === 'hangar') void loadFleet(true);
+  if (payload.stationId === stationId) void loadFleet(true);
 });
+const unsubscribeResearch = wsClient.on('research_completed', reloadFleet);
 
 onUnmounted(() => {
   reloadFleet.cancel();
@@ -178,6 +182,7 @@ onUnmounted(() => {
   unsubscribeMining();
   unsubscribeTransport();
   unsubscribeBuilding();
+  unsubscribeResearch();
 });
 </script>
 
@@ -227,11 +232,12 @@ onUnmounted(() => {
           <button
             type="button"
             class="flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition"
-            :class="
+            :class="[
               activeShip?.definition.key === entry.definition.key
                 ? 'border-ui-line-strong bg-ui-card'
-                : 'border-transparent hover:border-ui-line hover:bg-ui-card/60'
-            "
+                : 'border-transparent hover:border-ui-line hover:bg-ui-card/60',
+              entry.blockers.length > 0 && entry.amount === 0 ? 'opacity-50' : '',
+            ]"
             :aria-pressed="activeShip?.definition.key === entry.definition.key"
             @click="activeShip = entry"
           >
@@ -249,7 +255,10 @@ onUnmounted(() => {
             />
             <span class="flex min-w-0 flex-1 flex-col">
               <span class="truncate font-semibold text-ui-bright">{{ entry.definition.name }}</span>
-              <span class="text-xs capitalize text-ui-muted">{{ entry.definition.role }}</span>
+              <span class="text-xs capitalize text-ui-muted"
+                >{{ entry.definition.role
+                }}<template v-if="entry.blockers.length > 0">, locked</template></span
+              >
             </span>
             <span class="flex shrink-0 flex-col items-end">
               <span
@@ -342,7 +351,13 @@ onUnmounted(() => {
           </dl>
         </section>
 
-        <BuildForm :station-id="stationId" :ship="activeShip" :hangar="hangar" @built="onBuilt" />
+        <BuildForm
+          :station-id="stationId"
+          :ship="activeShip"
+          :hangar="hangar"
+          :production-slots="productionSlots"
+          @built="onBuilt"
+        />
       </template>
     </div>
 
@@ -351,7 +366,12 @@ onUnmounted(() => {
       v-if="visibleOrders.length > 0"
       class="flex shrink-0 items-center gap-2 overflow-x-auto border-t border-ui-line px-[18px] py-2.5"
     >
-      <span class="ui-label shrink-0">Queue</span>
+      <span class="ui-label shrink-0"
+        >Queue
+        <span class="ui-num normal-case tracking-normal text-ui-dim"
+          >{{ productionSlots }} {{ productionSlots === 1 ? 'slot' : 'slots' }}</span
+        ></span
+      >
       <div
         v-for="(order, i) in visibleOrders"
         :key="order.id"

@@ -9,11 +9,14 @@ import SituationPanel from '../components/SituationPanel.vue';
 import UiModal from '../components/UiModal.vue';
 import LogbookTab from '../components/LogbookTab.vue';
 import RankingTab from '../components/RankingTab.vue';
+import ResearchTree from '../components/research/ResearchTree.vue';
+import ResearchDetail from '../components/research/ResearchDetail.vue';
 import { stationSections, useOverviewStore, type StationSection } from '../stores/overview.js';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
 import { useAuthStore } from '../stores/auth.js';
+import { useResearchStore } from '../stores/research.js';
 import { WorldRenderer } from '../lib/world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from '../lib/world/WorldRenderer.js';
 import type { ActiveMovement } from '../lib/world/TripLayer.js';
@@ -42,6 +45,10 @@ const stationSection = ref<StationSection>('buildings');
 const accountModal = ref<'logbook' | 'ranking' | null>(null);
 const overview = useOverviewStore();
 let stopOverview: (() => void) | null = null;
+// The research view is account-wide; chips in any panel open it through the store.
+const research = useResearchStore();
+let stopResearch: (() => void) | null = null;
+const researchSelected = ref<string | null>(null);
 const OPEN_SECTION_KEY = 'open_station_section';
 const isDragging = ref(false);
 const hoveringEntity = ref(false);
@@ -202,6 +209,11 @@ function openStation(id: string, section: StationSection | null) {
   stationPanelOpen.value = true;
 }
 
+function openFromResearch(section: StationSection) {
+  research.closeView();
+  if (stationId.value) openStation(stationId.value, section);
+}
+
 function openAccountModal(kind: 'logbook' | 'ranking') {
   accountModal.value = kind;
   if (kind === 'logbook') overview.markLogbookSeen();
@@ -223,6 +235,7 @@ onMounted(async () => {
     return;
   }
   stopOverview = overview.start();
+  stopResearch = research.start();
   const pendingSection = localStorage.getItem(OPEN_SECTION_KEY);
   localStorage.removeItem(OPEN_SECTION_KEY);
   const restoredSection = stationSections.find((entry) => entry === pendingSection);
@@ -317,6 +330,8 @@ watch(selectedEntity, (entity) => {
 
 onUnmounted(() => {
   stopOverview?.();
+  stopResearch?.();
+  research.closeView();
   scheduleMiningRefresh.cancel();
   scheduleChunkRefresh.cancel();
   unsubTransportTick?.();
@@ -467,6 +482,26 @@ watch(canBypassScanner, (allowed) => {
       @close="accountModal = null"
     >
       <RankingTab />
+    </UiModal>
+    <UiModal
+      v-if="research.state.viewOpen && stationId"
+      title="Research"
+      eyebrow="Account"
+      full
+      @close="research.closeView()"
+    >
+      <div class="relative flex h-full">
+        <ResearchTree v-model:selected="researchSelected" class="min-w-0 flex-1" />
+        <!-- Side panel on desktop, bottom sheet on phones once a node is picked. -->
+        <ResearchDetail
+          :node-id="researchSelected"
+          :station-id="stationId"
+          class="w-[360px] shrink-0 border-l max-sm:absolute max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[65%] max-sm:w-full max-sm:rounded-t-xl max-sm:border-l-0 max-sm:border-t"
+          :class="{ 'max-sm:hidden': !researchSelected }"
+          @build="openFromResearch"
+          @close="researchSelected = null"
+        />
+      </div>
     </UiModal>
   </div>
 </template>

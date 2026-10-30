@@ -17,21 +17,29 @@ import {
   formatShortfall,
 } from '../lib/format';
 import BuildingLevelsModal from './BuildingLevelsModal.vue';
+import ConfirmCancelButton from './ConfirmCancelButton.vue';
 import CostList from './CostList.vue';
 import { useOverviewStore } from '../stores/overview.js';
+import { useResearchStore } from '../stores/research.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const overview = useOverviewStore();
+const research = useResearchStore();
 const upgrading = ref<string | null>(null);
+const cancelling = ref<string | null>(null);
 const error = ref<string | null>(null);
 const levelsKey = ref<BuildingKey | null>(null);
 
 const detail = computed(() => overview.state.details[stationId] ?? null);
 const now = computed(() => overview.state.now);
 
-const coreSpeedUp = computed(() =>
-  calculateConstructionSpeedBonus(
-    detail.value?.buildings.find((building) => building.definition.key === 'core')?.level ?? 1
+// Core and Construction Robotics add up; the server never goes below a quarter of the time.
+const speedUp = computed(() =>
+  Math.min(
+    75,
+    calculateConstructionSpeedBonus(
+      detail.value?.buildings.find((building) => building.definition.key === 'core')?.level ?? 1
+    ) + research.modifiers.constructionBonus
   )
 );
 
@@ -47,7 +55,7 @@ const cards = computed(() =>
     const endsAt = building.upgradeEndsAt ? Date.parse(building.upgradeEndsAt) : null;
     const buildSeconds =
       (calculateBuildingBuildTime(building.definition.key, building.level + 1) *
-        (100 - coreSpeedUp.value)) /
+        (100 - speedUp.value)) /
       100;
     const affordable = !maxed && shortfall.missing.length === 0;
     const upgradingNow = building.isUpgrading && endsAt !== null && endsAt > now.value;
@@ -62,7 +70,8 @@ const cards = computed(() =>
       upgradingNow,
       accent: upgradingNow ? 'border-[#5a4317]' : affordable ? 'border-[#1f5b66]' : '',
       endsAt,
-      // ponytail: ignores the grid research speed-up, so the bar may lag slightly behind the countdown.
+      // ponytail: assumes today's Core and Construction Robotics levels; a level reached mid-upgrade
+      // makes the bar jump. Send `upgradeStartedAt` from the API if that ever matters.
       progress: endsAt
         ? Math.min(100, Math.max(0, 100 - ((endsAt - now.value) / (buildSeconds * 1_000)) * 100))
         : 0,
@@ -93,6 +102,19 @@ async function startUpgrade(building: StationBuildingWithDefinition) {
     error.value = apiErrorMessage(cause, 'Upgrade failed');
   } finally {
     upgrading.value = null;
+  }
+}
+
+async function cancelUpgrade(building: StationBuildingWithDefinition) {
+  cancelling.value = building.definition.key;
+  error.value = null;
+  try {
+    await apiClient.delete(`/stations/${stationId}/buildings/${building.definition.key}/upgrade`);
+    await overview.refreshStation(stationId);
+  } catch (cause) {
+    error.value = apiErrorMessage(cause, 'Upgrade could not be cancelled');
+  } finally {
+    cancelling.value = null;
   }
 }
 </script>
@@ -166,10 +188,16 @@ async function startUpgrade(building: StationBuildingWithDefinition) {
             :style="{ width: `${card.progress}%` }"
           />
         </div>
-        <span class="text-[13px] text-ui-soft">
-          Lv. {{ card.building.level + 1 }} done in
-          <strong class="ui-num text-ui-amber">{{ formatCountdown(card.endsAt, now) }}</strong>
-        </span>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-[13px] text-ui-soft">
+            Lv. {{ card.building.level + 1 }} done in
+            <strong class="ui-num text-ui-amber">{{ formatCountdown(card.endsAt, now) }}</strong>
+          </span>
+          <ConfirmCancelButton
+            :busy="cancelling === card.building.definition.key"
+            @confirm="cancelUpgrade(card.building)"
+          />
+        </div>
       </div>
 
       <template v-else-if="!card.maxed">

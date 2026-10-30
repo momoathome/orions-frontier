@@ -1,4 +1,10 @@
-import type { BuildingEffectType, CostShortfall } from '@orions-frontier/shared';
+import { getBuilding, getResearchDefinition } from '@orions-frontier/game-config';
+import type {
+  BuildingEffectType,
+  CostShortfall,
+  RequirementBlocker,
+  ResearchEffect,
+} from '@orions-frontier/shared';
 import { resourceName } from './mining-utils';
 
 /** "4:12" or "1:04:12" until the deadline; "0:00" once it passed. */
@@ -65,8 +71,8 @@ export function formatBuildingEffect(
       return { label: 'Upgrade time', display: value > 0 ? `-${value}%` : '0%' };
     case 'hangar_capacity':
       return { label: 'Crew slots', display: `${value}` };
-    case 'spacecraft_unlock':
-      return { label: 'Spacecraft', display: `Tier ${value}` };
+    case 'production_slots':
+      return { label: 'Production slots', display: `${value}` };
     case 'spacecraft_production_bonus':
       return { label: 'Ship build speed', display: `+${value}%` };
     case 'storage_capacity':
@@ -75,7 +81,36 @@ export function formatBuildingEffect(
       return { label: 'Protected', display: value.toLocaleString('en-US') };
     case 'scanner_range':
       return { label: 'Scan Range', display: `${value.toLocaleString('en-US')} units` };
-    case 'research_capacity':
-      return { label: 'Research capacity', display: `${value}` };
+    case 'research_speed':
+      return { label: 'Research time', display: value > 0 ? `-${value}%` : '0%' };
   }
+}
+
+/** Chip text of one missing requirement: "Weapons Technology 2", "Shipyard 3". */
+export function formatBlocker(blocker: RequirementBlocker): string {
+  switch (blocker.type) {
+    case 'maxed':
+      return 'Max level';
+    case 'research':
+      return `${getResearchDefinition(blocker.key)?.name ?? blocker.key} ${blocker.level}`;
+    case 'building':
+      return `${getBuilding(blocker.key).name} ${blocker.level}`;
+    case 'lab_cap':
+      return `Laboratory ${blocker.level}`;
+  }
+}
+
+/** "Requires Laboratory 3 and Sensor Arrays 2", the wording of the server's errors. */
+export function formatBlockers(blockers: readonly RequirementBlocker[]): string {
+  if (blockers.some((blocker) => blocker.type === 'maxed')) return 'Max level reached';
+  const labels = blockers.map(formatBlocker);
+  const last = labels.pop();
+  return `Requires ${labels.length > 0 ? `${labels.join(', ')} and ${last}` : last}`;
+}
+
+/** Total effect of a stat research at a level: "+15%", "-9%", "+2". */
+export function formatResearchEffect(effect: ResearchEffect, level: number): string {
+  const value = effect.perLevel * level;
+  if (effect.format === 'percent_less') return value > 0 ? `-${value}%` : '0%';
+  return effect.format === 'percent' ? `+${value}%` : `+${value}`;
 }
