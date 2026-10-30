@@ -1,19 +1,86 @@
+<img src="docs/orions_frontier.png" alt="Orion's Frontier" width="400">
+
 # Orion's Frontier
 
-Orion's Frontier ist ein persistentes Idle-Browsergame. Spieler und wirtschaftliche Bots
-erschließen endliche Asteroiden, weisen Miner zu und beobachten ihre vollständigen Rundläufe in
-einer lebenden Sektorwelt. Exploration, weitere Stationen, Kampf, Bergung und Forschung verwenden
-dieselben persistenten Reise-, Kosten- und Zeitregeln.
+**Mein persönliches Space-Game-Projekt**
 
-Das Repository ist ein npm-Monorepo mit zwei Anwendungen und zwei gemeinsam genutzten
-TypeScript-Paketen.
+Seit vielen Jahren wollte ich ein eigenes Browsergame erschaffen – inspiriert von den großen
+Klassikern, aber mit meiner eigenen Vision. Nach zahllosen Anläufen und verworfenen Versionen ist
+daraus ein persistentes Idle-Browsergame entstanden: eine gemeinsame, lebende Galaxie voller
+Raumstationen, Schiffe und endlicher Asteroiden.
 
-## Start mit Docker
+Im Zentrum steht der Orion-Gürtel. Du triffst die wirtschaftlichen und strategischen
+Entscheidungen, das Spiel führt sie aus – auch während du offline bist. Spieler und Bots erschließen
+Asteroiden, schicken Miner auf sichtbare Rundläufe, gründen weitere Stationen und kämpfen um ihren
+Platz im Herzen des Orion. Alle nutzen dieselben persistenten Reise-, Kosten- und Zeitregeln.
+
+---
+
+## Features
+
+- **Live-Karte:** Eine persistente Sektorwelt mit Pixi-Darstellung. Miner, Flotten und Missionen
+  sind als Rundläufe auf der Karte zu sehen und werden per WebSocket live aktualisiert.
+- **Ressourcenabbau:** Endliche Asteroiden mit Carbon, Titanium, Hydrogenium und seltenen
+  Ressourcen wie Kyber und Astatine. Mehrere Spieler können denselben Asteroiden leeren.
+- **Raumstationen:** Gebäude, Lager und Bauplätze ausbauen. Die Lagerkapazität bestimmt, wie lange
+  du ohne Verlust offline sein kannst.
+- **Echte Bauschleifen:** Schiffe, Verteidigung und Forschung laufen in Warteschlangen, lassen sich
+  abbrechen und werden nach Neustarts genau einmal abgeschlossen.
+- **Forschung:** Account-weite Technologien in fünf Tiers. Sie verbessern Abbau, Antrieb, Scanner,
+  Bau und Kampf und schalten Schiffe und Verteidigung frei.
+- **Exploration und Kolonisation:** Scanner begrenzen die Sicht; neue Sektoren werden erkundet und
+  mit weiteren Stationen besiedelt.
+- **PvP und Vernichtung:** Stationen angreifen, Verteidigung brechen und mit Bombern die Integrität
+  senken, bis die Station vernichtet ist. Neue Spieler sind 24 Stunden geschützt.
+- **Bergung:** Nach Kämpfen bleiben Trümmerfelder zurück, die geplündert werden können.
+- **Bots:** Wirtschaftliche und kriegerische Bots mit eigenen Profilen spielen nach denselben Regeln
+  wie Spieler.
+- **Einfluss und Ranking:** Dein Ausbau bestimmt deinen Einfluss und deinen Rang im Universum.
+- **Logbuch:** Protokolliert Abbau, Bauaufträge, Forschung, Kämpfe und mehr.
+
+## Roadmap
+
+- [ ] **Balancing:** Kolonisationskosten, Bot-Ziele und Angriffsverhalten nach der Playtest-Baseline
+      nachschärfen.
+- [ ] **Admin-Ansicht für Bots:** Wo sie stehen, was sie verfolgen und was sie geschafft haben.
+- [ ] **UI-Überarbeitung:** Lesbarkeit, Lagebild und Panels nach den
+      [UI-Grundsätzen](docs/ui-principles.md).
+- [ ] **Logistik:** Ressourcen zwischen eigenen Stationen bewegen, sobald mehrere Stationen Alltag
+      sind.
+- [ ] **Handel:** Ressourcen und Waren mit anderen Spielern tauschen.
+- [ ] **Radar:** Tarnung, Allianz-Radar und Radarlog.
+
+Die vollständige, priorisierte Liste steht im [Design-Kompass](docs/design-compass.md).
+
+## Tech Stack
+
+- **Frontend:** Vue 3, Vue Router, Pixi.js, Tailwind CSS, Vite
+- **Backend:** Node.js, Fastify, WebSocket (`ws`), Zod
+- **Datenbank:** PostgreSQL mit Drizzle ORM
+- **Sprache und Werkzeuge:** TypeScript, npm Workspaces, ESLint, Prettier, dependency-cruiser,
+  Node Test Runner
+- **Infrastruktur:** Docker Compose
+
+## Getting Started
 
 Voraussetzungen: Docker mit Docker Compose.
 
+### Schritt 1: Repository klonen
+
+```bash
+git clone https://github.com/momoathome/orions-frontier.git
+cd orions-frontier
+```
+
+### Schritt 2: Umgebungsvariablen anlegen
+
 ```bash
 cp .env.example .env
+```
+
+### Schritt 3: Starten
+
+```bash
 npm run dev
 ```
 
@@ -163,3 +230,22 @@ Richtung, Entscheidungen, Zahlenziele und offene Arbeit stehen im
 Offene Specs für die nächste Mechanik: [Bomber und Vernichtung](docs/station-destruction.md).
 
 Abgeschlossene Pläne und Tickets stehen in der Git-Historie, nicht in `docs/`.
+
+## Lizenz
+
+Copyright © 2024–2026 Maurice Knoll. Alle Rechte vorbehalten.
+
+Orion's Frontier ist ein persönliches Herzensprojekt und **keine Open-Source-Software**. Der
+Quellcode, die Grafiken und alle übrigen Inhalte dürfen ausschließlich angesehen und zu privaten
+Lernzwecken lokal ausgeführt werden. Veröffentlichung, Weiterverbreitung, das Betreiben eigener
+Server, das Re-Releasen, kommerzielle Nutzung und die Verwendung zum Training von KI-Modellen sind
+ohne vorherige schriftliche Zustimmung ausdrücklich untersagt. Verbindlich ist der vollständige Text
+in [LICENSE](LICENSE).
+
+## Feedback
+
+Feedback gerne über [GitHub Issues](https://github.com/momoathome/orions-frontier/issues).
+
+**Viel Spaß beim Erkunden des Universums!**
+
+- [@momoathome](https://github.com/momoathome) - Maurice

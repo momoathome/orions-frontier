@@ -1,0 +1,85 @@
+Orion's Frontier – Proprietäre Lizenz
+Copyright © 2024–2026 Maurice Knoll (https://github.com/momoathome)
+Alle Rechte vorbehalten.
+
+Dieses Repository ist KEINE Open-Source-Software. Es wird ausschließlich zur
+Ansicht bereitgestellt. Die Sichtbarkeit des Quellcodes begründet kein
+Nutzungsrecht über das in Abschnitt 2 ausdrücklich Erlaubte hinaus.
+
+1. Gegenstand
+
+   "Werk" bezeichnet sämtliche Inhalte dieses Repositorys und seiner
+   Git-Historie, insbesondere Quellcode, Konfiguration, Datenbankschemata,
+   Spieldefinitionen und Balancingwerte, Dokumentation, Grafiken, Logos, der
+   Name "Orion's Frontier" sowie alle daraus erzeugten Build-Artefakte.
+
+2. Erlaubte Nutzung
+
+   Natürlichen Personen wird ein einfaches, nicht übertragbares, nicht
+   unterlizenzierbares und jederzeit widerrufliches Recht eingeräumt, das Werk
+
+   a) anzusehen und zu lesen,
+   b) zu privaten, nicht kommerziellen Lernzwecken zu klonen und auf eigenen
+      Geräten lokal auszuführen, sofern die so betriebene Instanz nur für die
+      Person selbst erreichbar ist.
+
+   Jede weitere Nutzung bedarf der vorherigen schriftlichen Zustimmung des
+   Rechteinhabers.
+
+3. Ausdrücklich untersagt
+
+   Ohne vorherige schriftliche Zustimmung ist insbesondere untersagt:
+
+   a) das Werk oder Teile davon zu veröffentlichen, weiterzuverbreiten, zu
+      verkaufen, zu vermieten oder anderweitig Dritten zugänglich zu machen,
+      auch in veränderter Form, als Fork in einem öffentlichen Repository oder
+      als Teil eines anderen Projekts;
+   b) das Werk oder ein darauf basierendes Spiel als Dienst zu betreiben, etwa
+      auf einem öffentlich oder für Dritte erreichbaren Server;
+   c) das Werk oder Teile davon unter eigenem oder fremdem Namen erneut zu
+      veröffentlichen (Re-Release);
+   d) jede kommerzielle Nutzung, auch mittelbar, etwa durch Werbung,
+      In-Game-Käufe, Spenden oder Abonnements;
+   e) abgeleitete Werke zu veröffentlichen oder zu verbreiten;
+   f) Grafiken, Logos oder den Namen "Orion's Frontier" für andere Projekte,
+      Produkte oder Marken zu verwenden;
+   g) das Werk für das Training, die Feinabstimmung oder die Evaluierung von
+      Systemen der künstlichen Intelligenz oder des maschinellen Lernens zu
+      verwenden. Der Rechteinhaber erklärt hiermit einen ausdrücklichen
+      Nutzungsvorbehalt gegen Text- und Data-Mining im Sinne von § 44b Abs. 3
+      UrhG und Art. 4 Abs. 3 der Richtlinie (EU) 2019/790;
+   h) Copyright-, Lizenz- oder Urhebervermerke zu entfernen oder zu verändern;
+   i) Schutz-, Authentifizierungs- oder Zugriffsbeschränkungen einer vom
+      Rechteinhaber betriebenen Instanz zu umgehen oder diese Instanz mit
+      automatisierten Mitteln zu belasten.
+
+4. Beiträge
+
+   Wer Beiträge einreicht (z. B. Issues, Pull Requests, Patches), räumt dem
+   Rechteinhaber daran ein unentgeltliches, zeitlich und räumlich
+   unbeschränktes, übertragbares und unterlizenzierbares Nutzungsrecht für
+   alle Nutzungsarten ein, einschließlich der Änderung und der Lizenzierung
+   unter anderen Bedingungen. Ein Anspruch auf Übernahme, Nennung oder
+   Vergütung besteht nicht.
+
+5. Beendigung
+
+   Bei einem Verstoß gegen diese Lizenz erlöschen alle eingeräumten Rechte
+   automatisch und ohne Mitteilung. Alle Kopien des Werks sind dann
+   unverzüglich zu löschen. Weitergehende Ansprüche, insbesondere auf
+   Unterlassung und Schadensersatz, bleiben vorbehalten.
+
+6. Gewährleistung und Haftung
+
+   Das Werk wird unentgeltlich und ohne jede Gewährleistung bereitgestellt,
+   so wie es ist. Der Rechteinhaber haftet nur für Vorsatz und grobe
+   Fahrlässigkeit, für Schäden aus der Verletzung von Leben, Körper oder
+   Gesundheit sowie nach dem Produkthaftungsgesetz. Im Übrigen ist die Haftung
+   ausgeschlossen, soweit gesetzlich zulässig.
+
+7. Schlussbestimmungen
+
+   Es gilt das Recht der Bundesrepublik Deutschland unter Ausschluss des
+   UN-Kaufrechts. Sollte eine Bestimmung unwirksam sein oder werden, bleibt die
+   Wirksamkeit der übrigen Bestimmungen unberührt. Anfragen zu weitergehenden
+   Nutzungsrechten bitte über https://github.com/momoathome.
