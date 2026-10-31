@@ -12,7 +12,9 @@ declare module 'vue-router' {
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/login',
+    name: 'Landing',
+    component: () => import('../features/auth/index.js').then((m) => m.LandingView),
+    meta: { guestOnly: true },
   },
   {
     path: '/login',
