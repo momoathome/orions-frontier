@@ -1,18 +1,11 @@
-import { getBuilding } from '@orions-frontier/game-config';
-import { required, isOneOf, buildingKeys, defenseUpgradeKeys } from '@orions-frontier/shared';
+import { required } from '@orions-frontier/shared';
 import {
   createRealtimeExecutionContext,
   resolveGameExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
-import { claimBuiltShips, listDueBuildOrders } from '../../repositories/spacecraft-build-orders.js';
 import { listDueTripsWithOwner } from '../../repositories/spacecraft-trips.js';
-import {
-  completeBuildingUpgrade,
-  listDueBuildingUpgrades,
-} from '../../repositories/station-buildings.js';
-import { addBuiltSpacecraft } from '../../repositories/station-spacecrafts.js';
 import {
   findStation,
   findStationForUpdate,
@@ -20,20 +13,21 @@ import {
 } from '../../repositories/stations.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { publishUserEvent } from '../../lib/realtime.js';
-import { completionEventId, type PlaytestCompletionEvent } from '../../lib/completion-events.js';
+import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
 import { type BotDecisionOutcome, runBotDecisionTick } from '../bot/index.js';
 import {
   advanceStationQueue,
+  completeDueBuildings,
+  completeDueSpacecraft,
   creditStationResources,
-  defenseUpgradeMaxLevel,
 } from '../station/index.js';
 import {
   completeDueResearch,
   recheckResearchQueue,
   type ResearchQueueHooks,
 } from '../research/index.js';
-import { settleTripArrivalDetailed } from '../transport/index.js';
-import { completeDueWorldMissionsDetailed } from '../missions/index.js';
+import { settleTripArrival } from '../transport/index.js';
+import { completeDueWorldMissions } from '../missions/index.js';
 import { recordLogbookEvents } from '../logbook/index.js';
 import { assignIdleMiners } from '../mining/index.js';
 
@@ -78,7 +72,7 @@ async function completeDueTransports(
 
   for (const { trip, userId } of dueTrips) {
     try {
-      const arrival = await settleTripArrivalDetailed(trip, context);
+      const arrival = await settleTripArrival(trip, context);
       if (arrival.settled) {
         completed += 1;
         events.push(...arrival.events);
@@ -109,145 +103,6 @@ async function completeDueTransports(
   return { phase: 'transports', completed, failed, events };
 }
 
-async function completeDueBuildings(
-  context: GameExecutionContext
-): Promise<SimulationPhasePassResult> {
-  const db = getDb();
-  const dueBuildings = await listDueBuildingUpgrades(db, context.now);
-  let completedCount = 0;
-  let failed = 0;
-  const events: PlaytestCompletionEvent[] = [];
-
-  for (const building of dueBuildings) {
-    try {
-      const maxLevel = isOneOf(buildingKeys, building.buildingKey)
-        ? getBuilding(building.buildingKey).maxLevel
-        : defenseUpgradeMaxLevel(building.buildingKey);
-      const endsAt = building.upgradeEndsAt;
-      if (maxLevel === null || endsAt === null) continue;
-      // The freed slot goes to the next queued job at the moment it freed.
-      const completed = await db.transaction(async (tx) => {
-        const station = await findStationForUpdate(tx, building.stationId);
-        const done = await completeBuildingUpgrade(tx, building.id, maxLevel, endsAt, context.now);
-        if (!done) return null;
-        const queue =
-          station && !station.destroyedAt ? await advanceStationQueue(tx, station, endsAt) : null;
-        return { level: done.level, dropped: queue?.dropped ?? [] };
-      });
-      if (!completed) continue;
-      completedCount += 1;
-      events.push(...completed.dropped);
-      if (isOneOf(defenseUpgradeKeys, building.buildingKey)) {
-        events.push({
-          type: 'defense_completed',
-          eventId: completionEventId('defense_completed', building.id, String(completed.level)),
-          occurredAt: endsAt,
-          userId: building.userId,
-          stationId: building.stationId,
-          defenseKey: building.buildingKey,
-          newLevel: completed.level,
-        });
-        publishUserEvent(building.userId, 'defense_upgrade_completed', {
-          stationId: building.stationId,
-          upgradeKey: building.buildingKey,
-          newLevel: completed.level,
-        });
-      } else {
-        events.push({
-          type: 'building_completed',
-          eventId: completionEventId('building_completed', building.id, String(completed.level)),
-          occurredAt: endsAt,
-          userId: building.userId,
-          stationId: building.stationId,
-          buildingKey: building.buildingKey,
-          newLevel: completed.level,
-        });
-        publishUserEvent(building.userId, 'building_upgrade_completed', {
-          stationId: building.stationId,
-          buildingKey: building.buildingKey,
-          newLevel: completed.level,
-        });
-      }
-    } catch (error) {
-      failed += 1;
-      logger.error({ buildingId: building.id, error }, 'Failed to complete building upgrade');
-    }
-  }
-  return { phase: 'buildings', completed: completedCount, failed, events };
-}
-
-async function completeDueSpacecraft(
-  context: GameExecutionContext
-): Promise<SimulationPhasePassResult> {
-  const db = getDb();
-  const dueBuildOrders = await listDueBuildOrders(db, context.now);
-  let completedCount = 0;
-  let failed = 0;
-  const events: PlaytestCompletionEvent[] = [];
-
-  for (const order of dueBuildOrders) {
-    // Ships come one per step; a late tick catches up on every step that has passed.
-    const built =
-      order.stepMs > 0
-        ? Math.min(
-            order.amount,
-            Math.floor((context.now.getTime() - order.nextAt.getTime()) / order.stepMs) + 1
-          )
-        : order.amount;
-    const builtAt = new Date(order.nextAt.getTime() + (built - 1) * order.stepMs);
-    const nextAt = new Date(builtAt.getTime() + order.stepMs);
-    const finished = built >= order.amount;
-    try {
-      const completed = await db.transaction(async (tx) => {
-        if (!(await claimBuiltShips(tx, order.id, order.amount, built, nextAt))) return false;
-
-        await addBuiltSpacecraft(tx, order.stationId, order.spacecraftKey, built, builtAt);
-        // The Autonomous Mining Fleet sends new miners out right away.
-        const assigned = await assignIdleMiners(
-          tx,
-          {
-            stationId: order.stationId,
-            spacecraftKey: order.spacecraftKey,
-            amount: built,
-            resourceKey: null,
-            departedAt: builtAt,
-          },
-          context
-        );
-        return { assigned };
-      });
-
-      if (completed) {
-        completedCount += 1;
-        // The logbook notes the whole order once its last ship is done.
-        if (finished) {
-          events.push({
-            type: 'spacecraft_completed',
-            eventId: completionEventId('spacecraft_completed', order.id),
-            occurredAt: builtAt,
-            userId: order.userId,
-            stationId: order.stationId,
-            orderId: order.id,
-            spacecraftKey: order.spacecraftKey,
-            amount: order.orderedAmount,
-          });
-        }
-        if (completed.assigned) events.push(completed.assigned);
-        publishUserEvent(order.userId, 'spacecraft_build_completed', {
-          stationId: order.stationId,
-          spacecraftKey: order.spacecraftKey,
-          amount: built,
-          orderId: order.id,
-        });
-      }
-    } catch (error) {
-      failed += 1;
-      logger.error({ orderId: order.id, error }, 'Failed to complete spacecraft build');
-    }
-  }
-  return { phase: 'spacecraft', completed: completedCount, failed, events };
-}
-
 /** Parallel Construction adds a build slot, which every station's queue may use at once. */
 const researchQueueHooks: ResearchQueueHooks = {
   credit: creditStationResources,
@@ -268,21 +123,33 @@ async function runCompletionPass(
 ): Promise<SimulationPhasePassResult[]> {
   const results: SimulationPhasePassResult[] = [
     await completeDueTransports(context),
-    await completeDueBuildings(context),
-    await completeDueSpacecraft(context),
+    { phase: 'buildings', ...(await completeDueBuildings(context.now)) },
+    {
+      phase: 'spacecraft',
+      // The Autonomous Mining Fleet sends new miners out right away.
+      ...(await completeDueSpacecraft(context.now, (built) =>
+        getDb().transaction((tx) =>
+          assignIdleMiners(
+            tx,
+            {
+              stationId: built.stationId,
+              spacecraftKey: built.spacecraftKey,
+              amount: built.amount,
+              resourceKey: null,
+              departedAt: built.builtAt,
+            },
+            context
+          )
+        )
+      )),
+    },
   ];
   results.push({
     phase: 'research',
     ...(await completeDueResearch(context.now, researchQueueHooks)),
   });
   if (includeWorldMissions) {
-    const worldMissions = await completeDueWorldMissionsDetailed(context);
-    results.push({
-      phase: 'world_missions',
-      completed: worldMissions.completed,
-      failed: 0,
-      events: worldMissions.events,
-    });
+    results.push({ phase: 'world_missions', ...(await completeDueWorldMissions(context)) });
   }
   return results;
 }

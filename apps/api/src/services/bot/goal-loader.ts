@@ -22,7 +22,7 @@ import {
 import { buildingKeys, defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import type { ResearchKey, ResearchLevels, ResourceMap } from '@orions-frontier/shared';
 import {
-  calculateBuildingEffect,
+  calculateStorageCapacity,
   isResearchKey,
   researchModifiers,
 } from '@orions-frontier/game-config';
@@ -121,11 +121,9 @@ export async function loadGoalBotState(
       sectorX: station.sectorX,
       sectorY: station.sectorY,
       createdAt: station.createdAt,
-      storageCapacity:
-        calculateBuildingEffect(
-          'warehouse',
-          stBuildings.find((building) => building.buildingKey === 'warehouse')?.level ?? 0
-        ).find((effect) => effect.type === 'storage_capacity')?.value ?? 0,
+      storageCapacity: calculateStorageCapacity(
+        stBuildings.find((building) => building.buildingKey === 'warehouse')?.level ?? 0
+      ),
       resources: Object.fromEntries(stResources.map((r) => [r.resourceKey, r.amount])),
       buildings: stBuildings.flatMap((building) =>
         isOneOf(buildingKeys, building.buildingKey)

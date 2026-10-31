@@ -4,6 +4,16 @@ const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`
 
 type Query = Record<string, string | number | boolean | null | undefined>;
 
+// Replaced by the auth store on load; until then a 401 has no session to end.
+let sessionExpired: () => void = () => undefined;
+/** The auth store ends the session when the server rejects the token (HTTP 401, WS 4401). */
+export const onSessionExpired = (handler: () => void) => {
+  sessionExpired = handler;
+};
+export const expireSession = () => {
+  sessionExpired();
+};
+
 const errorBodySchema = z.object({
   error: z.object({ message: z.string().optional() }).optional(),
   message: z.string().optional(),
@@ -43,7 +53,7 @@ async function request<T>(method: string, path: string, body?: object, params?: 
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    if (response.status === 401) localStorage.removeItem('auth_token');
+    if (response.status === 401) expireSession();
     throw new ApiError(response.status, data, response.statusText);
   }
 

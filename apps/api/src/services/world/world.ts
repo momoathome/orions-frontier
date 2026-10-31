@@ -3,7 +3,7 @@ import { interpolateWorldPosition } from '../../lib/travel.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { listTravelingTripsInBounds } from '../../repositories/spacecraft-trips.js';
 import { listStationsInChunks } from '../../repositories/stations.js';
-import { listMovingWorldMissions } from '../../repositories/world-missions.js';
+import { listMovingWorldMissionsInBounds } from '../../repositories/world-missions.js';
 import {
   required,
   AppError,
@@ -13,7 +13,7 @@ import {
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
 import {
-  ATTACK_PROTECTION_DURATION_MS,
+  attackProtectionEndsAt,
   coarseIntegrity,
   currentIntegrity,
   requireSpacecraft,
@@ -92,11 +92,7 @@ export async function getVisibleChunkStations(
       combatDiagnostics &&
       !isOwn &&
       !station.attackProtectionBrokenAt &&
-      combatDiagnostics.now.getTime() <
-        Math.max(
-          station.ownerCreatedAt.getTime() + ATTACK_PROTECTION_DURATION_MS,
-          station.protectedUntil?.getTime() ?? 0
-        )
+      combatDiagnostics.now < attackProtectionEndsAt(station.ownerCreatedAt, station.protectedUntil)
     ) {
       combatDiagnostics.protectedOwnerIds.add(station.userId);
     }
@@ -153,7 +149,7 @@ export async function getVisibleWorldMovements(
   const bounds = worldBounds(range);
   const [trips, missions, coverages] = await Promise.all([
     listTravelingTripsInBounds(db, bounds),
-    listMovingWorldMissions(db),
+    listMovingWorldMissionsInBounds(db, bounds, WORLD_CONFIG.SECTOR),
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
   ]);
 

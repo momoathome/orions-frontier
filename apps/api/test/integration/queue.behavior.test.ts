@@ -11,14 +11,11 @@ import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { logbookEntries } from '../../src/lib/db/schema/logbook-entries.js';
 import { queuedJobs } from '../../src/lib/db/schema/queued-jobs.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
 import { userResearch } from '../../src/lib/db/schema/user-research.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
 import {
   applyConstructionSpeed,
@@ -46,6 +43,7 @@ import {
   createTestSector,
   createTestStation,
   createTestUser,
+  deleteTestData,
   grantResearch,
   setTestResources,
 } from '../helpers/fixtures.js';
@@ -81,20 +79,7 @@ beforeEach(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(queuedJobs).where(eq(queuedJobs.userId, userId));
-  await db.delete(userResearch).where(eq(userResearch.userId, userId));
-  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
-  for (const id of [stationId, otherStationId]) {
-    for (const table of [stationBuildings, stationResources, stationSpacecrafts]) {
-      await db.delete(table).where(eq(table.stationId, id));
-    }
-    await db.delete(stations).where(eq(stations.id, id));
-  }
-  await db.delete(logbookEntries).where(eq(logbookEntries.userId, userId));
-  await db.delete(users).where(eq(users.id, userId));
-  await db.delete(users).where(eq(users.id, otherUserId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId, otherUserId], sectorIds: [sectorId] });
   await closeDb();
 });
 

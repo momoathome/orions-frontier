@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, onMounted, onUnmounted, useTemplateRef } from 'vue';
 import TopHud from '../components/TopHud.vue';
+import FoundStationForm from '../components/FoundStationForm.vue';
 import StationPanel from '../components/StationPanel.vue';
 import TargetStationPanel from '../components/TargetStationPanel.vue';
 import AsteroidPanel from '../components/AsteroidPanel.vue';
@@ -12,7 +13,7 @@ import RankingTab from '../components/RankingTab.vue';
 import ResearchTree from '../components/research/ResearchTree.vue';
 import ResearchDetail from '../components/research/ResearchDetail.vue';
 import { stationSections, useOverviewStore, type StationSection } from '../stores/overview.js';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { apiClient } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
 import { useAuthStore } from '../stores/auth.js';
@@ -38,70 +39,36 @@ const canBypassScanner = computed(() => auth.user?.role === 'admin');
 const scannerBypass = ref(localStorage.getItem('dev_scanner_bypass') === 'true');
 
 const stationId = ref<string | null>(null);
-const stationName = ref<string | undefined>(undefined);
-const stationIntegrity = ref<number | undefined>(undefined);
 const stationPanelOpen = ref(false);
 const stationSection = ref<StationSection>('buildings');
 const accountModal = ref<'logbook' | 'ranking' | null>(null);
 const overview = useOverviewStore();
-let stopOverview: (() => void) | null = null;
+const stopOverview = overview.start();
 // The research view is account-wide; chips in any panel open it through the store.
 const research = useResearchStore();
-let stopResearch: (() => void) | null = null;
+const stopResearch = research.start();
 const researchSelected = ref<string | null>(null);
 const OPEN_SECTION_KEY = 'open_station_section';
 const isDragging = ref(false);
 const hoveringEntity = ref(false);
 const needsStation = ref(false);
-const stationNameInput = ref('Frontier Station');
-const stationCreationError = ref<string | null>(null);
-const creatingStation = ref(false);
-let ownStations: StationInfo[] = [];
+// Set by onUnmounted; every await in onMounted checks it before touching the renderer.
+let disposed = false;
+// A call, so TypeScript does not treat the flag as constant across awaits.
+const isDisposed = () => disposed;
 
-async function loadUserStation(): Promise<StationInfo | null> {
-  try {
-    const response = await apiClient.get<Station[]>('/stations');
-    ownStations = response.map((station) => ({
-      id: station.id,
-      x: station.x,
-      y: station.y,
-      name: station.name,
-      scannerRange: station.scannerRange,
-      visualProfile: station.visualProfile,
-    }));
-    const preferredId = localStorage.getItem('active_station_id');
-    const first = response.find((station) => station.id === preferredId) ?? response[0];
-    if (first) {
-      stationId.value = first.id;
-      stationName.value = first.name;
-      stationIntegrity.value = first.integrity;
-      return {
-        id: first.id,
-        x: first.x,
-        y: first.y,
-        name: first.name,
-        scannerRange: first.scannerRange,
-        visualProfile: first.visualProfile,
-      };
-    }
-  } catch {
-    // no station yet
-  }
-  return null;
-}
-
-async function createFirstStation() {
-  creatingStation.value = true;
-  stationCreationError.value = null;
-  try {
-    await apiClient.post('/stations', { name: stationNameInput.value });
-    window.location.reload();
-  } catch (error) {
-    stationCreationError.value = apiErrorMessage(error, 'Station creation failed');
-  } finally {
-    creatingStation.value = false;
-  }
-}
+const toStationInfo = (station: Station): StationInfo => ({
+  id: station.id,
+  x: station.x,
+  y: station.y,
+  name: station.name,
+  scannerRange: station.scannerRange,
+  visualProfile: station.visualProfile,
+});
+const ownStations = computed(() => overview.state.stations.map(toStationInfo));
+const stationInfo = computed(
+  () => overview.state.stations.find((station) => station.id === stationId.value) ?? null
+);
 
 async function loadTrips(): Promise<void> {
   if (!renderer) return;
@@ -145,44 +112,40 @@ async function loadTrips(): Promise<void> {
   }
 }
 
-async function loadAssignments(): Promise<void> {
+/** Draws the active station's mining routes from the overview store. */
+function drawAssignments(): void {
   if (!renderer || !stationId.value) return;
-  try {
-    const response = await apiClient.get<{
-      assignments: {
-        asteroidId: string;
-        asteroidX: number;
-        asteroidY: number;
-        asteroidSize: string;
-      }[];
-    }>(`/stations/${stationId.value}/mining-assignments`);
-    const raw = response.assignments;
-    // Deduplicate by asteroid (multiple assignment rows → same asteroid)
-    const seen = new Set<string>();
-    const asteroids: AssignedAsteroid[] = [];
-    for (const a of raw) {
-      if (!seen.has(a.asteroidId)) {
-        seen.add(a.asteroidId);
-        asteroids.push({
-          asteroidId: a.asteroidId,
-          x: a.asteroidX,
-          y: a.asteroidY,
-          size: a.asteroidSize,
-        });
-      }
-    }
-    renderer.setAssignedAsteroids(asteroids);
-  } catch {
-    // non-fatal — markers simply won't show
+  const rows = overview.state.details[stationId.value]?.assignments ?? [];
+  // One marker per asteroid; several assignment rows can share it.
+  const asteroids = new Map<string, AssignedAsteroid>();
+  for (const row of rows) {
+    asteroids.set(row.asteroidId, {
+      asteroidId: row.asteroidId,
+      x: row.asteroidX,
+      y: row.asteroidY,
+      size: row.asteroidSize,
+    });
   }
+  renderer.setAssignedAsteroids([...asteroids.values()]);
 }
+watch(
+  () => (stationId.value ? overview.state.details[stationId.value]?.assignments : undefined),
+  drawAssignments
+);
 
-async function refreshMiningState(): Promise<void> {
-  await loadAssignments();
-  await loadTrips();
-}
+// Scanner upgrades and new colonies change the scanned area.
+watch(
+  () => ownStations.value.map((s) => `${s.id}:${s.x}:${s.y}:${s.scannerRange}`).join(),
+  () => {
+    if (!renderer) return;
+    renderer.setScannerStations(ownStations.value);
+    renderer.refreshVisibleChunks();
+    void loadTrips();
+  }
+);
+
 // Trips settle one event each; reload once per burst instead of once per trip.
-const scheduleMiningRefresh = debounced(refreshMiningState, 500);
+const scheduleMiningRefresh = debounced(loadTrips, 500);
 const scheduleChunkRefresh = debounced(() => renderer?.refreshVisibleChunks(), 1000);
 
 function closeAsteroidPanel() {
@@ -220,22 +183,33 @@ function openAccountModal(kind: 'logbook' | 'ranking') {
 }
 
 const worldEl = useTemplateRef<HTMLDivElement>('worldRef');
+/** Set once mounted; `world` is the instance to destroy, also while it still mounts. */
 let renderer: WorldRenderer | null = null;
-let stationInfo: StationInfo | null = null;
+let world: WorldRenderer | null = null;
 
-let unsubTransportTick: (() => void) | null = null;
-let unsubMiningTick: (() => void) | null = null;
-let unsubBuildingUpgrade: (() => void) | null = null;
 let tripRefreshInterval: ReturnType<typeof setInterval> | null = null;
+// Registered at once so an unmount during the bootstrap below still removes them.
+const unsubscribers = [
+  // A settled trip can change both the visible phase and the assignment.
+  wsClient.on('transport_tick_completed', () => {
+    scheduleChunkRefresh();
+    scheduleMiningRefresh();
+  }),
+  wsClient.on('mining_tick_completed', scheduleMiningRefresh),
+];
 
 onMounted(async () => {
-  stationInfo = await loadUserStation();
-  if (!stationInfo) {
+  await overview.stationsLoaded();
+  if (isDisposed()) return;
+  const preferredId = localStorage.getItem('active_station_id');
+  const active =
+    overview.state.stations.find((station) => station.id === preferredId) ??
+    overview.state.stations[0];
+  if (!active) {
     needsStation.value = true;
     return;
   }
-  stopOverview = overview.start();
-  stopResearch = research.start();
+  stationId.value = active.id;
   const pendingSection = localStorage.getItem(OPEN_SECTION_KEY);
   localStorage.removeItem(OPEN_SECTION_KEY);
   const restoredSection = stationSections.find((entry) => entry === pendingSection);
@@ -244,33 +218,34 @@ onMounted(async () => {
     stationPanelOpen.value = true;
   }
   await nextTick();
+  if (isDisposed() || !worldEl.value) return;
 
-  renderer = new WorldRenderer();
+  world = new WorldRenderer();
 
   // Forward drag state → cursor class
-  renderer.onDragStateChange = (dragging) => {
+  world.onDragStateChange = (dragging) => {
     isDragging.value = dragging;
     if (dragging) hoveringEntity.value = false;
   };
 
   // Hover state → cursor class
-  renderer.onHoverEntityChange = (isHovering) => {
+  world.onHoverEntityChange = (isHovering) => {
     hoveringEntity.value = isHovering;
   };
 
   // Asteroid clicked → select it and close the station panel
-  renderer.onAsteroidClick = (id) => {
+  world.onAsteroidClick = (id) => {
     stationPanelOpen.value = false;
     selectedEntity.value = { type: 'asteroid', id };
   };
 
   // Station clicked → open station panel
-  renderer.onStationClick = () => {
+  world.onStationClick = () => {
     deselect();
     stationPanelOpen.value = true;
   };
 
-  renderer.onForeignStationClick = (station) => {
+  world.onForeignStationClick = (station) => {
     if (station.isOwn) {
       openStation(station.id, null);
       return;
@@ -279,43 +254,27 @@ onMounted(async () => {
     selectedEntity.value = { type: 'station', station };
   };
 
-  renderer.onDebrisClick = (field) => {
+  world.onDebrisClick = (field) => {
     stationPanelOpen.value = false;
     selectedEntity.value = { type: 'debris', field };
   };
 
   // Empty space clicked → deselect all
-  renderer.onEmptyClick = () => {
+  world.onEmptyClick = () => {
     deselect();
     stationPanelOpen.value = false;
   };
 
-  if (!worldEl.value) return;
-  await renderer.mount(worldEl.value, stationInfo, ownStations);
+  await world.mount(worldEl.value, toStationInfo(active), ownStations.value);
+  if (isDisposed()) return;
+  renderer = world;
   if (scannerBypass.value && canBypassScanner.value) {
     renderer.setScannerBypass(true);
   }
-
-  // Load mining assignment markers after renderer is ready
-  await loadAssignments();
-
-  // Load active trips (in-flight spacecraft)
+  drawAssignments();
   await loadTrips();
+  if (isDisposed()) return;
   tripRefreshInterval = setInterval(() => void loadTrips(), 5_000);
-
-  // A settled trip can change both the visible phase and the assignment.
-  unsubTransportTick = wsClient.on('transport_tick_completed', () => {
-    scheduleChunkRefresh();
-    scheduleMiningRefresh();
-  });
-  unsubMiningTick = wsClient.on('mining_tick_completed', scheduleMiningRefresh);
-  unsubBuildingUpgrade = wsClient.on('building_upgrade_completed', () => {
-    void loadUserStation().then(() => {
-      renderer?.setScannerStations(ownStations);
-      renderer?.refreshVisibleChunks();
-      void loadTrips();
-    });
-  });
 });
 
 // Sync selected asteroid → renderer selection ring
@@ -329,17 +288,16 @@ watch(selectedEntity, (entity) => {
 });
 
 onUnmounted(() => {
-  stopOverview?.();
-  stopResearch?.();
+  disposed = true;
+  stopOverview();
+  stopResearch();
   research.closeView();
   scheduleMiningRefresh.cancel();
   scheduleChunkRefresh.cancel();
-  unsubTransportTick?.();
-  unsubMiningTick?.();
-  unsubBuildingUpgrade?.();
+  for (const unsubscribe of unsubscribers) unsubscribe();
   if (tripRefreshInterval) clearInterval(tripRefreshInterval);
-  renderer?.destroy();
-  renderer = null;
+  world?.destroy();
+  world = renderer = null;
   deselect();
 });
 
@@ -365,26 +323,7 @@ watch(canBypassScanner, (allowed) => {
   <div
     class="relative flex h-screen w-screen flex-col overflow-hidden bg-ui-bg text-left text-sm text-ui-text select-none"
   >
-    <div
-      v-if="needsStation"
-      class="absolute inset-0 z-30 flex items-center justify-center bg-ui-bg p-4"
-    >
-      <form class="ui-card w-full max-w-sm gap-4 p-6" @submit.prevent="createFirstStation">
-        <h1 class="text-xl font-semibold text-ui-bright">Found your first station</h1>
-        <p class="text-ui-soft">Choose a name for your foothold in the frontier.</p>
-        <input
-          v-model.trim="stationNameInput"
-          required
-          maxlength="128"
-          aria-label="Station name"
-          class="ui-input"
-        />
-        <p v-if="stationCreationError" class="text-ui-red">{{ stationCreationError }}</p>
-        <button type="submit" :disabled="creatingStation" class="ui-btn ui-btn-primary">
-          {{ creatingStation ? 'Founding…' : 'Found station' }}
-        </button>
-      </form>
-    </div>
+    <FoundStationForm v-if="needsStation" />
 
     <TopHud
       v-if="stationId"
@@ -436,8 +375,6 @@ watch(canBypassScanner, (allowed) => {
             v-if="stationPanelOpen && stationId"
             v-model:section="stationSection"
             :station-id="stationId"
-            :station-name="stationName"
-            :integrity="stationIntegrity"
             @close="stationPanelOpen = false"
           />
           <TargetStationPanel
@@ -445,6 +382,7 @@ watch(canBypassScanner, (allowed) => {
             :station="selectedEntity.station"
             :origin="stationInfo"
             @close="deselect()"
+            @launched="onMiningChanged"
           />
           <AsteroidPanel
             v-else-if="selectedEntity?.type === 'asteroid'"

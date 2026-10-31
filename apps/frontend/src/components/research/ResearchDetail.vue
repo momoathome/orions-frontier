@@ -373,8 +373,6 @@ const shipStats = computed(() => {
       {{ leaf.kind === 'ship' ? 'Build at Shipyard' : 'Open Defense' }}
     </button>
 
-    <p v-if="error" class="rounded-md border border-[#6b2f2c] bg-[#2a1214] px-3 py-2 text-ui-red">
-      {{ error }}
-    </p>
+    <p v-if="error" class="ui-error">{{ error }}</p>
   </aside>
 </template>

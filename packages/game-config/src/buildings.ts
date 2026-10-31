@@ -209,14 +209,13 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
     case 'shipyard':
       return [
         { type: 'production_slots', value: calculateProductionSlots(level) },
-        { type: 'spacecraft_production_bonus', value: level * 3 },
+        { type: 'spacecraft_production_bonus', value: calculateShipyardBuildBonus(level) },
       ];
 
     case 'warehouse':
       return [
-        // Grows with upgrade costs so the next upgrade always fits and storage lasts overnight.
-        { type: 'storage_capacity', value: Math.round((5000 * 1.45 ** (level - 1)) / 100) * 100 },
-        { type: 'protected_storage', value: level * 100 },
+        { type: 'storage_capacity', value: calculateStorageCapacity(level) },
+        { type: 'protected_storage', value: calculateProtectedStorage(level) },
       ];
 
     case 'scanner':
@@ -241,6 +240,20 @@ export const calculateScannerRange = (level: number): number =>
 export const calculateProductionSlots = (shipyardLevel: number): number =>
   1 + Number(shipyardLevel >= 5) + Number(shipyardLevel >= 10);
 
+/** Percent the Shipyard takes off ship build times. */
+export const calculateShipyardBuildBonus = (shipyardLevel: number): number => shipyardLevel * 3;
+
+/** Per resource. Grows with upgrade costs so the next upgrade always fits and storage lasts overnight. */
+export const calculateStorageCapacity = (warehouseLevel: number): number =>
+  Math.round((5000 * 1.45 ** (warehouseLevel - 1)) / 100) * 100;
+
+/** Stock per resource that attackers cannot loot. */
+export const calculateProtectedStorage = (warehouseLevel: number): number => warehouseLevel * 100;
+
 /** Crew places provided by a station hangar; the square term keeps late levels worth their cost. */
 export const calculateHangarCapacity = (hangarLevel: number): number =>
   10 + hangarLevel * 10 + Math.max(0, hangarLevel - 1) ** 2;
+
+/** Crew the hangar holds once Fleet Coordination (`crewFactor`) is applied. */
+export const calculateCrewCapacity = (hangarLevel: number, crewFactor: number): number =>
+  Math.floor(calculateHangarCapacity(hangarLevel) * crewFactor);

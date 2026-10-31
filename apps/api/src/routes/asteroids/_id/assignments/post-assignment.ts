@@ -21,20 +21,15 @@ export default defineRoute(async (app) => {
       },
     },
     async (request, reply) => {
-      const result = await createAsteroidAssignment({
+      const { id } = await createAsteroidAssignment({
         userId: request.user.userId,
         asteroidId: request.params.id,
         ...request.body,
       });
 
-      if ('code' in result) {
-        const status = result.code === 'ASTEROID_NOT_FOUND' ? 404 : 400;
-        return reply.status(status).send({ message: result.message });
-      }
-
       publishUserEvent(request.user.userId, 'mining_tick_completed', {});
 
-      return reply.status(201).send({ assignmentId: result.id });
+      return reply.status(201).send({ assignmentId: id });
     }
   );
 });

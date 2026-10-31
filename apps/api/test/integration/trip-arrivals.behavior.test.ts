@@ -15,13 +15,13 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { deleteTestData } from '../helpers/fixtures.js';
 
 let userId: string;
 let stationId: string;
 const spacecraftKey = 'mole';
 let stationSpacecraftId: string;
 const sectorId = randomUUID();
-const tripIds: string[] = [];
 
 before(async () => {
   await runMigrations();
@@ -63,17 +63,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  if (tripIds.length) {
-    await db.delete(spacecraftTrips).where(inArray(spacecraftTrips.id, tripIds));
-  }
-  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.id, stationSpacecraftId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(users).where(eq(users.id, userId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -96,10 +86,9 @@ test('a trip arrival is applied exactly once when two processors race', async ()
     })
     .returning();
   assert.ok(trip);
-  tripIds.push(trip.id);
 
   const results = await Promise.all([settleTripArrival(trip), settleTripArrival(trip)]);
-  assert.deepEqual(results.sort(), [false, true]);
+  assert.deepEqual(results.map((result) => result.settled).sort(), [false, true]);
 
   const [resource] = await db
     .select({ amount: stationResources.amount })
@@ -132,7 +121,6 @@ test('parallel mining returns store only free warehouse capacity', async () => {
       }))
     )
     .returning();
-  tripIds.push(...trips.map((trip) => trip.id));
 
   await Promise.all(trips.map((trip) => settleTripArrival(trip)));
 
@@ -174,7 +162,6 @@ test('simulation tick catches up a trip that became due while the API was offlin
     })
     .returning();
   assert.ok(trip);
-  tripIds.push(trip.id);
 
   await runSimulationTick(new Date(trip.arrivesAt.getTime() + 1));
 
@@ -219,7 +206,6 @@ test('a failing due trip does not block later simulation work', async () => {
     ])
     .returning();
   assert.ok(poisonTrip && validTrip);
-  tripIds.push(poisonTrip.id, validTrip.id);
 
   await runSimulationTick(now);
 

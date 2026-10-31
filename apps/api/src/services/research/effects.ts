@@ -33,15 +33,6 @@ export async function getStationResearchModifiers(
   return researchModifiers(toResearchLevels(await listStationOwnerResearch(db, stationId)));
 }
 
-export async function effectiveMiningRate(db: QueryDb, stationId: string, baseRate: number) {
-  return baseRate * (await getStationResearchModifiers(db, stationId)).miningRate;
-}
-
-/** Cargo of any ship from the station: mining, salvage and loot. */
-export async function effectiveCargoCapacity(db: QueryDb, stationId: string, baseCargo: number) {
-  return baseCargo * (await getStationResearchModifiers(db, stationId)).cargo;
-}
-
 /** Shortens a trip by Ion Propulsion: duration ÷ speed. */
 export const applySpeed = (arrivesAt: Date, departedAt: Date, speed: number): Date =>
   new Date(departedAt.getTime() + Math.round((arrivesAt.getTime() - departedAt.getTime()) / speed));

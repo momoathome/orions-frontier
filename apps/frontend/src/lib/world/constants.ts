@@ -37,18 +37,6 @@ export const GRID_WORLD_SIZE = 500;
 /** Minimum grid spacing in screen pixels before the grid is hidden */
 export const GRID_MIN_PX = 16;
 
-//
-// Tint color applied to asteroid sprites per primary resource.
-// Used by AsteroidLayer to give each resource type a distinct visual identity.
-
-export const RESOURCE_TINT: Record<string, number> = {
-  carbon: 0x8b4010, // rust / dark orange-brown
-  titanium: 0xb8c8d8, // metallic silver-blue
-  hydrogenium: 0x6ab4e8, // pale ice blue
-  kyber_crystal: 0x4b6efb, // glowing deep blue
-  astatine: 0x9b30ff, // purple / dark energy
-};
-
 /** Neutral grey for asteroids outside scanner range: composition unknown. */
 export const UNSCANNED_ASTEROID_TINT = 0x9aa3b2;
 /** Uniform radius for unscanned asteroids so the map does not leak their size. */

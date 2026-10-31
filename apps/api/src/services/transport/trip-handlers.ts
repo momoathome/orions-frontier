@@ -21,12 +21,7 @@ import { assignIdleMiners, claimMiningCargo, largestResource } from '../mining/i
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
 import { creditStationResources } from '../station/index.js';
-import {
-  applyTravelSpeed,
-  effectiveCargoCapacity,
-  effectiveMiningRate,
-  getStationResearchModifiers,
-} from '../research/index.js';
+import { applySpeed, getStationResearchModifiers } from '../research/index.js';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
 import {
   completionEventId,
@@ -71,13 +66,13 @@ export async function handleMineArrival(
   const unclaimedRecall = Math.max(0, assignment.recallRequestedAmount - homebound);
   const activeGroupSize = Math.max(0, groupSize - unclaimedRecall);
   const modifiers = await getStationResearchModifiers(tx, assignment.stationId);
-  const effectiveCargo = await effectiveCargoCapacity(tx, assignment.stationId, spacecraft.cargo);
+  const effectiveCargo = spacecraft.cargo * modifiers.cargo;
   const cargoCapacity = Math.floor(activeGroupSize * effectiveCargo);
   const claim =
     activeGroupSize === 0
       ? { claimedAmount: 0, cargoManifest: {} }
       : await claimMiningCargo(tx, trip.toId, cargoCapacity, modifiers.visibleResources);
-  const effectiveRate = await effectiveMiningRate(tx, assignment.stationId, spacecraft.miningRate);
+  const effectiveRate = spacecraft.miningRate * modifiers.miningRate;
   const miningHours =
     claim.claimedAmount === 0 ? 0 : claim.claimedAmount / (activeGroupSize * effectiveRate);
   const departedAt = new Date(trip.arrivesAt.getTime() + miningHours * 3_600_000);
@@ -86,7 +81,7 @@ export async function handleMineArrival(
     { x: assignment.stationX, y: assignment.stationY }
   );
   const baseArrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
-  const arrivesAt = await applyTravelSpeed(tx, assignment.stationId, baseArrivesAt, departedAt);
+  const arrivesAt = applySpeed(baseArrivesAt, departedAt, modifiers.speed);
 
   await insertTrip(tx, {
     id: context.nextId('trip'),
@@ -158,7 +153,8 @@ export async function handleMiningReturnArrival(
   const spacecraft = requireSpacecraft(assignment.spacecraftKey);
 
   // Miners only see researched veins; the asteroid itself lasts until every vein is empty.
-  const { visibleResources } = await getStationResearchModifiers(tx, assignment.stationId);
+  const modifiers = await getStationResearchModifiers(tx, assignment.stationId);
+  const { visibleResources } = modifiers;
   const exhausted =
     (await sumAsteroidRemainingAmount(tx, assignment.asteroidId, visibleResources)) <= 0;
 
@@ -225,7 +221,7 @@ export async function handleMiningReturnArrival(
     { x: assignment.asteroidX, y: assignment.asteroidY }
   );
   const baseArrivesAt = calcArrivesAt(departedAt, distance, spacecraft.speed);
-  const arrivesAt = await applyTravelSpeed(tx, assignment.stationId, baseArrivesAt, departedAt);
+  const arrivesAt = applySpeed(baseArrivesAt, departedAt, modifiers.speed);
   await insertTrip(tx, {
     id: context.nextId('trip'),
     stationSpacecraftId: trip.stationSpacecraftId,

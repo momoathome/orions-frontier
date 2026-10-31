@@ -313,3 +313,12 @@ export const getSpacecraft = (key: string) =>
 
 /** Für Schlüssel aus der Datenbank, die immer auf eine Definition zeigen. */
 export const requireSpacecraft = (key: string) => required(getSpacecraft(key), `spacecraft ${key}`);
+
+/** Crew places the ships take, docked, away or still in the build queue. */
+export const calculateCrewUsage = (
+  entries: readonly { spacecraftKey: string; amount: number }[]
+): number =>
+  entries.reduce(
+    (used, entry) => used + entry.amount * requireSpacecraft(entry.spacecraftKey).crew,
+    0
+  );

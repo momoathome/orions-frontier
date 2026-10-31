@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { ownStation, removeQueuedStationJob } from '../../../services/station/index.js';
+import { removeQueuedStationJob } from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 /** DELETE /api/stations/:stationId/queue/:jobId: removes a waiting upgrade; refunds as far as storage allows. */
@@ -13,8 +13,7 @@ export default defineRoute(async (app) => {
     },
     async (request, reply) => {
       const { stationId, jobId } = request.params;
-      const ownedStationId = await ownStation(request.user.userId, stationId);
-      await removeQueuedStationJob(ownedStationId, request.user.userId, jobId);
+      await removeQueuedStationJob(stationId, request.user.userId, jobId);
       return reply.status(204).send();
     }
   );

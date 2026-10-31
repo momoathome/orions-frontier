@@ -4,9 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -18,7 +16,13 @@ import {
 } from '../../src/tools/playtest/invariants.js';
 import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 import type { WorldTickResult } from '../../src/services/simulation/simulation.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+  setTestResources,
+} from '../helpers/fixtures.js';
 
 let userId = '';
 let stationId = '';
@@ -46,14 +50,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(botControllers).where(eq(botControllers.userId, userId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(users).where(eq(users.id, userId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -97,19 +94,9 @@ test('auditor aborts on a negative resource, invalid fleet lock and overdue work
   const auditor = new PlaytestInvariantAuditor(aliases());
   await auditor.auditTick(tick());
 
-  await db
-    .update(stationResources)
-    .set({ amount: -1 })
-    .where(
-      and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
-    );
+  await setTestResources(stationId, { carbon: -1 });
   await rejectsWith(auditor.auditTick(tick()), 'negative_resource');
-  await db
-    .update(stationResources)
-    .set({ amount: 250 })
-    .where(
-      and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
-    );
+  await setTestResources(stationId, { carbon: 250 });
 
   await db
     .update(stationSpacecrafts)

@@ -42,15 +42,8 @@ Platz im Herzen des Orion. Alle nutzen dieselben persistenten Reise-, Kosten- un
 
 - [ ] **Balancing:** Kolonisationskosten, Bot-Ziele und Angriffsverhalten nach der Playtest-Baseline
       nachschärfen.
-- [ ] **Admin-Ansicht für Bots:** Wo sie stehen, was sie verfolgen und was sie geschafft haben.
-- [ ] **UI-Überarbeitung:** Lesbarkeit, Lagebild und Panels nach den
-      [UI-Grundsätzen](docs/ui-principles.md).
-- [ ] **Logistik:** Ressourcen zwischen eigenen Stationen bewegen, sobald mehrere Stationen Alltag
-      sind.
-- [ ] **Handel:** Ressourcen und Waren mit anderen Spielern tauschen.
+- [ ] **Logistik:** Ressourcen zwischen eigenen Stationen bewegen.
 - [ ] **Radar:** Tarnung, Allianz-Radar und Radarlog.
-
-Die vollständige, priorisierte Liste steht im [Design-Kompass](docs/design-compass.md).
 
 ## Tech Stack
 
@@ -154,8 +147,7 @@ diesen Entwicklungsstand nicht vorgesehen.
 `apps/api/test/unit`. `npm run test:integration` startet PostgreSQL über Docker und prüft unter
 `apps/api/test/integration` unter anderem API-Routen, konkurrierende Ressourcenausgaben und
 Mining-Zugriffe, vollständige Mining-Rundläufe, Bots, Exploration, Kolonisation, Kampf, Bergung,
-Forschung sowie WebSocket-Authentifizierung. `npm run test:behavior` bleibt als Alias für
-die Integrationstests erhalten. Mit `npm run verify` laufen statische Checks, ein Audit der Laufzeit-Abhängigkeiten
+Forschung sowie WebSocket-Authentifizierung. Mit `npm run verify` laufen statische Checks, ein Audit der Laufzeit-Abhängigkeiten
 (`npm run audit`), Build und beide Testgruppen gemeinsam.
 
 Einzelne Workspaces lassen sich direkt ansprechen:
@@ -198,9 +190,6 @@ verändern den Exit-Code in Version 1 aber nicht.
 Kurze technische Prüfungen:
 
 ```bash
-npm run test:playtest-bootstrap
-npm run test:playtest-population
-npm run test:playtest-runner
 npm run test:playtest-e2e
 ```
 

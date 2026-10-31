@@ -1,8 +1,5 @@
-import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { WorldTickResult } from '../../services/simulation/index.js';
 import type { PlaytestAliasRegistry } from './aliases.js';
-import type { PlaytestConfig } from './config.js';
 import {
   queryDatabaseInvariantState,
   type DatabaseInvariantCode,
@@ -164,43 +161,4 @@ export class PlaytestInvariantAuditor {
       throw new PlaytestInvariantError(findings);
     }
   }
-}
-
-function safeSeed(seed: string): string {
-  return seed.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 80);
-}
-
-export async function writePartialInvariantReport(
-  config: PlaytestConfig,
-  error: PlaytestInvariantError
-): Promise<string> {
-  await mkdir(config.outputDirectory, { recursive: true });
-  const filename = `${config.virtualStart.toISOString().replace(/[:.]/g, '-')}-${safeSeed(
-    config.seed
-  )}-failed.json`;
-  const target = join(config.outputDirectory, filename);
-  const temporary = `${target}.${process.pid}.tmp`;
-  const report = {
-    schemaVersion: 'playtest-partial-v1',
-    status: 'failed',
-    seed: config.seed,
-    virtualStart: config.virtualStart.toISOString(),
-    effectiveConfig: {
-      durationMs: config.durationMs,
-      stepMs: config.stepMs,
-      joinIntervalMs: config.joinIntervalMs,
-      populationLimit: config.populationLimit,
-      profileWeights: config.profileWeights,
-      snapshotIntervalMs: config.snapshotIntervalMs,
-      diagnosticWindowSize: config.diagnosticWindowSize,
-      softlockThresholds: config.softlockThresholds,
-    },
-    invariantFindings: error.findings,
-  };
-  await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`, {
-    encoding: 'utf8',
-    flag: 'wx',
-  });
-  await rename(temporary, target);
-  return target;
 }

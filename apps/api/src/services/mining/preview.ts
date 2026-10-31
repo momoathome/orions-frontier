@@ -9,11 +9,7 @@ import {
   getUserScannerCoverages,
   isPointVisible,
 } from '../map/index.js';
-import {
-  effectiveCargoCapacity,
-  effectiveMiningRate,
-  getStationResearchModifiers,
-} from '../research/index.js';
+import { getStationResearchModifiers } from '../research/index.js';
 
 export interface MiningPreviewInput {
   userId: string;
@@ -67,8 +63,8 @@ export async function getMiningPreview({
     { x: row.stationX, y: row.stationY },
     { x: row.asteroidX, y: row.asteroidY }
   );
-  const effectiveRate = await effectiveMiningRate(db, stationId, spacecraft.miningRate);
-  const effectiveCargo = await effectiveCargoCapacity(db, stationId, spacecraft.cargo);
+  const effectiveRate = spacecraft.miningRate * modifiers.miningRate;
+  const effectiveCargo = spacecraft.cargo * modifiers.cargo;
   const effectiveSpeed = spacecraft.speed * modifiers.speed;
 
   const mined = calculateMiningCycle({

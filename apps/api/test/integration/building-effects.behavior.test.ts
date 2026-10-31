@@ -4,12 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
 import { getStationBuildings, startBuildingUpgrade } from '../../src/services/station/buildings.js';
 import {
@@ -23,6 +18,7 @@ import {
   createTestSector,
   createTestStation,
   createTestUser,
+  deleteTestData,
   grantResearch,
   setTestResources,
 } from '../helpers/fixtures.js';
@@ -53,13 +49,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  const db = getDb();
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(eq(users.id, userId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
 });
 
 after(closeDb);

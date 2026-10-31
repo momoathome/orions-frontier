@@ -3,8 +3,6 @@ export {
   applySpeed,
   constructionFactor,
   applyTravelSpeed,
-  effectiveCargoCapacity,
-  effectiveMiningRate,
   getResearchLevels,
   getResearchModifiers,
   getStationResearchModifiers,
@@ -21,4 +19,4 @@ export {
   toQueuedJob,
   toResourceMap,
 } from './research.js';
-export type { CreditStation, ResearchPassResult, ResearchQueueHooks } from './research.js';
+export type { ResearchQueueHooks } from './research.js';

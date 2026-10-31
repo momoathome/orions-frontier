@@ -1,17 +1,15 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields, salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { getUserCombatReports, startAttack } from '../../src/services/combat/combat.js';
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
 import { startSalvage } from '../../src/services/combat/salvage.js';
@@ -21,7 +19,9 @@ import {
   createTestSector,
   createTestStation,
   createTestUser,
+  deleteTestData,
   grantResearch,
+  setTestResources,
 } from '../helpers/fixtures.js';
 
 let attackerUserId = '';
@@ -70,30 +70,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  const db = getDb();
-  const stationIds = [attackerStationId, defenderStationId];
-  const fleets = await db
-    .select({ id: stationSpacecrafts.id })
-    .from(stationSpacecrafts)
-    .where(inArray(stationSpacecrafts.stationId, stationIds));
-
-  await db.delete(salvageMissions).where(inArray(salvageMissions.stationId, stationIds));
-  await db.delete(combatMissions).where(inArray(combatMissions.attackerStationId, stationIds));
-  if (fleets.length > 0) {
-    await db.delete(spacecraftTrips).where(
-      inArray(
-        spacecraftTrips.stationSpacecraftId,
-        fleets.map((fleet) => fleet.id)
-      )
-    );
-  }
-  await db.delete(debrisFields).where(eq(debrisFields.sectorId, sectorId));
-  await db.delete(stationResources).where(inArray(stationResources.stationId, stationIds));
-  await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
-  await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds));
-  await db.delete(stations).where(inArray(stations.id, stationIds));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(inArray(users.id, [attackerUserId, defenderUserId]));
+  await deleteTestData({ userIds: [attackerUserId, defenderUserId], sectorIds: [sectorId] });
 });
 
 after(closeDb);
@@ -120,7 +97,7 @@ test('combat resolves attacker and defender losses', async () => {
 });
 
 test('combat and salvage returns discard cargo above warehouse capacity', async () => {
-  await setCarbon(attackerStationId, 4_990);
+  await setTestResources(attackerStationId, { carbon: 4_990 });
   await resolveAttack();
   assert.equal(await getCarbon(attackerStationId), 5_000);
 
@@ -134,7 +111,7 @@ test('combat and salvage returns discard cargo above warehouse capacity', async 
     spacecraftKey: 'collector',
     amount: 1,
   });
-  await setCarbon(attackerStationId, 4_990);
+  await setTestResources(attackerStationId, { carbon: 4_990 });
   await resolveSalvage(field.id);
   assert.equal(await getCarbon(attackerStationId), 5_000);
 });
@@ -173,7 +150,7 @@ test('station defense score can repel an attack without defending spacecraft', a
     .select()
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, mission!.outboundTripId));
-  assert.equal(await settleTripArrival(outbound!), true);
+  assert.equal((await settleTripArrival(outbound!)).settled, true);
 
   const report = (await getUserCombatReports(attackerUserId)).find(
     (combatReport) => combatReport.id === started.id
@@ -352,7 +329,7 @@ test('Cargo Compression lets a salvager carry more debris', async () => {
     spacecraftKey: 'collector',
     amount: 1,
   });
-  await setCarbon(attackerStationId, 0);
+  await setTestResources(attackerStationId, { carbon: 0 });
   await grantResearch(attackerUserId, { cargo_compression: 4 });
 
   await resolveSalvage(field!.id);
@@ -390,12 +367,7 @@ test('attack on a young protected account is rejected', async () => {
     /protected from attacks/
   );
 
-  // Cleanup: attack was rejected, no trip/mission created
-  await getDb().delete(stationResources).where(eq(stationResources.stationId, youngStation.id));
-  await getDb().delete(stationBuildings).where(eq(stationBuildings.stationId, youngStation.id));
-  await getDb().delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, youngStation.id));
-  await getDb().delete(stations).where(eq(stations.id, youngStation.id));
-  await getDb().delete(users).where(eq(users.id, young.id));
+  await deleteTestData({ userIds: [young.id] });
 });
 
 test('attack on an account older than 24 hours is allowed', async () => {
@@ -437,30 +409,12 @@ test('attack on an account older than 24 hours is allowed', async () => {
     .select()
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, mission!.outboundTripId));
-  assert.equal(await settleTripArrival(outbound!), true);
+  assert.equal((await settleTripArrival(outbound!)).settled, true);
 
   const report = (await getUserCombatReports(attackerUserId)).find((r) => r.id === started.id);
   assert.equal(report?.winner, 'attacker');
 
-  // Cleanup: missions first (FK to trips), then trips, then rest
-  await getDb().delete(combatMissions).where(eq(combatMissions.defenderStationId, oldStation.id));
-  const fleets = await getDb()
-    .select({ id: stationSpacecrafts.id })
-    .from(stationSpacecrafts)
-    .where(eq(stationSpacecrafts.stationId, oldStation.id));
-  await getDb()
-    .delete(spacecraftTrips)
-    .where(
-      inArray(
-        spacecraftTrips.stationSpacecraftId,
-        fleets.map((f) => f.id)
-      )
-    );
-  await getDb().delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, oldStation.id));
-  await getDb().delete(stationResources).where(eq(stationResources.stationId, oldStation.id));
-  await getDb().delete(stationBuildings).where(eq(stationBuildings.stationId, oldStation.id));
-  await getDb().delete(stations).where(eq(stations.id, oldStation.id));
-  await getDb().delete(users).where(eq(users.id, oldUser.id));
+  await deleteTestData({ userIds: [oldUser.id] });
 });
 
 test('attack protection is broken after the first own attack', async () => {
@@ -539,31 +493,7 @@ test('attack protection is broken after the first own attack', async () => {
     now,
   });
 
-  // Cleanup: delete missions first (FK to trips), then trips, then stations
-  await getDb()
-    .delete(combatMissions)
-    .where(inArray(combatMissions.defenderStationId, [oldStation.id, youngStation.id]));
-  for (const stationId of [oldStation.id, youngStation.id]) {
-    const fleets = await getDb()
-      .select({ id: stationSpacecrafts.id })
-      .from(stationSpacecrafts)
-      .where(eq(stationSpacecrafts.stationId, stationId));
-    await getDb()
-      .delete(spacecraftTrips)
-      .where(
-        inArray(
-          spacecraftTrips.stationSpacecraftId,
-          fleets.map((f) => f.id)
-        )
-      );
-    await getDb().delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-    await getDb().delete(stationResources).where(eq(stationResources.stationId, stationId));
-    await getDb().delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-    await getDb().delete(stations).where(eq(stations.id, stationId));
-  }
-  await getDb()
-    .delete(users)
-    .where(inArray(users.id, [youngDefender.id, oldDefender.id]));
+  await deleteTestData({ userIds: [youngDefender.id, oldDefender.id] });
 });
 
 /** Sends the three Merlins and lets them arrive; the fight resolves on arrival. */
@@ -582,7 +512,7 @@ async function arriveWithAttack() {
     .select()
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, mission!.outboundTripId));
-  assert.equal(await settleTripArrival(outbound!), true);
+  assert.equal((await settleTripArrival(outbound!)).settled, true);
   return started;
 }
 
@@ -603,7 +533,7 @@ async function resolveAttack() {
     .select()
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, returning!.returnTripId!));
-  assert.equal(await settleTripArrival(returnTrip!), true);
+  assert.equal((await settleTripArrival(returnTrip!)).settled, true);
 
   return report(started.id);
 }
@@ -624,7 +554,7 @@ async function resolveSalvage(debrisFieldId: string): Promise<void> {
     .select()
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, mission!.outboundTripId));
-  assert.equal(await settleTripArrival(outbound!), true);
+  assert.equal((await settleTripArrival(outbound!)).settled, true);
 
   const [returning] = await getDb()
     .select()
@@ -634,7 +564,7 @@ async function resolveSalvage(debrisFieldId: string): Promise<void> {
     .select()
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, returning!.returnTripId!));
-  assert.equal(await settleTripArrival(returnTrip!), true);
+  assert.equal((await settleTripArrival(returnTrip!)).settled, true);
 }
 
 async function getCarbon(stationId: string): Promise<number> {
@@ -645,15 +575,6 @@ async function getCarbon(stationId: string): Promise<number> {
       and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
     );
   return resource!.amount;
-}
-
-async function setCarbon(stationId: string, amount: number): Promise<void> {
-  await getDb()
-    .update(stationResources)
-    .set({ amount })
-    .where(
-      and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
-    );
 }
 
 async function getFleet(stationId: string, spacecraftKey: string) {

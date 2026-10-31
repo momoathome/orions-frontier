@@ -5,20 +5,19 @@ import { eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
 import { userResearch } from '../../src/lib/db/schema/user-research.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
 import { PlaytestCollector } from '../../src/tools/playtest/collector.js';
-import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 import { loadPlaytestSnapshot } from '../../src/tools/playtest/snapshot-loader.js';
 import { completeDueResearch } from '../../src/services/research/research.js';
 import { creditStationResources } from '../../src/services/station/index.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+} from '../helpers/fixtures.js';
+import { testPopulationMember } from '../helpers/playtest.js';
 
 let userId = '';
 let stationId = '';
@@ -39,6 +38,8 @@ before(async () => {
     sectorId: sector.id,
     createdAt: new Date('2055-01-01T00:00:00Z'),
   });
+  // A destroyed colony must not count as a station or drag resource minimums to zero.
+  await createTestStation({ userId: user.id, sectorId: sector.id, destroyedAt: completedAt });
   userId = user.id;
   stationId = station.id;
   sectorId = sector.id;
@@ -65,28 +66,9 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(userResearch).where(eq(userResearch.userId, userId));
-  await db.delete(botControllers).where(eq(botControllers.userId, userId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(users).where(eq(users.id, userId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
-
-function member(): PlaytestPopulationMember {
-  return {
-    alias: 'player-001',
-    userId,
-    initialStationId: stationId,
-    profile: 'technocrat',
-    joinedAt: new Date('2055-01-01T00:00:00.000Z'),
-    populationKind: 'synthetic_player',
-  };
-}
 
 test('an atomically claimed completion emits once and snapshots remain compact and read-only', async () => {
   const results = await Promise.all([
@@ -110,7 +92,9 @@ test('an atomically claimed completion emits once and snapshots remain compact a
   assert.equal(research?.level, 1);
   assert.equal(research.completesAt, null);
 
-  const aliases = new PlaytestAliasRegistry([member()]);
+  const aliases = new PlaytestAliasRegistry([
+    testPopulationMember({ userId, initialStationId: stationId }),
+  ]);
   const collector = new PlaytestCollector(aliases, 5);
   for (const event of events) collector.consumeCompletion(event);
   for (const event of events) collector.consumeCompletion(event);
@@ -123,6 +107,7 @@ test('an atomically claimed completion emits once and snapshots remain compact a
   assert.deepEqual(afterSnapshot, before);
   assert.equal(snapshot.bots.length, 1);
   assert.equal(snapshot.stations.length, 1);
+  assert.equal(snapshot.world.stations, 1);
   assert.equal(snapshot.bots[0]?.completedResearch, 1);
   assert.match(snapshot.bots[0].progressFingerprint, /^[0-9a-f]{24}$/);
   assert.match(snapshot.stations[0]?.progressFingerprint ?? '', /^[0-9a-f]{24}$/);

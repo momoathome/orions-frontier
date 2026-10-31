@@ -1,22 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { eq, inArray } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
+import { asteroids, asteroidVeins } from '../../src/lib/db/schema/asteroids.js';
 import {
-  asteroidAssignments,
-  asteroids,
-  asteroidVeins,
-} from '../../src/lib/db/schema/asteroids.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
-import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+} from '../helpers/fixtures.js';
 import { authHeaders, buildTestApp } from '../helpers/test-app.js';
 
 const app = await buildTestApp();
@@ -48,24 +41,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  const ssIds = (
-    await db
-      .select({ id: stationSpacecrafts.id })
-      .from(stationSpacecrafts)
-      .where(eq(stationSpacecrafts.stationId, stationId))
-  ).map((row) => row.id);
-  if (ssIds.length) {
-    await db.delete(spacecraftTrips).where(inArray(spacecraftTrips.stationSpacecraftId, ssIds));
-  }
-  await db.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, stationId));
-  await db.delete(asteroids).where(inArray(asteroids.id, [nearAsteroidId, farAsteroidId]));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(inArray(users.id, [userId, otherUserId]));
+  await deleteTestData({ userIds: [userId, otherUserId], sectorIds: [sectorId] });
   await app.close();
   await closeDb();
 });

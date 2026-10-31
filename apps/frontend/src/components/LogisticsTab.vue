@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { resourceKeys } from '@orions-frontier/shared';
-import { formatAmount, formatCountdown, formatWait } from '../lib/format';
+import { formatAmount, formatCountdown, formatRate, formatWait } from '../lib/format';
 import { resourceColor, resourceName } from '../lib/mining-utils';
 import { useOverviewStore } from '../stores/overview.js';
 import AsteroidPanel from './AsteroidPanel.vue';
@@ -54,8 +54,6 @@ const workingMiners = computed(() => sources.value.reduce((sum, source) => sum +
 
 const sourceName = (key: string | null) => (key ? resourceName(key) : 'Unknown composition');
 const shortId = (id: string) => `#${id.slice(0, 6)}`;
-const formatRate = (perHour: number) =>
-  perHour < 10 ? perHour.toFixed(1) : Math.round(perHour).toLocaleString('en-US');
 </script>
 
 <template>

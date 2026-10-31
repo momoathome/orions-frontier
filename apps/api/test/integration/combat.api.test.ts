@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields, salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+} from '../helpers/fixtures.js';
 import { authHeaders, buildTestApp } from '../helpers/test-app.js';
 
 const app = await buildTestApp();
@@ -60,24 +60,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  const stationIds = [attackerStationId, defenderStationId];
-  const fleets = await db
-    .select({ id: stationSpacecrafts.id })
-    .from(stationSpacecrafts)
-    .where(inArray(stationSpacecrafts.stationId, stationIds));
-  await db.delete(salvageMissions).where(inArray(salvageMissions.stationId, stationIds));
-  await db.delete(combatMissions).where(inArray(combatMissions.attackerStationId, stationIds));
-  for (const fleet of fleets) {
-    await db.delete(spacecraftTrips).where(eq(spacecraftTrips.stationSpacecraftId, fleet.id));
-  }
-  await db.delete(debrisFields).where(eq(debrisFields.sectorId, sectorId));
-  await db.delete(stationResources).where(inArray(stationResources.stationId, stationIds));
-  await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
-  await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds));
-  await db.delete(stations).where(inArray(stations.id, stationIds));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(inArray(users.id, [attackerUserId, defenderUserId]));
+  await deleteTestData({ userIds: [attackerUserId, defenderUserId], sectorIds: [sectorId] });
   await app.close();
   await closeDb();
 });
@@ -164,5 +147,5 @@ async function settleSalvage(missionId: string): Promise<void> {
 
 async function settleTrip(tripId: string): Promise<void> {
   const [trip] = await getDb().select().from(spacecraftTrips).where(eq(spacecraftTrips.id, tripId));
-  assert.equal(await settleTripArrival(trip!), true);
+  assert.equal((await settleTripArrival(trip!)).settled, true);
 }

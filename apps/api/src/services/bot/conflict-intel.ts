@@ -87,11 +87,6 @@ export function hostilityLabel(score: number): HostilityLabel {
   return 'neutral';
 }
 
-/** Check if a target is hostile enough to consider conflict actions. */
-export function isSignificantHostility(score: number): boolean {
-  return score >= HOSTILITY_RIVAL;
-}
-
 // ---------------------------------------------------------------------------
 // Target defense estimation (public data only)
 // ---------------------------------------------------------------------------

@@ -5,8 +5,17 @@ import { botControllers } from '../lib/db/schema/bot-controllers.js';
 import { stations } from '../lib/db/schema/stations.js';
 import { worldMissions } from '../lib/db/schema/world-missions.js';
 
-/** Missions under way or returning, with their origin position and bot flag. */
-export function listMovingWorldMissions(db: QueryDb) {
+/**
+ * Missions under way or returning whose path may cross the bounds, with their origin position and
+ * bot flag. A mission without a colony position flies to `sector` times its sector coordinates.
+ */
+export function listMovingWorldMissionsInBounds(
+  db: QueryDb,
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+  sector: { WIDTH: number; HEIGHT: number }
+) {
+  const targetX = sql`coalesce(${worldMissions.targetX}, ${worldMissions.targetSectorX} * ${sector.WIDTH})`;
+  const targetY = sql`coalesce(${worldMissions.targetY}, ${worldMissions.targetSectorY} * ${sector.HEIGHT})`;
   return db
     .select({
       id: worldMissions.id,
@@ -27,7 +36,16 @@ export function listMovingWorldMissions(db: QueryDb) {
     .from(worldMissions)
     .innerJoin(stations, eq(worldMissions.originStationId, stations.id))
     .leftJoin(botControllers, eq(botControllers.userId, worldMissions.userId))
-    .where(inArray(worldMissions.status, ['traveling', 'returning']));
+    .where(
+      and(
+        inArray(worldMissions.status, ['traveling', 'returning']),
+        // Out and back share one straight path, so its bounding box must touch the view.
+        sql`least(${stations.x}, ${targetX}) < ${bounds.maxX}`,
+        sql`greatest(${stations.x}, ${targetX}) >= ${bounds.minX}`,
+        sql`least(${stations.y}, ${targetY}) < ${bounds.maxY}`,
+        sql`greatest(${stations.y}, ${targetY}) >= ${bounds.minY}`
+      )
+    );
 }
 
 /** Locks the missions under way or returning that fly ships of these fleet rows. */
@@ -115,12 +133,14 @@ export async function findWorldMission(db: QueryDb, id: string) {
   return row;
 }
 
-export function listWorldMissionIdsByUser(db: QueryDb, userId: string) {
+/** The user's newest missions first. */
+export function listWorldMissionsByUser(db: QueryDb, userId: string, limit: number) {
   return db
-    .select({ id: worldMissions.id })
+    .select()
     .from(worldMissions)
     .where(eq(worldMissions.userId, userId))
-    .orderBy(desc(worldMissions.createdAt));
+    .orderBy(desc(worldMissions.createdAt))
+    .limit(limit);
 }
 
 /** Missions under way or returning that arrive by `now`, oldest first. */

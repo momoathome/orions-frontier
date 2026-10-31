@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   calculateBuildingEffect,
   calculateBuildingUpgradeCost,
@@ -10,7 +10,6 @@ import {
 } from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { asteroids } from '../../src/lib/db/schema/asteroids.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
@@ -45,21 +44,19 @@ import {
   getResearchState,
   startResearch,
 } from '../../src/services/research/research.js';
-import { grantResearch } from '../helpers/fixtures.js';
+import { deleteTestData, grantResearch, setTestResources } from '../helpers/fixtures.js';
 import { runSimulationTick } from '../../src/services/simulation/simulation.js';
 import {
   applyConstructionSpeed,
   applyTravelSpeed,
-  effectiveCargoCapacity,
-  effectiveMiningRate,
+  getStationResearchModifiers,
 } from '../../src/services/research/effects.js';
+import { payStationCosts } from '../../src/repositories/station-resources.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
 const sectorId = randomUUID();
-const createdStationIds: string[] = [];
 const createdUserIds: string[] = [];
-const testSlotIds: string[] = [];
 
 before(async () => {
   await runMigrations();
@@ -90,26 +87,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  const allStationIds = [stationId, ...createdStationIds];
-  await db.delete(userResearch).where(eq(userResearch.userId, userId));
-  await db
-    .delete(spacecraftBuildOrders)
-    .where(inArray(spacecraftBuildOrders.stationId, allStationIds));
-  await db.delete(stationResources).where(inArray(stationResources.stationId, allStationIds));
-  await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, allStationIds));
-  await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, allStationIds));
-  if (createdStationIds.length) {
-    await db
-      .update(spawnSlots)
-      .set({ stationId: null })
-      .where(inArray(spawnSlots.stationId, createdStationIds));
-  }
-  await db.delete(stations).where(inArray(stations.id, allStationIds));
-  await db.delete(asteroids).where(eq(asteroids.sectorId, sectorId));
-  if (testSlotIds.length) await db.delete(spawnSlots).where(inArray(spawnSlots.id, testSlotIds));
-  await db.delete(users).where(inArray(users.id, [userId, ...createdUserIds]));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId, ...createdUserIds], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -198,6 +176,31 @@ test('parallel building upgrades deduct resources and start work once', async ()
     .from(stationResources)
     .where(eq(stationResources.stationId, stationId));
   assert.ok(resources.every((resource) => resource.amount === 0));
+});
+
+test('concurrent payments never overdraw a resource and leave nothing paid on failure', async () => {
+  await setResources({ carbon: 1_000, titanium: 100 });
+  const costs = { carbon: 600, titanium: 100 };
+  const results = await Promise.allSettled(
+    [0, 1].map(() =>
+      getDb().transaction(async (tx) => {
+        const short = await payStationCosts(tx, stationId, costs);
+        if (short) throw new Error(`Insufficient ${short.resourceKey}`);
+      })
+    )
+  );
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.deepEqual(
+    Object.fromEntries(
+      (
+        await getDb()
+          .select()
+          .from(stationResources)
+          .where(eq(stationResources.stationId, stationId))
+      ).map((row) => [row.resourceKey, row.amount])
+    ),
+    { carbon: 400, titanium: 0 }
+  );
 });
 
 test('Warehouse is a playable upgrade with active protection', async () => {
@@ -330,8 +333,9 @@ test('research levels expose their canonical server-side multipliers', async () 
     ion_propulsion: 2,
   });
 
-  assert.ok(Math.abs((await effectiveMiningRate(db, stationId, 100)) - 110) < 1e-9);
-  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100)) - 110) < 1e-9);
+  const modifiers = await getStationResearchModifiers(db, stationId);
+  assert.ok(Math.abs(100 * modifiers.miningRate - 110) < 1e-9);
+  assert.ok(Math.abs(100 * modifiers.cargo - 110) < 1e-9);
 
   const arrival = await applyTravelSpeed(db, stationId, new Date(100_000), new Date(0));
   assert.equal(arrival.getTime(), Math.round(100_000 / 1.1));
@@ -385,10 +389,7 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
     nextAt: new Date(Date.now() + 60_000),
     endsAt: new Date(Date.now() + 60_000),
   });
-  await db
-    .update(stationResources)
-    .set({ amount: 100_000 })
-    .where(eq(stationResources.stationId, stationId));
+  await setTestResources(stationId, 100_000);
 
   assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 18 });
 
@@ -422,19 +423,14 @@ test('parallel station creation claims different spawn slots atomically', async 
     }))
   );
   const slotIndex = 1_000_000 + Math.floor(Math.random() * 100_000);
-  const slots = await db
-    .insert(spawnSlots)
-    .values([
-      { sectorId, slotIndex, x: slotIndex, y: 0 },
-      { sectorId, slotIndex: slotIndex + 1, x: slotIndex + 1, y: 0 },
-    ])
-    .returning({ id: spawnSlots.id });
-  testSlotIds.push(...slots.map((slot) => slot.id));
+  await db.insert(spawnSlots).values([
+    { sectorId, slotIndex, x: slotIndex, y: 0 },
+    { sectorId, slotIndex: slotIndex + 1, x: slotIndex + 1, y: 0 },
+  ]);
 
   const created = await Promise.all([
     createStation(usersToCreate[0]!, { name: 'One', sectorId }),
     createStation(usersToCreate[1]!, { name: 'Two', sectorId }),
   ]);
-  createdStationIds.push(...created.map((station) => station.id));
   assert.equal(new Set(created.map((station) => `${station.x}:${station.y}`)).size, 2);
 });

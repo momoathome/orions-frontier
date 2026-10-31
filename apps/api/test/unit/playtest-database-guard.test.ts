@@ -8,8 +8,6 @@ import {
 
 const validEnvironment = {
   PLAYTEST_MODE: '1',
-  PLAYTEST_EXPECTED_HOST: PLAYTEST_DATABASE_HOST,
-  PLAYTEST_EXPECTED_DATABASE: PLAYTEST_DATABASE_NAME,
   DATABASE_URL:
     'postgresql://playtest_runner:playtest_only@playtest-postgres:5432/orions_frontier_playtest',
 };
@@ -37,25 +35,9 @@ test('playtest database guard rejects development, test and localhost URLs', () 
   }
 });
 
-test('playtest database guard requires explicit mode and immutable expectations', () => {
+test('playtest database guard requires explicit mode', () => {
   assert.throws(
     () => assertPlaytestDatabaseTarget({ ...validEnvironment, PLAYTEST_MODE: '0' }),
     /PLAYTEST_MODE/
-  );
-  assert.throws(
-    () =>
-      assertPlaytestDatabaseTarget({
-        ...validEnvironment,
-        PLAYTEST_EXPECTED_HOST: 'postgres',
-      }),
-    /host/
-  );
-  assert.throws(
-    () =>
-      assertPlaytestDatabaseTarget({
-        ...validEnvironment,
-        PLAYTEST_EXPECTED_DATABASE: 'orionsfrontier',
-      }),
-    /database/
   );
 });

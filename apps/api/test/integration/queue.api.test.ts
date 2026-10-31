@@ -1,21 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { eq, inArray } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { queuedJobs } from '../../src/lib/db/schema/queued-jobs.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import {
   createTestSector,
   createTestStation,
   createTestUser,
+  deleteTestData,
   setTestResources,
 } from '../helpers/fixtures.js';
 import { authHeaders, buildTestApp } from '../helpers/test-app.js';
@@ -37,15 +31,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(queuedJobs).where(eq(queuedJobs.stationId, stationId));
-  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
-  for (const table of [stationBuildings, stationResources, stationSpacecrafts]) {
-    await db.delete(table).where(eq(table.stationId, stationId));
-  }
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(users).where(inArray(users.id, [ownerId, strangerId]));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [ownerId, strangerId], sectorIds: [sectorId] });
   await app.close();
   await closeDb();
 });

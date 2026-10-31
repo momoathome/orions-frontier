@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   applyBuildingCostDiscount,
   calculateBuildingUpgradeCost,
@@ -8,19 +8,10 @@ import {
 } from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import {
-  asteroidAssignments,
-  asteroids,
-  asteroidVeins,
-} from '../../src/lib/db/schema/asteroids.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
-import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
+import { asteroids, asteroidVeins } from '../../src/lib/db/schema/asteroids.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { userResearch } from '../../src/lib/db/schema/user-research.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
 import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/map/asteroid.js';
 import {
@@ -41,6 +32,7 @@ import {
   createTestSector,
   createTestStation,
   createTestUser,
+  deleteTestData,
   grantResearch,
   setTestResources,
 } from '../helpers/fixtures.js';
@@ -100,20 +92,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db
-    .delete(spacecraftTrips)
-    .where(inArray(spacecraftTrips.toId, [carbonId, kyberId, mixedId]));
-  await db
-    .delete(asteroidAssignments)
-    .where(inArray(asteroidAssignments.asteroidId, [carbonId, kyberId, mixedId]));
-  await db.delete(asteroids).where(inArray(asteroids.id, [carbonId, kyberId, mixedId]));
-  for (const table of [stationBuildings, stationResources, stationSpacecrafts]) {
-    await db.delete(table).where(eq(table.stationId, stationId));
-  }
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(users).where(eq(users.id, userId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -219,15 +198,15 @@ test('Kyber asteroids stay hidden until Spectral Analysis', async () => {
   assert.equal(await getAsteroidById(kyberId, userId), null);
   assert.equal(await getAsteroidById(mixedId, userId), null);
   assert.ok(!(await listed()).some((id) => id === kyberId || id === mixedId));
-  assert.deepEqual(
-    await createAsteroidAssignment({
+  await assert.rejects(
+    createAsteroidAssignment({
       userId,
       asteroidId: kyberId,
       stationId,
       spacecraftKey: 'mole',
       assignedAmount: 1,
     }),
-    { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' }
+    /Asteroid not found/
   );
 
   await grantResearch(userId, { spectral_analysis: 1 });

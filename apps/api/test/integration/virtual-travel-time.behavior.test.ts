@@ -13,22 +13,20 @@ import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields, salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { worldMissions } from '../../src/lib/db/schema/world-missions.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
 import { startAttack } from '../../src/services/combat/combat.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
 import { startSalvage } from '../../src/services/combat/salvage.js';
 import {
-  setTestResources,
   createTestSector,
   createTestStation,
   createTestUser,
+  deleteTestData,
   grantResearch,
+  setTestResources,
 } from '../helpers/fixtures.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import {
@@ -146,11 +144,6 @@ before(async () => {
 
 after(async () => {
   const db = getDb();
-  const allStations = await db
-    .select({ id: stations.id })
-    .from(stations)
-    .where(inArray(stations.userId, userIds));
-  const allStationIds = allStations.map((station) => station.id);
   const allSectors = await db
     .select({ id: sectors.id })
     .from(sectors)
@@ -167,35 +160,7 @@ after(async () => {
     );
   const allSectorIds = [...new Set([...sectorIds, ...allSectors.map((sector) => sector.id)])];
 
-  await db.delete(salvageMissions).where(inArray(salvageMissions.userId, userIds));
-  await db.delete(combatMissions).where(inArray(combatMissions.userId, userIds));
-  await db.delete(worldMissions).where(inArray(worldMissions.userId, userIds));
-  if (allStationIds.length > 0) {
-    await db
-      .delete(spacecraftTrips)
-      .where(
-        inArray(
-          spacecraftTrips.stationSpacecraftId,
-          db
-            .select({ id: stationSpacecrafts.id })
-            .from(stationSpacecrafts)
-            .where(inArray(stationSpacecrafts.stationId, allStationIds))
-        )
-      );
-    await db
-      .delete(asteroidAssignments)
-      .where(inArray(asteroidAssignments.stationId, allStationIds));
-    await db.delete(stationResources).where(inArray(stationResources.stationId, allStationIds));
-    await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, allStationIds));
-    await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, allStationIds));
-    await db.delete(stations).where(inArray(stations.id, allStationIds));
-  }
-  if (allSectorIds.length > 0) {
-    await db.delete(debrisFields).where(inArray(debrisFields.sectorId, allSectorIds));
-    await db.delete(asteroids).where(inArray(asteroids.sectorId, allSectorIds));
-    await db.delete(sectors).where(inArray(sectors.id, allSectorIds));
-  }
-  await db.delete(users).where(inArray(users.id, userIds));
+  await deleteTestData({ userIds, sectorIds: allSectorIds });
   await closeDb();
 });
 
@@ -219,7 +184,6 @@ test('virtual mining uses deterministic IDs and arrival-based follow-up legs', a
     },
     context
   );
-  assert.ok(!('code' in assignment));
   assert.equal(assignment.id, expected.nextId('assignment'));
 
   const [outbound] = await getDb()
@@ -231,10 +195,12 @@ test('virtual mining uses deterministic IDs and arrival-based follow-up legs', a
   assert.equal(outbound.createdAt.toISOString(), context.now.toISOString());
 
   assert.equal(
-    await settleTripArrival(
-      outbound,
-      context.at(new Date(outbound.arrivesAt.getTime() + 24 * 3_600_000))
-    ),
+    (
+      await settleTripArrival(
+        outbound,
+        context.at(new Date(outbound.arrivesAt.getTime() + 24 * 3_600_000))
+      )
+    ).settled,
     true
   );
   const [returnTrip] = await getDb()
@@ -253,7 +219,10 @@ test('virtual mining uses deterministic IDs and arrival-based follow-up legs', a
   );
   assert.equal(returnTrip.createdAt.toISOString(), outbound.arrivesAt.toISOString());
 
-  assert.equal(await settleTripArrival(returnTrip, context.at(returnTrip.arrivesAt)), true);
+  assert.equal(
+    (await settleTripArrival(returnTrip, context.at(returnTrip.arrivesAt))).settled,
+    true
+  );
   assert.equal(
     (
       await getDb()

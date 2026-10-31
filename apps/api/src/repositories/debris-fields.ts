@@ -51,10 +51,6 @@ export async function deleteDebrisField(tx: Tx, id: string) {
   await tx.delete(debrisFields).where(eq(debrisFields.id, id));
 }
 
-export function listSalvageMissionsByUser(db: QueryDb, userId: string) {
-  return db.select().from(salvageMissions).where(eq(salvageMissions.userId, userId));
-}
-
 export async function insertSalvageMission(tx: Tx, values: typeof salvageMissions.$inferInsert) {
   const [row] = await tx.insert(salvageMissions).values(values).returning();
   return required(row, 'mission');

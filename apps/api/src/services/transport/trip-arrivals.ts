@@ -21,7 +21,7 @@ export interface TripArrivalResult {
   events: PlaytestCompletionEvent[];
 }
 
-export async function settleTripArrivalDetailed(
+export async function settleTripArrival(
   trip: TripRow,
   contextOrNow?: GameExecutionContext | Date
 ): Promise<TripArrivalResult> {
@@ -50,11 +50,4 @@ export async function settleTripArrivalDetailed(
 
     return { settled: true, events };
   });
-}
-
-export async function settleTripArrival(
-  trip: TripRow,
-  contextOrNow?: GameExecutionContext | Date
-): Promise<boolean> {
-  return (await settleTripArrivalDetailed(trip, contextOrNow)).settled;
 }

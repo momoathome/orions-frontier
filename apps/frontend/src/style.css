@@ -58,6 +58,9 @@
   .ui-label {
     @apply text-xs uppercase tracking-[0.08em] text-ui-muted;
   }
+  .ui-error {
+    @apply rounded-md border border-[#6b2f2c] bg-[#2a1214] px-3 py-2 text-ui-red;
+  }
   .ui-num {
     @apply font-mono tabular-nums;
   }

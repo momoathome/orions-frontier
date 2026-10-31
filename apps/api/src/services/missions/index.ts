@@ -1,5 +1,5 @@
 export {
-  completeDueWorldMissionsDetailed,
+  completeDueWorldMissions,
   getFrontierTargets,
   getKnownSectors,
   getUserWorldMissions,

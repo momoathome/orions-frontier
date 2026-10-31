@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { formatBuildTime } from '../lib/spacecraft-utils';
+import { formatBuildTime } from '../lib/format';
 import { useOverviewStore } from '../stores/overview.js';
 import CostList from './CostList.vue';
 import RequirementChips from './RequirementChips.vue';
@@ -11,7 +11,7 @@ const { hangar, ship, stationId, productionSlots, buildTimeFactor } = defineProp
   stationId: string;
   ship: StationSpacecraftWithDefinition;
   hangar: { used: number; capacity: number };
-  /** Ships the shipyard builds at once; an order takes ⌈amount / slots⌉ build times. */
+  /** Ships the shipyard builds at once; one order runs in one slot, its ships one after another. */
   productionSlots: number;
   /** Server factor from the Shipyard bonus and Fabrication Lines. */
   buildTimeFactor: number;

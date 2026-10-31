@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
-import type {
-  MiningCycleEstimate,
-  StationSpacecraftsResponse,
-  StationSpacecraftWithDefinition,
-} from '@orions-frontier/shared';
+import { formatDuration } from '../lib/format';
+import type { MiningCycleEstimate } from '@orions-frontier/shared';
+import { useOverviewStore } from '../stores/overview.js';
 
 const { asteroidId, stationId } = defineProps<{
   asteroidId: string;
@@ -17,7 +15,19 @@ const emit = defineEmits<{
   done: [];
 }>();
 
-const miners = ref<StationSpacecraftWithDefinition[] | null>(null);
+const overview = useOverviewStore();
+/** Idle miners of the station; null until the overview has loaded its fleet. */
+const miners = computed(() => {
+  const fleet = overview.state.details[stationId]?.fleet;
+  return fleet
+    ? fleet.spacecrafts.filter(
+        (s) =>
+          s.definition.role === 'miner' &&
+          s.definition.miningRate > 0 &&
+          s.amount - s.lockedAmount > 0
+      )
+    : null;
+});
 const selectedSpacecraftKey = ref('');
 const assignAmount = ref(1);
 const assignError = ref<string | null>(null);
@@ -34,24 +44,17 @@ type MiningPreview = Omit<MiningCycleEstimate, 'estimatedDepletionHours' | 'fina
 };
 const preview = ref<MiningPreview | null>(null);
 
-async function loadMiners() {
-  try {
-    const response = await apiClient.get<StationSpacecraftsResponse>(
-      `/stations/${stationId}/spacecrafts`
-    );
-    miners.value = response.spacecrafts.filter(
-      (s) =>
-        s.definition.role === 'miner' &&
-        s.definition.miningRate > 0 &&
-        s.amount - s.lockedAmount > 0
-    );
-    selectedSpacecraftKey.value = miners.value[0]?.definition.key ?? '';
-  } catch (error) {
-    miners.value = [];
-    assignError.value = apiErrorMessage(error, 'Hangar could not be loaded');
-  }
-}
-void loadMiners();
+// Fresh idle counts for the form; keep a valid selection when they change.
+onMounted(() => void overview.refreshStation(stationId));
+watch(
+  miners,
+  (list) => {
+    if (list && !list.some((m) => m.definition.key === selectedSpacecraftKey.value)) {
+      selectedSpacecraftKey.value = list[0]?.definition.key ?? '';
+    }
+  },
+  { immediate: true }
+);
 
 const selectedMiner = computed(
   () => miners.value?.find((m) => m.definition.key === selectedSpacecraftKey.value) ?? null
@@ -98,14 +101,8 @@ watch(
       if (requestId === previewRequest) previewLoading.value = false;
     }
   },
-  { flush: 'post' }
+  { flush: 'post', immediate: true }
 );
-
-function formatDuration(hours: number): string {
-  if (hours < 1) return `${Math.round(hours * 60)} min`;
-  if (hours < 24) return `${hours.toFixed(1)} h`;
-  return `${(hours / 24).toFixed(1)} d`;
-}
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value);

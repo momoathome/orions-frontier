@@ -38,10 +38,7 @@ import {
   listStationQueue,
   type QueuedJobRow,
 } from '../../repositories/queued-jobs.js';
-import {
-  deductStationResource,
-  listStationResources,
-} from '../../repositories/station-resources.js';
+import { listStationResources, payStationCosts } from '../../repositories/station-resources.js';
 import { findOwnedStationForUpdate } from '../../repositories/stations.js';
 import {
   createRealtimeExecutionContext,
@@ -140,7 +137,7 @@ export async function getBuildSlots(stationId: string, now: Date): Promise<Build
  * Building and defense upgrades share the station's build slots. Call under the station lock so
  * two starts cannot both take the last slot.
  */
-export async function assertFreeBuildSlot(
+async function assertFreeBuildSlot(
   tx: QueryDb,
   stationId: string,
   modifiers: ResearchModifiers,
@@ -325,20 +322,13 @@ export async function queueStationUpgrade(
     }
 
     const costs = rules.cost(targetLevel, modifiers);
-    const stock = new Map(
-      (await listStationResources(tx, stationId)).map((row) => [row.resourceKey, row.amount])
-    );
-    for (const cost of costs) {
-      const have = stock.get(cost.resourceKey) ?? 0;
-      if (have < cost.amount) {
-        throw new AppError(
-          ErrorCode.VALIDATION_ERROR,
-          `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${have}`
-        );
-      }
-    }
-    for (const cost of costs) {
-      await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
+    const costMap = toResourceMap(costs);
+    const short = await payStationCosts(tx, stationId, costMap);
+    if (short) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Insufficient ${short.resourceKey}: need ${costMap[short.resourceKey]}, have ${short.have}`
+      );
     }
 
     const jobId = context.nextId('queued-job');
@@ -393,7 +383,10 @@ export async function cancelStationUpgrade(
   stationId: string,
   userId: string,
   key: string,
-  /** For upgrades started before the paid cost was stored. */
+  /**
+   * For upgrades started before the paid cost was stored.
+   * ponytail: delete once every environment is past migration 0015 and no older upgrade still runs.
+   */
   refund: (row: StationBuildingRow) => BuildingUpgradeCost[],
   context: GameExecutionContext
 ): Promise<void> {

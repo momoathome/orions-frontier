@@ -1,4 +1,4 @@
-import { getDb } from '../../lib/db/index.js';
+import { getDb, type Tx } from '../../lib/db/index.js';
 import {
   findOwnedStation,
   findOwnedStationInSector,
@@ -14,7 +14,7 @@ import { seedStationResources } from './resources.js';
 import { seedStationBuildings } from './buildings.js';
 import { seedStationDefenseUpgrades } from './defense.js';
 import { seedStationSpacecrafts } from './spacecraft.js';
-import type { Station } from '@orions-frontier/shared';
+import type { ResourceMap, Station } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { generateStarterPocket } from '../../lib/world-gen/sector-gen.js';
 import {
@@ -70,6 +70,27 @@ export const getUserStations = async (userId: string): Promise<Station[]> => {
   return rows.map((row) => toStation(row, ranges.get(row.id) ?? 0, visualProfiles.get(row.id)));
 };
 
+/** Inserts a station with its starting resources, buildings and defenses; no ships. */
+export async function insertSeededStation(
+  tx: Tx,
+  values: { userId: string; name: string; sectorId: string; x: number; y: number },
+  context: GameExecutionContext,
+  resources?: ResourceMap
+): Promise<StationRow> {
+  const station = await insertStation(tx, {
+    id: context.nextId('station'),
+    ...values,
+    chunkX: Math.floor(values.x / WORLD_CONFIG.CHUNK_SIZE),
+    chunkY: Math.floor(values.y / WORLD_CONFIG.CHUNK_SIZE),
+    createdAt: context.now,
+  });
+  if (!station) throw new Error('Failed to create station');
+  await seedStationResources(station.id, tx, resources);
+  await seedStationBuildings(station.id, tx, context);
+  await seedStationDefenseUpgrades(station.id, tx, context);
+  return station;
+}
+
 export const createStation = async (
   userId: string,
   data: { name: string; slotType?: 'player' | 'bot'; sectorId?: string },
@@ -112,23 +133,12 @@ export const createStation = async (
       throw new AppError(ErrorCode.VALIDATION_ERROR, `No ${slotType} spawn slot is available.`);
     }
 
-    const station = await insertStation(tx, {
-      id: context.nextId('station'),
-      userId,
-      name: data.name,
-      sectorId: slot.slot.sectorId,
-      x: slot.slot.x,
-      y: slot.slot.y,
-      chunkX: Math.floor(slot.slot.x / WORLD_CONFIG.CHUNK_SIZE),
-      chunkY: Math.floor(slot.slot.y / WORLD_CONFIG.CHUNK_SIZE),
-      createdAt: context.now,
-    });
-    if (!station) throw new Error('Failed to create station');
-
+    const station = await insertSeededStation(
+      tx,
+      { userId, name: data.name, sectorId: slot.slot.sectorId, x: slot.slot.x, y: slot.slot.y },
+      context
+    );
     await assignSpawnSlot(tx, slot.slot.id, station.id);
-    await seedStationResources(station.id, tx);
-    await seedStationBuildings(station.id, tx, context);
-    await seedStationDefenseUpgrades(station.id, tx, context);
     await seedStationSpacecrafts(station.id, tx, context);
     await insertGeneratedAsteroids(
       tx,

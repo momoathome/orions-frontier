@@ -88,6 +88,11 @@ assert.doesNotMatch(compose, /apps\/api\/src\/index|npm run dev|fastify/i);
 
 const smoke = run('e2e-smoke', 6).report;
 assert.equal(smoke.status, 'success');
+assert.equal(smoke.virtualEnd, '2030-01-01T06:00:00.000Z');
+assert.equal(smoke.operations.ticks, 6 * 60 + 1);
+assert.equal(smoke.operations.snapshots, 13);
+assert.equal(smoke.operations.maximumControlledPopulation, 4);
+assert.ok(smoke.collector.botDecisions > 2);
 assert.equal(
   smoke.population.filter((member) => member.populationKind === 'synthetic_player').length,
   2

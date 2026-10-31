@@ -92,6 +92,8 @@ export class WorldRenderer {
   private _hoveredAsteroidId: string | null = null;
 
   private stationInfo: StationInfo | null = null;
+  /** destroy() can run while mount() still awaits Pixi or textures. */
+  private destroyed = false;
   private scannerStations: StationInfo[] = [];
   private scannerBypass = false;
   /** Half the active station visual size in world units — used for hover hit-test */
@@ -155,8 +157,8 @@ export class WorldRenderer {
     this.scannerStations = scannerStations;
 
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    this.app = new Application();
-    await this.app.init({
+    const app = new Application();
+    await app.init({
       width: w,
       height: h,
       backgroundColor: 0x070b14,
@@ -167,6 +169,11 @@ export class WorldRenderer {
       resolution: pixelRatio,
       autoDensity: true,
     });
+    if (this.destroyed) {
+      app.destroy({ removeView: true }, { children: true });
+      return;
+    }
+    this.app = app;
     this.app.ticker.maxFPS = MAX_FPS;
 
     el.appendChild(this.app.canvas);
@@ -174,6 +181,8 @@ export class WorldRenderer {
     const asteroidTextures: Texture[] = await Promise.all(
       [1, 2, 3, 4, 5, 6].map((i) => Assets.load(`/assets/map/asteroid${i}.webp`))
     );
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- destroy() can run while the textures load.
+    if (this.destroyed) return;
     this.asteroidLayer.setTextures(asteroidTextures);
 
     // Screen-space layer (no camera transform)
@@ -388,12 +397,13 @@ export class WorldRenderer {
   }
 
   destroy() {
+    this.destroyed = true;
     this.abortController.abort();
     this.streamer.destroy();
     this.asteroidLayer.clear();
     this.stationLayer.clear();
     this.debrisLayer.clear();
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- destroy() kann vor init() laufen, dann ist `app` noch nicht gesetzt.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- destroy() kann vor init() laufen, dann ist `app` noch nicht gesetzt; mount() räumt es dann selbst ab.
     if (this.app) {
       this.app.destroy({ removeView: true }, { children: true });
     }

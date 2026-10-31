@@ -1,5 +1,5 @@
 import { and, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
-import { calculateBuildingEffect } from '@orions-frontier/game-config';
+import { calculateStorageCapacity as warehouseCapacity } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
 import { asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { combatMissions } from '../../lib/db/schema/combat-missions.js';
@@ -37,10 +37,6 @@ export interface StationOwnerState {
   userId: string;
 }
 
-const warehouseCapacity = (level: number): number =>
-  calculateBuildingEffect('warehouse', level).find((effect) => effect.type === 'storage_capacity')
-    ?.value ?? 0;
-
 export async function queryDatabaseInvariantState(
   now: Date,
   controlledUserIds: readonly string[],
@@ -53,7 +49,6 @@ export async function queryDatabaseInvariantState(
   const db = getDb();
 
   const [
-    negativeResources,
     negativeVeins,
     invalidFleets,
     negativeOrders,
@@ -70,16 +65,6 @@ export async function queryDatabaseInvariantState(
     activeSalvageMissions,
     stationOwners,
   ] = await Promise.all([
-    db
-      .select({
-        userId: stations.userId,
-        stationId: stationResources.stationId,
-        resourceKey: stationResources.resourceKey,
-        amount: stationResources.amount,
-      })
-      .from(stationResources)
-      .innerJoin(stations, eq(stations.id, stationResources.stationId))
-      .where(and(inArray(stations.userId, controlledUserIds), lt(stationResources.amount, 0))),
     db
       .select({
         id: asteroidVeins.id,
@@ -308,7 +293,7 @@ export async function queryDatabaseInvariantState(
   ]);
 
   const violations: RawDatabaseInvariantViolation[] = [];
-  for (const row of negativeResources) {
+  for (const row of resourceRows.filter((resource) => resource.amount < 0)) {
     violations.push({
       code: 'negative_resource',
       userId: row.userId,

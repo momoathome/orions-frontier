@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue';
+import { computed, reactive, watch } from 'vue';
 import { calculateConstructionSpeedBonus, durationFactor } from '@orions-frontier/game-config';
 import {
   getCostShortfall,
@@ -16,6 +16,7 @@ import {
   type StationBuildingWithDefinition,
   type StationSpacecraftsResponse,
   type UserResourceSummary,
+  type UserTrip,
   type ResearchKey,
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
@@ -25,18 +26,12 @@ import { debounced } from '../lib/debounce.js';
 import { resourceName } from '../lib/mining-utils.js';
 import { useResearchStore } from './research.js';
 
-/** Row of GET /me/trips. */
-export interface OverviewTrip {
-  id: string;
-  groupSize: number;
-  fromType: string;
-  fromId: string;
-  toType: string;
-  toId: string;
-  departedAt: string;
-  arrivesAt: string;
-  purpose: WorldTripPurpose;
-  spacecraft: { name: string; role: string } | null;
+/** Row of GET /stations/:id/mining-assignments. */
+export interface MiningAssignment {
+  asteroidId: string;
+  asteroidX: number;
+  asteroidY: number;
+  asteroidSize: string;
 }
 
 export interface StationDetail {
@@ -45,6 +40,7 @@ export interface StationDetail {
   buildSlots: BuildSlots | null;
   fleet: StationSpacecraftsResponse | null;
   income: StationIncome | null;
+  assignments: MiningAssignment[];
 }
 
 export const stationSections = ['buildings', 'fleet', 'logistics', 'frontier', 'defense'] as const;
@@ -83,7 +79,7 @@ const STORAGE_WARNING = 0.9;
 interface OverviewState {
   stations: Station[];
   details: Record<string, StationDetail>;
-  trips: OverviewTrip[];
+  trips: UserTrip[];
   combats: CombatReport[];
   logbook: LogbookEntry[];
   ranking: Ranking | null;
@@ -108,19 +104,25 @@ const stationName = (id: string) => state.stations.find((s) => s.id === id)?.nam
 
 // ponytail: one asteroid request per mined asteroid; add a station income endpoint if stations
 // regularly mine more than a handful of asteroids.
-async function loadStationIncome(id: string): Promise<StationIncome> {
-  const { assignments } = await apiClient.get<{ assignments: { asteroidId: string }[] }>(
+async function loadStationIncome(
+  id: string
+): Promise<{ income: StationIncome; assignments: MiningAssignment[] }> {
+  const { assignments } = await apiClient.get<{ assignments: MiningAssignment[] }>(
     `/stations/${id}/mining-assignments`
   );
   const asteroidIds = [...new Set(assignments.map((assignment) => assignment.asteroidId))];
   const asteroids = await Promise.all(
     asteroidIds.map((asteroidId) => apiClient.get<AsteroidDetail>(`/asteroids/${asteroidId}`))
   );
-  return summarizeStationIncome(id, asteroids, research.modifiers.yield);
+  return { income: summarizeStationIncome(id, asteroids, research.modifiers.yield), assignments };
 }
 
+// Overlapping refreshes of one station: only the latest request may write its detail.
+const stationRequests: Record<string, number> = {};
+
 async function loadStationDetail(id: string): Promise<void> {
-  const [resources, buildings, fleet, income] = await Promise.all([
+  const request = (stationRequests[id] = (stationRequests[id] ?? 0) + 1);
+  const [resources, buildings, fleet, mining] = await Promise.all([
     apiClient.get<UserResourceSummary>('/me/resources', { params: { stationId: id } }),
     apiClient.get<{ buildings: StationBuildingWithDefinition[]; buildSlots: BuildSlots }>(
       `/stations/${id}/buildings`
@@ -128,12 +130,13 @@ async function loadStationDetail(id: string): Promise<void> {
     apiClient.get<StationSpacecraftsResponse>(`/stations/${id}/spacecrafts`),
     loadStationIncome(id),
   ]);
+  if (request !== stationRequests[id]) return;
   state.details[id] = {
     resources,
     buildings: buildings.buildings,
     buildSlots: buildings.buildSlots,
     fleet,
-    income,
+    ...mining,
   };
 }
 
@@ -147,25 +150,31 @@ async function guarded(load: () => Promise<unknown>): Promise<void> {
 }
 
 const refreshStation = (id: string) => guarded(() => loadStationDetail(id));
+const refreshStations = () =>
+  guarded(async () => (state.stations = await apiClient.get<Station[]>('/stations')));
 const refreshTrips = () =>
-  guarded(async () => (state.trips = await apiClient.get<OverviewTrip[]>('/me/trips')));
+  guarded(async () => (state.trips = await apiClient.get<UserTrip[]>('/me/trips')));
 const refreshCombats = () =>
   guarded(async () => (state.combats = await apiClient.get<CombatReport[]>('/me/combats')));
 const refreshLogbook = () =>
   guarded(
     async () =>
       (state.logbook = await apiClient.get<LogbookEntry[]>('/me/logbook', {
-        params: { limit: 50 },
+        params: { limit: 100 },
       }))
   );
 const refreshRanking = () =>
   guarded(
     async () =>
-      (state.ranking = await apiClient.get<Ranking>('/world/ranking', { params: { limit: 1 } }))
+      (state.ranking = await apiClient.get<Ranking>('/world/ranking', { params: { limit: 20 } }))
   );
 
 async function refreshAll(): Promise<void> {
-  await guarded(async () => (state.stations = await apiClient.get<Station[]>('/stations')));
+  await refreshStations();
+  await refreshRest();
+}
+
+async function refreshRest(): Promise<void> {
   await Promise.all([
     ...state.stations.map((station) => refreshStation(station.id)),
     refreshTrips(),
@@ -179,14 +188,31 @@ async function refreshAll(): Promise<void> {
 const scheduleAll = debounced(refreshAll, 1_000);
 const scheduleProgress = debounced(() => Promise.all([refreshLogbook(), refreshRanking()]), 500);
 
+// The defender gets no event when a battle resolves, so reload once at the next arrival.
+let arrivalTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleNextArrival(): void {
+  clearTimeout(arrivalTimer);
+  const next = Math.min(
+    ...state.combats
+      .filter((report) => report.status === 'traveling')
+      .map((report) => Date.parse(report.arrivesAt))
+  );
+  if (Number.isFinite(next)) {
+    arrivalTimer = setTimeout(scheduleAll, Math.max(0, next - Date.now()) + 2_000);
+  }
+}
+
 let subscribers = 0;
 let stopSync: (() => void) | null = null;
+let stationsLoaded: Promise<void> = Promise.resolve();
 
 /** Loads the account overview and keeps it current while at least one view uses it. */
 function start(): () => void {
   subscribers += 1;
   if (subscribers === 1) {
-    void refreshAll();
+    stationsLoaded = refreshStations();
+    void stationsLoaded.then(refreshRest);
+    const stopArrival = watch(() => state.combats, scheduleNextArrival);
     const clock = window.setInterval(() => (state.now = Date.now()), 1_000);
     const unsubscribers = [
       wsClient.on('resources_updated', ({ stationId, resources }) => {
@@ -196,7 +222,9 @@ function start(): () => void {
       }),
       wsClient.on('mining_tick_completed', scheduleAll),
       wsClient.on('transport_tick_completed', scheduleAll),
+      // Scanner upgrades change the station list's scanner range.
       wsClient.on('building_upgrade_completed', ({ stationId }) => {
+        void refreshStations();
         void refreshStation(stationId);
         scheduleProgress();
       }),
@@ -212,8 +240,12 @@ function start(): () => void {
       // Research changes station modifiers, and Parallel Construction starts queued upgrades.
       wsClient.on('research_completed', scheduleAll),
       wsClient.on('incoming_attack', () => void refreshCombats()),
+      // Events sent while the socket was down are lost; reload everything once.
+      wsClient.onReconnected(() => void refreshAll()),
     ];
     stopSync = () => {
+      stopArrival();
+      clearTimeout(arrivalTimer);
       window.clearInterval(clock);
       scheduleAll.cancel();
       scheduleProgress.cancel();
@@ -360,7 +392,7 @@ const alerts = computed<Alert[]>(() => {
   return list;
 });
 
-function tripStationId(trip: OverviewTrip): string {
+function tripStationId(trip: UserTrip): string {
   return trip.fromType === 'station' && state.stations.some((s) => s.id === trip.fromId)
     ? trip.fromId
     : trip.toId;
@@ -460,12 +492,13 @@ const overviewStore = reactive({
   operations,
   unseenLogbook,
   start,
+  stationsLoaded: () => stationsLoaded,
   refreshAll,
   refreshStation,
   refreshTrips,
+  refreshLogbook,
   stationName,
   stationQueue,
-  hasFreeBuildSlot,
   startsNow,
   queueFull,
   upgradeTimeFactor,

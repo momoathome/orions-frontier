@@ -4,7 +4,8 @@ import {
   applyBuildingCostDiscount,
   calculateBuildingUpgradeCost,
   getBuilding,
-  calculateHangarCapacity,
+  calculateCrewCapacity,
+  calculateCrewUsage,
   researchModifiers,
 } from '@orions-frontier/game-config';
 import {
@@ -55,11 +56,6 @@ export const minerCount = (station: StationSnapshot): number =>
 
 export const getShipyardLevel = (station: StationSnapshot): number => {
   const b = station.buildings.find((bld) => bld.buildingKey === 'shipyard');
-  return b?.level ?? 0;
-};
-
-export const getWarehouseLevel = (station: StationSnapshot): number => {
-  const b = station.buildings.find((bld) => bld.buildingKey === 'warehouse');
   return b?.level ?? 0;
 };
 
@@ -331,16 +327,9 @@ export function selectBestAsteroid(
 
 /** Check hangar crew capacity remaining at a station. */
 export function freeCrewCapacity(station: StationSnapshot): number {
-  const hangarLvl = getHangarLevel(station);
-  // Fleet Coordination raises the crew the hangar holds, as in the station service.
-  const capacity = Math.floor(calculateHangarCapacity(hangarLvl) * stationModifiers(station).crew);
-  const used = station.fleets.reduce((s, f) => {
-    const sc = getSpacecraft(f.spacecraftKey);
-    return s + f.amount * (sc?.crew ?? 0);
-  }, 0);
-  const queued = station.builds.reduce((s, b) => {
-    const sc = getSpacecraft(b.spacecraftKey);
-    return s + b.amount * (sc?.crew ?? 0);
-  }, 0);
-  return capacity - used - queued;
+  return (
+    calculateCrewCapacity(getHangarLevel(station), stationModifiers(station).crew) -
+    calculateCrewUsage(station.fleets) -
+    calculateCrewUsage(station.builds)
+  );
 }

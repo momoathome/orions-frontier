@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import {
   entriesOf,
@@ -9,6 +9,7 @@ import {
   type WorldMission,
 } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { formatDuration } from '../lib/format';
 import { wsClient } from '../lib/ws-client';
 import { useResearchStore } from '../stores/research.js';
 
@@ -20,7 +21,6 @@ const missions = ref<WorldMission[]>([]);
 const colonyName = ref('Frontier Outpost');
 const busy = ref(false);
 const error = ref<string | null>(null);
-let unsubscribers: (() => void)[] = [];
 
 const colonizable = computed(() =>
   sectors.value.filter((sector) => sector.role === 'frontier' && !sector.hasOwnStation)
@@ -44,11 +44,8 @@ const colonyLimitReached = computed(() => {
   return colonization ? colonization.stations >= colonization.limit : false;
 });
 
-const formatDuration = (hours: number | null) => {
-  if (hours === null) return 'no ship available';
-  const minutes = Math.round(hours * 60);
-  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-};
+const travelTime = (hours: number | null) =>
+  hours === null ? 'no ship available' : formatDuration(hours);
 
 async function load() {
   const [frontierResponse, sectorResponse, missionResponse] = await Promise.all([
@@ -95,23 +92,16 @@ const colonize = (target: KnownSector) =>
     })
   );
 
-onMounted(async () => {
-  try {
-    await load();
-  } catch (cause) {
+const reload = () => {
+  void load().catch((cause: unknown) => {
     error.value = apiErrorMessage(cause, 'Frontier data could not be loaded');
-  }
-  const reload = () => {
-    void load().catch((cause: unknown) => {
-      error.value = apiErrorMessage(cause, 'Frontier data could not be loaded');
-    });
-  };
-  unsubscribers = [
-    wsClient.on('world_mission_completed', reload),
-    wsClient.on('research_completed', reload),
-  ];
-});
-
+  });
+};
+reload();
+const unsubscribers = [
+  wsClient.on('world_mission_completed', reload),
+  wsClient.on('research_completed', reload),
+];
 onUnmounted(() => {
   for (const unsubscribe of unsubscribers) unsubscribe();
 });
@@ -146,7 +136,7 @@ onUnmounted(() => {
         >
           <div>
             <div class="text-xs text-ui-text">? {{ target.sectorX }}, {{ target.sectorY }}</div>
-            <div class="text-xs text-ui-muted">{{ formatDuration(target.travelHours) }}</div>
+            <div class="text-xs text-ui-muted">{{ travelTime(target.travelHours) }}</div>
           </div>
           <button
             type="button"
@@ -194,7 +184,7 @@ onUnmounted(() => {
             <div class="text-xs text-ui-text">
               Sector {{ sector.sectorX }}, {{ sector.sectorY }}
             </div>
-            <div class="text-xs text-ui-muted">{{ formatDuration(sector.travelHours) }}</div>
+            <div class="text-xs text-ui-muted">{{ travelTime(sector.travelHours) }}</div>
           </div>
           <button
             type="button"
@@ -210,7 +200,7 @@ onUnmounted(() => {
 
     <section>
       <h3 class="mb-2 text-xs uppercase tracking-[0.28em] text-cyan-300/70">Missions</h3>
-      <p v-if="error" class="mb-2 text-xs text-red-300">{{ error }}</p>
+      <p v-if="error" class="ui-error mb-2">{{ error }}</p>
       <div class="space-y-2">
         <div
           v-for="mission in missions.slice(0, 10)"

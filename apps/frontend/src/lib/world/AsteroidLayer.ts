@@ -4,10 +4,10 @@ import {
   CHUNK_SIZE,
   ASTEROID_SIZE_RADIUS,
   ASTEROID_DEFAULT_RADIUS,
-  RESOURCE_TINT,
   UNSCANNED_ASTEROID_RADIUS,
   UNSCANNED_ASTEROID_TINT,
 } from './constants.js';
+import { resourceColor } from '../mining-utils.js';
 import { chunkKey } from './ChunkStreamer.js';
 import type { ChunkKey } from './ChunkStreamer.js';
 
@@ -106,9 +106,8 @@ export class AsteroidLayer {
       sprite.height = size;
       sprite.alpha = 0.55 + 0.45 * remaining;
 
-      // Resource-based tint for visual identity
-      const tint = a.primaryResourceKey ? RESOURCE_TINT[a.primaryResourceKey] : undefined;
-      if (tint !== undefined) sprite.tint = tint;
+      // Same resource palette as the HUD, so map and panels read alike.
+      if (a.primaryResourceKey) sprite.tint = resourceColor(a.primaryResourceKey);
 
       chunkContainer.addChild(sprite);
     }

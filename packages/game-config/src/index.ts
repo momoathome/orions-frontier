@@ -1,6 +1,7 @@
 export {
   COLONIZATION_COST,
   ATTACK_PROTECTION_DURATION_MS,
+  attackProtectionEndsAt,
   calculateColonizationCost,
   resources,
 } from './resources.js';
@@ -10,7 +11,12 @@ export {
   coarseIntegrity,
   MAX_STATION_INTEGRITY,
 } from './integrity.js';
-export { getSpacecraft, requireSpacecraft, spacecrafts } from './spacecrafts.js';
+export {
+  calculateCrewUsage,
+  getSpacecraft,
+  requireSpacecraft,
+  spacecrafts,
+} from './spacecrafts.js';
 export type { SpacecraftSeedDefinition } from './spacecrafts.js';
 export {
   buildings,
@@ -19,9 +25,13 @@ export {
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   calculateConstructionSpeedBonus,
+  calculateCrewCapacity,
   calculateHangarCapacity,
+  calculateProtectedStorage,
   calculateScannerRange,
   calculateProductionSlots,
+  calculateShipyardBuildBonus,
+  calculateStorageCapacity,
 } from './buildings.js';
 export type { BuildingSeedDefinition } from './buildings.js';
 export {

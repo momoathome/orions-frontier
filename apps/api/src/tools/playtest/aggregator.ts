@@ -17,7 +17,6 @@ import {
   emptySalvageMetrics,
   safeRatio,
   snapshotWorld,
-  sortedResources,
   type AggregateMetrics,
   type BotMetrics,
   type GoalMetrics,
@@ -241,47 +240,6 @@ function normalizeAggregate(aggregate: AggregateMetrics): AggregateMetrics {
       if (!Number.isFinite(value)) goalMetrics[key] = 0;
     }
   }
-  aggregate.economy.minedResources = sortedResources(aggregate.economy.minedResources);
-  aggregate.economy.deliveredResources = sortedResources(aggregate.economy.deliveredResources);
-  aggregate.economy.discardedResources = sortedResources(aggregate.economy.discardedResources);
-  aggregate.economy.minimumResources = sortedResources(aggregate.economy.minimumResources);
-  aggregate.economy.fullStorageDurationByStationMs = Object.fromEntries(
-    Object.entries(aggregate.economy.fullStorageDurationByStationMs).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
-  );
-  aggregate.conflict.loot = sortedResources(aggregate.conflict.loot);
-  aggregate.salvage.debrisCreatedResources = sortedResources(
-    aggregate.salvage.debrisCreatedResources
-  );
-  aggregate.salvage.salvagedResources = sortedResources(aggregate.salvage.salvagedResources);
-  aggregate.salvage.remainingDebrisResources = sortedResources(
-    aggregate.salvage.remainingDebrisResources
-  );
-  aggregate.goals = Object.fromEntries(
-    Object.entries(aggregate.goals).sort(([left], [right]) => left.localeCompare(right))
-  );
-  aggregate.milestonesReached = Object.fromEntries(
-    Object.entries(aggregate.milestonesReached).sort(([left], [right]) => left.localeCompare(right))
-  );
-  aggregate.development.spacecraftBuilt = Object.fromEntries(
-    Object.entries(aggregate.development.spacecraftBuilt).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
-  );
-  aggregate.conflict.targets = Object.fromEntries(
-    Object.entries(aggregate.conflict.targets).sort(([left], [right]) => left.localeCompare(right))
-  );
-  aggregate.conflict.opportunityStages = Object.fromEntries(
-    Object.entries(aggregate.conflict.opportunityStages).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
-  );
-  aggregate.expansion.coloniesByStation = Object.fromEntries(
-    Object.entries(aggregate.expansion.coloniesByStation).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
-  );
   return aggregate;
 }
 
@@ -595,33 +553,6 @@ export class PlaytestAggregator {
     const bots = [...this.bots.values()]
       .map((state) => structuredClone(state.metrics))
       .sort((left, right) => left.botAlias.localeCompare(right.botAlias));
-    for (const bot of bots) {
-      bot.goals = Object.fromEntries(
-        Object.entries(bot.goals).sort(([left], [right]) => left.localeCompare(right))
-      );
-      bot.economy.minedResources = sortedResources(bot.economy.minedResources);
-      bot.economy.deliveredResources = sortedResources(bot.economy.deliveredResources);
-      bot.economy.discardedResources = sortedResources(bot.economy.discardedResources);
-      bot.economy.minimumResources = sortedResources(bot.economy.minimumResources);
-      bot.economy.fullStorageDurationByStationMs = Object.fromEntries(
-        Object.entries(bot.economy.fullStorageDurationByStationMs).sort(([left], [right]) =>
-          left.localeCompare(right)
-        )
-      );
-      bot.conflict.loot = sortedResources(bot.conflict.loot);
-      bot.expansion.coloniesByStation = Object.fromEntries(
-        Object.entries(bot.expansion.coloniesByStation).sort(([left], [right]) =>
-          left.localeCompare(right)
-        )
-      );
-      bot.conflict.opportunityStages = Object.fromEntries(
-        Object.entries(bot.conflict.opportunityStages).sort(([left], [right]) =>
-          left.localeCompare(right)
-        )
-      );
-      bot.salvage.debrisCreatedResources = sortedResources(bot.salvage.debrisCreatedResources);
-      bot.salvage.salvagedResources = sortedResources(bot.salvage.salvagedResources);
-    }
     const profileNames = [...new Set(bots.map((bot) => bot.profile))].sort();
     const profiles: ProfileMetrics[] = profileNames.map((profile) => ({
       profile,
@@ -629,7 +560,7 @@ export class PlaytestAggregator {
     }));
     const run = normalizeAggregate(aggregateBots(bots));
     const world = snapshotWorld(this.latestSnapshot);
-    run.salvage.remainingDebrisResources = sortedResources(world.debrisResources);
+    run.salvage.remainingDebrisResources = { ...world.debrisResources };
     return {
       bots,
       profiles,

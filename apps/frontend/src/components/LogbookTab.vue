@@ -1,16 +1,13 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue';
-import type { LogbookEntry, LogbookEntryType } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { wsClient } from '../lib/ws-client';
-import { debounced } from '../lib/debounce';
+import { computed, ref } from 'vue';
+import type { LogbookEntryType } from '@orions-frontier/shared';
 import { useOverviewStore } from '../stores/overview.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const overview = useOverviewStore();
-const entries = ref<LogbookEntry[]>([]);
+// The store keeps the logbook current; reload once on open for entries no event announces.
 const loaded = ref(false);
-const error = ref<string | null>(null);
+void overview.refreshLogbook().then(() => (loaded.value = true));
 
 const TYPE_STYLE: Record<LogbookEntryType, { label: string; dot: string }> = {
   building_completed: { label: 'Building', dot: 'bg-cyan-400' },
@@ -28,7 +25,7 @@ const TYPE_STYLE: Record<LogbookEntryType, { label: string; dot: string }> = {
 };
 
 const timeline = computed(() =>
-  entries.value.map((entry) => ({
+  overview.state.logbook.map((entry) => ({
     ...entry,
     style: TYPE_STYLE[entry.type],
     otherStation: entry.stationId !== null && entry.stationId !== stationId,
@@ -40,40 +37,12 @@ const timeline = computed(() =>
     }),
   }))
 );
-
-async function load(): Promise<void> {
-  try {
-    entries.value = await apiClient.get<LogbookEntry[]>('/me/logbook', { params: { limit: 100 } });
-    error.value = null;
-  } catch (cause) {
-    error.value = apiErrorMessage(cause, 'Logbook could not be loaded');
-  } finally {
-    loaded.value = true;
-  }
-}
-
-const scheduleLoad = debounced(load, 500);
-
-void load();
-const unsubscribers = [
-  wsClient.on('building_upgrade_completed', scheduleLoad),
-  wsClient.on('defense_upgrade_completed', scheduleLoad),
-  wsClient.on('spacecraft_build_completed', scheduleLoad),
-  wsClient.on('world_mission_completed', scheduleLoad),
-  wsClient.on('research_completed', scheduleLoad),
-  wsClient.on('transport_tick_completed', scheduleLoad),
-];
-onUnmounted(() => {
-  scheduleLoad.cancel();
-  for (const unsubscribe of unsubscribers) unsubscribe();
-});
 </script>
 
 <template>
   <div class="flex flex-col text-sm">
-    <p v-if="error" class="mb-2 text-ui-red">{{ error }}</p>
     <p
-      v-if="loaded && !error && timeline.length === 0"
+      v-if="loaded && timeline.length === 0"
       class="m-auto text-xs uppercase tracking-[0.08em] text-ui-dim"
     >
       No entries yet

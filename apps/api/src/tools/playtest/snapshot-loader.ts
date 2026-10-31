@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import {
   required,
   entriesOf,
@@ -8,8 +8,8 @@ import {
   type ResourceMap,
 } from '@orions-frontier/shared';
 import {
-  calculateBuildingEffect,
   calculateInfluence,
+  calculateStorageCapacity as warehouseCapacity,
   isResearchKey,
   type InfluenceInput,
 } from '@orions-frontier/game-config';
@@ -108,11 +108,7 @@ function emptyStation(): StationAccumulator {
   };
 }
 
-const warehouseCapacity = (level: number): number =>
-  calculateBuildingEffect('warehouse', level).find((effect) => effect.type === 'storage_capacity')
-    ?.value ?? 0;
-
-function emptyWorld(): PlaytestWorldSnapshot {
+export function emptyWorld(): PlaytestWorldSnapshot {
   return {
     sectorsByRole: {},
     populationByKind: {},
@@ -157,7 +153,7 @@ export async function loadPlaytestSnapshot(
     .from(stations)
     .innerJoin(users, eq(users.id, stations.userId))
     .innerJoin(botControllers, eq(botControllers.userId, stations.userId))
-    .where(inArray(stations.userId, controlledUserIds));
+    .where(and(inArray(stations.userId, controlledUserIds), isNull(stations.destroyedAt)));
   const userIds = [...new Set(stationRows.map((station) => station.userId))];
   const stationIds = stationRows.map((station) => station.id);
   if (stationIds.length === 0) {
@@ -453,15 +449,9 @@ export async function loadPlaytestSnapshot(
     bots,
     stations: stationSnapshots,
     world: {
-      sectorsByRole: Object.fromEntries(
-        Object.entries(sectorsByRole).sort(([left], [right]) => left.localeCompare(right))
-      ),
-      populationByKind: Object.fromEntries(
-        Object.entries(populationByKind).sort(([left], [right]) => left.localeCompare(right))
-      ),
-      populationByProfile: Object.fromEntries(
-        Object.entries(populationByProfile).sort(([left], [right]) => left.localeCompare(right))
-      ),
+      sectorsByRole,
+      populationByKind,
+      populationByProfile,
       stations: stationRows.length,
       asteroids: asteroidIds.size,
       asteroidResources,

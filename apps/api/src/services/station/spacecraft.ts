@@ -15,17 +15,15 @@ import {
   updateBuildOrderTimes,
   type BuildOrderRow,
 } from '../../repositories/spacecraft-build-orders.js';
-import {
-  deductStationResource,
-  listStationResources,
-} from '../../repositories/station-resources.js';
+import { listStationResources, payStationCosts } from '../../repositories/station-resources.js';
 import { findBuildingLevel, listBuildingLevels } from '../../repositories/station-buildings.js';
 import { findOwnedStationForUpdate } from '../../repositories/stations.js';
 import { listStationOwnerResearch } from '../../repositories/user-research.js';
 import {
-  calculateBuildingEffect,
-  calculateHangarCapacity,
+  calculateCrewCapacity,
+  calculateCrewUsage,
   calculateProductionSlots,
+  calculateShipyardBuildBonus,
   durationFactor,
   getSpacecraft,
   requirementBlockers,
@@ -143,26 +141,9 @@ export interface BuildOrder {
   amount: number;
 }
 
-const calculateCrewUsage = (
-  entries: readonly { spacecraftKey: string; amount: number }[]
-): number =>
-  entries.reduce((used, entry) => {
-    const definition = getSpacecraft(entry.spacecraftKey);
-    if (!definition) throw new Error(`Unknown spacecraft definition '${entry.spacecraftKey}'`);
-    return used + entry.amount * definition.crew;
-  }, 0);
-
-/** Fleet Coordination raises the crew the hangar holds. */
-const hangarCapacity = (hangarLevel: number, crew: number) =>
-  Math.floor(calculateHangarCapacity(hangarLevel) * crew);
-
 /** Build time factor of the Shipyard bonus and Fabrication Lines, which add up. */
 const shipBuildFactor = (shipyardLevel: number, shipBuildBonus: number) =>
-  durationFactor(
-    (calculateBuildingEffect('shipyard', shipyardLevel).find(
-      (effect) => effect.type === 'spacecraft_production_bonus'
-    )?.value ?? 0) + shipBuildBonus
-  );
+  durationFactor(calculateShipyardBuildBonus(shipyardLevel) + shipBuildBonus);
 
 /** Production slots and build time factor, as the shipyard applies them to new orders. */
 export const getStationShipyard = async (stationId: string) => {
@@ -186,7 +167,7 @@ export async function getStationHangar(stationId: string): Promise<{
     loadUnlockState(db, stationId),
   ]);
   return {
-    capacity: hangarCapacity(hangarLevel ?? 0, unlocks.modifiers.crew),
+    capacity: calculateCrewCapacity(hangarLevel ?? 0, unlocks.modifiers.crew),
     used: calculateCrewUsage(fleet) + calculateCrewUsage(queued),
   };
 }
@@ -232,7 +213,7 @@ export const buildSpacecrafts = async (
     }
   }
 
-  const resourceMap = await db.transaction(async (tx) => {
+  const resources = await db.transaction(async (tx) => {
     const station = await findOwnedStationForUpdate(tx, stationId, userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
@@ -255,7 +236,7 @@ export const buildSpacecrafts = async (
     if (queued.length + orders.length > QUEUE_LIMIT) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, `Queue is full (${QUEUE_LIMIT} orders)`);
     }
-    const capacity = hangarCapacity(unlocks.buildings.hangar ?? 0, unlocks.modifiers.crew);
+    const capacity = calculateCrewCapacity(unlocks.buildings.hangar ?? 0, unlocks.modifiers.crew);
     const hangarUsed = calculateCrewUsage(fleet) + calculateCrewUsage(queued);
     const requestedCrew = orders.reduce(
       (sum, order) =>
@@ -271,16 +252,12 @@ export const buildSpacecrafts = async (
       );
     }
 
-    const resourceRows = await listStationResources(tx, stationId);
-    const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
-    for (const [resourceKey, needed] of totalCosts.entries()) {
-      const current = currentResources.get(resourceKey) ?? 0;
-      if (current < needed) {
-        throw new AppError(
-          ErrorCode.VALIDATION_ERROR,
-          `Insufficient ${resourceKey}: need ${needed}, have ${current}`
-        );
-      }
+    const short = await payStationCosts(tx, stationId, Object.fromEntries(totalCosts));
+    if (short) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Insufficient ${short.resourceKey}: need ${totalCosts.get(short.resourceKey)}, have ${short.have}`
+      );
     }
 
     const buildTimeMultiplier = shipBuildFactor(shipyardLevel, unlocks.modifiers.shipBuildBonus);
@@ -308,11 +285,6 @@ export const buildSpacecrafts = async (
       };
     });
 
-    for (const [resourceKey, amount] of totalCosts.entries()) {
-      await deductStationResource(tx, stationId, resourceKey, amount);
-      currentResources.set(resourceKey, (currentResources.get(resourceKey) ?? 0) - amount);
-    }
-
     for (const { order, def, slot, stepMs, nextAt, endsAt } of orderEndsAt) {
       await insertBuildOrder(tx, {
         id: context.nextId('spacecraft-build-order'),
@@ -339,12 +311,12 @@ export const buildSpacecrafts = async (
       });
     }
 
-    return currentResources;
+    return listStationResources(tx, stationId);
   });
 
   publishUserEvent(userId, 'resources_updated', {
     stationId,
-    resources: Object.fromEntries(resourceMap),
+    resources: Object.fromEntries(resources.map((row) => [row.resourceKey, row.amount])),
   });
 };
 

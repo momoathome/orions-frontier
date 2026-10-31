@@ -4,6 +4,7 @@ import { ApiError, apiClient } from '../lib/api-client';
 import { wsClient } from '../lib/ws-client';
 import { debounced } from '../lib/debounce';
 import {
+  activeMiners,
   estimateAssignmentCycle,
   getMiningTripPhase,
   getMiningTripPhaseEndsAt,
@@ -16,8 +17,11 @@ import RecallMinersForm, { type AssignmentGroup } from './RecallMinersForm.vue';
 import { resourceColor, resourceName } from '../lib/mining-utils';
 import UiModal from './UiModal.vue';
 import CostList from './CostList.vue';
+import PanelShell from './PanelShell.vue';
 import { resources } from '@orions-frontier/game-config';
+import { formatCountdown, formatDuration, formatRate } from '../lib/format';
 import { useOverviewStore } from '../stores/overview.js';
+import { useResearchStore } from '../stores/research.js';
 
 const { asteroidId, scannerBypass, stationId } = defineProps<{
   asteroidId: string;
@@ -39,15 +43,18 @@ async function loadAsteroid(id: string, showLoading = true) {
     const response = await apiClient.get<AsteroidDetail>(`/asteroids/${id}`, {
       params: { scannerBypass: scannerBypass },
     });
+    // A later click may have selected another asteroid meanwhile.
+    if (id !== asteroidId) return;
     asteroid.value = response;
   } catch (cause) {
+    if (id !== asteroidId) return;
     if (cause instanceof ApiError && cause.status === 404) {
       emit('close');
       return;
     }
     error.value = 'Unable to retrieve asteroid data.';
   } finally {
-    if (showLoading) loading.value = false;
+    if (showLoading && id === asteroidId) loading.value = false;
   }
 }
 
@@ -62,16 +69,15 @@ const refreshAsteroid = debounced(() => loadAsteroid(asteroidId, false), 300);
 
 const unsubMining = wsClient.on('mining_tick_completed', refreshAsteroid);
 const unsubTrips = wsClient.on('transport_tick_completed', refreshAsteroid);
-const now = ref(Date.now());
-const clock = window.setInterval(() => (now.value = Date.now()), 1_000);
 onUnmounted(() => {
   refreshAsteroid.cancel();
   unsubMining();
   unsubTrips();
-  window.clearInterval(clock);
 });
 
 const overview = useOverviewStore();
+const research = useResearchStore();
+const now = computed(() => overview.state.now);
 const idleMiners = computed(() => (stationId ? overview.stationFleet(stationId).idleMiners : 0));
 
 // Assigning and recalling open as modals over the panel.
@@ -87,6 +93,10 @@ function toggleAction(next: 'assign' | 'recall') {
 
 function onActionDone() {
   action.value = null;
+  onChanged();
+}
+
+function onChanged() {
   emit('refresh');
   refreshAsteroid();
 }
@@ -121,7 +131,7 @@ const operationGroups = computed<OperationGroup[]>(() => {
     };
     group.assignments.push(assignment);
     group.totalAmount += assignment.assignedAmount;
-    group.activeAmount += activeAmount(assignment);
+    group.activeAmount += activeMiners(assignment);
     group.recallRequestedAmount += assignment.recallRequestedAmount;
     groups.set(key, group);
   }
@@ -139,7 +149,7 @@ const groupedAssignments = computed<AssignmentGroup[]>(() =>
     recallRequestedAmount: group.recallRequestedAmount,
     members: group.assignments.map((assignment) => ({
       id: assignment.id,
-      availableAmount: activeAmount(assignment),
+      availableAmount: activeMiners(assignment),
     })),
   }))
 );
@@ -170,29 +180,11 @@ function remainingPercent(remaining: number, initial: number): number {
 }
 
 const activeMinerCount = computed(
-  () =>
-    asteroid.value?.assignments.reduce(
-      (sum, assignment) => sum + assignment.assignedAmount - assignment.recallRequestedAmount,
-      0
-    ) ?? 0
+  () => asteroid.value?.assignments.reduce((sum, a) => sum + activeMiners(a), 0) ?? 0
 );
-
-function activeAmount(assignment: Assignment): number {
-  return assignment.assignedAmount - assignment.recallRequestedAmount;
-}
-
-function flightHours(assignment: Assignment): number {
-  const trip = assignment.activeTrip;
-  if (!trip) return 0;
-  return Math.max(0, (Date.parse(trip.arrivesAt) - Date.parse(trip.departedAt)) / 3_600_000);
-}
 
 function cycle(assignment: Assignment): MiningCycleEstimate | null {
   return estimateAssignmentCycle(assignment, totalRemaining.value);
-}
-
-function deliveryPerHour(assignment: Assignment): number {
-  return cycle(assignment)?.totalDeliveryPerHour ?? 0;
 }
 
 function referenceAssignment(group: OperationGroup): Assignment | undefined {
@@ -201,7 +193,7 @@ function referenceAssignment(group: OperationGroup): Assignment | undefined {
 
 function groupFlightHours(group: OperationGroup): number {
   const assignment = referenceAssignment(group);
-  return assignment ? flightHours(assignment) : 0;
+  return assignment ? (cycle(assignment)?.oneWayTravelHours ?? 0) : 0;
 }
 
 function groupMiningHours(group: OperationGroup): number {
@@ -223,8 +215,26 @@ function groupLoad(group: OperationGroup): number {
   return referenceAssignment(group)?.spacecraftCargo ?? 0;
 }
 
+/** What leaves the asteroid per hour; depletion runs at this rate. */
+const totalExtractionPerHour = computed(
+  () =>
+    asteroid.value?.assignments.reduce(
+      (sum, item) => sum + (cycle(item)?.totalDeliveryPerHour ?? 0),
+      0
+    ) ?? 0
+);
+// Deep Core Drilling grows own deliveries but not the asteroid's loss, as in summarizeStationIncome.
 const totalDeliveryPerHour = computed(
-  () => asteroid.value?.assignments.reduce((sum, item) => sum + deliveryPerHour(item), 0) ?? 0
+  () =>
+    asteroid.value?.assignments.reduce(
+      (sum, item) =>
+        sum +
+        (cycle(item)?.totalDeliveryPerHour ?? 0) *
+          (overview.state.stations.some((station) => station.id === item.stationId)
+            ? research.modifiers.yield
+            : 1),
+      0
+    ) ?? 0
 );
 
 /** Each cargo is split by remaining vein amounts, so a vein's yield is its share of the total. */
@@ -235,7 +245,7 @@ function veinYield(vein: AsteroidVein): number {
 }
 
 const estimatedDepletionHours = computed(() =>
-  totalDeliveryPerHour.value > 0 ? totalRemaining.value / totalDeliveryPerHour.value : 0
+  totalExtractionPerHour.value > 0 ? totalRemaining.value / totalExtractionPerHour.value : 0
 );
 
 function phaseLabel(assignment: Assignment): string {
@@ -281,27 +291,9 @@ function phaseDescription(assignment: Assignment): string {
 
 function phaseCount(group: OperationGroup, phase: string): number {
   return group.assignments.reduce(
-    (sum, assignment) => sum + (phaseLabel(assignment) === phase ? activeAmount(assignment) : 0),
+    (sum, assignment) => sum + (phaseLabel(assignment) === phase ? activeMiners(assignment) : 0),
     0
   );
-}
-
-function formatDuration(hours: number): string {
-  if (!Number.isFinite(hours) || hours <= 0) return '—';
-  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
-  if (hours < 24) return `${hours.toFixed(1)} h`;
-  return `${(hours / 24).toFixed(1)} d`;
-}
-
-function formatCountdown(deadline: number | null): string {
-  if (!deadline) return '—';
-  const seconds = Math.max(0, Math.ceil((deadline - now.value) / 1_000));
-  const hours = Math.floor(seconds / 3_600);
-  const minutes = Math.floor((seconds % 3_600) / 60);
-  const remainingSeconds = seconds % 60;
-  return hours > 0
-    ? `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
-    : `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
 const nextDelivery = computed(() => {
@@ -354,10 +346,6 @@ const headerTitle = computed(() => {
   return asteroid.value?.scanned === false ? 'Unscanned' : 'Asteroid';
 });
 
-function formatYield(perHour: number): string {
-  return perHour < 10 ? perHour.toFixed(1) : Math.round(perHour).toLocaleString('en-US');
-}
-
 function formatCoord(n: number) {
   return n.toFixed(1);
 }
@@ -371,34 +359,18 @@ const PHASES = [
 </script>
 
 <template>
-  <aside
-    class="flex h-full w-[400px] shrink-0 flex-col border-l border-ui-line bg-ui-panel text-left text-sm text-ui-text"
-    aria-label="Asteroid details"
-  >
-    <div class="flex items-start justify-between gap-3 border-b border-ui-line px-[18px] py-4">
-      <div class="flex min-w-0 flex-col gap-1">
-        <span class="ui-label">
-          Asteroid<template v-if="asteroid">
-            ({{ asteroid.size ? (SIZE_LABELS[asteroid.size] ?? asteroid.size) : 'Unknown size' }})
-          </template>
-        </span>
-        <h2 class="flex items-center gap-2 text-xl font-semibold text-ui-bright">
-          <span
-            class="h-3 w-3 shrink-0 rounded-full"
-            :style="{ background: primaryVein ? resourceColor(primaryVein.resourceKey) : '#555' }"
-          />
-          {{ headerTitle }}
-        </h2>
-      </div>
-      <button
-        type="button"
-        class="ui-btn ui-btn-icon"
-        aria-label="Close panel"
-        @click="emit('close')"
-      >
-        ✕
-      </button>
-    </div>
+  <PanelShell label="Asteroid details" @close="emit('close')">
+    <template #eyebrow>
+      Asteroid<template v-if="asteroid">
+        ({{ asteroid.size ? (SIZE_LABELS[asteroid.size] ?? asteroid.size) : 'Unknown size' }})
+      </template>
+    </template>
+    <template #title>
+      <span
+        class="mr-2 inline-block h-3 w-3 rounded-full align-middle"
+        :style="{ background: primaryVein ? resourceColor(primaryVein.resourceKey) : '#555' }"
+      />{{ headerTitle }}
+    </template>
 
     <div v-if="loading" class="flex flex-1 items-center justify-center text-ui-muted">
       <span class="animate-pulse">Scanning…</span>
@@ -468,7 +440,7 @@ const PHASES = [
                 v-if="totalDeliveryPerHour > 0"
                 class="ui-num w-16 text-right"
                 :class="veinYield(vein) >= 1 ? 'text-ui-cyan' : 'text-ui-dim'"
-                >~{{ formatYield(veinYield(vein)) }}/h</span
+                >~{{ formatRate(veinYield(vein)) }}/h</span
               >
             </li>
           </ul>
@@ -486,7 +458,7 @@ const PHASES = [
             <span class="text-xs text-ui-muted">Next delivery</span>
             <template v-if="nextDelivery">
               <span class="ui-num text-lg font-semibold text-ui-bright">{{
-                formatCountdown(Date.parse(nextDelivery.arrivesAt))
+                formatCountdown(Date.parse(nextDelivery.arrivesAt), now)
               }}</span>
               <CostList :costs="nextDeliveryCargo" aria-label="Cargo" />
             </template>
@@ -501,7 +473,7 @@ const PHASES = [
                 :src="resources[asteroid.veins[0].resourceKey].image"
                 :alt="resourceName(asteroid.veins[0].resourceKey)"
                 class="h-5 w-5 object-contain"
-              />~{{ formatYield(totalDeliveryPerHour) }}/h</span
+              />~{{ formatRate(totalDeliveryPerHour) }}/h</span
             >
             <span class="text-xs text-ui-muted"
               >{{ totalMiningPowerRaw.toFixed(0) }}/h extraction</span
@@ -576,7 +548,9 @@ const PHASES = [
           </article>
           <p v-if="nextEvent" class="text-[13px] text-ui-soft">
             Next: {{ nextEvent.description }} ({{ nextEvent.assignment.spacecraftName }}) in
-            <strong class="ui-num text-ui-bright">{{ formatCountdown(nextEvent.deadline) }}</strong>
+            <strong class="ui-num text-ui-bright">{{
+              formatCountdown(nextEvent.deadline, now)
+            }}</strong>
           </p>
         </section>
       </template>
@@ -651,7 +625,8 @@ const PHASES = [
         :asteroid-id="asteroidId"
         @cancel="action = null"
         @done="onActionDone"
+        @changed="onChanged"
       />
     </UiModal>
-  </aside>
+  </PanelShell>
 </template>

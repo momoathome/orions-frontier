@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { eq, inArray, or } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
-import { debrisFields, salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
+import { salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { runBotDecisionTick } from '../../src/services/bot/bot.js';
 import { runSimulationTick } from '../../src/services/simulation/simulation.js';
@@ -13,6 +13,7 @@ import {
   createTestSector,
   createTestStation,
   createTestUser,
+  deleteTestData,
   setTestResources,
 } from '../helpers/fixtures.js';
 
@@ -74,16 +75,5 @@ test('scenario: a warlord bot raids a neighbour and a bot salvages the debris', 
   assert.ok(combatResolved, 'the warlord bot must launch an attack that resolves');
   assert.ok(salvaged, 'the debris from that attack must be salvaged by a bot');
 
-  const stationIds = [raider.id, target.id];
-  await db.delete(botControllers).where(eq(botControllers.userId, warlord.id));
-  await db.delete(salvageMissions).where(inArray(salvageMissions.stationId, stationIds));
-  await db
-    .delete(combatMissions)
-    .where(
-      or(
-        inArray(combatMissions.attackerStationId, stationIds),
-        inArray(combatMissions.defenderStationId, stationIds)
-      )
-    );
-  await db.delete(debrisFields).where(eq(debrisFields.sectorId, sector.id));
+  await deleteTestData({ userIds: [warlord.id, neighbour.id], sectorIds: [sector.id] });
 });

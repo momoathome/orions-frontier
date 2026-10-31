@@ -73,10 +73,6 @@ keine zweite Distanzformel in SQL, Bots oder Frontend.
   über die vier Nachbarn jedes Sektors (`NOT EXISTS`, nächste 32 Ziele). Expedition und
   Kolonisation hängen nicht von der Objektsichtbarkeit ab.
 
-`npm run scanner:report` prüft die Abfragepläne mit 100.000 Asteroiden, 10.000 Trümmerfeldern,
-5.000 Stationen und 10.000 aktiven Reisen. Er schlägt fehl, wenn statische Abfragen oder die
-Fälligkeitsabfrage auf einen vollständigen Scan zurückfallen.
-
 Eine materialisierte aktuelle Reiseposition, eine `VALUES`-CTE für viele Stationen, GiST oder PostGIS
 kommen erst, wenn Messungen es verlangen: mehr als 10.000 aktive Reisen, `GET /world/trips` über
 100 ms p95 oder ein dominanter Reisescan in `EXPLAIN ANALYZE`.

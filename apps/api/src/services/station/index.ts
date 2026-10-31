@@ -1,16 +1,10 @@
-export {
-  cancelBuildingUpgrade,
-  getStationBuildings,
-  seedStationBuildings,
-  startBuildingUpgrade,
-} from './buildings.js';
+export { cancelBuildingUpgrade, getStationBuildings, startBuildingUpgrade } from './buildings.js';
+export { completeDueBuildings, completeDueSpacecraft } from './completion.js';
 export { advanceStationQueue, getBuildSlots, removeQueuedStationJob } from './construction.js';
 export {
-  calculateStationDefenseScore,
   cancelDefenseUpgrade,
-  defenseUpgradeMaxLevel,
+  getStationDefenseScore,
   getStationDefenseUpgrades,
-  seedStationDefenseUpgrades,
   startDefenseUpgrade,
 } from './defense.js';
 export {
@@ -18,7 +12,6 @@ export {
   getDeliveredResourceRates,
   getStationResources,
   getStationStorageCapacity,
-  seedStationResources,
 } from './resources.js';
 export {
   buildSpacecrafts,
@@ -27,5 +20,5 @@ export {
   getStationShipyard,
   getStationSpacecrafts,
 } from './spacecraft.js';
-export { createStation, getUserStations, ownStation } from './station.js';
+export { createStation, getUserStations, insertSeededStation, ownStation } from './station.js';
 export { getStationVisualProfiles, starterStationVisualProfile } from './visual.js';

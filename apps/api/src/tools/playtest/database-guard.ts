@@ -26,13 +26,11 @@ export function assertPlaytestDatabaseTarget(environment: PlaytestEnvironment = 
     throw guardedError('only PostgreSQL URLs are allowed');
   }
 
-  const expectedHost = environment['PLAYTEST_EXPECTED_HOST'] ?? PLAYTEST_DATABASE_HOST;
-  const expectedDatabase = environment['PLAYTEST_EXPECTED_DATABASE'] ?? PLAYTEST_DATABASE_NAME;
   const database = decodeURIComponent(target.pathname.replace(/^\/+/, ''));
-  if (target.hostname !== expectedHost || expectedHost !== PLAYTEST_DATABASE_HOST) {
+  if (target.hostname !== PLAYTEST_DATABASE_HOST) {
     throw guardedError(`host must be ${PLAYTEST_DATABASE_HOST}`);
   }
-  if (database !== expectedDatabase || expectedDatabase !== PLAYTEST_DATABASE_NAME) {
+  if (database !== PLAYTEST_DATABASE_NAME) {
     throw guardedError(`database must be ${PLAYTEST_DATABASE_NAME}`);
   }
   if (target.port !== '' && target.port !== '5432') {

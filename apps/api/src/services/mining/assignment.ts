@@ -13,7 +13,7 @@ import {
   reserveSpacecraft,
 } from '../../repositories/station-spacecrafts.js';
 import { findOwnedStation } from '../../repositories/stations.js';
-import type { AsteroidSize } from '@orions-frontier/shared';
+import { AppError, ErrorCode, type AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';
 import { applyTravelSpeed, getStationResearchModifiers } from '../research/index.js';
@@ -37,24 +37,14 @@ export interface CreateAssignmentParams {
   assignedAmount: number;
 }
 
-export interface CreateAssignmentError {
-  code:
-    | 'ASTEROID_NOT_FOUND'
-    | 'STATION_NOT_FOUND'
-    | 'SPACECRAFT_NOT_FOUND'
-    | 'INVALID_AMOUNT'
-    | 'INSUFFICIENT_SPACECRAFT';
-  message: string;
-}
-
 export const createAsteroidAssignment = async (
   params: CreateAssignmentParams,
   context: GameExecutionContext = createRealtimeExecutionContext()
-): Promise<{ id: string } | CreateAssignmentError> => {
+): Promise<{ id: string }> => {
   const db = getDb();
   const { userId, asteroidId, stationId, spacecraftKey, assignedAmount } = params;
   if (!Number.isInteger(assignedAmount) || assignedAmount < 1) {
-    return { code: 'INVALID_AMOUNT', message: 'assignedAmount must be a positive integer' };
+    throw new AppError(ErrorCode.VALIDATION_ERROR, 'assignedAmount must be a positive integer');
   }
 
   // Unscanned asteroids may be mined blind; the scanner only limits what the player knows.
@@ -62,43 +52,42 @@ export const createAsteroidAssignment = async (
     findOwnedStation(db, stationId, userId),
     findAsteroid(db, asteroidId),
   ]);
-  if (!station) return { code: 'STATION_NOT_FOUND', message: 'Station not found' };
+  if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
   // Research reveals veins; an asteroid without a visible one does not exist for this player.
   const { visibleResources } = await getStationResearchModifiers(db, stationId);
   const veins = asteroid ? await listAsteroidVeins(db, asteroidId, visibleResources) : [];
   if (!asteroid || !veins.some((vein) => vein.remainingAmount > 0)) {
-    return { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' };
+    throw new AppError(ErrorCode.NOT_FOUND, 'Asteroid not found');
   }
 
   const scraft = getSpacecraft(spacecraftKey);
-  if (!scraft) return { code: 'SPACECRAFT_NOT_FOUND', message: 'Spacecraft definition not found' };
+  if (!scraft) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Spacecraft definition not found');
   if (scraft.cargo <= 0 || scraft.miningRate <= 0 || scraft.speed <= 0) {
-    return { code: 'SPACECRAFT_NOT_FOUND', message: 'Spacecraft cannot perform mining trips' };
+    throw new AppError(ErrorCode.VALIDATION_ERROR, 'Spacecraft cannot perform mining trips');
   }
 
   // Check station has enough available (unlocked) spacecraft of this type
   const stationScraft = await findStationSpacecraftByKey(db, stationId, spacecraftKey);
   if (!stationScraft) {
-    return { code: 'INSUFFICIENT_SPACECRAFT', message: 'No spacecraft of this type at station' };
+    throw new AppError(ErrorCode.VALIDATION_ERROR, 'No spacecraft of this type at station');
   }
   const available = stationScraft.amount - stationScraft.lockedAmount;
   if (available < assignedAmount) {
-    return {
-      code: 'INSUFFICIENT_SPACECRAFT',
-      message: `Only ${available} spacecraft available (${assignedAmount} requested)`,
-    };
+    throw new AppError(
+      ErrorCode.VALIDATION_ERROR,
+      `Only ${available} spacecraft available (${assignedAmount} requested)`
+    );
   }
 
   const departedAt = context.now;
-  const created = await db.transaction(async (tx) => {
-    const lockedAsteroid = await findAsteroidForUpdate(tx, asteroidId);
-    if (!lockedAsteroid) return { kind: 'asteroid_missing' } as const;
-
-    const locked = await reserveSpacecraft(tx, stationScraft.id, assignedAmount);
-
-    if (!locked) return { kind: 'insufficient_spacecraft' } as const;
-
-    const assignmentId = await launchReservedMiners(
+  const assignmentId = await db.transaction(async (tx) => {
+    if (!(await findAsteroidForUpdate(tx, asteroidId))) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Asteroid not found');
+    }
+    if (!(await reserveSpacecraft(tx, stationScraft.id, assignedAmount))) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Spacecraft were assigned by another request');
+    }
+    return launchReservedMiners(
       tx,
       {
         station,
@@ -110,20 +99,8 @@ export const createAsteroidAssignment = async (
       },
       context
     );
-    return { kind: 'created', assignmentId } as const;
   });
-
-  if (created.kind === 'asteroid_missing') {
-    return { code: 'ASTEROID_NOT_FOUND', message: 'Asteroid not found' };
-  }
-  if (created.kind === 'insufficient_spacecraft') {
-    return {
-      code: 'INSUFFICIENT_SPACECRAFT',
-      message: 'Spacecraft were assigned by another request',
-    };
-  }
-
-  return { id: created.assignmentId };
+  return { id: assignmentId };
 };
 
 /** Creates the assignment and its outbound trip for miners already reserved at the station. */

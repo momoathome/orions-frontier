@@ -63,7 +63,7 @@ interface BotActionResult {
   completedGoalType: string | null;
 }
 
-export function normalizeBotDecisionReason(reason: string): string {
+function normalizeBotDecisionReason(reason: string): string {
   return reason
     .trim()
     .replace(/\s+/g, ' ')

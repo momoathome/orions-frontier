@@ -64,7 +64,7 @@ function classifyDomainError(error: AppError): BotIntentRejected {
     return new BotIntentRejected('waiting', message, PROTECTED_TARGET_RETRY_MS);
   }
   if (
-    /already underway|already upgrading|already started|already running|no free (build|research) slot|not enough spacecraft|no (miner|spacecraft) is available/i.test(
+    /already underway|already upgrading|already started|already running|no free (build|research) slot|not enough spacecraft|no (miner|spacecraft) is available|spacecraft available|no spacecraft of this type|assigned by another request/i.test(
       message
     )
   ) {
@@ -85,8 +85,8 @@ export async function executeBotIntent(
   const context = resolveGameExecutionContext(contextOrNow);
   try {
     switch (intent.type) {
-      case 'assign_miner': {
-        const result = await createAsteroidAssignment(
+      case 'assign_miner':
+        await createAsteroidAssignment(
           {
             userId,
             stationId: intent.stationId,
@@ -96,12 +96,7 @@ export async function executeBotIntent(
           },
           context
         );
-        if ('code' in result) {
-          const kind = result.code === 'INSUFFICIENT_SPACECRAFT' ? 'waiting' : 'blocked';
-          throw new BotIntentRejected(kind, result.message);
-        }
         break;
-      }
       case 'build_spacecraft':
         await buildSpacecrafts(
           intent.stationId,

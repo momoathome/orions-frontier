@@ -4,12 +4,12 @@ import type { BotDecisionOutcome } from '../../src/services/bot/bot.js';
 import { PlaytestAggregator } from '../../src/tools/playtest/aggregator.js';
 import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
 import type { PlaytestCompletionEvent } from '../../src/lib/completion-events.js';
-import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 import type {
   PlaytestBotSnapshot,
   PlaytestStateSnapshot,
   PlaytestStationSnapshot,
 } from '../../src/tools/playtest/snapshot-loader.js';
+import { testPopulationMember } from '../helpers/playtest.js';
 
 const userId = '10000000-0000-4000-8000-000000000001';
 const stationId = '20000000-0000-4000-8000-000000000001';
@@ -18,17 +18,6 @@ const start = new Date('2030-01-01T00:00:00.000Z');
 const hour = new Date('2030-01-01T01:00:00.000Z');
 const end = new Date('2030-01-01T02:00:00.000Z');
 const later = new Date('2030-01-01T03:00:00.000Z');
-
-function member(): PlaytestPopulationMember {
-  return {
-    alias: 'player-001',
-    userId,
-    initialStationId: stationId,
-    profile: 'technocrat',
-    joinedAt: start,
-    populationKind: 'synthetic_player',
-  };
-}
 
 function station(
   stationAlias: string,
@@ -224,9 +213,9 @@ function events(): PlaytestCompletionEvent[] {
 }
 
 test('aggregator covers goals, milestones and every metric family with traceable sums', () => {
-  const aliases = new PlaytestAliasRegistry([member()]);
+  const aliases = new PlaytestAliasRegistry([testPopulationMember()]);
   const aggregator = new PlaytestAggregator(aliases);
-  aggregator.registerPopulationMember(member());
+  aggregator.registerPopulationMember(testPopulationMember());
   aggregator.consumeDecision(
     decision(start, {
       activeGoalAfter: 'increase_income',
@@ -365,9 +354,9 @@ test('aggregator covers goals, milestones and every metric family with traceable
 });
 
 test('colony stabilization duration records the first stable snapshot', () => {
-  const aliases = new PlaytestAliasRegistry([member()]);
+  const aliases = new PlaytestAliasRegistry([testPopulationMember()]);
   const aggregator = new PlaytestAggregator(aliases);
-  aggregator.registerPopulationMember(member());
+  aggregator.registerPopulationMember(testPopulationMember());
   aggregator.consumeCompletion({
     type: 'colony_established',
     eventId: 'colony',
@@ -397,9 +386,9 @@ test('colony stabilization duration records the first stable snapshot', () => {
 });
 
 test('colony stabilization uses an earlier stable snapshot when its event arrives later', () => {
-  const aliases = new PlaytestAliasRegistry([member()]);
+  const aliases = new PlaytestAliasRegistry([testPopulationMember()]);
   const aggregator = new PlaytestAggregator(aliases);
-  aggregator.registerPopulationMember(member());
+  aggregator.registerPopulationMember(testPopulationMember());
   const stableStations = [
     station('player-001/station-001'),
     station('player-001/station-002', {

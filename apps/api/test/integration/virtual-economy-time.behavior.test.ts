@@ -12,16 +12,12 @@ import {
 } from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { asteroids } from '../../src/lib/db/schema/asteroids.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { userResearch } from '../../src/lib/db/schema/user-research.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
 import { getStationBuildings, startBuildingUpgrade } from '../../src/services/station/buildings.js';
 import {
@@ -31,10 +27,11 @@ import {
 import { startResearch } from '../../src/services/research/research.js';
 import { buildSpacecrafts } from '../../src/services/station/spacecraft.js';
 import {
-  setTestResources,
   createTestSector,
   createTestUser,
+  deleteTestData,
   grantResearch,
+  setTestResources,
 } from '../helpers/fixtures.js';
 import { createStation } from '../../src/services/station/station.js';
 
@@ -82,18 +79,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(userResearch).where(eq(userResearch.userId, userId));
-  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.update(spawnSlots).set({ stationId: null }).where(eq(spawnSlots.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(asteroids).where(eq(asteroids.sectorId, sectorId));
-  await db.delete(spawnSlots).where(eq(spawnSlots.sectorId, sectorId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(eq(users.id, userId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
 

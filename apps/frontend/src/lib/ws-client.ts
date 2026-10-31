@@ -1,4 +1,5 @@
 import type { RealtimeEvents, RealtimeEventType } from '@orions-frontier/shared';
+import { expireSession } from './api-client.js';
 
 type ClientMessage = { type: 'authenticate'; payload: { token: string } } | { type: 'ping' };
 interface ServerMessage {
@@ -6,13 +7,18 @@ interface ServerMessage {
   payload?: object;
 }
 
-export class WebSocketClient {
+/** Local event after a dropped connection is authenticated again; events in the gap are lost. */
+const RECONNECTED = 'local:reconnected';
+const MAX_RECONNECT_DELAY_MS = 30_000;
+
+class WebSocketClient {
   private ws: WebSocket | null = null;
   private token: string | null = null;
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;
   private messageHandlers = new Map<string, Set<(payload: object) => void>>();
   private pingInterval: number | null = null;
+  private wasAuthenticated = false;
 
   constructor(private url: string) {}
 
@@ -36,10 +42,10 @@ export class WebSocketClient {
           const message = JSON.parse(event.data) as ServerMessage;
           if (message.type === 'authenticated') {
             this.startPing();
+            if (this.wasAuthenticated) this.emit(RECONNECTED);
+            this.wasAuthenticated = true;
           } else if (message.type !== 'pong') {
-            this.messageHandlers.get(message.type)?.forEach((handler) => {
-              handler(message.payload ?? {});
-            });
+            this.emit(message.type, message.payload);
           }
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error);
@@ -50,7 +56,8 @@ export class WebSocketClient {
       };
       this.ws.onclose = (event) => {
         this.stopPing();
-        if (event.code !== 4401) this.reconnect();
+        if (event.code === 4401) expireSession();
+        else this.reconnect();
       };
     } catch (error) {
       console.error('Failed to connect WebSocket:', error);
@@ -62,15 +69,28 @@ export class WebSocketClient {
     type: K,
     callback: (payload: RealtimeEvents[K]) => void
   ): () => void {
-    const handlers = this.messageHandlers.get(type) ?? new Set();
-
-    const handler = (payload: object) => {
+    return this.subscribe(type, (payload) => {
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Server und Client teilen `RealtimeEvents`; die Zuordnung type→payload garantiert publishUserEvent.
       callback(payload as RealtimeEvents[K]);
-    };
+    });
+  }
+
+  /** Fires after a reconnect; reload whatever realtime events keep current. */
+  onReconnected(callback: () => void): () => void {
+    return this.subscribe(RECONNECTED, callback);
+  }
+
+  private subscribe(type: string, handler: (payload: object) => void): () => void {
+    const handlers = this.messageHandlers.get(type) ?? new Set();
     handlers.add(handler);
     this.messageHandlers.set(type, handlers);
     return () => handlers.delete(handler);
+  }
+
+  private emit(type: string, payload: object = {}) {
+    this.messageHandlers.get(type)?.forEach((handler) => {
+      handler(payload);
+    });
   }
 
   private startPing() {
@@ -85,13 +105,15 @@ export class WebSocketClient {
     this.pingInterval = null;
   }
 
+  /** Retries until disconnect(): 1 s, 2 s, 4 s … capped at 30 s. */
   private reconnect() {
-    if (!this.token || this.reconnectAttempts >= 5) return;
+    if (!this.token) return;
+    const delay = Math.min(MAX_RECONNECT_DELAY_MS, 1_000 * 2 ** this.reconnectAttempts);
     this.reconnectAttempts++;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       if (this.token) this.connectSocket();
-    }, 1_000 * this.reconnectAttempts);
+    }, delay);
   }
 
   send(message: ClientMessage) {
@@ -101,6 +123,7 @@ export class WebSocketClient {
   disconnect() {
     this.token = null;
     this.reconnectAttempts = 0;
+    this.wasAuthenticated = false;
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.stopPing();

@@ -1,24 +1,29 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type {
-  StationSpacecraftsResponse,
-  StationSpacecraftWithDefinition,
-  VisibleStation,
-} from '@orions-frontier/shared';
+import type { VisibleStation } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { useOverviewStore } from '../stores/overview.js';
+import PanelShell from './PanelShell.vue';
 
 const { origin, station } = defineProps<{
   station: VisibleStation;
   origin: { id: string; x: number; y: number } | null;
 }>();
 
-defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; launched: [] }>();
+const overview = useOverviewStore();
 
 const distance = computed(() =>
   origin ? Math.hypot(station.x - origin.x, station.y - origin.y) : null
 );
 
-const fighters = ref<StationSpacecraftWithDefinition[]>([]);
+const fighters = computed(() =>
+  (origin ? (overview.state.details[origin.id]?.fleet?.spacecrafts ?? []) : []).filter(
+    (entry) =>
+      (entry.definition.role === 'fighter' || entry.definition.role === 'bomber') &&
+      entry.amount > entry.lockedAmount
+  )
+);
 const amounts = ref<Record<string, number>>({});
 const fleet = computed(() =>
   Object.fromEntries(Object.entries(amounts.value).filter(([, amount]) => amount > 0))
@@ -29,24 +34,10 @@ const sending = ref(false);
 
 watch(
   () => [origin?.id, station.id] as const,
-  async ([stationId]) => {
-    fighters.value = [];
-    if (!stationId) return;
-    try {
-      const fleetResponse = await apiClient.get<StationSpacecraftsResponse>(
-        `/stations/${stationId}/spacecrafts`
-      );
-      fighters.value = fleetResponse.spacecrafts.filter(
-        (entry) =>
-          (entry.definition.role === 'fighter' || entry.definition.role === 'bomber') &&
-          entry.amount > entry.lockedAmount
-      );
-      amounts.value = Object.fromEntries(fighters.value.map((entry) => [entry.definition.key, 0]));
-    } catch (error) {
-      feedback.value = apiErrorMessage(error, 'Target data could not be loaded');
-    }
-  },
-  { immediate: true }
+  () => {
+    amounts.value = {};
+    feedback.value = null;
+  }
 );
 
 async function attack() {
@@ -59,6 +50,8 @@ async function attack() {
       fleet: fleet.value,
     });
     feedback.value = 'Attack launched.';
+    amounts.value = {};
+    emit('launched');
   } catch (error) {
     feedback.value = apiErrorMessage(error, 'Attack could not be launched');
   } finally {
@@ -68,25 +61,12 @@ async function attack() {
 </script>
 
 <template>
-  <aside
-    class="flex h-full w-[400px] shrink-0 flex-col border-l border-ui-line bg-ui-panel text-left text-sm text-ui-text"
-    aria-label="Target station"
+  <PanelShell
+    label="Target station"
+    :eyebrow="`Target station (${station.ownerType})`"
+    :title="station.name"
+    @close="emit('close')"
   >
-    <div class="flex items-start justify-between gap-3 border-b border-ui-line px-[18px] py-4">
-      <div class="flex min-w-0 flex-col gap-1">
-        <span class="ui-label">Target station ({{ station.ownerType }})</span>
-        <h2 class="truncate text-xl font-semibold text-ui-bright">{{ station.name }}</h2>
-      </div>
-      <button
-        type="button"
-        class="ui-btn ui-btn-icon"
-        aria-label="Close panel"
-        @click="$emit('close')"
-      >
-        ✕
-      </button>
-    </div>
-
     <div class="flex flex-1 flex-col gap-5 overflow-y-auto px-[18px] py-4">
       <dl class="grid grid-cols-3 gap-2 text-xs text-ui-muted">
         <div class="flex flex-col gap-0.5">
@@ -152,5 +132,5 @@ async function attack() {
         {{ sending ? 'Launching…' : 'Launch attack' }}
       </button>
     </div>
-  </aside>
+  </PanelShell>
 </template>

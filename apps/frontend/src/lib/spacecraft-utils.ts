@@ -1,12 +1,6 @@
 import type { SpacecraftRole } from '@orions-frontier/shared';
 
-export interface RoleTheme {
-  topBar: string;
-  badge: string;
-  badgeText: string;
-  statValue: string;
-  amount: string;
-}
+type RoleTheme = Record<'topBar' | 'badge' | 'badgeText' | 'statValue' | 'amount', string>;
 
 export const roleThemes: Record<SpacecraftRole, RoleTheme> = {
   fighter: {
@@ -38,27 +32,6 @@ export const roleThemes: Record<SpacecraftRole, RoleTheme> = {
     amount: 'text-violet-300',
   },
 };
-
-export function roleTheme(role: SpacecraftRole): RoleTheme {
-  return roleThemes[role];
-}
-
-export function formatBuildTime(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
-}
-
-export interface BuildOrder {
-  id: string;
-  amount: number;
-  endsAt: string;
-  spacecraftName: string;
-  spacecraftRole: SpacecraftRole;
-}
 
 /** `@error`-Handler für Bilder: blendet ein nicht ladbares Bild aus. */
 export function hideBrokenImage(event: Event): void {

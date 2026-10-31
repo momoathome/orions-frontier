@@ -30,15 +30,7 @@ const softlockThresholdSchema = z
     capacityBottleneckHours: finitePositive.default(6),
     coreMilestoneHours: finitePositive.default(24),
   })
-  .default({
-    blockedGoalHours: 6,
-    noProgressHours: 6,
-    unstableColonyHours: 6,
-    repeatedActionCount: 5,
-    goalSwitchesPerHour: 6,
-    capacityBottleneckHours: 6,
-    coreMilestoneHours: 24,
-  });
+  .prefault({});
 
 const playtestConfigSchema = z
   .object({

@@ -13,7 +13,7 @@ export async function insertCombatMission(tx: Tx, values: typeof combatMissions.
 }
 
 /** Missions the user flew or defended against, newest first, with defender and arrival time. */
-export function listCombatMissionsByUser(db: QueryDb, userId: string, since?: Date) {
+export function listCombatMissionsByUser(db: QueryDb, userId: string, limit: number, since?: Date) {
   return db
     .select({
       mission: combatMissions,
@@ -29,7 +29,8 @@ export function listCombatMissionsByUser(db: QueryDb, userId: string, since?: Da
         since ? gte(combatMissions.createdAt, since) : undefined
       )
     )
-    .orderBy(desc(combatMissions.createdAt));
+    .orderBy(desc(combatMissions.createdAt))
+    .limit(limit);
 }
 
 /** Locks the mission whose outbound trip this is, while it is still traveling. */

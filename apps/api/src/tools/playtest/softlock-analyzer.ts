@@ -1,7 +1,7 @@
 import { required } from '@orions-frontier/shared';
 import type { PlaytestDiagnostic } from './collector.js';
 import type { SoftlockThresholds } from './config.js';
-import type { BotMetrics, PlaytestMetrics } from './metrics.js';
+import { resourceTotal, type BotMetrics, type PlaytestMetrics } from './metrics.js';
 
 export type PlaytestWarningCode =
   | 'long_blocked_goal'
@@ -60,10 +60,6 @@ function warning(
     ),
     explanation,
   };
-}
-
-function resourceTotal(resources: Record<string, number | undefined>): number {
-  return Object.values(resources).reduce<number>((sum, amount) => sum + (amount ?? 0), 0);
 }
 
 function decisionDiagnostics(diagnostics: readonly PlaytestDiagnostic[]) {

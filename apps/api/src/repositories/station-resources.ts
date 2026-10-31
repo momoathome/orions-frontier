@@ -1,5 +1,5 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { ResourceKey } from '@orions-frontier/shared';
+import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { entriesOf, type ResourceKey, type ResourceMap } from '@orions-frontier/shared';
 import type { getDb, QueryDb, Tx } from '../lib/db/index.js';
 import { stationResources } from '../lib/db/schema/station-resources.js';
 import { stations } from '../lib/db/schema/stations.js';
@@ -54,6 +54,38 @@ export async function deductStationResource(
     .where(
       and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, resourceKey))
     );
+}
+
+/**
+ * Subtracts every cost only where the stock covers it, in resource key order so concurrent payers
+ * cannot deadlock. Returns the first resource that falls short with its stock, or null once all
+ * are paid; on a shortfall the caller must roll back what was already taken.
+ */
+export async function payStationCosts(
+  tx: Tx,
+  stationId: string,
+  costs: ResourceMap
+): Promise<{ resourceKey: ResourceKey; have: number } | null> {
+  const ordered = entriesOf(costs).sort(([a], [b]) => a.localeCompare(b));
+  for (const [resourceKey, amount] of ordered) {
+    if (amount <= 0) continue;
+    const row = and(
+      eq(stationResources.stationId, stationId),
+      eq(stationResources.resourceKey, resourceKey)
+    );
+    const [paid] = await tx
+      .update(stationResources)
+      .set({ amount: sql`${stationResources.amount} - ${amount}` })
+      .where(and(row, gte(stationResources.amount, amount)))
+      .returning({ resourceKey: stationResources.resourceKey });
+    if (paid) continue;
+    const [stock] = await tx
+      .select({ amount: stationResources.amount })
+      .from(stationResources)
+      .where(row);
+    return { resourceKey, have: stock?.amount ?? 0 };
+  }
+  return null;
 }
 
 /** Locks the rows in resource key order, so concurrent writers cannot deadlock. */

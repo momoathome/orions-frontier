@@ -17,7 +17,6 @@ import {
   insertDebrisField,
   insertSalvageMission,
   listDebrisFieldsInChunks,
-  listSalvageMissionsByUser,
   updateDebrisFieldResources,
   updateSalvageMission,
   type SalvageMissionRow,
@@ -41,7 +40,7 @@ import {
   visibleChunkBounds,
 } from '../map/index.js';
 import { creditStationResources } from '../station/index.js';
-import { applyTravelSpeed, effectiveCargoCapacity } from '../research/index.js';
+import { applySpeed, applyTravelSpeed, getStationResearchModifiers } from '../research/index.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -153,11 +152,6 @@ export async function getDebrisById(id: string, userId: string): Promise<DebrisF
     : null;
 }
 
-export async function getUserSalvageMissions(userId: string): Promise<SalvageMission[]> {
-  const rows = await listSalvageMissionsByUser(getDb(), userId);
-  return rows.map(toMission);
-}
-
 export async function startSalvage(
   params: {
     userId: string;
@@ -244,9 +238,9 @@ async function resolveSalvageOutbound(
     ? await findDebrisFieldForUpdate(tx, mission.debrisFieldId)
     : undefined;
   if (!debris) throw new Error('Salvage debris no longer exists');
-  const effectiveCargo = await effectiveCargoCapacity(tx, mission.stationId, spacecraft.cargo);
+  const modifiers = await getStationResearchModifiers(tx, mission.stationId);
   const cargo: ResourceMap = {};
-  let capacity = Math.floor(effectiveCargo * mission.amount);
+  let capacity = Math.floor(spacecraft.cargo * modifiers.cargo * mission.amount);
   const remaining = { ...debris.resources };
   for (const key of resourceKeys) {
     const amount = Math.min(capacity, remaining[key] ?? 0);
@@ -272,11 +266,10 @@ async function resolveSalvageOutbound(
     toX: station.x,
     toY: station.y,
     departedAt,
-    arrivesAt: await applyTravelSpeed(
-      tx,
-      mission.stationId,
+    arrivesAt: applySpeed(
       calcArrivesAt(departedAt, calcDistance(debris, station), spacecraft.speed),
-      departedAt
+      departedAt,
+      modifiers.speed
     ),
     purpose: 'salvage_return',
     cargoManifest: cargo,

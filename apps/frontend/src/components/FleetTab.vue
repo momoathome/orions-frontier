@@ -1,30 +1,27 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue';
-import { wsClient } from '../lib/ws-client';
-import { debounced } from '../lib/debounce';
+import { ref, computed } from 'vue';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
-import type {
-  StationSpacecraftsResponse,
-  StationSpacecraftWithDefinition,
-  SpacecraftRole,
-} from '@orions-frontier/shared';
-import { roleTheme, formatBuildTime, hideBrokenImage } from '../lib/spacecraft-utils';
+import type { SpacecraftBuildOrder, SpacecraftRole } from '@orions-frontier/shared';
+import { roleThemes, hideBrokenImage } from '../lib/spacecraft-utils';
+import { formatBuildTime } from '../lib/format';
 import BuildForm from './BuildForm.vue';
 import ConfirmCancelButton from './ConfirmCancelButton.vue';
 import { useOverviewStore } from '../stores/overview.js';
-import type { BuildOrder } from '../lib/spacecraft-utils';
+
+type BuildOrder = SpacecraftBuildOrder & { spacecraftName: string; spacecraftRole: SpacecraftRole };
 
 const { stationId } = defineProps<{ stationId: string }>();
 const overview = useOverviewStore();
 
-const fleet = ref<StationSpacecraftWithDefinition[]>([]);
-const fleetLoading = ref(false);
-const fleetError = ref<string | null>(null);
+// The overview store loads and refreshes the fleet; this tab only keeps its selection.
+const response = computed(() => overview.state.details[stationId]?.fleet ?? null);
+const fleet = computed(() => response.value?.spacecrafts ?? []);
 const roleFilter = ref<SpacecraftRole | 'all'>('all');
-const activeShip = ref<StationSpacecraftWithDefinition | null>(null);
-const hangar = ref({ used: 0, capacity: 0 });
-const productionSlots = ref(1);
-const buildTimeFactor = ref(1);
+const activeKey = ref<string | null>(null);
+const activeShip = computed(
+  () => fleet.value.find((e) => e.definition.key === activeKey.value) ?? fleet.value[0] ?? null
+);
+const productionSlots = computed(() => response.value?.productionSlots ?? 1);
 
 const uniqueRoles = computed(() => [...new Set(fleet.value.map((e) => e.definition.role))]);
 
@@ -89,7 +86,7 @@ const allBuildOrders = computed((): BuildOrder[] => {
       });
     }
   }
-  return orders.sort((a, b) => new Date(a.endsAt).getTime() - new Date(b.endsAt).getTime());
+  return orders.sort((a, b) => Date.parse(a.endsAt) - Date.parse(b.endsAt));
 });
 
 // Reference maxes per stat. Using fleet-local maxes so bars are always relative
@@ -116,51 +113,14 @@ function statPct(value: number, max: number): number {
   return max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
 }
 
-async function loadFleet(force = false) {
-  if (fleet.value.length > 0 && !force) return;
-  if (!force) fleetLoading.value = true;
-  fleetError.value = null;
-  try {
-    const response = await apiClient.get<StationSpacecraftsResponse>(
-      `/stations/${stationId}/spacecrafts`
-    );
-    fleet.value = response.spacecrafts;
-    hangar.value = response.hangar;
-    productionSlots.value = response.productionSlots;
-    buildTimeFactor.value = response.buildTimeFactor;
-    const activeKey = activeShip.value?.definition.key;
-    activeShip.value =
-      fleet.value.find((e) => e.definition.key === activeKey) ??
-      activeShip.value ??
-      fleet.value[0] ??
-      null;
-  } catch {
-    fleetError.value = 'Failed to load fleet data';
-  } finally {
-    fleetLoading.value = false;
-  }
-}
-
-// Tick every second so the active-order count stays in sync with the timer
-const now = ref(Date.now());
-const nowInterval = setInterval(() => {
-  now.value = Date.now();
-}, 1000);
-onUnmounted(() => {
-  clearInterval(nowInterval);
-});
-
 const visibleOrders = computed(() =>
-  allBuildOrders.value.filter((o) => new Date(o.endsAt).getTime() > now.value)
+  allBuildOrders.value.filter((o) => Date.parse(o.endsAt) > overview.state.now)
 );
 
 function timeUntil(isoStr: string): string {
-  const ms = new Date(isoStr).getTime() - now.value;
-  if (ms <= 0) return 'Done';
-  return formatBuildTime(Math.ceil(ms / 1000));
+  const ms = Date.parse(isoStr) - overview.state.now;
+  return ms <= 0 ? 'Done' : formatBuildTime(Math.ceil(ms / 1000));
 }
-
-void loadFleet();
 
 const cancellingOrder = ref<string | null>(null);
 const orderError = ref<string | null>(null);
@@ -169,48 +129,18 @@ async function cancelOrder(orderId: string) {
   orderError.value = null;
   try {
     await apiClient.delete(`/stations/${stationId}/spacecrafts/orders/${orderId}`);
-    onBuilt();
+    void overview.refreshStation(stationId);
   } catch (cause) {
     orderError.value = apiErrorMessage(cause, 'Order could not be cancelled');
   } finally {
     cancellingOrder.value = null;
   }
 }
-
-function onBuilt() {
-  void loadFleet(true);
-  void overview.refreshStation(stationId);
-}
-
-const unsubscribeBuild = wsClient.on('spacecraft_build_completed', (payload) => {
-  if (payload.stationId === stationId) void loadFleet(true);
-});
-const reloadFleet = debounced(() => loadFleet(true), 500);
-const unsubscribeMining = wsClient.on('mining_tick_completed', reloadFleet);
-const unsubscribeTransport = wsClient.on('transport_tick_completed', reloadFleet);
-// Hangar, Shipyard and research change crew slots, production slots and which ships unlock.
-const unsubscribeBuilding = wsClient.on('building_upgrade_completed', (payload) => {
-  if (payload.stationId === stationId) void loadFleet(true);
-});
-const unsubscribeResearch = wsClient.on('research_completed', reloadFleet);
-
-onUnmounted(() => {
-  reloadFleet.cancel();
-  unsubscribeBuild();
-  unsubscribeMining();
-  unsubscribeTransport();
-  unsubscribeBuilding();
-  unsubscribeResearch();
-});
 </script>
 
 <template>
-  <div v-if="fleetLoading" class="flex flex-1 items-center justify-center">
+  <div v-if="!response" class="flex flex-1 items-center justify-center">
     <p class="animate-pulse text-ui-muted">Loading fleet…</p>
-  </div>
-
-  <div v-else-if="fleetError" class="flex flex-1 items-center justify-center">
-    <p class="text-ui-red">{{ fleetError }}</p>
   </div>
 
   <div v-else-if="fleet.length === 0" class="flex flex-1 items-center justify-center">
@@ -257,11 +187,11 @@ onUnmounted(() => {
               entry.blockers.length > 0 && entry.amount === 0 ? 'opacity-50' : '',
             ]"
             :aria-pressed="activeShip?.definition.key === entry.definition.key"
-            @click="activeShip = entry"
+            @click="activeKey = entry.definition.key"
           >
             <span
               class="w-1 self-stretch rounded-full"
-              :class="roleTheme(entry.definition.role).topBar"
+              :class="roleThemes[entry.definition.role].topBar"
             />
             <img
               v-if="entry.definition.image"
@@ -281,7 +211,7 @@ onUnmounted(() => {
             <span class="flex shrink-0 flex-col items-end">
               <span
                 class="ui-num font-semibold"
-                :class="entry.amount > 0 ? roleTheme(entry.definition.role).amount : 'text-ui-dim'"
+                :class="entry.amount > 0 ? roleThemes[entry.definition.role].amount : 'text-ui-dim'"
                 >×{{ entry.amount }}</span
               >
               <span class="ui-num text-xs text-ui-muted"
@@ -314,8 +244,8 @@ onUnmounted(() => {
                 <span
                   class="rounded border px-2 py-0.5 text-xs capitalize"
                   :class="[
-                    roleTheme(activeShip.definition.role).badge,
-                    roleTheme(activeShip.definition.role).badgeText,
+                    roleThemes[activeShip.definition.role].badge,
+                    roleThemes[activeShip.definition.role].badgeText,
                   ]"
                   >{{ activeShip.definition.role }}</span
                 >
@@ -323,7 +253,7 @@ onUnmounted(() => {
               <dl class="grid grid-cols-4 gap-2 text-xs text-ui-muted">
                 <div class="flex flex-col">
                   <dt>Fleet</dt>
-                  <dd class="ui-num text-sm" :class="roleTheme(activeShip.definition.role).amount">
+                  <dd class="ui-num text-sm" :class="roleThemes[activeShip.definition.role].amount">
                     {{ activeShip.amount }}
                   </dd>
                 </div>
@@ -352,7 +282,9 @@ onUnmounted(() => {
                 <dd
                   class="ui-num font-semibold"
                   :class="
-                    stat.value > 0 ? roleTheme(activeShip.definition.role).statValue : 'text-ui-dim'
+                    stat.value > 0
+                      ? roleThemes[activeShip.definition.role].statValue
+                      : 'text-ui-dim'
                   "
                 >
                   {{ stat.value }}
@@ -361,7 +293,7 @@ onUnmounted(() => {
               <div class="h-1 overflow-hidden rounded-full bg-ui-line">
                 <div
                   class="h-full rounded-full opacity-70"
-                  :class="roleTheme(activeShip.definition.role).topBar"
+                  :class="roleThemes[activeShip.definition.role].topBar"
                   :style="{ width: `${statPct(stat.value, stat.max)}%` }"
                 />
               </div>
@@ -372,10 +304,10 @@ onUnmounted(() => {
         <BuildForm
           :station-id="stationId"
           :ship="activeShip"
-          :hangar="hangar"
+          :hangar="response.hangar"
           :production-slots="productionSlots"
-          :build-time-factor="buildTimeFactor"
-          @built="onBuilt"
+          :build-time-factor="response.buildTimeFactor"
+          @built="overview.refreshStation(stationId)"
         />
       </template>
     </div>
@@ -399,10 +331,12 @@ onUnmounted(() => {
       >
         <span
           class="h-1.5 w-1.5 rounded-full"
-          :class="i === 0 ? [roleTheme(order.spacecraftRole).topBar, 'animate-pulse'] : 'bg-ui-dim'"
+          :class="
+            i === 0 ? [roleThemes[order.spacecraftRole].topBar, 'animate-pulse'] : 'bg-ui-dim'
+          "
         />
         <span :class="i === 0 ? 'text-ui-text' : 'text-ui-muted'">{{ order.spacecraftName }}</span>
-        <span class="ui-num font-semibold" :class="roleTheme(order.spacecraftRole).amount"
+        <span class="ui-num font-semibold" :class="roleThemes[order.spacecraftRole].amount"
           >×{{ order.amount }}</span
         >
         <span class="ui-num text-ui-muted">{{ timeUntil(order.endsAt) }}</span>

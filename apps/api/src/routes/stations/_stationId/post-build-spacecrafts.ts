@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { buildSpacecrafts, ownStation } from '../../../services/station/index.js';
+import { buildSpacecrafts } from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 const BodySchema = z.object({
@@ -20,9 +20,7 @@ export default defineRoute(async (app) => {
     async (request, reply) => {
       const { stationId } = request.params;
 
-      const ownedStationId = await ownStation(request.user.userId, stationId);
-
-      await buildSpacecrafts(ownedStationId, request.user.userId, request.body.orders);
+      await buildSpacecrafts(stationId, request.user.userId, request.body.orders);
 
       return reply.status(202).send();
     }

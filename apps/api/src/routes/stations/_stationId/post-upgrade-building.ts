@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { ownStation, startBuildingUpgrade } from '../../../services/station/index.js';
+import { startBuildingUpgrade } from '../../../services/station/index.js';
 import { buildingKeys } from '@orions-frontier/shared';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
@@ -18,10 +18,8 @@ export default defineRoute(async (app) => {
     async (request) => {
       const { stationId, buildingKey } = request.params;
 
-      const ownedStationId = await ownStation(request.user.userId, stationId);
-
       const updatedBuilding = await startBuildingUpgrade(
-        ownedStationId,
+        stationId,
         buildingKey,
         request.user.userId,
         undefined,

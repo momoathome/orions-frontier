@@ -75,6 +75,9 @@ export class ChunkStreamer {
 
   destroy() {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    // Requests still in flight must not draw into destroyed layers.
+    this.onChunkLoaded = null;
+    this.onChunkUnloaded = null;
   }
 
   private _update(camera: Camera, reloadAll = false) {

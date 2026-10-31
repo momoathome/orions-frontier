@@ -13,14 +13,16 @@ import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { userResearch } from '../../src/lib/db/schema/user-research.js';
-import { grantResearch } from '../helpers/fixtures.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
-import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+  grantResearch,
+  setTestResources,
+} from '../helpers/fixtures.js';
 import { runBotDecisionTick } from '../../src/services/bot/bot.js';
 import { loadGoalBotState } from '../../src/services/bot/goal-loader.js';
 import { generateRetaliateCandidates, stepRaid } from '../../src/services/bot/goals/conflict.js';
@@ -37,10 +39,6 @@ import {
   stepBuildStrikeForce,
 } from '../../src/services/bot/goals/military.js';
 import { generateSalvageCandidates, stepSalvage } from '../../src/services/bot/goals/salvage.js';
-import { seedStationBuildings } from '../../src/services/station/buildings.js';
-import { seedStationDefenseUpgrades } from '../../src/services/station/defense.js';
-import { seedStationResources } from '../../src/services/station/resources.js';
-import { seedStationSpacecrafts } from '../../src/services/station/spacecraft.js';
 import { executeBotIntent } from '../../src/services/bot/intent.js';
 
 const userId = randomUUID();
@@ -57,29 +55,9 @@ before(async () => {
   await runMigrations();
   await initDb();
   const db = getDb();
-  const suffix = randomUUID();
-
-  await db.insert(users).values({
-    id: userId,
-    username: `bot-behavior-${suffix}`,
-    email: `bot-behavior-${suffix}@example.test`,
-    passwordHash: 'not-used',
-  });
-  sectorId = randomUUID();
-  const sectorCoordinate = uniqueSectorCoordinate(suffix, 100_000);
-  await db.insert(sectors).values({
-    id: sectorId,
-    sectorX: sectorCoordinate,
-    sectorY: sectorCoordinate,
-    role: 'frontier',
-    seed: suffix,
-  });
-  await db
-    .insert(stations)
-    .values({ id: stationId, userId, sectorId, name: 'Behavior Bot', x: 0, y: 0 });
-  await seedStationResources(stationId);
-  await seedStationBuildings(stationId);
-  await seedStationSpacecrafts(stationId);
+  await createTestUser({ id: userId });
+  sectorId = (await createTestSector({ role: 'frontier' })).id;
+  await createTestStation({ id: stationId, userId, sectorId });
 
   await db.insert(asteroids).values({
     id: asteroidIds[0],
@@ -100,30 +78,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  const fleet = await db
-    .select({ id: stationSpacecrafts.id })
-    .from(stationSpacecrafts)
-    .where(eq(stationSpacecrafts.stationId, stationId));
-  if (fleet.length) {
-    await db.delete(spacecraftTrips).where(
-      inArray(
-        spacecraftTrips.stationSpacecraftId,
-        fleet.map((entry) => entry.id)
-      )
-    );
-  }
-  await db.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, stationId));
-  await db.delete(asteroids).where(inArray(asteroids.id, asteroidIds));
-  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
-  await db.delete(botControllers).where(eq(botControllers.userId, userId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(spawnSlots).where(eq(spawnSlots.sectorId, sectorId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(eq(users.id, userId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -194,61 +149,16 @@ test('an overdue bot decision survives a database reconnect', async () => {
 
 test('goal state loader shows two bot stations with local resources and scanner-limited visibility', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const suffix2 = randomUUID();
-  await db.insert(users).values({
-    id: botUserId,
-    username: `goal-loader-${suffix2}`,
-    email: `goal-loader-${suffix2}@example.test`,
-    passwordHash: 'not-used',
-  });
+  const botUserId = (await createTestUser()).id;
 
-  // Two stations at different positions
-  const stationAId = randomUUID();
-  const stationBId = randomUUID();
-  // Station A: origin with scanner
-  await db.insert(stations).values({
-    id: stationAId,
-    userId: botUserId,
-    sectorId,
-    name: 'Station A',
-    x: 0,
-    y: 0,
-    chunkX: 0,
-    chunkY: 0,
-  });
-  await seedStationBuildings(stationAId);
-  await seedStationSpacecrafts(stationAId);
-  await seedStationResources(stationAId);
-  // Give Station A a scanner (it has level 1 from seeding)
+  // Station A: origin with scanner (level 1 from seeding)
+  const stationAId = (await createTestStation({ userId: botUserId, sectorId })).id;
   // Station B: colony 3_000 units away (outside Station A's scanner range of 2_000)
-  await db.insert(stations).values({
-    id: stationBId,
-    userId: botUserId,
-    sectorId,
-    name: 'Station B',
-    x: 0,
-    y: 3000,
-    chunkX: 0,
-    chunkY: Math.floor(3000 / 1000),
-  });
-  await seedStationBuildings(stationBId);
-  await seedStationSpacecrafts(stationBId);
-  await seedStationResources(stationBId);
+  const stationBId = (await createTestStation({ userId: botUserId, sectorId, x: 0, y: 3000 })).id;
 
   // Set different resource amounts per station to verify local scoping
-  await db
-    .update(stationResources)
-    .set({ amount: 500 })
-    .where(
-      and(eq(stationResources.stationId, stationAId), eq(stationResources.resourceKey, 'carbon'))
-    );
-  await db
-    .update(stationResources)
-    .set({ amount: 999 })
-    .where(
-      and(eq(stationResources.stationId, stationBId), eq(stationResources.resourceKey, 'carbon'))
-    );
+  await setTestResources(stationAId, { carbon: 500 });
+  await setTestResources(stationBId, { carbon: 999 });
 
   // Asteroid visible only from Station A (inside its scanner range)
   const nearAsteroidId = randomUUID();
@@ -307,48 +217,17 @@ test('goal state loader shows two bot stations with local resources and scanner-
   );
 
   // Cleanup
-  await db.delete(asteroidVeins).where(eq(asteroidVeins.asteroidId, nearAsteroidId));
-  await db.delete(asteroids).where(eq(asteroids.id, nearAsteroidId));
-  await db.delete(asteroidVeins).where(eq(asteroidVeins.asteroidId, hiddenAsteroidId));
-  await db.delete(asteroids).where(eq(asteroids.id, hiddenAsteroidId));
-  for (const sid of [stationAId, stationBId]) {
-    await db.delete(stationResources).where(eq(stationResources.stationId, sid));
-    await db.delete(stationBuildings).where(eq(stationBuildings.stationId, sid));
-    await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, sid));
-    await db.delete(stations).where(eq(stations.id, sid));
-  }
-  await db.delete(users).where(eq(users.id, botUserId));
+  await db.delete(asteroids).where(inArray(asteroids.id, [nearAsteroidId, hiddenAsteroidId]));
+  await deleteTestData({ userIds: [botUserId] });
 });
 
 test('typed economic intents execute through the authoritative domain services', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const localStationId = randomUUID();
-  const suffix = randomUUID();
-  await db.insert(users).values({
-    id: botUserId,
-    username: `intent-bot-${suffix}`,
-    email: `intent-bot-${suffix}@example.test`,
-    passwordHash: 'not-used',
-  });
-  await db.insert(stations).values({
-    id: localStationId,
-    userId: botUserId,
-    sectorId,
-    name: 'Intent Bot',
-    x: 30_000,
-    y: 30_000,
-    chunkX: 30,
-    chunkY: 30,
-  });
-  await seedStationBuildings(localStationId);
-  await seedStationDefenseUpgrades(localStationId);
-  await seedStationSpacecrafts(localStationId);
-  await seedStationResources(localStationId);
-  await db
-    .update(stationResources)
-    .set({ amount: 10_000 })
-    .where(eq(stationResources.stationId, localStationId));
+  const botUserId = (await createTestUser()).id;
+  const localStationId = (
+    await createTestStation({ userId: botUserId, sectorId, x: 30_000, y: 30_000 })
+  ).id;
+  await setTestResources(localStationId, 10_000);
   // Building and defense upgrades share the build slots.
   await grantResearch(botUserId, { parallel_construction: 1 });
   const now = new Date();
@@ -399,40 +278,16 @@ test('typed economic intents execute through the authoritative domain services',
     .map((building) => building.buildingKey);
   assert.deepEqual(new Set(upgradingKeys), new Set(['warehouse', 'armor_plating']));
 
-  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, localStationId));
-  await db.delete(userResearch).where(eq(userResearch.userId, botUserId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, localStationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, localStationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
-  await db.delete(stations).where(eq(stations.id, localStationId));
-  await db.delete(users).where(eq(users.id, botUserId));
+  await deleteTestData({ userIds: [botUserId] });
 });
 
 test('a newly selected saving goal remains persisted', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const localStationId = randomUUID();
+  const botUserId = (await createTestUser()).id;
+  const localStationId = (
+    await createTestStation({ userId: botUserId, sectorId, x: 20_000, y: 20_000 })
+  ).id;
   const localAsteroidId = randomUUID();
-  const suffix = randomUUID();
-  await db.insert(users).values({
-    id: botUserId,
-    username: `saving-bot-${suffix}`,
-    email: `saving-bot-${suffix}@example.test`,
-    passwordHash: 'not-used',
-  });
-  await db.insert(stations).values({
-    id: localStationId,
-    userId: botUserId,
-    sectorId,
-    name: 'Saving Bot',
-    x: 20_000,
-    y: 20_000,
-    chunkX: 20,
-    chunkY: 20,
-  });
-  await seedStationBuildings(localStationId);
-  await seedStationSpacecrafts(localStationId);
-  await seedStationResources(localStationId);
   await db.insert(asteroids).values({
     id: localAsteroidId,
     x: 20_100,
@@ -476,10 +331,7 @@ test('a newly selected saving goal remains persisted', async () => {
     spacecraftKey: 'mole',
     assignedAmount: 1,
   });
-  await db
-    .update(stationResources)
-    .set({ amount: 0 })
-    .where(eq(stationResources.stationId, localStationId));
+  await setTestResources(localStationId, 0);
   const now = new Date();
   await db.insert(botControllers).values({
     userId: botUserId,
@@ -500,39 +352,14 @@ test('a newly selected saving goal remains persisted', async () => {
   assert.equal(controller.blockedCount, 0);
   assert.equal(controller.lastProgressAt, null);
 
-  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, localStationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, localStationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
-  await db.delete(stations).where(eq(stations.id, localStationId));
+  await deleteTestData({ userIds: [botUserId] });
   await db.delete(asteroids).where(eq(asteroids.id, localAsteroidId));
-  await db.delete(users).where(eq(users.id, botUserId));
 });
 
 test('parallel bot ticks claim one decision and create one domain action', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const localStationId = randomUUID();
-  const suffix = randomUUID();
-  await db.insert(users).values({
-    id: botUserId,
-    username: `parallel-bot-${suffix}`,
-    email: `parallel-bot-${suffix}@example.test`,
-    passwordHash: 'not-used',
-  });
-  await db.insert(stations).values({
-    id: localStationId,
-    userId: botUserId,
-    sectorId,
-    name: 'Parallel Bot',
-    x: 0,
-    y: 0,
-    chunkX: 0,
-    chunkY: 0,
-  });
-  await seedStationBuildings(localStationId);
-  await seedStationSpacecrafts(localStationId);
-  await seedStationResources(localStationId);
+  const botUserId = (await createTestUser()).id;
+  const localStationId = (await createTestStation({ userId: botUserId, sectorId })).id;
   const now = new Date();
   await db.insert(botControllers).values({
     userId: botUserId,
@@ -548,67 +375,24 @@ test('parallel bot ticks claim one decision and create one domain action', async
     .where(eq(asteroidAssignments.stationId, localStationId));
   assert.equal(assignments.length, 1);
 
-  const fleet = await db
-    .select({ id: stationSpacecrafts.id })
-    .from(stationSpacecrafts)
-    .where(eq(stationSpacecrafts.stationId, localStationId));
-  await db.delete(spacecraftTrips).where(
-    inArray(
-      spacecraftTrips.stationSpacecraftId,
-      fleet.map((entry) => entry.id)
-    )
-  );
-  await db.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, localStationId));
-  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, localStationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, localStationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, localStationId));
-  await db.delete(stations).where(eq(stations.id, localStationId));
-  await db.delete(users).where(eq(users.id, botUserId));
+  await deleteTestData({ userIds: [botUserId] });
 });
 
 test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const suffix = randomUUID();
-  await db.insert(users).values({
-    id: botUserId,
-    username: `glifecycle-${suffix}`,
-    email: `glifecycle-${suffix}@example.test`,
-    passwordHash: 'not-used',
-  });
+  const botUserId = (await createTestUser()).id;
 
   // Give the bot a station so loadGoalBotState succeeds
-  const stationId = randomUUID();
-  await db.insert(stations).values({
-    id: stationId,
-    userId: botUserId,
-    sectorId: (
-      await db
-        .select({ id: sectors.id })
-        .from(sectors)
-        .limit(1)
-        .then((r) => r[0]!)
-    ).id,
-    name: 'Lifecycle Test',
-    x: 100000,
-    y: 100000,
-    chunkX: Math.floor(100000 / 1000),
-    chunkY: Math.floor(100000 / 1000),
-  });
-  await seedStationBuildings(stationId);
-  await seedStationSpacecrafts(stationId);
-  await seedStationResources(stationId);
+  const stationId = (
+    await createTestStation({ userId: botUserId, sectorId, x: 100_000, y: 100_000 })
+  ).id;
   // Delete the seeded Mole so maintenance has no free ships to assign
   await getDb()
     .delete(stationSpacecrafts)
     .where(
       and(eq(stationSpacecrafts.stationId, stationId), eq(stationSpacecrafts.spacecraftKey, 'mole'))
     );
-  await db
-    .update(stationResources)
-    .set({ amount: 0 })
-    .where(eq(stationResources.stationId, stationId));
+  await setTestResources(stationId, 0);
 
   // Set up bot controller with goal_v1 strategy and an active goal
   const now = new Date();
@@ -680,93 +464,32 @@ test('goal_v1 lifecycle tracks blocked count and releases goal after 5 intervals
   const completion = completionOutcomes.find((outcome) => outcome.botUserId === botUserId);
   assert.equal(completion?.completedGoalType, 'research_technology');
 
-  // Cleanup
-  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
-  await db.delete(userResearch).where(eq(userResearch.userId, botUserId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(users).where(eq(users.id, botUserId));
+  await deleteTestData({ userIds: [botUserId] });
 });
 
 test('bot exploration and colonization goal generation', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const suffix3 = randomUUID();
-  await db.insert(users).values({
-    id: botUserId,
-    username: `explore-bot-${suffix3}`,
-    email: `explore-bot-${suffix3}@example.test`,
-    passwordHash: 'not-used',
-  });
+  const botUserId = (await createTestUser()).id;
 
-  const baseX = uniqueSectorCoordinate(suffix3, -1_000_000_000);
+  const baseX = uniqueSectorCoordinate(randomUUID(), -1_000_000_000);
   const baseY = baseX;
 
-  // Create an "explored" sector
-  const knownSectorId = randomUUID();
-  await db.insert(sectors).values({
-    id: knownSectorId,
-    sectorX: baseX,
-    sectorY: baseY,
-    role: 'settlement',
-    seed: suffix3,
-  });
-
-  // Create a frontier sector adjacent to it
-  const frontierSectorId = randomUUID();
-  await db.insert(sectors).values({
-    id: frontierSectorId,
-    sectorX: baseX + 1,
-    sectorY: baseY,
-    role: 'frontier',
-    seed: suffix3,
-  });
+  // An "explored" sector and a frontier sector adjacent to it
+  const knownSectorId = (await createTestSector({ sectorX: baseX, sectorY: baseY })).id;
+  const frontierSectorId = (
+    await createTestSector({ sectorX: baseX + 1, sectorY: baseY, role: 'frontier' })
+  ).id;
 
   // Station in the known sector with a miner ship
-  const stationId2 = randomUUID();
-  const colonyStationId = randomUUID();
-  await db.insert(stations).values({
-    id: stationId2,
-    userId: botUserId,
-    sectorId: knownSectorId,
-    name: 'Explore Home',
-    x: 100,
-    y: 100,
-    chunkX: 0,
-    chunkY: 0,
-  });
-  await seedStationBuildings(stationId2);
-  await seedStationSpacecrafts(stationId2);
-  await seedStationResources(stationId2);
+  const stationId2 = (
+    await createTestStation({ userId: botUserId, sectorId: knownSectorId, x: 100, y: 100 })
+  ).id;
 
   // Top up resources so a colony can be afforded at the cost for a third station
-  await Promise.all(
-    (['carbon', 'titanium', 'hydrogenium'] as const).map((key) =>
-      db
-        .update(stationResources)
-        .set({ amount: 12_000 })
-        .where(
-          and(eq(stationResources.stationId, stationId2), eq(stationResources.resourceKey, key))
-        )
-    )
-  );
+  await setTestResources(stationId2, { carbon: 12_000, titanium: 12_000, hydrogenium: 12_000 });
 
   // Also create a second station in a frontier sector (already colonized, no mining)
-  await db.insert(stations).values({
-    id: colonyStationId,
-    userId: botUserId,
-    sectorId: frontierSectorId,
-    name: 'Outpost',
-    x: 200,
-    y: 100,
-    chunkX: 0,
-    chunkY: 0,
-  });
-  await seedStationBuildings(colonyStationId);
-  await seedStationSpacecrafts(colonyStationId);
-  await seedStationResources(colonyStationId);
+  await createTestStation({ userId: botUserId, sectorId: frontierSectorId, x: 200, y: 100 });
 
   await grantResearch(botUserId, { long_range_survey: 1, colony_logistics: 2 });
   // Set up bot controller with goal_v1
@@ -836,69 +559,23 @@ test('bot exploration and colonization goal generation', async () => {
   assert.ok(exploreCandidates.length > 0, 'generateGoalCandidates should include explore_sector');
   assert.ok(colonyCandidates.length > 0, 'generateGoalCandidates should include establish_colony');
 
-  // Cleanup
-  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId2));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId2));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId2));
-  await db.delete(stations).where(eq(stations.id, stationId2));
-  await db.delete(stationResources).where(eq(stationResources.stationId, colonyStationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, colonyStationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, colonyStationId));
-  await db.delete(stations).where(eq(stations.id, colonyStationId));
-  await db.delete(sectors).where(eq(sectors.id, knownSectorId));
-  await db.delete(sectors).where(eq(sectors.id, frontierSectorId));
-  await db.delete(users).where(eq(users.id, botUserId));
+  await deleteTestData({ userIds: [botUserId], sectorIds: [knownSectorId, frontierSectorId] });
 });
 
 test('bot fortify and strike force goal generation', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const suffix4 = randomUUID();
-  await db.insert(users).values({
-    id: botUserId,
-    username: `fortify-bot-${suffix4}`,
-    email: `fortify-bot-${suffix4}@example.test`,
-    passwordHash: 'not-used',
-  });
-
-  const fortifyCoord = uniqueSectorCoordinate(suffix4, 400_000);
-
-  const sectorId4 = randomUUID();
-  await db.insert(sectors).values({
-    id: sectorId4,
-    sectorX: fortifyCoord,
-    sectorY: fortifyCoord,
-    role: 'settlement',
-    seed: suffix4,
-  });
-
-  const stationId4 = randomUUID();
-  await db.insert(stations).values({
-    id: stationId4,
-    userId: botUserId,
-    sectorId: sectorId4,
-    name: 'Fortify Test',
-    x: fortifyCoord * 1000,
-    y: fortifyCoord * 1000,
-    chunkX: fortifyCoord,
-    chunkY: fortifyCoord,
-  });
-  await seedStationBuildings(stationId4);
-  await seedStationDefenseUpgrades(stationId4);
-  await seedStationSpacecrafts(stationId4);
-  await seedStationResources(stationId4);
-  // Top up resources
-  await Promise.all(
-    (['carbon', 'titanium', 'hydrogenium'] as const).map((key) =>
-      db
-        .update(stationResources)
-        .set({ amount: 2000 })
-        .where(
-          and(eq(stationResources.stationId, stationId4), eq(stationResources.resourceKey, key))
-        )
-    )
-  );
+  const botUserId = (await createTestUser()).id;
+  const fortifyOrigin = uniqueSectorCoordinate(randomUUID(), 400_000) * 1000;
+  const sectorId4 = (await createTestSector()).id;
+  const stationId4 = (
+    await createTestStation({
+      userId: botUserId,
+      sectorId: sectorId4,
+      x: fortifyOrigin,
+      y: fortifyOrigin,
+    })
+  ).id;
+  await setTestResources(stationId4, { carbon: 2000, titanium: 2000, hydrogenium: 2000 });
 
   await db.insert(botControllers).values({
     userId: botUserId,
@@ -963,62 +640,26 @@ test('bot fortify and strike force goal generation', async () => {
   const fortifyCandidates = allCandidates.filter((c) => c.goalType === 'fortify_station');
   assert.ok(fortifyCandidates.length > 0, 'generateGoalCandidates should include fortify_station');
 
-  // Cleanup
-  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId4));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId4));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId4));
-  await db.delete(stations).where(eq(stations.id, stationId4));
-  await db.delete(sectors).where(eq(sectors.id, sectorId4));
-  await db.delete(users).where(eq(users.id, botUserId));
+  await deleteTestData({ userIds: [botUserId], sectorIds: [sectorId4] });
 });
 
 test('bot raid and retaliate goal generation with visible target', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const targetUserId = randomUUID();
-  const suffix5 = randomUUID();
+  const botUserId = (await createTestUser()).id;
+  const targetUserId = (await createTestUser()).id;
 
-  await db.insert(users).values({
-    id: botUserId,
-    username: `raid-bot-${suffix5}`,
-    email: `raid-bot-${suffix5}@example.test`,
-    passwordHash: 'not-used',
-  });
-  await db.insert(users).values({
-    id: targetUserId,
-    username: `raid-target-${suffix5}`,
-    email: `raid-target-${suffix5}@example.test`,
-    passwordHash: 'not-used',
-  });
-
-  const sectorX5 = uniqueSectorCoordinate(suffix5, 600_000);
-  const stationOrigin5 = sectorX5;
-  const sectorId5 = randomUUID();
-  await db.insert(sectors).values({
-    id: sectorId5,
-    sectorX: sectorX5,
-    sectorY: sectorX5,
-    role: 'settlement',
-    seed: suffix5,
-  });
+  const stationOrigin5 = uniqueSectorCoordinate(randomUUID(), 600_000);
+  const sectorId5 = (await createTestSector()).id;
 
   // Bot station with fighters
-  const botStationId = randomUUID();
-  await db.insert(stations).values({
-    id: botStationId,
-    userId: botUserId,
-    sectorId: sectorId5,
-    name: 'Raid HQ',
-    x: stationOrigin5,
-    y: stationOrigin5,
-    chunkX: Math.floor(stationOrigin5 / 1000),
-    chunkY: Math.floor(stationOrigin5 / 1000),
-  });
-  await seedStationBuildings(botStationId);
-  await seedStationDefenseUpgrades(botStationId);
-  await seedStationSpacecrafts(botStationId);
-  await seedStationResources(botStationId);
+  const botStationId = (
+    await createTestStation({
+      userId: botUserId,
+      sectorId: sectorId5,
+      x: stationOrigin5,
+      y: stationOrigin5,
+    })
+  ).id;
   await db
     .update(stationBuildings)
     .set({ level: 15 })
@@ -1031,32 +672,17 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     amount: 5,
     lockedAmount: 0,
   });
-  await Promise.all(
-    (['carbon', 'titanium'] as const).map((key) =>
-      db
-        .update(stationResources)
-        .set({ amount: 2000 })
-        .where(
-          and(eq(stationResources.stationId, botStationId), eq(stationResources.resourceKey, key))
-        )
-    )
-  );
+  await setTestResources(botStationId, { carbon: 2000, titanium: 2000 });
 
   // Target station (close enough to be visible, different user)
-  const targetStationId = randomUUID();
-  await db.insert(stations).values({
-    id: targetStationId,
-    userId: targetUserId,
-    sectorId: sectorId5,
-    name: 'Raid Target',
-    x: stationOrigin5 + 100,
-    y: stationOrigin5 + 100,
-    chunkX: Math.floor((stationOrigin5 + 100) / 1000),
-    chunkY: Math.floor((stationOrigin5 + 100) / 1000),
-  });
-  await seedStationBuildings(targetStationId);
-  await seedStationDefenseUpgrades(targetStationId);
-  await seedStationResources(targetStationId);
+  const targetStationId = (
+    await createTestStation({
+      userId: targetUserId,
+      sectorId: sectorId5,
+      x: stationOrigin5 + 100,
+      y: stationOrigin5 + 100,
+    })
+  ).id;
 
   await db.insert(botControllers).values({
     userId: botUserId,
@@ -1130,67 +756,15 @@ test('bot raid and retaliate goal generation with visible target', async () => {
   const retaliateCandidates = generateRetaliateCandidates(state, 'warlord');
   assert.equal(retaliateCandidates.length, 0, 'No retaliation without combat reports');
 
-  // Cleanup
-  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, botStationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, botStationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, botStationId));
-  await db.delete(stations).where(eq(stations.id, botStationId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, targetStationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, targetStationId));
-  await db.delete(stations).where(eq(stations.id, targetStationId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId5));
-  await db.delete(users).where(eq(users.id, targetUserId));
-  await db.delete(users).where(eq(users.id, botUserId));
+  await deleteTestData({ userIds: [botUserId, targetUserId], sectorIds: [sectorId5] });
 });
 
 test('bot salvage goal generation', async () => {
   const db = getDb();
-  const botUserId = randomUUID();
-  const suffix6 = randomUUID();
-
-  await db.insert(users).values({
-    id: botUserId,
-    username: `salvage-bot-${suffix6}`,
-    email: `salvage-bot-${suffix6}@example.test`,
-    passwordHash: 'not-used',
-  });
-
-  const sectorX6 = uniqueSectorCoordinate(suffix6, 800_000);
-  const sectorId6 = randomUUID();
-  await db.insert(sectors).values({
-    id: sectorId6,
-    sectorX: sectorX6,
-    sectorY: sectorX6,
-    role: 'settlement',
-    seed: suffix6,
-  });
-
-  const stationId6 = randomUUID();
-  await db.insert(stations).values({
-    id: stationId6,
-    userId: botUserId,
-    sectorId: sectorId6,
-    name: 'Salvage Base',
-    x: 0,
-    y: 0,
-    chunkX: 0,
-    chunkY: 0,
-  });
-  await seedStationBuildings(stationId6);
-  await seedStationDefenseUpgrades(stationId6);
-  await seedStationSpacecrafts(stationId6);
-  await seedStationResources(stationId6);
-  await Promise.all(
-    (['carbon', 'titanium', 'hydrogenium'] as const).map((key) =>
-      db
-        .update(stationResources)
-        .set({ amount: 2000 })
-        .where(
-          and(eq(stationResources.stationId, stationId6), eq(stationResources.resourceKey, key))
-        )
-    )
-  );
+  const botUserId = (await createTestUser()).id;
+  const sectorId6 = (await createTestSector()).id;
+  const stationId6 = (await createTestStation({ userId: botUserId, sectorId: sectorId6 })).id;
+  await setTestResources(stationId6, { carbon: 2000, titanium: 2000, hydrogenium: 2000 });
 
   await db.insert(botControllers).values({
     userId: botUserId,
@@ -1223,12 +797,5 @@ test('bot salvage goal generation', async () => {
   assert.ok(step, 'Should return step result');
   assert.equal(step.type, 'complete');
 
-  // Cleanup
-  await db.delete(botControllers).where(eq(botControllers.userId, botUserId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId6));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId6));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId6));
-  await db.delete(stations).where(eq(stations.id, stationId6));
-  await db.delete(sectors).where(eq(sectors.id, sectorId6));
-  await db.delete(users).where(eq(users.id, botUserId));
+  await deleteTestData({ userIds: [botUserId], sectorIds: [sectorId6] });
 });

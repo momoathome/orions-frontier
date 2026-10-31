@@ -18,7 +18,7 @@ const { asteroidId, ownGroups } = defineProps<{
   asteroidId: string;
 }>();
 
-const emit = defineEmits<{ cancel: []; done: [] }>();
+const emit = defineEmits<{ cancel: []; done: []; changed: [] }>();
 const selectedAssignmentId = ref('');
 const recallAmount = ref(1);
 const recallError = ref<string | null>(null);
@@ -62,10 +62,16 @@ async function submit() {
         ? [apiClient.delete(`/asteroids/${asteroidId}/assignments/${member.id}?amount=${amount}`)]
         : [];
     });
-    await Promise.all(recalls);
-    emit('done');
-  } catch (error) {
-    recallError.value = apiErrorMessage(error, 'Recall failed');
+    const failed = (await Promise.allSettled(recalls)).find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected'
+    );
+    if (!failed) {
+      emit('done');
+      return;
+    }
+    recallError.value = apiErrorMessage(failed.reason, 'Recall failed');
+    // Part of the group may be recalled already; reload so the form shows what is left.
+    emit('changed');
   } finally {
     recalling.value = false;
   }

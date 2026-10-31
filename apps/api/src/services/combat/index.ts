@@ -2,7 +2,6 @@ export { getUserCombatReports, handleCombatTripArrival, startAttack } from './co
 export { handleRelocateArrival } from './destruction.js';
 export {
   getDebrisById,
-  getUserSalvageMissions,
   getVisibleDebris,
   handleSalvageTripArrival,
   startSalvage,

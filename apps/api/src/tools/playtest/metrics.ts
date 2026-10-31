@@ -1,9 +1,10 @@
 import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 import type { Milestones } from './milestones.js';
-import type {
-  PlaytestStateSnapshot,
-  PlaytestStationSnapshot,
-  PlaytestWorldSnapshot,
+import {
+  emptyWorld,
+  type PlaytestStateSnapshot,
+  type PlaytestStationSnapshot,
+  type PlaytestWorldSnapshot,
 } from './snapshot-loader.js';
 
 export interface GoalMetrics {
@@ -208,10 +209,8 @@ export function addResources(target: ResourceMap, source: ResourceMap): void {
   }
 }
 
-export function sortedResources(resources: ResourceMap): ResourceMap {
-  return Object.fromEntries(
-    Object.entries(resources).sort(([left], [right]) => left.localeCompare(right))
-  );
+export function resourceTotal(resources: Record<string, number | undefined>): number {
+  return Object.values(resources).reduce<number>((sum, amount) => sum + (amount ?? 0), 0);
 }
 
 export function safeRatio(numerator: number, denominator: number): number {
@@ -221,16 +220,5 @@ export function safeRatio(numerator: number, denominator: number): number {
 }
 
 export function snapshotWorld(snapshot: PlaytestStateSnapshot | null): PlaytestWorldSnapshot {
-  return (
-    snapshot?.world ?? {
-      sectorsByRole: {},
-      populationByKind: {},
-      populationByProfile: {},
-      stations: 0,
-      asteroids: 0,
-      asteroidResources: {},
-      debrisFields: 0,
-      debrisResources: {},
-    }
-  );
+  return snapshot?.world ?? emptyWorld();
 }

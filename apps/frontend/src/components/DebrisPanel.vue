@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import { resourceName } from '../lib/mining-utils';
 import { computed, ref, watch } from 'vue';
-import type {
-  StationSpacecraftsResponse,
-  DebrisField,
-  StationSpacecraftWithDefinition,
-} from '@orions-frontier/shared';
+import type { DebrisField } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { useOverviewStore } from '../stores/overview.js';
+import PanelShell from './PanelShell.vue';
 
 const { field, stationId } = defineProps<{ field: DebrisField; stationId: string }>();
 const emit = defineEmits<{ close: []; launched: [] }>();
+const overview = useOverviewStore();
 
 // eslint-disable-next-line vue/no-setup-props-reactivity-loss -- Startwert; der Watcher unten lädt bei jedem Feldwechsel nach.
 const current = ref(field);
-const salvagers = ref<StationSpacecraftWithDefinition[]>([]);
+const salvagers = computed(() =>
+  (overview.state.details[stationId]?.fleet?.spacecrafts ?? []).filter(
+    (entry) => entry.definition.role === 'salvager' && entry.amount > entry.lockedAmount
+  )
+);
 const selectedSpacecraftKey = ref('');
 const amount = ref(1);
 const sending = ref(false);
@@ -22,24 +25,29 @@ const resources = computed(() =>
   Object.entries(current.value.resources).filter(([, value]) => value)
 );
 
+// Keep a valid ship selected while the fleet reloads.
+watch(
+  salvagers,
+  (ships) => {
+    if (!ships.some((ship) => ship.definition.key === selectedSpacecraftKey.value)) {
+      selectedSpacecraftKey.value = ships[0]?.definition.key ?? '';
+    }
+  },
+  { immediate: true }
+);
+
 watch(
   () => field.id,
-  async () => {
+  async (id) => {
     feedback.value = null;
-    salvagers.value = [];
-    selectedSpacecraftKey.value = '';
+    current.value = field;
     try {
-      const [fieldResponse, fleetResponse] = await Promise.all([
-        apiClient.get<DebrisField>(`/debris/${field.id}`),
-        apiClient.get<StationSpacecraftsResponse>(`/stations/${stationId}/spacecrafts`),
-      ]);
-      current.value = fieldResponse;
-      salvagers.value = fleetResponse.spacecrafts.filter(
-        (entry) => entry.definition.role === 'salvager' && entry.amount > entry.lockedAmount
-      );
-      selectedSpacecraftKey.value = salvagers.value[0]?.definition.key ?? '';
+      const response = await apiClient.get<DebrisField>(`/debris/${id}`);
+      // A later click may have picked another field meanwhile.
+      if (id === field.id) current.value = response;
     } catch (error) {
-      feedback.value = apiErrorMessage(error, 'Debris data could not be loaded');
+      if (id === field.id)
+        feedback.value = apiErrorMessage(error, 'Debris data could not be loaded');
     }
   },
   { immediate: true }
@@ -66,24 +74,12 @@ async function launch(): Promise<void> {
 </script>
 
 <template>
-  <aside
-    class="flex h-full w-[400px] shrink-0 flex-col border-l border-ui-line bg-ui-panel text-left text-sm text-ui-text"
-    aria-label="Debris field"
+  <PanelShell
+    label="Debris field"
+    eyebrow="Debris field"
+    title="Recoverable wreckage"
+    @close="emit('close')"
   >
-    <div class="flex items-start justify-between gap-3 border-b border-ui-line px-[18px] py-4">
-      <div class="flex flex-col gap-1">
-        <span class="ui-label">Debris field</span>
-        <h2 class="text-xl font-semibold text-ui-bright">Recoverable wreckage</h2>
-      </div>
-      <button
-        type="button"
-        class="ui-btn ui-btn-icon"
-        aria-label="Close panel"
-        @click="$emit('close')"
-      >
-        ✕
-      </button>
-    </div>
     <div class="flex flex-1 flex-col gap-5 overflow-y-auto px-[18px] py-4">
       <section class="flex flex-col gap-1">
         <h3 class="ui-label mb-1">Recoverable</h3>
@@ -130,5 +126,5 @@ async function launch(): Promise<void> {
         {{ sending ? 'Launching…' : 'Recover' }}
       </button>
     </div>
-  </aside>
+  </PanelShell>
 </template>

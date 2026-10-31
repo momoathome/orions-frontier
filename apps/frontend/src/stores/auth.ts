@@ -5,7 +5,7 @@ import type {
   LoginRequest,
   AuthResponse,
 } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client.js';
+import { apiClient, apiErrorMessage, onSessionExpired } from '../lib/api-client.js';
 
 const TOKEN_KEY = 'auth_token';
 const user = ref<AuthenticatedUser | null>(null);
@@ -25,6 +25,8 @@ function clearSession() {
   user.value = null;
   localStorage.removeItem(TOKEN_KEY);
 }
+// App.vue sends the player to the login once the token is gone.
+onSessionExpired(clearSession);
 
 async function submit(path: string, payload: LoginRequest | RegisterRequest) {
   isLoading.value = true;

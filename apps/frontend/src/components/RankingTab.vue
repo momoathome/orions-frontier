@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue';
-import type { InfluenceBreakdown, Ranking } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { wsClient } from '../lib/ws-client';
-import { debounced } from '../lib/debounce';
+import { computed } from 'vue';
+import type { InfluenceBreakdown } from '@orions-frontier/shared';
+import { useOverviewStore } from '../stores/overview.js';
 
-const ranking = ref<Ranking | null>(null);
-const error = ref<string | null>(null);
+const overview = useOverviewStore();
+const ranking = computed(() => overview.state.ranking);
 
 // The own row is pinned below the list when the player is outside the top entries.
 const meOutsideTop = computed(() => {
@@ -15,37 +13,12 @@ const meOutsideTop = computed(() => {
   return value.top.some((entry) => entry.userId === value.me?.userId) ? null : value.me;
 });
 
-async function load(): Promise<void> {
-  try {
-    ranking.value = await apiClient.get<Ranking>('/world/ranking', { params: { limit: 20 } });
-    error.value = null;
-  } catch (cause) {
-    error.value = apiErrorMessage(cause, 'Ranking could not be loaded');
-  }
-}
-
 const breakdownTitle = (influence: InfluenceBreakdown): string =>
   `Buildings ${influence.buildings}, Research ${influence.research}, Defense ${influence.defense}, Fleet ${influence.fleet}`;
-
-const scheduleLoad = debounced(load, 500);
-
-void load();
-const unsubscribers = [
-  wsClient.on('building_upgrade_completed', scheduleLoad),
-  wsClient.on('defense_upgrade_completed', scheduleLoad),
-  wsClient.on('spacecraft_build_completed', scheduleLoad),
-  wsClient.on('world_mission_completed', scheduleLoad),
-  wsClient.on('research_completed', scheduleLoad),
-];
-onUnmounted(() => {
-  scheduleLoad.cancel();
-  for (const unsubscribe of unsubscribers) unsubscribe();
-});
 </script>
 
 <template>
   <div class="flex flex-col text-sm">
-    <p v-if="error" class="mb-2 text-ui-red">{{ error }}</p>
     <template v-if="ranking">
       <div class="mb-3 flex items-baseline justify-between text-ui-muted">
         <span class="text-xs uppercase tracking-[0.08em]">Server ranking by influence</span>

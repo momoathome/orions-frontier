@@ -5,14 +5,11 @@ import FleetTab from './FleetTab.vue';
 import LogisticsTab from './LogisticsTab.vue';
 import FrontierTab from './FrontierTab.vue';
 import DefenseTab from './DefenseTab.vue';
+import PanelShell from './PanelShell.vue';
 import { stationSections, useOverviewStore, type StationSection } from '../stores/overview.js';
 import { formatCountdown } from '../lib/format.js';
 
-const { stationId, stationName, integrity } = defineProps<{
-  stationId: string;
-  stationName?: string;
-  integrity?: number;
-}>();
+const { stationId } = defineProps<{ stationId: string }>();
 const section = defineModel<StationSection>('section', { default: 'buildings' });
 const emit = defineEmits<{ close: [] }>();
 const overview = useOverviewStore();
@@ -27,31 +24,21 @@ const LABELS: Record<StationSection, string> = {
 
 // Read from the shared overview so the queue is right before any tab was opened.
 const queue = computed(() => overview.stationQueue(stationId));
+const integrity = computed(
+  () => overview.state.stations.find((station) => station.id === stationId)?.integrity
+);
 const hangar = computed(() => overview.state.details[stationId]?.fleet?.hangar ?? null);
 </script>
 
 <template>
-  <aside
-    class="flex h-full w-[440px] shrink-0 flex-col border-l border-ui-line bg-ui-panel text-left text-sm text-ui-text"
-    aria-label="Station details"
+  <PanelShell
+    label="Station details"
+    eyebrow="Station"
+    :title="overview.stationName(stationId)"
+    wide
+    @close="emit('close')"
   >
-    <div class="flex flex-col gap-3 border-b border-ui-line px-[18px] pb-3 pt-4">
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex min-w-0 flex-col gap-1">
-          <span class="ui-label">Station</span>
-          <h2 class="truncate text-xl font-semibold text-ui-bright">
-            {{ stationName ?? 'Station' }}
-          </h2>
-        </div>
-        <button
-          type="button"
-          class="ui-btn ui-btn-icon"
-          aria-label="Close panel"
-          @click="emit('close')"
-        >
-          ✕
-        </button>
-      </div>
+    <template #header>
       <dl class="grid grid-cols-3 gap-2 text-xs text-ui-muted">
         <div class="flex flex-col gap-0.5">
           <dt>Integrity</dt>
@@ -91,7 +78,7 @@ const hangar = computed(() => overview.state.details[stationId]?.fleet?.hangar ?
           {{ LABELS[tab] }}
         </button>
       </nav>
-    </div>
+    </template>
 
     <BuildingsTab
       v-if="section === 'buildings'"
@@ -118,5 +105,5 @@ const hangar = computed(() => overview.state.details[stationId]?.fleet?.hangar ?
       :station-id="stationId"
       class="flex-1 overflow-hidden"
     />
-  </aside>
+  </PanelShell>
 </template>

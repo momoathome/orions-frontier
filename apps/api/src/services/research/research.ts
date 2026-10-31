@@ -35,8 +35,9 @@ import {
   startResearchLevel,
 } from '../../repositories/user-research.js';
 import {
-  deductStationResource,
+  listStationResources,
   listStationResourcesForUpdate,
+  payStationCosts,
 } from '../../repositories/station-resources.js';
 import { findOwnedStationForUpdate, findStationForUpdate } from '../../repositories/stations.js';
 import {
@@ -343,24 +344,13 @@ export async function startResearch(
 
     const nextLevel = (planned[key] ?? 0) + 1;
     const costs = calculateResearchCost(key, nextLevel);
-    const stock = new Map(
-      (await listStationResourcesForUpdate(tx, stationId)).map((row) => [
-        row.resourceKey,
-        row.amount,
-      ])
-    );
-    for (const cost of costs) {
-      const have = stock.get(cost.resourceKey) ?? 0;
-      if (have < cost.amount) {
-        throw new AppError(
-          ErrorCode.VALIDATION_ERROR,
-          `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${have}`
-        );
-      }
-    }
-    for (const cost of costs) {
-      await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
-      stock.set(cost.resourceKey, (stock.get(cost.resourceKey) ?? 0) - cost.amount);
+    const costMap = toResourceMap(costs);
+    const short = await payStationCosts(tx, stationId, costMap);
+    if (short) {
+      throw new AppError(
+        ErrorCode.VALIDATION_ERROR,
+        `Insufficient ${short.resourceKey}: need ${costMap[short.resourceKey]}, have ${short.have}`
+      );
     }
     const jobId = context.nextId('queued-job');
     await insertQueuedJob(tx, {
@@ -377,9 +367,12 @@ export async function startResearch(
     if (!queue && !started.includes(jobId)) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research is already running');
     }
-    return Object.fromEntries(stock);
+    return listStationResources(tx, stationId);
   });
-  publishUserEvent(userId, 'resources_updated', { stationId, resources });
+  publishUserEvent(userId, 'resources_updated', {
+    stationId,
+    resources: Object.fromEntries(resources.map((row) => [row.resourceKey, row.amount])),
+  });
 }
 
 /**

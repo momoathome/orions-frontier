@@ -49,7 +49,13 @@ function start(): () => void {
   subscribers += 1;
   if (subscribers === 1) {
     void refresh();
-    stopSync = wsClient.on('research_completed', () => void refresh());
+    const unsubscribers = [
+      wsClient.on('research_completed', () => void refresh()),
+      wsClient.onReconnected(() => void refresh()),
+    ];
+    stopSync = () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
   }
   return () => {
     subscribers -= 1;
@@ -89,7 +95,6 @@ const researchStore = reactive({
   modifiers,
   running,
   start,
-  refresh,
   startResearch,
   cancelResearch,
   removeQueued,

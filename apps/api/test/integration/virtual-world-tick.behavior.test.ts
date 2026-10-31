@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import {
@@ -10,18 +10,17 @@ import {
   asteroidVeins,
 } from '../../src/lib/db/schema/asteroids.js';
 import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
 import type { MiningDeliveryCompletedEvent } from '../../src/lib/completion-events.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
 import { runWorldTick } from '../../src/services/simulation/simulation.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+} from '../helpers/fixtures.js';
 
 let userId = '';
 let stationId = '';
@@ -69,27 +68,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(botControllers).where(eq(botControllers.userId, userId));
-  await db
-    .delete(spacecraftTrips)
-    .where(
-      inArray(
-        spacecraftTrips.stationSpacecraftId,
-        db
-          .select({ id: stationSpacecrafts.id })
-          .from(stationSpacecrafts)
-          .where(eq(stationSpacecrafts.stationId, stationId))
-      )
-    );
-  await db.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, stationId));
-  await db.delete(asteroids).where(eq(asteroids.sectorId, sectorId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(eq(users.id, userId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -108,7 +87,6 @@ test('one world tick drains every due travel leg before deciding each bot once',
     },
     context
   );
-  assert.ok(!('code' in assignment));
   const [outbound] = await getDb()
     .select()
     .from(spacecraftTrips)

@@ -1,7 +1,5 @@
 import {
-  required,
   AppError,
-  entriesOf,
   type KnownSector,
   ErrorCode,
   type FrontierResponse,
@@ -20,10 +18,7 @@ import {
   listFrontierCoordinates,
   listNearestSectors,
 } from '../../repositories/sectors.js';
-import {
-  deductStationResource,
-  listStationResourcesForUpdate,
-} from '../../repositories/station-resources.js';
+import { payStationCosts } from '../../repositories/station-resources.js';
 import {
   addDockedSpacecraft,
   listAvailableStationSpacecrafts,
@@ -37,7 +32,6 @@ import {
   findOwnedStationWithSector,
   findOwnedStationWithSectorForUpdate,
   findStation,
-  insertStation,
   listActiveStationPositionsInSector,
   listActiveStationSectorIdsByUser,
 } from '../../repositories/stations.js';
@@ -49,20 +43,18 @@ import {
   insertWorldMission,
   listDueWorldMissionIds,
   listReservedColonyPositions,
-  listWorldMissionIdsByUser,
+  listWorldMissionsByUser,
   lockSectorColonization,
   lockUserWorldMissions,
   updateWorldMission,
+  type WorldMissionRow,
 } from '../../repositories/world-missions.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { SeededRng } from '../../lib/world-gen/rng.js';
 import { calcArrivesAt, calcDistance, calcTravelHours } from '../../lib/travel.js';
 import { publishUserEvent } from '../../lib/realtime.js';
-import {
-  seedStationBuildings,
-  seedStationDefenseUpgrades,
-  seedStationResources,
-} from '../station/index.js';
+import { logger as rootLogger } from '../../lib/logger.js';
+import { insertSeededStation } from '../station/index.js';
 import { ensureSector } from '../map/index.js';
 import {
   applyTravelSpeed,
@@ -75,6 +67,8 @@ import {
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { completionEventId, type PlaytestCompletionEvent } from '../../lib/completion-events.js';
+
+const logger = rootLogger.child({ name: 'world-missions' });
 
 const sectorCenter = (sectorX: number, sectorY: number) => ({
   x: sectorX * WORLD_CONFIG.SECTOR.WIDTH,
@@ -342,18 +336,8 @@ export async function startColonization(
     });
     if (active) throw new AppError(ErrorCode.ALREADY_EXISTS, 'Colonization already underway');
 
-    const resourceRows = await listStationResourcesForUpdate(tx, station.id);
-    const available = new Map(
-      resourceRows.map((resource) => [resource.resourceKey, resource.amount])
-    );
-    for (const [resourceKey, amount] of entriesOf(colonyCost)) {
-      if ((available.get(resourceKey) ?? 0) < amount) {
-        throw new AppError(ErrorCode.VALIDATION_ERROR, `Insufficient ${resourceKey}`);
-      }
-    }
-    for (const [resourceKey, amount] of entriesOf(colonyCost)) {
-      await deductStationResource(tx, station.id, resourceKey, amount);
-    }
+    const short = await payStationCosts(tx, station.id, colonyCost);
+    if (short) throw new AppError(ErrorCode.VALIDATION_ERROR, `Insufficient ${short.resourceKey}`);
 
     const ship = await lockAvailableShip(tx, station.id, 'miner');
     const target = await colonyPosition(tx, targetSector, params.userId);
@@ -387,33 +371,40 @@ export async function startColonization(
 async function missionWithSpacecraftName(missionId: string): Promise<WorldMission> {
   const mission = await findWorldMission(getDb(), missionId);
   if (!mission) throw new Error('World mission disappeared');
-  return {
-    id: mission.id,
-    originStationId: mission.originStationId,
-    missionType: mission.missionType,
-    targetSectorX: mission.targetSectorX,
-    targetSectorY: mission.targetSectorY,
-    targetX: mission.targetX,
-    targetY: mission.targetY,
-    colonyName: mission.colonyName,
-    status: mission.status,
-    spacecraftName: requireSpacecraft(mission.spacecraftKey).name,
-    departedAt: mission.departedAt.toISOString(),
-    arrivesAt: mission.arrivesAt.toISOString(),
-  };
+  return toWorldMission(mission);
 }
 
+const toWorldMission = (mission: WorldMissionRow): WorldMission => ({
+  id: mission.id,
+  originStationId: mission.originStationId,
+  missionType: mission.missionType,
+  targetSectorX: mission.targetSectorX,
+  targetSectorY: mission.targetSectorY,
+  targetX: mission.targetX,
+  targetY: mission.targetY,
+  colonyName: mission.colonyName,
+  status: mission.status,
+  spacecraftName: requireSpacecraft(mission.spacecraftKey).name,
+  departedAt: mission.departedAt.toISOString(),
+  arrivesAt: mission.arrivesAt.toISOString(),
+});
+
+/** The frontier view lists the newest few; older missions only matter as history. */
+const WORLD_MISSION_LIST_LIMIT = 50;
+
 export async function getUserWorldMissions(userId: string): Promise<WorldMission[]> {
-  const rows = await listWorldMissionIdsByUser(getDb(), userId);
-  return Promise.all(rows.map((row) => missionWithSpacecraftName(row.id)));
+  const rows = await listWorldMissionsByUser(getDb(), userId, WORLD_MISSION_LIST_LIMIT);
+  return rows.map(toWorldMission);
 }
 
 export interface WorldMissionCompletionResult {
   completed: number;
+  failed: number;
   events: PlaytestCompletionEvent[];
 }
 
-export async function completeDueWorldMissionsDetailed(
+/** One failing mission is logged and counted; the others still complete. */
+export async function completeDueWorldMissions(
   contextOrNow?: GameExecutionContext | Date
 ): Promise<WorldMissionCompletionResult> {
   const context = resolveGameExecutionContext(contextOrNow);
@@ -421,99 +412,116 @@ export async function completeDueWorldMissionsDetailed(
   const db = getDb();
   const due = await listDueWorldMissionIds(db, now);
   let completed = 0;
+  let failed = 0;
   const events: PlaytestCompletionEvent[] = [];
 
   for (const candidate of due) {
-    const result = await db.transaction(async (tx) => {
-      const mission = await findDueWorldMissionForUpdate(tx, candidate.id, now);
-      if (!mission) return null;
-      const eventContext = context.at(mission.arrivesAt);
-      let stage: 'target_reached' | 'returned' | 'arrived';
-      let colonyStationId: string | null = null;
+    try {
+      const completion = await completeWorldMission(candidate.id, context);
+      if (!completion) continue;
+      completed += 1;
+      events.push(...completion);
+    } catch (error) {
+      failed += 1;
+      logger.error({ missionId: candidate.id, err: error }, 'Failed to complete world mission');
+    }
+  }
+  return { completed, failed, events };
+}
 
-      if (mission.status === 'returning') {
-        stage = 'returned';
-        await releaseSpacecraftClamped(tx, mission.stationSpacecraftId, 1);
-        await updateWorldMission(tx, mission.id, { status: 'arrived' });
-      } else if (mission.missionType === 'expedition') {
-        stage = 'target_reached';
-        await ensureSector(
-          tx,
-          mission.targetSectorX,
-          mission.targetSectorY,
-          'frontier',
-          eventContext
-        );
-        const origin = await findStation(tx, mission.originStationId);
-        const spacecraft = getSpacecraft(mission.spacecraftKey);
-        if (!origin || !spacecraft) throw new Error('Expedition origin or spacecraft is missing');
-        const departedAt = mission.arrivesAt;
-        const target = sectorCenter(mission.targetSectorX, mission.targetSectorY);
-        const returnArrivesAt = await applyTravelSpeed(
-          tx,
-          mission.originStationId,
-          calcArrivesAt(departedAt, calcDistance(target, origin), spacecraft.speed),
-          departedAt
-        );
-        await updateWorldMission(tx, mission.id, {
-          status: 'returning',
-          departedAt,
-          arrivesAt: returnArrivesAt,
-        });
-      } else {
-        stage = 'arrived';
-        if (mission.targetX === null || mission.targetY === null || !mission.colonyName) {
-          throw new Error('Colonization mission is incomplete');
-        }
-        const targetSector = await findSectorByCoordinates(
-          tx,
-          mission.targetSectorX,
-          mission.targetSectorY
-        );
-        if (!targetSector) throw new Error('Colonization target sector no longer exists');
-        const inserted = await insertStation(tx, {
-          id: eventContext.nextId('station'),
+/** Completes one due mission; null if another worker got there first. */
+async function completeWorldMission(
+  missionId: string,
+  context: GameExecutionContext
+): Promise<PlaytestCompletionEvent[] | null> {
+  const { now } = context;
+  const result = await getDb().transaction(async (tx) => {
+    const mission = await findDueWorldMissionForUpdate(tx, missionId, now);
+    if (!mission) return null;
+    const eventContext = context.at(mission.arrivesAt);
+    let stage: 'target_reached' | 'returned' | 'arrived';
+    let colonyStationId: string | null = null;
+
+    if (mission.status === 'returning') {
+      stage = 'returned';
+      await releaseSpacecraftClamped(tx, mission.stationSpacecraftId, 1);
+      await updateWorldMission(tx, mission.id, { status: 'arrived' });
+    } else if (mission.missionType === 'expedition') {
+      stage = 'target_reached';
+      await ensureSector(
+        tx,
+        mission.targetSectorX,
+        mission.targetSectorY,
+        'frontier',
+        eventContext
+      );
+      const origin = await findStation(tx, mission.originStationId);
+      const spacecraft = getSpacecraft(mission.spacecraftKey);
+      if (!origin || !spacecraft) throw new Error('Expedition origin or spacecraft is missing');
+      const departedAt = mission.arrivesAt;
+      const target = sectorCenter(mission.targetSectorX, mission.targetSectorY);
+      const returnArrivesAt = await applyTravelSpeed(
+        tx,
+        mission.originStationId,
+        calcArrivesAt(departedAt, calcDistance(target, origin), spacecraft.speed),
+        departedAt
+      );
+      await updateWorldMission(tx, mission.id, {
+        status: 'returning',
+        departedAt,
+        arrivesAt: returnArrivesAt,
+      });
+    } else {
+      stage = 'arrived';
+      if (mission.targetX === null || mission.targetY === null || !mission.colonyName) {
+        throw new Error('Colonization mission is incomplete');
+      }
+      const targetSector = await findSectorByCoordinates(
+        tx,
+        mission.targetSectorX,
+        mission.targetSectorY
+      );
+      if (!targetSector) throw new Error('Colonization target sector no longer exists');
+      const station = await insertSeededStation(
+        tx,
+        {
           userId: mission.userId,
           name: mission.colonyName,
           sectorId: targetSector.id,
           x: Math.round(mission.targetX),
           y: Math.round(mission.targetY),
-          chunkX: Math.floor(mission.targetX / WORLD_CONFIG.CHUNK_SIZE),
-          chunkY: Math.floor(mission.targetY / WORLD_CONFIG.CHUNK_SIZE),
-          createdAt: eventContext.now,
-        });
-        const station = required(inserted, 'colony station');
-        colonyStationId = station.id;
-        await seedStationResources(station.id, tx, {});
-        await seedStationBuildings(station.id, tx, eventContext);
-        await seedStationDefenseUpgrades(station.id, tx, eventContext);
-        const moved = await takeLockedSpacecraft(tx, mission.stationSpacecraftId);
-        if (!moved) throw new Error('Colonization spacecraft is no longer available');
-        await addDockedSpacecraft(tx, {
-          id: eventContext.nextId('station-spacecraft'),
-          stationId: station.id,
-          spacecraftKey: mission.spacecraftKey,
-          amount: 1,
-          createdAt: eventContext.now,
-          updatedAt: eventContext.now,
-        });
-        await updateWorldMission(tx, mission.id, { status: 'arrived' });
-      }
-      return {
-        userId: mission.userId,
-        id: mission.id,
-        missionType: mission.missionType,
-        originStationId: mission.originStationId,
-        occurredAt: mission.arrivesAt,
-        targetSectorX: mission.targetSectorX,
-        targetSectorY: mission.targetSectorY,
-        stage,
-        colonyStationId,
-      };
-    });
-    if (!result) continue;
-    completed += 1;
-    events.push({
+        },
+        eventContext,
+        {}
+      );
+      colonyStationId = station.id;
+      const moved = await takeLockedSpacecraft(tx, mission.stationSpacecraftId);
+      if (!moved) throw new Error('Colonization spacecraft is no longer available');
+      await addDockedSpacecraft(tx, {
+        id: eventContext.nextId('station-spacecraft'),
+        stationId: station.id,
+        spacecraftKey: mission.spacecraftKey,
+        amount: 1,
+        createdAt: eventContext.now,
+        updatedAt: eventContext.now,
+      });
+      await updateWorldMission(tx, mission.id, { status: 'arrived' });
+    }
+    return {
+      userId: mission.userId,
+      id: mission.id,
+      missionType: mission.missionType,
+      originStationId: mission.originStationId,
+      occurredAt: mission.arrivesAt,
+      targetSectorX: mission.targetSectorX,
+      targetSectorY: mission.targetSectorY,
+      stage,
+      colonyStationId,
+    };
+  });
+  if (!result) return null;
+  const events: PlaytestCompletionEvent[] = [
+    {
       type: 'world_mission_completed',
       eventId: completionEventId('world_mission_completed', result.id, result.stage),
       occurredAt: result.occurredAt,
@@ -522,30 +530,24 @@ export async function completeDueWorldMissionsDetailed(
       missionId: result.id,
       missionType: result.missionType,
       stage: result.stage,
-    });
-    if (result.colonyStationId) {
-      events.push({
-        type: 'colony_established',
-        eventId: completionEventId('colony_established', result.id),
-        occurredAt: result.occurredAt,
-        userId: result.userId,
-        stationId: result.originStationId,
-        missionId: result.id,
-        colonyStationId: result.colonyStationId,
-        sectorX: result.targetSectorX,
-        sectorY: result.targetSectorY,
-      });
-    }
-    publishUserEvent(result.userId, 'world_mission_completed', {
+    },
+  ];
+  if (result.colonyStationId) {
+    events.push({
+      type: 'colony_established',
+      eventId: completionEventId('colony_established', result.id),
+      occurredAt: result.occurredAt,
+      userId: result.userId,
+      stationId: result.originStationId,
       missionId: result.id,
-      missionType: result.missionType,
+      colonyStationId: result.colonyStationId,
+      sectorX: result.targetSectorX,
+      sectorY: result.targetSectorY,
     });
   }
-  return { completed, events };
-}
-
-export async function completeDueWorldMissions(
-  contextOrNow?: GameExecutionContext | Date
-): Promise<number> {
-  return (await completeDueWorldMissionsDetailed(contextOrNow)).completed;
+  publishUserEvent(result.userId, 'world_mission_completed', {
+    missionId: result.id,
+    missionType: result.missionType,
+  });
+  return events;
 }

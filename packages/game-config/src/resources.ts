@@ -52,3 +52,9 @@ export const calculateColonizationCost = (stationCount: number) => {
 
 /** Duration in milliseconds before a new account loses its attack protection. */
 export const ATTACK_PROTECTION_DURATION_MS = 24 * 60 * 60 * 1_000;
+
+/** Protection ends 24h after registration or at the renewed end after a restart. */
+export const attackProtectionEndsAt = (createdAt: Date, protectedUntil: Date | null): Date =>
+  new Date(
+    Math.max(createdAt.getTime() + ATTACK_PROTECTION_DURATION_MS, protectedUntil?.getTime() ?? 0)
+  );

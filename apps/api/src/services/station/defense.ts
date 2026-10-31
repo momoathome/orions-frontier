@@ -14,7 +14,7 @@ import {
   type DefenseUpgradeKey,
   type StationDefenseUpgradeWithDefinition,
 } from '@orions-frontier/shared';
-import { getDb } from '../../lib/db/index.js';
+import { getDb, type QueryDb } from '../../lib/db/index.js';
 import {
   insertStationBuildingsIfMissing,
   listBuildingLevels,
@@ -57,9 +57,7 @@ export const seedStationDefenseUpgrades = async (
 export const defenseUpgradeMaxLevel = (key: string): number | null =>
   isOneOf(defenseUpgradeKeys, key) ? getDefenseUpgrade(key).maxLevel : null;
 
-export function calculateStationDefenseScore(
-  levels: Partial<Record<DefenseUpgradeKey, number>>
-): number {
+function calculateStationDefenseScore(levels: Partial<Record<DefenseUpgradeKey, number>>): number {
   return defenseUpgradeKeys.reduce(
     (sum, key) =>
       sum +
@@ -121,8 +119,9 @@ export const getStationDefenseUpgrades = async (
   });
 };
 
-export async function getStationDefenseScore(stationId: string): Promise<number> {
-  const rows = await listBuildingLevels(getDb(), stationId);
+/** Defense power of the station's own upgrades, before research applies. */
+export async function getStationDefenseScore(db: QueryDb, stationId: string): Promise<number> {
+  const rows = await listBuildingLevels(db, stationId);
   const levels: Partial<Record<DefenseUpgradeKey, number>> = {};
   for (const row of rows) {
     if (isOneOf(defenseUpgradeKeys, row.buildingKey)) {

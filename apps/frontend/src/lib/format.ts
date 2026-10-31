@@ -18,11 +18,28 @@ export function formatCountdown(deadline: number, now: number): string {
     : `${minutes}:${rest}`;
 }
 
-/** Build duration in the largest fitting unit: "45s", "12m", "1.5h". */
-export function formatBuildTime(seconds: number): string {
+/** Build duration: "45s", "12m 5s", "1h 30m"; fractional seconds are rounded. */
+export function formatBuildTime(totalSeconds: number): string {
+  const seconds = Math.round(totalSeconds);
   if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3_600) return `${Math.round(seconds / 60)}m`;
-  return `${(seconds / 3_600).toFixed(1)}h`;
+  const h = Math.floor(seconds / 3_600);
+  const m = Math.floor((seconds % 3_600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+/** Flight and mining spans: "25 min", "3.5 h", "2.1 d"; "—" without a value. */
+export function formatDuration(hours: number): string {
+  if (!Number.isFinite(hours) || hours <= 0) return '—';
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
+  if (hours < 24) return `${hours.toFixed(1)} h`;
+  return `${(hours / 24).toFixed(1)} d`;
+}
+
+/** Per-hour yield: one decimal below 10, whole numbers above. */
+export function formatRate(perHour: number): string {
+  return perHour < 10 ? perHour.toFixed(1) : Math.round(perHour).toLocaleString('en-US');
 }
 
 /** Compact amount for tight rows: 950, 4.2k, 1.3M. */

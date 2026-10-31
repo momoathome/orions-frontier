@@ -4,6 +4,7 @@ import { resources } from '@orions-frontier/game-config';
 import { resourceKeys } from '@orions-frontier/shared';
 import { useOverviewStore } from '../stores/overview.js';
 import { useResearchStore } from '../stores/research.js';
+import { useAuthStore } from '../stores/auth.js';
 import { formatAmount, formatCountdown } from '../lib/format.js';
 import { resourceColor } from '../lib/mining-utils.js';
 
@@ -145,6 +146,8 @@ const runningResearch = computed(() => {
         />
         {{ overview.state.online ? 'Online' : 'Offline' }}
       </span>
+      <!-- App.vue sends the player to the login once the token is cleared. -->
+      <button type="button" class="ui-btn" @click="useAuthStore().logout()">Log out</button>
     </nav>
   </header>
 </template>

@@ -1,20 +1,17 @@
 import {
   required,
-  isOneOf,
   AppError,
-  defenseUpgradeKeys,
   ErrorCode,
   type CombatReport,
-  type DefenseUpgradeKey,
   type ResourceMap,
 } from '@orions-frontier/shared';
 import {
-  calculateBuildingEffect,
+  attackProtectionEndsAt,
+  calculateProtectedStorage,
   currentIntegrity,
   getSpacecraft,
   integrityWaveDamage,
   requireSpacecraft,
-  ATTACK_PROTECTION_DURATION_MS,
 } from '@orions-frontier/game-config';
 import { getDb, type Tx } from '../../lib/db/index.js';
 import {
@@ -26,7 +23,7 @@ import {
   type CombatMissionRow,
 } from '../../repositories/combat-missions.js';
 import { insertTrip, updateTripCargo, type TripRow } from '../../repositories/spacecraft-trips.js';
-import { findBuildingLevel, listBuildingLevels } from '../../repositories/station-buildings.js';
+import { findBuildingLevel } from '../../repositories/station-buildings.js';
 import {
   deductStationResource,
   listStationResourcesInKeyOrderForUpdate,
@@ -52,7 +49,7 @@ import { createDebrisFromLosses } from './salvage.js';
 import { destroyStation } from './destruction.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import { getUserScannerCoverages, isPointVisible } from '../map/index.js';
-import { calculateStationDefenseScore, creditStationResources } from '../station/index.js';
+import { creditStationResources, getStationDefenseScore } from '../station/index.js';
 import {
   applyTravelSpeed,
   getResearchModifiers,
@@ -100,15 +97,6 @@ const toReport = (
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
   };
 };
-
-/** Protection ends 24h after registration or at the renewed end after a restart. */
-export const protectionEndsAt = (user: { createdAt: Date; protectedUntil: Date | null }) =>
-  new Date(
-    Math.max(
-      user.createdAt.getTime() + ATTACK_PROTECTION_DURATION_MS,
-      user.protectedUntil?.getTime() ?? 0
-    )
-  );
 
 export async function startAttack(params: {
   userId: string;
@@ -164,7 +152,10 @@ export async function startAttack(params: {
 
     // Check if defender is still protected
     if (defUser) {
-      if (now < protectionEndsAt(defUser) && !defUser.attackProtectionBrokenAt) {
+      if (
+        now < attackProtectionEndsAt(defUser.createdAt, defUser.protectedUntil) &&
+        !defUser.attackProtectionBrokenAt
+      ) {
         throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target account is protected from attacks');
       }
     }
@@ -233,34 +224,21 @@ export async function startAttack(params: {
   return toReport(mission.mission, mission.defenderUserId, mission.arrivesAt, params.userId, false);
 }
 
+/** Newest first; incoming attacks are always among the newest, older reports drop off. */
+const COMBAT_REPORT_LIMIT = 100;
+
 export async function getUserCombatReports(
   userId: string,
   options: { since?: Date } = {}
 ): Promise<CombatReport[]> {
   const db = getDb();
   const [rows, modifiers] = await Promise.all([
-    listCombatMissionsByUser(db, userId, options.since),
+    listCombatMissionsByUser(db, userId, COMBAT_REPORT_LIMIT, options.since),
     getResearchModifiers(db, userId),
   ]);
   return rows.map(({ mission, defenderUserId, arrivesAt }) =>
     toReport(mission, defenderUserId, arrivesAt, userId, modifiers.signatureAnalysis)
   );
-}
-
-async function buildingLevel(tx: Tx, stationId: string, buildingKey: string): Promise<number> {
-  return (await findBuildingLevel(tx, stationId, buildingKey)) ?? 0;
-}
-
-async function stationDefenseScore(tx: Tx, stationId: string): Promise<number> {
-  const rows = await listBuildingLevels(tx, stationId);
-
-  const levels: Partial<Record<DefenseUpgradeKey, number>> = {};
-  for (const row of rows) {
-    if (isOneOf(defenseUpgradeKeys, row.buildingKey)) {
-      levels[row.buildingKey] = row.level;
-    }
-  }
-  return calculateStationDefenseScore(levels);
 }
 
 /** Attacking groups with their station fleet rows, slowest first. */
@@ -321,7 +299,8 @@ async function resolveOutboundCombat(
     );
     const defenderPower =
       defenderFleetPower +
-      (await stationDefenseScore(tx, mission.defenderStationId)) * defenderResearch.stationDefense;
+      (await getStationDefenseScore(tx, mission.defenderStationId)) *
+        defenderResearch.stationDefense;
     const attackerPower = groups.reduce(
       (sum, group) => sum + group.amount * group.spacecraft.attack * attackerResearch.attack,
       0
@@ -366,11 +345,9 @@ async function resolveOutboundCombat(
           0
         )
       );
-      const warehouseLevel = await buildingLevel(tx, mission.defenderStationId, 'warehouse');
-      const protectedAmount =
-        calculateBuildingEffect('warehouse', warehouseLevel).find(
-          (effect) => effect.type === 'protected_storage'
-        )?.value ?? 0;
+      const protectedAmount = calculateProtectedStorage(
+        (await findBuildingLevel(tx, mission.defenderStationId, 'warehouse')) ?? 0
+      );
       const resources = await listStationResourcesInKeyOrderForUpdate(
         tx,
         mission.defenderStationId
