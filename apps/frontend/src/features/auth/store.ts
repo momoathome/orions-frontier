@@ -5,7 +5,7 @@ import type {
   LoginRequest,
   AuthResponse,
 } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage, onSessionExpired } from '../lib/api-client.js';
+import { apiClient, apiErrorMessage, onSessionExpired } from '../../shared/api/api-client.js';
 
 const TOKEN_KEY = 'auth_token';
 const user = ref<AuthenticatedUser | null>(null);

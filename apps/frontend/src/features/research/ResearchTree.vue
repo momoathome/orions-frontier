@@ -2,10 +2,10 @@
 import { computed, onMounted, reactive, useTemplateRef, watch } from 'vue';
 import { requirementBlockers } from '@orions-frontier/game-config';
 import type { ResearchLane, ResearchTechnology } from '@orions-frontier/shared';
-import { formatCountdown } from '../../lib/format';
-import { useOverviewStore } from '../../stores/overview.js';
-import { useResearchStore } from '../../stores/research.js';
-import LockIcon from '../LockIcon.vue';
+import { formatCountdown } from '../../shared/lib/format';
+import { live } from '../../shared/lib/live.js';
+import { useResearchStore } from './store.js';
+import LockIcon from '../../shared/ui/LockIcon.vue';
 import {
   bands,
   boxes,
@@ -23,7 +23,6 @@ import {
 
 const selected = defineModel<string | null>('selected', { required: true });
 const research = useResearchStore();
-const overview = useOverviewStore();
 const viewport = useTemplateRef<HTMLDivElement>('viewport');
 
 type NodeState = 'locked' | 'available' | 'running' | 'maxed';
@@ -58,7 +57,7 @@ const nodes = computed(() =>
       fill: tint(color, FILL[state]),
       inner: tint(color, 45),
       box: box(tech.definition.key),
-      countdown: endsAt ? formatCountdown(endsAt, overview.state.now) : null,
+      countdown: endsAt ? formatCountdown(endsAt, live.now) : null,
       label: `${name}, level ${tech.level} of ${maxLevel}, ${state === 'maxed' ? 'max level' : state}`,
     };
   })

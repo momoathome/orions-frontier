@@ -34,7 +34,7 @@
     "playtest:smoke": "npm run playtest -- --config configs/playtest/smoke.json",
     "playtest:baseline": "node scripts/run-playtest-baseline.mjs",
     "docker:rebuild": "docker compose up -d --build",
-    "check:boundaries": "depcruise apps/api/src --config .dependency-cruiser.cjs"
+    "check:boundaries": "depcruise apps/api/src --config .dependency-cruiser.cjs && depcruise apps/frontend/src --config .dependency-cruiser.frontend.cjs"
   },
   "devDependencies": {
     "@vue/eslint-config-prettier": "^10.2.0",

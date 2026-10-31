@@ -8,10 +8,10 @@ import {
   type KnownSector,
   type WorldMission,
 } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { formatDuration } from '../lib/format';
-import { wsClient } from '../lib/ws-client';
-import { useResearchStore } from '../stores/research.js';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { formatDuration } from '../../shared/lib/format';
+import { wsClient } from '../../shared/api/ws-client';
+import { useResearchStore } from '../research/index.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const research = useResearchStore();

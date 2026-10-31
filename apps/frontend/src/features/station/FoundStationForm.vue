@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
 
 const name = ref('Frontier Station');
 const error = ref<string | null>(null);

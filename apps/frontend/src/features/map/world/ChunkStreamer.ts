@@ -6,7 +6,7 @@ import {
   MAX_CHUNK_AXIS,
 } from './constants.js';
 import type { Camera, VisibleChunkRange } from './Camera.js';
-import { apiClient } from '../api-client.js';
+import { apiClient } from '../../../shared/api/api-client.js';
 
 // ChunkStreamer
 // Manages chunk lifecycle: calculates which chunks should be loaded,

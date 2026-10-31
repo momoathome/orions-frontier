@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import { resourceName } from '../lib/mining-utils';
+import { resourceName } from '../../shared/lib/resources';
 import { computed, ref, watch } from 'vue';
 import type { DebrisField } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { useOverviewStore } from '../stores/overview.js';
-import PanelShell from './PanelShell.vue';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { useStationStore } from '../station/index.js';
+import PanelShell from '../../shared/ui/PanelShell.vue';
 
 const { field, stationId } = defineProps<{ field: DebrisField; stationId: string }>();
 const emit = defineEmits<{ close: []; launched: [] }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 
 // eslint-disable-next-line vue/no-setup-props-reactivity-loss -- Startwert; der Watcher unten lädt bei jedem Feldwechsel nach.
 const current = ref(field);
 const salvagers = computed(() =>
-  (overview.state.details[stationId]?.fleet?.spacecrafts ?? []).filter(
+  (stationStore.state.details[stationId]?.fleet?.spacecrafts ?? []).filter(
     (entry) => entry.definition.role === 'salvager' && entry.amount > entry.lockedAmount
   )
 );

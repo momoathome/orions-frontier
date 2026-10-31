@@ -2,18 +2,23 @@
 import { computed } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { resourceKeys } from '@orions-frontier/shared';
-import { useOverviewStore } from '../stores/overview.js';
-import { useResearchStore } from '../stores/research.js';
-import { useAuthStore } from '../stores/auth.js';
-import { formatAmount, formatCountdown } from '../lib/format.js';
-import { resourceColor } from '../lib/mining-utils.js';
+import { useAuthStore } from '../auth/index.js';
+import { useLogbookStore } from '../logbook/index.js';
+import { useRankingStore } from '../ranking/index.js';
+import { useResearchStore } from '../research/index.js';
+import { useStationStore } from '../station/index.js';
+import { formatAmount, formatCountdown } from '../../shared/lib/format.js';
+import { live } from '../../shared/lib/live.js';
+import { resourceColor } from '../../shared/lib/resources.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const emit = defineEmits<{ logbook: []; ranking: [] }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
+const logbook = useLogbookStore();
+const rankingStore = useRankingStore();
 const research = useResearchStore();
 
-const summary = computed(() => overview.state.details[stationId]?.resources ?? null);
+const summary = computed(() => stationStore.state.details[stationId]?.resources ?? null);
 const entries = computed(() => {
   const value = summary.value;
   if (!value) return [];
@@ -35,20 +40,20 @@ const entries = computed(() => {
           amount,
           capacity: value.storageCapacity,
           // Expected mining income, the same figure as the Logistics tab.
-          rate: overview.state.details[stationId]?.income?.perHour[key] ?? 0,
+          rate: stationStore.state.details[stationId]?.income?.perHour[key] ?? 0,
           fill: Math.min(1, fill),
           barColor: fill >= 0.9 ? 'var(--color-ui-amber)' : resourceColor(key),
         };
       })
   );
 });
-const rank = computed(() => overview.state.ranking?.me ?? null);
+const rank = computed(() => rankingStore.state.ranking?.me ?? null);
 const runningResearch = computed(() => {
   const tech = research.running[0];
   return tech?.completesAt
     ? {
         name: tech.definition.name,
-        countdown: formatCountdown(Date.parse(tech.completesAt), overview.state.now),
+        countdown: formatCountdown(Date.parse(tech.completesAt), live.now),
       }
     : null;
 });
@@ -64,13 +69,13 @@ const runningResearch = computed(() => {
         Orion's Frontier
       </span>
       <span class="truncate text-[15px] font-semibold text-ui-bright">{{
-        overview.stationName(stationId)
+        stationStore.stationName(stationId)
       }}</span>
     </div>
 
     <ul
       class="flex min-w-0 flex-1 items-center gap-6"
-      :aria-label="`Stock at ${overview.stationName(stationId)}`"
+      :aria-label="`Stock at ${stationStore.stationName(stationId)}`"
     >
       <li
         v-for="entry in entries"
@@ -123,28 +128,25 @@ const runningResearch = computed(() => {
       <button type="button" class="ui-btn" @click="emit('logbook')">
         Logbook
         <span
-          v-if="overview.unseenLogbook.length > 0"
+          v-if="logbook.unseenLogbook.length > 0"
           class="ui-num rounded-full bg-[#10333c] px-2 py-0.5 text-xs text-ui-cyan"
         >
-          {{ overview.unseenLogbook.length }} new
+          {{ logbook.unseenLogbook.length }} new
         </span>
       </button>
       <button type="button" class="ui-btn" @click="emit('ranking')">
         Ranking
         <span v-if="rank" class="ui-num text-ui-bright">
           #{{ rank.rank
-          }}<span class="text-ui-dim"> / {{ overview.state.ranking?.totalPlayers }}</span>
+          }}<span class="text-ui-dim"> / {{ rankingStore.state.ranking?.totalPlayers }}</span>
         </span>
       </button>
       <span
         class="ml-2 flex items-center gap-1.5 text-xs"
-        :class="overview.state.online ? 'text-ui-green' : 'text-ui-red'"
+        :class="live.online ? 'text-ui-green' : 'text-ui-red'"
       >
-        <span
-          class="h-2 w-2 rounded-full"
-          :class="overview.state.online ? 'bg-ui-green' : 'bg-ui-red'"
-        />
-        {{ overview.state.online ? 'Online' : 'Offline' }}
+        <span class="h-2 w-2 rounded-full" :class="live.online ? 'bg-ui-green' : 'bg-ui-red'" />
+        {{ live.online ? 'Online' : 'Offline' }}
       </span>
       <!-- App.vue sends the player to the login once the token is cleared. -->
       <button type="button" class="ui-btn" @click="useAuthStore().logout()">Log out</button>

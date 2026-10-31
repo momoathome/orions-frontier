@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAuthStore } from './stores/auth';
-import { wsClient } from './lib/ws-client';
+import { useAuthStore } from './features/auth/index.js';
+import { wsClient } from './shared/api/ws-client';
 
 const authStore = useAuthStore();
 const router = useRouter();

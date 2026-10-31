@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { InfluenceBreakdown } from '@orions-frontier/shared';
-import { useOverviewStore } from '../stores/overview.js';
+import { useRankingStore } from './store.js';
 
-const overview = useOverviewStore();
-const ranking = computed(() => overview.state.ranking);
+const rankingStore = useRankingStore();
+const ranking = computed(() => rankingStore.state.ranking);
 
 // The own row is pinned below the list when the player is outside the top entries.
 const meOutsideTop = computed(() => {

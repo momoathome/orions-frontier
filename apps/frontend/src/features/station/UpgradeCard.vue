@@ -9,12 +9,13 @@ import {
   type StationBuildingWithDefinition,
   type StationDefenseUpgradeWithDefinition,
 } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { formatBuildTime, formatCountdown, formatShortfall } from '../lib/format';
-import { useOverviewStore } from '../stores/overview.js';
-import ConfirmCancelButton from './ConfirmCancelButton.vue';
-import CostList from './CostList.vue';
-import RequirementChips from './RequirementChips.vue';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { formatBuildTime, formatCountdown, formatShortfall } from '../../shared/lib/format';
+import { live } from '../../shared/lib/live.js';
+import { useStationStore } from './store.js';
+import ConfirmCancelButton from '../../shared/ui/ConfirmCancelButton.vue';
+import CostList from '../../shared/ui/CostList.vue';
+import { RequirementChips } from '../research/index.js';
 
 /** One building or defense upgrade: level, status, progress, costs and the start/cancel action. */
 const { stationId, item } = defineProps<{
@@ -29,7 +30,7 @@ defineSlots<{
   default?: (props: { maxed: boolean }) => unknown;
   footer?: () => unknown;
 }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 const starting = ref(false);
 const cancelling = ref(false);
 
@@ -39,15 +40,15 @@ const path = computed(
   () =>
     `/stations/${stationId}/${defense.value ? 'defense' : 'buildings'}/${item.definition.key}/upgrade`
 );
-const now = computed(() => overview.state.now);
-const stock = computed(() => overview.state.details[stationId]?.resources ?? null);
+const now = computed(() => live.now);
+const stock = computed(() => stationStore.state.details[stationId]?.resources ?? null);
 
 function buildSeconds(level: number): number {
   const base =
     'blockers' in item
       ? calculateDefenseUpgradeBuildTime(item.definition.key, level)
       : calculateBuildingBuildTime(item.definition.key, level);
-  return base * overview.upgradeTimeFactor(stationId);
+  return base * stationStore.upgradeTimeFactor(stationId);
 }
 
 const card = computed(() => {
@@ -63,7 +64,7 @@ const card = computed(() => {
   const endsAt = item.upgradeEndsAt ? Date.parse(item.upgradeEndsAt) : null;
   const upgradingNow = item.isUpgrading && endsAt !== null && endsAt > now.value;
   const affordable = canQueue && !locked && shortfall.missing.length === 0;
-  const startsNow = overview.startsNow(stationId, item);
+  const startsNow = stationStore.startsNow(stationId, item);
   const ready = affordable && startsNow;
   // ponytail: assumes today's Core and Construction Robotics levels; a level reached mid-upgrade
   // makes the bar jump. Send `upgradeStartedAt` from the API if that ever matters.
@@ -78,7 +79,7 @@ const card = computed(() => {
     affordable,
     ready,
     action: startsNow ? 'Upgrade' : 'Add to queue',
-    queueable: affordable && !overview.queueFull(stationId),
+    queueable: affordable && !stationStore.queueFull(stationId),
     upgradingNow,
     accent: upgradingNow
       ? 'border-[#5a4317]'
@@ -109,7 +110,7 @@ async function run(
   emit('error', null);
   try {
     await request();
-    await overview.refreshStation(stationId);
+    await stationStore.refreshStation(stationId);
     emit('changed');
   } catch (cause) {
     emit('error', apiErrorMessage(cause, failure));

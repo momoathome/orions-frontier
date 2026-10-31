@@ -2,24 +2,24 @@
 import { computed, onUnmounted, ref } from 'vue';
 import { getSpacecraft } from '@orions-frontier/game-config';
 import type { CombatReport, StationDefenseUpgradeWithDefinition } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { wsClient } from '../lib/ws-client';
-import { formatCountdown } from '../lib/format';
-import { useOverviewStore } from '../stores/overview.js';
-import { useResearchStore } from '../stores/research.js';
-import BuildSlots from './BuildSlots.vue';
-import UpgradeCard from './UpgradeCard.vue';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { wsClient } from '../../shared/api/ws-client';
+import { formatCountdown } from '../../shared/lib/format';
+import { live } from '../../shared/lib/live.js';
+import { BuildSlots, UpgradeCard } from '../station/index.js';
+import { useResearchStore } from '../research/index.js';
+import { useCombatStore } from './store.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const upgrades = ref<StationDefenseUpgradeWithDefinition[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
-const overview = useOverviewStore();
+const combat = useCombatStore();
 const research = useResearchStore();
 
 // The overview store keeps combat reports current, including the reload at each arrival.
 const relevantReports = computed(() =>
-  overview.state.combats.filter(
+  combat.state.combats.filter(
     (report) => report.attackerStationId === stationId || report.defenderStationId === stationId
   )
 );
@@ -31,7 +31,7 @@ const incomingAttacks = computed(() =>
 );
 
 function arrivesIn(report: CombatReport): string {
-  return formatCountdown(Date.parse(report.arrivesAt), overview.state.now);
+  return formatCountdown(Date.parse(report.arrivesAt), live.now);
 }
 
 /** Signature Analysis reveals the incoming fleet to the defender; otherwise it stays unknown. */

@@ -5,7 +5,7 @@ import type {
   RequirementBlocker,
   ResearchEffect,
 } from '@orions-frontier/shared';
-import { resourceName } from './mining-utils';
+import { resourceName } from './resources';
 
 /** "4:12" or "1:04:12" until the deadline; "0:00" once it passed. */
 export function formatCountdown(deadline: number, now: number): string {

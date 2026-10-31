@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { useOverviewStore } from '../stores/overview.js';
-import QueueList from './QueueList.vue';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { useStationStore } from './store.js';
+import QueueList from '../../shared/ui/QueueList.vue';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const emit = defineEmits<{ changed: [] }>();
-const overview = useOverviewStore();
-const slots = computed(() => overview.state.details[stationId]?.buildSlots ?? null);
+const stationStore = useStationStore();
+const slots = computed(() => stationStore.state.details[stationId]?.buildSlots ?? null);
 const full = computed(() => slots.value !== null && slots.value.used >= slots.value.total);
 const removing = ref<string | null>(null);
 const error = ref<string | null>(null);
@@ -17,7 +17,7 @@ async function remove(jobId: string) {
   error.value = null;
   try {
     await apiClient.delete(`/stations/${stationId}/queue/${jobId}`);
-    await overview.refreshStation(stationId);
+    await stationStore.refreshStation(stationId);
     emit('changed');
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Queue entry could not be removed');

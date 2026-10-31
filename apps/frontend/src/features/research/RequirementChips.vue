@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { RequirementBlocker } from '@orions-frontier/shared';
-import { formatBlocker } from '../lib/format';
-import { useResearchStore } from '../stores/research.js';
-import LockIcon from './LockIcon.vue';
+import { formatBlocker } from '../../shared/lib/format';
+import { useResearchStore } from './store.js';
+import LockIcon from '../../shared/ui/LockIcon.vue';
 
 const { blockers } = defineProps<{ blockers: readonly RequirementBlocker[] }>();
 const research = useResearchStore();

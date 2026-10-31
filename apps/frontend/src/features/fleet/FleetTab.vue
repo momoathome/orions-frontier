@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
 import type { SpacecraftBuildOrder, SpacecraftRole } from '@orions-frontier/shared';
-import { roleThemes, hideBrokenImage } from '../lib/spacecraft-utils';
-import { formatBuildTime } from '../lib/format';
+import { roleThemes, hideBrokenImage } from './spacecraft-utils';
+import { formatBuildTime } from '../../shared/lib/format';
+import { live } from '../../shared/lib/live.js';
 import BuildForm from './BuildForm.vue';
-import ConfirmCancelButton from './ConfirmCancelButton.vue';
-import { useOverviewStore } from '../stores/overview.js';
+import ConfirmCancelButton from '../../shared/ui/ConfirmCancelButton.vue';
+import { useStationStore } from '../station/index.js';
 
 type BuildOrder = SpacecraftBuildOrder & { spacecraftName: string; spacecraftRole: SpacecraftRole };
 
 const { stationId } = defineProps<{ stationId: string }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 
-// The overview store loads and refreshes the fleet; this tab only keeps its selection.
-const response = computed(() => overview.state.details[stationId]?.fleet ?? null);
+// The station store loads and refreshes the fleet; this tab only keeps its selection.
+const response = computed(() => stationStore.state.details[stationId]?.fleet ?? null);
 const fleet = computed(() => response.value?.spacecrafts ?? []);
 const roleFilter = ref<SpacecraftRole | 'all'>('all');
 const activeKey = ref<string | null>(null);
@@ -114,11 +115,11 @@ function statPct(value: number, max: number): number {
 }
 
 const visibleOrders = computed(() =>
-  allBuildOrders.value.filter((o) => Date.parse(o.endsAt) > overview.state.now)
+  allBuildOrders.value.filter((o) => Date.parse(o.endsAt) > live.now)
 );
 
 function timeUntil(isoStr: string): string {
-  const ms = Date.parse(isoStr) - overview.state.now;
+  const ms = Date.parse(isoStr) - live.now;
   return ms <= 0 ? 'Done' : formatBuildTime(Math.ceil(ms / 1000));
 }
 
@@ -129,7 +130,7 @@ async function cancelOrder(orderId: string) {
   orderError.value = null;
   try {
     await apiClient.delete(`/stations/${stationId}/spacecrafts/orders/${orderId}`);
-    void overview.refreshStation(stationId);
+    void stationStore.refreshStation(stationId);
   } catch (cause) {
     orderError.value = apiErrorMessage(cause, 'Order could not be cancelled');
   } finally {
@@ -307,7 +308,7 @@ async function cancelOrder(orderId: string) {
           :hangar="response.hangar"
           :production-slots="productionSlots"
           :build-time-factor="response.buildTimeFactor"
-          @built="overview.refreshStation(stationId)"
+          @built="stationStore.refreshStation(stationId)"
         />
       </template>
     </div>

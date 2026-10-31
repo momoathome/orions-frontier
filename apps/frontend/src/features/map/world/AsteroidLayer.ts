@@ -7,7 +7,7 @@ import {
   UNSCANNED_ASTEROID_RADIUS,
   UNSCANNED_ASTEROID_TINT,
 } from './constants.js';
-import { resourceColor } from '../mining-utils.js';
+import { resourceColor } from '../../../shared/lib/resources.js';
 import { chunkKey } from './ChunkStreamer.js';
 import type { ChunkKey } from './ChunkStreamer.js';
 

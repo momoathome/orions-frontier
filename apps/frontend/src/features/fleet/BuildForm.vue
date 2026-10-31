@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type { StationSpacecraftWithDefinition } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { formatBuildTime } from '../lib/format';
-import { useOverviewStore } from '../stores/overview.js';
-import CostList from './CostList.vue';
-import RequirementChips from './RequirementChips.vue';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { formatBuildTime } from '../../shared/lib/format';
+import { useStationStore } from '../station/index.js';
+import CostList from '../../shared/ui/CostList.vue';
+import { RequirementChips } from '../research/index.js';
 
 const { hangar, ship, stationId, productionSlots, buildTimeFactor } = defineProps<{
   stationId: string;
@@ -18,14 +18,14 @@ const { hangar, ship, stationId, productionSlots, buildTimeFactor } = defineProp
 }>();
 
 const emit = defineEmits<{ built: [] }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 
 const buildAmount = ref(1);
 const buildSubmitting = ref(false);
 const buildError = ref<string | null>(null);
 const buildSuccess = ref(false);
 const playerResources = computed(
-  () => overview.state.details[stationId]?.resources?.resources ?? null
+  () => stationStore.state.details[stationId]?.resources?.resources ?? null
 );
 
 // Reset state when selected ship changes

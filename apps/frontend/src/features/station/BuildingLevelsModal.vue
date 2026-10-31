@@ -7,22 +7,22 @@ import {
   calculateBuildingUpgradeCost,
 } from '@orions-frontier/game-config';
 import type { BuildingKey } from '@orions-frontier/shared';
-import { formatBuildingEffect, formatBuildTime } from '../lib/format';
-import { useOverviewStore } from '../stores/overview.js';
-import { useResearchStore } from '../stores/research.js';
-import CostList from './CostList.vue';
-import UiModal from './UiModal.vue';
+import { formatBuildingEffect, formatBuildTime } from '../../shared/lib/format';
+import { useStationStore } from './store.js';
+import { useResearchStore } from '../research/index.js';
+import CostList from '../../shared/ui/CostList.vue';
+import UiModal from '../../shared/ui/UiModal.vue';
 
 const { stationId, initialKey } = defineProps<{ stationId: string; initialKey: BuildingKey }>();
 const emit = defineEmits<{ close: [] }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 const research = useResearchStore();
 const picked = ref<BuildingKey | null>(null);
 const activeKey = computed(() => picked.value ?? initialKey);
 const table = useTemplateRef('table');
 
-const buildings = computed(() => overview.state.details[stationId]?.buildings ?? []);
-const stock = computed(() => overview.state.details[stationId]?.resources?.resources);
+const buildings = computed(() => stationStore.state.details[stationId]?.buildings ?? []);
+const stock = computed(() => stationStore.state.details[stationId]?.resources?.resources);
 const building = computed(
   () => buildings.value.find((entry) => entry.definition.key === activeKey.value) ?? null
 );
@@ -51,7 +51,7 @@ const rows = computed(() => {
       buildTime:
         level > 1
           ? formatBuildTime(
-              calculateBuildingBuildTime(key, level) * overview.upgradeTimeFactor(stationId)
+              calculateBuildingBuildTime(key, level) * stationStore.upgradeTimeFactor(stationId)
             )
           : null,
       unlocks: current.unlockMilestones[level] ?? [],

@@ -1,26 +1,26 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, onMounted, onUnmounted, useTemplateRef } from 'vue';
-import TopHud from '../components/TopHud.vue';
-import FoundStationForm from '../components/FoundStationForm.vue';
-import StationPanel from '../components/StationPanel.vue';
-import TargetStationPanel from '../components/TargetStationPanel.vue';
-import AsteroidPanel from '../components/AsteroidPanel.vue';
-import DebrisPanel from '../components/DebrisPanel.vue';
-import SituationPanel from '../components/SituationPanel.vue';
-import UiModal from '../components/UiModal.vue';
-import LogbookTab from '../components/LogbookTab.vue';
-import RankingTab from '../components/RankingTab.vue';
-import ResearchTree from '../components/research/ResearchTree.vue';
-import ResearchDetail from '../components/research/ResearchDetail.vue';
-import { stationSections, useOverviewStore, type StationSection } from '../stores/overview.js';
-import { apiClient } from '../lib/api-client';
-import { wsClient } from '../lib/ws-client';
-import { debounced } from '../lib/debounce';
-import { useAuthStore } from '../stores/auth.js';
-import { useResearchStore } from '../stores/research.js';
-import { WorldRenderer } from '../lib/world/WorldRenderer.js';
-import type { StationInfo, AssignedAsteroid } from '../lib/world/WorldRenderer.js';
-import type { ActiveMovement } from '../lib/world/TripLayer.js';
+import { useAuthStore } from '../auth/index.js';
+import { TargetStationPanel } from '../combat/index.js';
+import { LogbookTab, useLogbookStore } from '../logbook/index.js';
+import { AsteroidPanel } from '../mining/index.js';
+import { DebrisPanel } from '../missions/index.js';
+import { SituationPanel, StationPanel, TopHud, useOverviewStore } from '../overview/index.js';
+import { RankingTab } from '../ranking/index.js';
+import { ResearchDetail, ResearchTree, useResearchStore } from '../research/index.js';
+import {
+  FoundStationForm,
+  stationSections,
+  useStationStore,
+  type StationSection,
+} from '../station/index.js';
+import UiModal from '../../shared/ui/UiModal.vue';
+import { apiClient } from '../../shared/api/api-client';
+import { wsClient } from '../../shared/api/ws-client';
+import { debounced } from '../../shared/lib/debounce';
+import { WorldRenderer } from './world/WorldRenderer.js';
+import type { StationInfo, AssignedAsteroid } from './world/WorldRenderer.js';
+import type { ActiveMovement } from './world/TripLayer.js';
 import type {
   DebrisField,
   Station,
@@ -44,6 +44,8 @@ const stationSection = ref<StationSection>('buildings');
 const accountModal = ref<'logbook' | 'ranking' | null>(null);
 const overview = useOverviewStore();
 const stopOverview = overview.start();
+const stationStore = useStationStore();
+const logbook = useLogbookStore();
 // The research view is account-wide; chips in any panel open it through the store.
 const research = useResearchStore();
 const stopResearch = research.start();
@@ -65,9 +67,9 @@ const toStationInfo = (station: Station): StationInfo => ({
   scannerRange: station.scannerRange,
   visualProfile: station.visualProfile,
 });
-const ownStations = computed(() => overview.state.stations.map(toStationInfo));
+const ownStations = computed(() => stationStore.state.stations.map(toStationInfo));
 const stationInfo = computed(
-  () => overview.state.stations.find((station) => station.id === stationId.value) ?? null
+  () => stationStore.state.stations.find((station) => station.id === stationId.value) ?? null
 );
 
 async function loadTrips(): Promise<void> {
@@ -112,10 +114,10 @@ async function loadTrips(): Promise<void> {
   }
 }
 
-/** Draws the active station's mining routes from the overview store. */
+/** Draws the active station's mining routes from the station store. */
 function drawAssignments(): void {
   if (!renderer || !stationId.value) return;
-  const rows = overview.state.details[stationId.value]?.assignments ?? [];
+  const rows = stationStore.state.details[stationId.value]?.assignments ?? [];
   // One marker per asteroid; several assignment rows can share it.
   const asteroids = new Map<string, AssignedAsteroid>();
   for (const row of rows) {
@@ -129,7 +131,7 @@ function drawAssignments(): void {
   renderer.setAssignedAsteroids([...asteroids.values()]);
 }
 watch(
-  () => (stationId.value ? overview.state.details[stationId.value]?.assignments : undefined),
+  () => (stationId.value ? stationStore.state.details[stationId.value]?.assignments : undefined),
   drawAssignments
 );
 
@@ -156,7 +158,7 @@ function closeAsteroidPanel() {
 function onMiningChanged() {
   scheduleMiningRefresh();
   void overview.refreshTrips();
-  if (stationId.value) void overview.refreshStation(stationId.value);
+  if (stationId.value) void stationStore.refreshStation(stationId.value);
 }
 
 /** Opens a station's panel; another own station becomes active first (reload, as on the map). */
@@ -179,7 +181,7 @@ function openFromResearch(section: StationSection) {
 
 function openAccountModal(kind: 'logbook' | 'ranking') {
   accountModal.value = kind;
-  if (kind === 'logbook') overview.markLogbookSeen();
+  if (kind === 'logbook') logbook.markLogbookSeen();
 }
 
 const worldEl = useTemplateRef<HTMLDivElement>('worldRef');
@@ -199,12 +201,12 @@ const unsubscribers = [
 ];
 
 onMounted(async () => {
-  await overview.stationsLoaded();
+  await stationStore.stationsLoaded();
   if (isDisposed()) return;
   const preferredId = localStorage.getItem('active_station_id');
   const active =
-    overview.state.stations.find((station) => station.id === preferredId) ??
-    overview.state.stations[0];
+    stationStore.state.stations.find((station) => station.id === preferredId) ??
+    stationStore.state.stations[0];
   if (!active) {
     needsStation.value = true;
     return;
@@ -434,6 +436,8 @@ watch(canBypassScanner, (allowed) => {
         <ResearchDetail
           :node-id="researchSelected"
           :station-id="stationId"
+          :stations="stationStore.state.stations"
+          :details="stationStore.state.details"
           class="w-[360px] shrink-0 border-l max-sm:absolute max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[65%] max-sm:w-full max-sm:rounded-t-xl max-sm:border-l-0 max-sm:border-t"
           :class="{ 'max-sm:hidden': !researchSelected }"
           @build="openFromResearch"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
 
 export interface AssignmentGroup {
   stationId: string | null;

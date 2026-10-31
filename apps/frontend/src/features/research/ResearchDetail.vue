@@ -8,26 +8,39 @@ import {
   researchKeys,
   type BuildingKey,
   type Requirements,
+  type Station,
+  type StationBuildingWithDefinition,
+  type UserResourceSummary,
 } from '@orions-frontier/shared';
-import { apiErrorMessage } from '../../lib/api-client';
+import { apiErrorMessage } from '../../shared/api/api-client';
 import {
   formatBlockers,
   formatBuildTime,
   formatCountdown,
   formatResearchEffect,
   formatShortfall,
-} from '../../lib/format';
-import { useOverviewStore } from '../../stores/overview.js';
-import { useResearchStore } from '../../stores/research.js';
-import ConfirmCancelButton from '../ConfirmCancelButton.vue';
-import CostList from '../CostList.vue';
-import QueueList from '../QueueList.vue';
+} from '../../shared/lib/format';
+import { live } from '../../shared/lib/live.js';
+import { useResearchStore } from './store.js';
+import ConfirmCancelButton from '../../shared/ui/ConfirmCancelButton.vue';
+import CostList from '../../shared/ui/CostList.vue';
+import QueueList from '../../shared/ui/QueueList.vue';
 import { LANES, leaves } from './research-layout';
 
-const { nodeId, stationId } = defineProps<{ nodeId: string | null; stationId: string }>();
+// Stations come in as props: research sits below the station feature and does not import it.
+const { nodeId, stationId, stations, details } = defineProps<{
+  nodeId: string | null;
+  stationId: string;
+  stations: readonly Station[];
+  details: Readonly<
+    Record<
+      string,
+      { buildings: StationBuildingWithDefinition[]; resources: UserResourceSummary | null }
+    >
+  >;
+}>();
 const emit = defineEmits<{ build: [section: 'fleet' | 'defense']; close: [] }>();
 const research = useResearchStore();
-const overview = useOverviewStore();
 // Pays from the open station until the player picks another one.
 const chosenStationId = ref<string | null>(null);
 const payingStationId = computed({
@@ -46,18 +59,18 @@ const tech = computed(
     research.state.research?.technologies.find((entry) => entry.definition.key === nodeId) ?? null
 );
 const leaf = computed(() => leaves.find((entry) => entry.id === nodeId) ?? null);
-const now = computed(() => overview.state.now);
+const now = computed(() => live.now);
 
 // Research checks the account's highest building; ships and defenses the building station (E2).
 const highestBuilding = (key: BuildingKey) =>
   Math.max(
     key === 'laboratory' ? (research.state.research?.highestLaboratory ?? 0) : 0,
-    ...Object.values(overview.state.details).map(
+    ...Object.values(details).map(
       (detail) => detail.buildings.find((b) => b.definition.key === key)?.level ?? 0
     )
   );
 const stationBuilding = (key: BuildingKey) =>
-  overview.state.details[stationId]?.buildings.find((b) => b.definition.key === key)?.level ?? 0;
+  details[stationId]?.buildings.find((b) => b.definition.key === key)?.level ?? 0;
 
 function requirementRows(requirements: Requirements, buildingLevel: (key: BuildingKey) => number) {
   return [
@@ -131,9 +144,7 @@ const running = computed(() => {
   };
 });
 
-const payingStock = computed(
-  () => overview.state.details[payingStationId.value]?.resources ?? null
-);
+const payingStock = computed(() => details[payingStationId.value]?.resources ?? null);
 const shortfall = computed(() => {
   const next = tech.value?.next;
   const stock = payingStock.value;
@@ -335,14 +346,10 @@ const shipStats = computed(() => {
           :stock="payingStock?.resources"
           :duration="formatBuildTime(tech.next.durationSeconds)"
         />
-        <label v-if="overview.state.stations.length > 1" class="flex flex-col gap-1">
+        <label v-if="stations.length > 1" class="flex flex-col gap-1">
           <span class="text-xs text-ui-muted">Paid by</span>
           <select v-model="payingStationId" class="ui-input">
-            <option
-              v-for="station in overview.state.stations"
-              :key="station.id"
-              :value="station.id"
-            >
+            <option v-for="station in stations" :key="station.id" :value="station.id">
               {{ station.name }}
             </option>
           </select>

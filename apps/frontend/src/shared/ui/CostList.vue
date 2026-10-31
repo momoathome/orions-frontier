@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { resources } from '@orions-frontier/game-config';
 import { isOneOf, resourceKeys } from '@orions-frontier/shared';
-import { resourceName } from '../lib/mining-utils';
+import { resourceName } from '../lib/resources';
 
 // Without a stock every cost renders neutral; with one, unaffordable costs turn red.
 const { costs, stock, duration } = defineProps<{

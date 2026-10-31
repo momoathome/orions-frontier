@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import {
-  useOverviewStore,
-  type AlertTone,
-  type Operation,
-  type StationSection,
-} from '../stores/overview.js';
-import { useResearchStore } from '../stores/research.js';
-import { formatAgo, formatCountdown } from '../lib/format.js';
+import { useLogbookStore } from '../logbook/index.js';
+import { useResearchStore } from '../research/index.js';
+import { useStationStore, type StationSection } from '../station/index.js';
+import { useOverviewStore, type AlertTone, type Operation } from './store.js';
+import { formatAgo, formatCountdown } from '../../shared/lib/format.js';
+import { live } from '../../shared/lib/live.js';
 
 const { activeStationId } = defineProps<{ activeStationId: string }>();
 const emit = defineEmits<{
@@ -15,6 +13,8 @@ const emit = defineEmits<{
   logbook: [];
 }>();
 const overview = useOverviewStore();
+const stationStore = useStationStore();
+const logbook = useLogbookStore();
 const research = useResearchStore();
 
 // Caps keep the column readable with many stations; the rest is one click away.
@@ -25,12 +25,12 @@ const showAllAlerts = ref(false);
 const showAllStations = ref(false);
 const showAllOperations = ref(false);
 
-const now = computed(() => overview.state.now);
+const now = computed(() => live.now);
 const alerts = computed(() =>
   showAllAlerts.value ? overview.alerts : overview.alerts.slice(0, ALERT_LIMIT)
 );
 const stations = computed(() => {
-  const sorted = [...overview.state.stations].sort(
+  const sorted = [...stationStore.state.stations].sort(
     (a, b) => Number(b.id === activeStationId) - Number(a.id === activeStationId)
   );
   return showAllStations.value ? sorted : sorted.slice(0, STATION_LIMIT);
@@ -38,8 +38,8 @@ const stations = computed(() => {
 const operations = computed(() =>
   showAllOperations.value ? overview.operations : overview.operations.slice(0, OPERATION_LIMIT)
 );
-const recent = computed(() => overview.unseenLogbook.slice(0, 4));
-const multiStation = computed(() => overview.state.stations.length > 1);
+const recent = computed(() => logbook.unseenLogbook.slice(0, 4));
+const multiStation = computed(() => stationStore.state.stations.length > 1);
 
 const ALERT_STYLE: Record<AlertTone, string> = {
   danger: 'border-[#6b2f2c] bg-[#2a1214] text-ui-red',
@@ -61,7 +61,7 @@ function openOperation(op: Operation) {
 }
 
 function queueLabel(stationId: string): string {
-  const queue = overview.stationQueue(stationId);
+  const queue = stationStore.stationQueue(stationId);
   if (queue.count === 0) return 'Idle';
   return `${queue.count} (${formatCountdown(queue.nextEndsAt ?? now.value, now.value)})`;
 }
@@ -97,7 +97,7 @@ function queueLabel(stationId: string): string {
 
     <section class="flex flex-col gap-2">
       <h2 class="ui-label">
-        {{ multiStation ? `Stations (${overview.state.stations.length})` : 'Station' }}
+        {{ multiStation ? `Stations (${stationStore.state.stations.length})` : 'Station' }}
       </h2>
       <template v-for="station in stations" :key="station.id">
         <!-- The active station gets the full card, others one compact row. -->
@@ -120,7 +120,7 @@ function queueLabel(stationId: string): string {
             <div class="flex flex-col gap-0.5">
               <dt>Fleet</dt>
               <dd class="ui-num text-sm text-ui-text">
-                {{ overview.stationFleet(station.id).total }}
+                {{ stationStore.stationFleet(station.id).total }}
               </dd>
             </div>
             <div class="flex flex-col gap-0.5">
@@ -128,10 +128,12 @@ function queueLabel(stationId: string): string {
               <dd
                 class="ui-num text-sm"
                 :class="
-                  overview.stationStorage(station.id).fill >= 0.9 ? 'text-ui-amber' : 'text-ui-text'
+                  stationStore.stationStorage(station.id).fill >= 0.9
+                    ? 'text-ui-amber'
+                    : 'text-ui-text'
                 "
               >
-                {{ Math.round(overview.stationStorage(station.id).fill * 100) }}%
+                {{ Math.round(stationStore.stationStorage(station.id).fill * 100) }}%
               </dd>
             </div>
             <div class="flex flex-col gap-0.5">
@@ -139,7 +141,7 @@ function queueLabel(stationId: string): string {
               <dd
                 class="ui-num text-sm"
                 :class="
-                  overview.stationQueue(station.id).count > 0 ? 'text-ui-amber' : 'text-ui-dim'
+                  stationStore.stationQueue(station.id).count > 0 ? 'text-ui-amber' : 'text-ui-dim'
                 "
               >
                 {{ queueLabel(station.id) }}
@@ -157,18 +159,20 @@ function queueLabel(stationId: string): string {
           <span class="min-w-0 truncate">{{ station.name }}</span>
           <span
             class="ui-num shrink-0 text-[13px]"
-            :class="overview.stationQueue(station.id).count > 0 ? 'text-ui-amber' : 'text-ui-dim'"
+            :class="
+              stationStore.stationQueue(station.id).count > 0 ? 'text-ui-amber' : 'text-ui-dim'
+            "
             >{{ queueLabel(station.id) }}</span
           >
         </button>
       </template>
       <button
-        v-if="overview.state.stations.length > STATION_LIMIT"
+        v-if="stationStore.state.stations.length > STATION_LIMIT"
         type="button"
         class="self-start text-[13px] text-ui-cyan hover:text-ui-bright"
         @click="showAllStations = !showAllStations"
       >
-        {{ showAllStations ? 'Show less' : `Show all (${overview.state.stations.length})` }}
+        {{ showAllStations ? 'Show less' : `Show all (${stationStore.state.stations.length})` }}
       </button>
     </section>
 
@@ -211,7 +215,7 @@ function queueLabel(stationId: string): string {
           <span class="text-xs text-ui-dim">
             {{ formatAgo(Date.parse(entry.occurredAt), now) }}
             <template v-if="multiStation && entry.stationId">
-              at {{ overview.stationName(entry.stationId) }}
+              at {{ stationStore.stationName(entry.stationId) }}
             </template>
           </span>
         </li>
@@ -221,7 +225,7 @@ function queueLabel(stationId: string): string {
         class="self-start text-[13px] text-ui-cyan hover:text-ui-bright"
         @click="emit('logbook')"
       >
-        Open logbook ({{ overview.unseenLogbook.length }} new)
+        Open logbook ({{ logbook.unseenLogbook.length }} new)
       </button>
     </section>
   </aside>

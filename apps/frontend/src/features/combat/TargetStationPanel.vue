@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type { VisibleStation } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { useOverviewStore } from '../stores/overview.js';
-import PanelShell from './PanelShell.vue';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { useStationStore } from '../station/index.js';
+import PanelShell from '../../shared/ui/PanelShell.vue';
 
 const { origin, station } = defineProps<{
   station: VisibleStation;
@@ -11,14 +11,14 @@ const { origin, station } = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: []; launched: [] }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 
 const distance = computed(() =>
   origin ? Math.hypot(station.x - origin.x, station.y - origin.y) : null
 );
 
 const fighters = computed(() =>
-  (origin ? (overview.state.details[origin.id]?.fleet?.spacecrafts ?? []) : []).filter(
+  (origin ? (stationStore.state.details[origin.id]?.fleet?.spacecrafts ?? []) : []).filter(
     (entry) =>
       (entry.definition.role === 'fighter' || entry.definition.role === 'bomber') &&
       entry.amount > entry.lockedAmount

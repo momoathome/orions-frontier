@@ -1,8 +1,8 @@
 import { computed, reactive } from 'vue';
 import { researchModifiers } from '@orions-frontier/game-config';
 import type { ResearchKey, ResearchLevels, ResearchState } from '@orions-frontier/shared';
-import { apiClient } from '../lib/api-client.js';
-import { wsClient } from '../lib/ws-client.js';
+import { apiClient } from '../../shared/api/api-client.js';
+import { wsClient } from '../../shared/api/ws-client.js';
 
 interface ResearchStoreState {
   research: ResearchState | null;

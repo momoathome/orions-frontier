@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { LogbookEntryType } from '@orions-frontier/shared';
-import { useOverviewStore } from '../stores/overview.js';
+import { useStationStore } from '../station/index.js';
+import { useLogbookStore } from './store.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
-const overview = useOverviewStore();
+const logbook = useLogbookStore();
+const stationStore = useStationStore();
 // The store keeps the logbook current; reload once on open for entries no event announces.
 const loaded = ref(false);
-void overview.refreshLogbook().then(() => (loaded.value = true));
+void logbook.refreshLogbook().then(() => (loaded.value = true));
 
 const TYPE_STYLE: Record<LogbookEntryType, { label: string; dot: string }> = {
   building_completed: { label: 'Building', dot: 'bg-cyan-400' },
@@ -25,7 +27,7 @@ const TYPE_STYLE: Record<LogbookEntryType, { label: string; dot: string }> = {
 };
 
 const timeline = computed(() =>
-  overview.state.logbook.map((entry) => ({
+  logbook.state.logbook.map((entry) => ({
     ...entry,
     style: TYPE_STYLE[entry.type],
     otherStation: entry.stationId !== null && entry.stationId !== stationId,
@@ -59,7 +61,7 @@ const timeline = computed(() =>
           </span>
           <span class="text-ui-text">{{ entry.summary }}</span>
           <span v-if="entry.otherStation" class="shrink-0 text-xs text-ui-muted">
-            {{ overview.stationName(entry.stationId ?? '') }}
+            {{ stationStore.stationName(entry.stationId ?? '') }}
           </span>
         </div>
       </li>

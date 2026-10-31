@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import BuildingsTab from './BuildingsTab.vue';
-import FleetTab from './FleetTab.vue';
-import LogisticsTab from './LogisticsTab.vue';
-import FrontierTab from './FrontierTab.vue';
-import DefenseTab from './DefenseTab.vue';
-import PanelShell from './PanelShell.vue';
-import { stationSections, useOverviewStore, type StationSection } from '../stores/overview.js';
-import { formatCountdown } from '../lib/format.js';
+import { DefenseTab } from '../combat/index.js';
+import { FleetTab } from '../fleet/index.js';
+import { LogisticsTab } from '../mining/index.js';
+import { FrontierTab } from '../missions/index.js';
+import PanelShell from '../../shared/ui/PanelShell.vue';
+import {
+  BuildingsTab,
+  stationSections,
+  useStationStore,
+  type StationSection,
+} from '../station/index.js';
+import { formatCountdown } from '../../shared/lib/format.js';
+import { live } from '../../shared/lib/live.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const section = defineModel<StationSection>('section', { default: 'buildings' });
 const emit = defineEmits<{ close: [] }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 
 const LABELS: Record<StationSection, string> = {
   buildings: 'Buildings',
@@ -22,19 +27,19 @@ const LABELS: Record<StationSection, string> = {
   defense: 'Defense',
 };
 
-// Read from the shared overview so the queue is right before any tab was opened.
-const queue = computed(() => overview.stationQueue(stationId));
+// Read from the station store so the queue is right before any tab was opened.
+const queue = computed(() => stationStore.stationQueue(stationId));
 const integrity = computed(
-  () => overview.state.stations.find((station) => station.id === stationId)?.integrity
+  () => stationStore.state.stations.find((station) => station.id === stationId)?.integrity
 );
-const hangar = computed(() => overview.state.details[stationId]?.fleet?.hangar ?? null);
+const hangar = computed(() => stationStore.state.details[stationId]?.fleet?.hangar ?? null);
 </script>
 
 <template>
   <PanelShell
     label="Station details"
     eyebrow="Station"
-    :title="overview.stationName(stationId)"
+    :title="stationStore.stationName(stationId)"
     wide
     @close="emit('close')"
   >
@@ -59,7 +64,7 @@ const hangar = computed(() => overview.state.details[stationId]?.fleet?.hangar ?
           <dt>Queue</dt>
           <dd class="ui-num text-[15px]" :class="queue.count > 0 ? 'text-ui-amber' : 'text-ui-dim'">
             <template v-if="queue.count > 0 && queue.nextEndsAt">
-              {{ queue.count }} ({{ formatCountdown(queue.nextEndsAt, overview.state.now) }})
+              {{ queue.count }} ({{ formatCountdown(queue.nextEndsAt, live.now) }})
             </template>
             <template v-else>Idle</template>
           </dd>

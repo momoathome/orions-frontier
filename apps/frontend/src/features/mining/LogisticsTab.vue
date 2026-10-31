@@ -2,20 +2,21 @@
 import { computed, ref } from 'vue';
 import { resources } from '@orions-frontier/game-config';
 import { resourceKeys } from '@orions-frontier/shared';
-import { formatAmount, formatCountdown, formatRate, formatWait } from '../lib/format';
-import { resourceColor, resourceName } from '../lib/mining-utils';
-import { useOverviewStore } from '../stores/overview.js';
+import { formatAmount, formatCountdown, formatRate, formatWait } from '../../shared/lib/format';
+import { resourceColor, resourceName } from '../../shared/lib/resources';
+import { live } from '../../shared/lib/live.js';
+import { useStationStore } from '../station/index.js';
 import AsteroidPanel from './AsteroidPanel.vue';
-import CostList from './CostList.vue';
+import CostList from '../../shared/ui/CostList.vue';
 
 const { stationId } = defineProps<{ stationId: string }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 const selectedAsteroidId = ref<string | null>(null);
 
-const now = computed(() => overview.state.now);
-const detail = computed(() => overview.state.details[stationId] ?? null);
+const now = computed(() => live.now);
+const detail = computed(() => stationStore.state.details[stationId] ?? null);
 const income = computed(() => detail.value?.income ?? null);
-const idleMiners = computed(() => overview.stationFleet(stationId).idleMiners);
+const idleMiners = computed(() => stationStore.stationFleet(stationId).idleMiners);
 const FULL_SOON_HOURS = 6;
 
 // One row per resource the station stores or earns, in the header's order.
@@ -205,7 +206,7 @@ const shortId = (id: string) => `#${id.slice(0, 6)}`;
       :asteroid-id="selectedAsteroidId"
       :station-id="stationId"
       @close="selectedAsteroidId = null"
-      @refresh="overview.refreshStation(stationId)"
+      @refresh="stationStore.refreshStation(stationId)"
     />
   </div>
 </template>

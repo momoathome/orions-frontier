@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { BuildingKey } from '@orions-frontier/shared';
-import { formatBuildingEffect } from '../lib/format';
+import { formatBuildingEffect } from '../../shared/lib/format';
 import BuildingLevelsModal from './BuildingLevelsModal.vue';
 import BuildSlots from './BuildSlots.vue';
 import UpgradeCard from './UpgradeCard.vue';
-import { useOverviewStore } from '../stores/overview.js';
+import { useStationStore } from './store.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 const error = ref<string | null>(null);
 const levelsKey = ref<BuildingKey | null>(null);
 
-const detail = computed(() => overview.state.details[stationId] ?? null);
+const detail = computed(() => stationStore.state.details[stationId] ?? null);
 
 const cards = computed(() =>
   (detail.value?.buildings ?? []).map((building) => {

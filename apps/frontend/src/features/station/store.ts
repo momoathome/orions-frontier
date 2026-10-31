@@ -1,30 +1,21 @@
-import { computed, reactive, watch } from 'vue';
+import { reactive } from 'vue';
 import { calculateConstructionSpeedBonus, durationFactor } from '@orions-frontier/game-config';
 import {
   getCostShortfall,
-  getMiningTripPhase,
-  getMiningTripPhaseEndsAt,
   QUEUE_LIMIT,
   summarizeStationIncome,
   type AsteroidDetail,
   type BuildSlots,
-  type CombatReport,
-  type LogbookEntry,
-  type Ranking,
   type Station,
   type StationIncome,
   type StationBuildingWithDefinition,
   type StationSpacecraftsResponse,
   type UserResourceSummary,
-  type UserTrip,
-  type ResearchKey,
-  type WorldTripPurpose,
 } from '@orions-frontier/shared';
-import { apiClient } from '../lib/api-client.js';
-import { wsClient } from '../lib/ws-client.js';
-import { debounced } from '../lib/debounce.js';
-import { resourceName } from '../lib/mining-utils.js';
-import { useResearchStore } from './research.js';
+import { apiClient } from '../../shared/api/api-client.js';
+import { wsClient } from '../../shared/api/ws-client.js';
+import { guarded, live } from '../../shared/lib/live.js';
+import { useResearchStore } from '../research/index.js';
 
 /** Row of GET /stations/:id/mining-assignments. */
 export interface MiningAssignment {
@@ -46,59 +37,13 @@ export interface StationDetail {
 export const stationSections = ['buildings', 'fleet', 'logistics', 'frontier', 'defense'] as const;
 export type StationSection = (typeof stationSections)[number];
 
-export type AlertTone = 'danger' | 'warning' | 'info';
-export interface Alert {
-  key: string;
-  tone: AlertTone;
-  title: string;
-  detail: string;
-  stationId: string;
-  section: StationSection;
-}
-
-interface OperationBase {
-  id: string;
-  title: string;
-  detail: string;
-  endsAt: number;
-}
-/** Station work opens its station section; research is account-wide and opens the research view. */
-export type Operation = OperationBase &
-  (
-    | {
-        kind: 'outbound' | 'mining' | 'returning' | 'mission' | 'build';
-        stationId: string;
-        section: StationSection;
-      }
-    | { kind: 'research'; research: ResearchKey }
-  );
-
-const LOGBOOK_SEEN_KEY = 'logbook_seen_at';
-const STORAGE_WARNING = 0.9;
-
-interface OverviewState {
+interface StationState {
   stations: Station[];
   details: Record<string, StationDetail>;
-  trips: UserTrip[];
-  combats: CombatReport[];
-  logbook: LogbookEntry[];
-  ranking: Ranking | null;
-  logbookSeenAt: number;
-  online: boolean;
-  now: number;
 }
 
-const state = reactive<OverviewState>({
-  stations: [],
-  details: {},
-  trips: [],
-  combats: [],
-  logbook: [],
-  ranking: null,
-  logbookSeenAt: Number(localStorage.getItem(LOGBOOK_SEEN_KEY) ?? 0),
-  online: true,
-  now: Date.now(),
-});
+const state = reactive<StationState>({ stations: [], details: {} });
+const research = useResearchStore();
 
 const stationName = (id: string) => state.stations.find((s) => s.id === id)?.name ?? 'Station';
 
@@ -140,115 +85,37 @@ async function loadStationDetail(id: string): Promise<void> {
   };
 }
 
-async function guarded(load: () => Promise<unknown>): Promise<void> {
-  try {
-    await load();
-    state.online = true;
-  } catch {
-    state.online = false;
-  }
-}
-
 const refreshStation = (id: string) => guarded(() => loadStationDetail(id));
 const refreshStations = () =>
   guarded(async () => (state.stations = await apiClient.get<Station[]>('/stations')));
-const refreshTrips = () =>
-  guarded(async () => (state.trips = await apiClient.get<UserTrip[]>('/me/trips')));
-const refreshCombats = () =>
-  guarded(async () => (state.combats = await apiClient.get<CombatReport[]>('/me/combats')));
-const refreshLogbook = () =>
-  guarded(
-    async () =>
-      (state.logbook = await apiClient.get<LogbookEntry[]>('/me/logbook', {
-        params: { limit: 100 },
-      }))
-  );
-const refreshRanking = () =>
-  guarded(
-    async () =>
-      (state.ranking = await apiClient.get<Ranking>('/world/ranking', { params: { limit: 20 } }))
-  );
-
-async function refreshAll(): Promise<void> {
-  await refreshStations();
-  await refreshRest();
-}
-
-async function refreshRest(): Promise<void> {
-  await Promise.all([
-    ...state.stations.map((station) => refreshStation(station.id)),
-    refreshTrips(),
-    refreshCombats(),
-    refreshLogbook(),
-    refreshRanking(),
-  ]);
-}
-
-// Ticks settle many trips at once; reload once per burst.
-const scheduleAll = debounced(refreshAll, 1_000);
-const scheduleProgress = debounced(() => Promise.all([refreshLogbook(), refreshRanking()]), 500);
-
-// The defender gets no event when a battle resolves, so reload once at the next arrival.
-let arrivalTimer: ReturnType<typeof setTimeout> | undefined;
-function scheduleNextArrival(): void {
-  clearTimeout(arrivalTimer);
-  const next = Math.min(
-    ...state.combats
-      .filter((report) => report.status === 'traveling')
-      .map((report) => Date.parse(report.arrivesAt))
-  );
-  if (Number.isFinite(next)) {
-    arrivalTimer = setTimeout(scheduleAll, Math.max(0, next - Date.now()) + 2_000);
-  }
-}
 
 let subscribers = 0;
 let stopSync: (() => void) | null = null;
 let stationsLoaded: Promise<void> = Promise.resolve();
 
-/** Loads the account overview and keeps it current while at least one view uses it. */
+/**
+ * Loads the station list and keeps stations current on their own events. Station details load
+ * through the overview, which also reloads everything after ticks and reconnects.
+ */
 function start(): () => void {
   subscribers += 1;
   if (subscribers === 1) {
     stationsLoaded = refreshStations();
-    void stationsLoaded.then(refreshRest);
-    const stopArrival = watch(() => state.combats, scheduleNextArrival);
-    const clock = window.setInterval(() => (state.now = Date.now()), 1_000);
     const unsubscribers = [
       wsClient.on('resources_updated', ({ stationId, resources }) => {
         const detail = state.details[stationId];
         if (detail?.resources)
           detail.resources.resources = { ...detail.resources.resources, ...resources };
       }),
-      wsClient.on('mining_tick_completed', scheduleAll),
-      wsClient.on('transport_tick_completed', scheduleAll),
       // Scanner upgrades change the station list's scanner range.
       wsClient.on('building_upgrade_completed', ({ stationId }) => {
         void refreshStations();
         void refreshStation(stationId);
-        scheduleProgress();
       }),
-      wsClient.on('defense_upgrade_completed', ({ stationId }) => {
-        void refreshStation(stationId);
-        scheduleProgress();
-      }),
-      wsClient.on('spacecraft_build_completed', ({ stationId }) => {
-        void refreshStation(stationId);
-        scheduleProgress();
-      }),
-      wsClient.on('world_mission_completed', scheduleAll),
-      // Research changes station modifiers, and Parallel Construction starts queued upgrades.
-      wsClient.on('research_completed', scheduleAll),
-      wsClient.on('incoming_attack', () => void refreshCombats()),
-      // Events sent while the socket was down are lost; reload everything once.
-      wsClient.onReconnected(() => void refreshAll()),
+      wsClient.on('defense_upgrade_completed', ({ stationId }) => void refreshStation(stationId)),
+      wsClient.on('spacecraft_build_completed', ({ stationId }) => void refreshStation(stationId)),
     ];
     stopSync = () => {
-      stopArrival();
-      clearTimeout(arrivalTimer);
-      window.clearInterval(clock);
-      scheduleAll.cancel();
-      scheduleProgress.cancel();
       for (const unsubscribe of unsubscribers) unsubscribe();
     };
   }
@@ -268,7 +135,7 @@ function stationQueue(id: string): { count: number; nextEndsAt: number | null } 
     ...(detail?.fleet?.spacecrafts ?? []).flatMap((s) =>
       s.buildOrders.map((order) => Date.parse(order.endsAt))
     ),
-  ].filter((time) => time > state.now);
+  ].filter((time) => time > live.now);
   const queued = detail?.buildSlots?.queue.length ?? 0;
   return { count: endsAt.length + queued, nextEndsAt: endsAt.length ? Math.min(...endsAt) : null };
 }
@@ -337,174 +204,20 @@ function affordableUpgrades(id: string): StationBuildingWithDefinition[] {
   );
 }
 
-const alerts = computed<Alert[]>(() => {
-  const list: Alert[] = [];
-  for (const report of state.combats) {
-    const station = state.stations.find((s) => s.id === report.defenderStationId);
-    if (!station || report.status !== 'traveling') continue;
-    list.push({
-      key: `attack:${report.id}`,
-      tone: 'danger',
-      title: 'Incoming attack',
-      detail: station.name,
-      stationId: station.id,
-      section: 'defense',
-    });
-  }
-  for (const station of state.stations) {
-    const idleMiners = stationFleet(station.id).idleMiners;
-    if (idleMiners > 0) {
-      list.push({
-        key: `idle:${station.id}`,
-        tone: 'warning',
-        title: `${idleMiners} ${idleMiners === 1 ? 'miner' : 'miners'} idle`,
-        detail: `${station.name}: assign them to an asteroid`,
-        stationId: station.id,
-        section: 'logistics',
-      });
-    }
-    const storage = stationStorage(station.id);
-    if (storage.resourceKey && storage.fill >= STORAGE_WARNING) {
-      list.push({
-        key: `storage:${station.id}`,
-        tone: 'warning',
-        title: `${resourceName(storage.resourceKey)} storage ${Math.round(storage.fill * 100)}%`,
-        detail: `${station.name}: upgrade the Warehouse`,
-        stationId: station.id,
-        section: 'buildings',
-      });
-    }
-    const affordable = affordableUpgrades(station.id);
-    if (affordable.length > 0) {
-      list.push({
-        key: `upgrade:${station.id}`,
-        tone: 'info',
-        title:
-          affordable.length === 1
-            ? `${affordable[0]?.definition.name} upgrade affordable`
-            : `${affordable.length} upgrades affordable`,
-        detail: station.name,
-        stationId: station.id,
-        section: 'buildings',
-      });
-    }
-  }
-  return list;
-});
-
-function tripStationId(trip: UserTrip): string {
-  return trip.fromType === 'station' && state.stations.some((s) => s.id === trip.fromId)
-    ? trip.fromId
-    : trip.toId;
-}
-
-const MISSION_TITLES: Partial<Record<WorldTripPurpose, string>> = {
-  combat: 'Attack fleet en route',
-  combat_return: 'Attack fleet returning',
-  expedition: 'Expedition',
-  colonization: 'Colony ship en route',
-  salvage: 'Salvage fleet en route',
-  salvage_return: 'Salvage fleet returning',
-  relocate: 'Station relocating',
-};
-
-const research = useResearchStore();
-
-const operations = computed<Operation[]>(() => {
-  const list: Operation[] = [];
-  for (const tech of research.running) {
-    list.push({
-      id: `research:${tech.definition.key}`,
-      kind: 'research',
-      title: `${tech.definition.name} ${tech.level + 1}`,
-      detail: 'Research',
-      research: tech.definition.key,
-      endsAt: Date.parse(tech.completesAt ?? ''),
-    });
-  }
-  for (const trip of state.trips) {
-    const timing = {
-      purpose: trip.purpose,
-      departedAt: Date.parse(trip.departedAt),
-      arrivesAt: Date.parse(trip.arrivesAt),
-    };
-    const stationId = tripStationId(trip);
-    const ships = `${trip.groupSize}× ${trip.spacecraft?.name ?? 'spacecraft'}`;
-    const phase = getMiningTripPhase(timing, state.now);
-    const endsAt = phase ? getMiningTripPhaseEndsAt(timing, state.now) : timing.arrivesAt;
-    if (!endsAt || endsAt <= state.now) continue;
-    const title = phase
-      ? { outbound: 'Flying to asteroid', mining: 'Mining', returning: 'Delivering cargo' }[phase]
-      : (MISSION_TITLES[trip.purpose] ?? 'Fleet en route');
-    list.push({
-      id: trip.id,
-      kind: phase ?? 'mission',
-      title,
-      detail: `${ships} from ${stationName(stationId)}`,
-      stationId,
-      section: phase ? 'logistics' : trip.purpose.startsWith('combat') ? 'defense' : 'frontier',
-      endsAt,
-    });
-  }
-  for (const station of state.stations) {
-    const detail = state.details[station.id];
-    for (const building of detail?.buildings ?? []) {
-      if (!building.isUpgrading || !building.upgradeEndsAt) continue;
-      list.push({
-        id: `building:${station.id}:${building.definition.key}`,
-        kind: 'build',
-        title: `${building.definition.name} Lv. ${building.level + 1}`,
-        detail: station.name,
-        stationId: station.id,
-        section: 'buildings',
-        endsAt: Date.parse(building.upgradeEndsAt),
-      });
-    }
-    for (const ship of detail?.fleet?.spacecrafts ?? []) {
-      for (const order of ship.buildOrders) {
-        list.push({
-          id: `order:${order.id}`,
-          kind: 'build',
-          title: `${order.amount}× ${ship.definition.name}`,
-          detail: `Shipyard at ${station.name}`,
-          stationId: station.id,
-          section: 'fleet',
-          endsAt: Date.parse(order.endsAt),
-        });
-      }
-    }
-  }
-  return list.filter((op) => op.endsAt > state.now).sort((a, b) => a.endsAt - b.endsAt);
-});
-
-const unseenLogbook = computed(() =>
-  state.logbook.filter((entry) => Date.parse(entry.occurredAt) > state.logbookSeenAt)
-);
-
-function markLogbookSeen(): void {
-  state.logbookSeenAt = Date.now();
-  localStorage.setItem(LOGBOOK_SEEN_KEY, String(state.logbookSeenAt));
-}
-
-const overviewStore = reactive({
+const stationStore = reactive({
   state,
-  alerts,
-  operations,
-  unseenLogbook,
   start,
   stationsLoaded: () => stationsLoaded,
-  refreshAll,
   refreshStation,
-  refreshTrips,
-  refreshLogbook,
+  refreshStations,
   stationName,
   stationQueue,
   startsNow,
   queueFull,
   upgradeTimeFactor,
+  affordableUpgrades,
   stationFleet,
   stationStorage,
-  markLogbookSeen,
 });
 
-export const useOverviewStore = () => overviewStore;
+export const useStationStore = () => stationStore;

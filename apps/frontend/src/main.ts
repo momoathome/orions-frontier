@@ -1,7 +1,7 @@
 import { createApp } from 'vue';
 import App from './App.vue';
 import { router } from './router';
-import { useAuthStore } from './stores/auth';
+import { useAuthStore } from './features/auth/index.js';
 // Self-hosted: no request to Google, so no IP leaves for a third party.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';

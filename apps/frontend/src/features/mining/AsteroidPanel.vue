@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { ApiError, apiClient } from '../lib/api-client';
-import { wsClient } from '../lib/ws-client';
-import { debounced } from '../lib/debounce';
+import { ApiError, apiClient } from '../../shared/api/api-client';
+import { wsClient } from '../../shared/api/ws-client';
+import { debounced } from '../../shared/lib/debounce';
 import {
   activeMiners,
   estimateAssignmentCycle,
@@ -14,14 +14,15 @@ import {
 } from '@orions-frontier/shared';
 import AssignMinersForm from './AssignMinersForm.vue';
 import RecallMinersForm, { type AssignmentGroup } from './RecallMinersForm.vue';
-import { resourceColor, resourceName } from '../lib/mining-utils';
-import UiModal from './UiModal.vue';
-import CostList from './CostList.vue';
-import PanelShell from './PanelShell.vue';
+import { resourceColor, resourceName } from '../../shared/lib/resources';
+import UiModal from '../../shared/ui/UiModal.vue';
+import CostList from '../../shared/ui/CostList.vue';
+import PanelShell from '../../shared/ui/PanelShell.vue';
 import { resources } from '@orions-frontier/game-config';
-import { formatCountdown, formatDuration, formatRate } from '../lib/format';
-import { useOverviewStore } from '../stores/overview.js';
-import { useResearchStore } from '../stores/research.js';
+import { formatCountdown, formatDuration, formatRate } from '../../shared/lib/format';
+import { live } from '../../shared/lib/live.js';
+import { useStationStore } from '../station/index.js';
+import { useResearchStore } from '../research/index.js';
 
 const { asteroidId, scannerBypass, stationId } = defineProps<{
   asteroidId: string;
@@ -75,10 +76,12 @@ onUnmounted(() => {
   unsubTrips();
 });
 
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 const research = useResearchStore();
-const now = computed(() => overview.state.now);
-const idleMiners = computed(() => (stationId ? overview.stationFleet(stationId).idleMiners : 0));
+const now = computed(() => live.now);
+const idleMiners = computed(() =>
+  stationId ? stationStore.stationFleet(stationId).idleMiners : 0
+);
 
 // Assigning and recalling open as modals over the panel.
 const action = ref<'assign' | 'recall' | null>(null);
@@ -230,7 +233,7 @@ const totalDeliveryPerHour = computed(
       (sum, item) =>
         sum +
         (cycle(item)?.totalDeliveryPerHour ?? 0) *
-          (overview.state.stations.some((station) => station.id === item.stationId)
+          (stationStore.state.stations.some((station) => station.id === item.stationId)
             ? research.modifiers.yield
             : 1),
       0
@@ -572,7 +575,7 @@ const PHASES = [
         <span class="font-semibold text-ui-cyan">More output possible</span>
         <span class="text-[13px] text-ui-soft">
           {{ idleMiners }} {{ idleMiners === 1 ? 'miner is' : 'miners are' }} idle at
-          {{ stationId ? overview.stationName(stationId) : 'your station' }}.
+          {{ stationId ? stationStore.stationName(stationId) : 'your station' }}.
         </span>
       </section>
 

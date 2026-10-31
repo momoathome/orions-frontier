@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { apiClient, apiErrorMessage } from '../lib/api-client';
-import { formatDuration } from '../lib/format';
+import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { formatDuration } from '../../shared/lib/format';
 import type { MiningCycleEstimate } from '@orions-frontier/shared';
-import { useOverviewStore } from '../stores/overview.js';
+import { useStationStore } from '../station/index.js';
 
 const { asteroidId, stationId } = defineProps<{
   asteroidId: string;
@@ -15,10 +15,10 @@ const emit = defineEmits<{
   done: [];
 }>();
 
-const overview = useOverviewStore();
+const stationStore = useStationStore();
 /** Idle miners of the station; null until the overview has loaded its fleet. */
 const miners = computed(() => {
-  const fleet = overview.state.details[stationId]?.fleet;
+  const fleet = stationStore.state.details[stationId]?.fleet;
   return fleet
     ? fleet.spacecrafts.filter(
         (s) =>
@@ -45,7 +45,7 @@ type MiningPreview = Omit<MiningCycleEstimate, 'estimatedDepletionHours' | 'fina
 const preview = ref<MiningPreview | null>(null);
 
 // Fresh idle counts for the form; keep a valid selection when they change.
-onMounted(() => void overview.refreshStation(stationId));
+onMounted(() => void stationStore.refreshStation(stationId));
 watch(
   miners,
   (list) => {
