@@ -10,6 +10,7 @@ export class DebrisLayer {
   addChunk(key: ChunkKey, fields: DebrisField[]): void {
     this.removeChunk(key);
     const chunk = new Container();
+    chunk.cullable = true;
     for (const field of fields) {
       const marker = new Graphics();
       marker.circle(field.x, field.y, 15).fill({ color: 0x9d70ff, alpha: 0.22 });

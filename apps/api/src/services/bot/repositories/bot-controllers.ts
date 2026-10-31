@@ -26,29 +26,14 @@ export async function updateBotController(
   await db.update(botControllers).set(values).where(eq(botControllers.userId, userId));
 }
 
-/** Like `updateBotController`, but returns the goal the controller holds afterwards. */
-export async function updateBotControllerReturningGoal(
-  db: QueryDb,
-  userId: string,
-  values: BotControllerUpdate
-) {
-  const [row] = await db
-    .update(botControllers)
-    .set(values)
-    .where(eq(botControllers.userId, userId))
-    .returning({
-      activeGoalType: botControllers.activeGoalType,
-      activeGoalTarget: botControllers.activeGoalTarget,
-    });
-  return row;
-}
-
-export function listDueBotControllerUserIds(db: QueryDb, now: Date) {
-  return db
+/** Due bots, longest-waiting first; without a limit, all of them. */
+export function listDueBotControllerUserIds(db: QueryDb, now: Date, limit?: number) {
+  const query = db
     .select({ userId: botControllers.userId })
     .from(botControllers)
     .where(lte(botControllers.nextDecisionAt, now))
     .orderBy(asc(botControllers.nextDecisionAt), asc(botControllers.userId));
+  return limit === undefined ? query : query.limit(limit);
 }
 
 /** Moves a due decision to `nextDecisionAt`; undefined if another tick claimed it first. */

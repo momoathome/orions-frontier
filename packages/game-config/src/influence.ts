@@ -3,6 +3,7 @@ import {
   defenseUpgradeKeys,
   isOneOf,
   researchKeys,
+  type BuildingUpgradeCost,
   type InfluenceBreakdown,
   type ResearchLevels,
 } from '@orions-frontier/shared';
@@ -28,20 +29,29 @@ export interface InfluenceInput {
 const sumAmounts = (costs: { amount: number }[]): number =>
   costs.reduce((sum, cost) => sum + cost.amount, 0);
 
+/** Costs of every upgrade a building or defense has above its free starting level; [] if unknown. */
+export function investedUpgradeCosts(key: string, level: number): BuildingUpgradeCost[] {
+  const costs: BuildingUpgradeCost[] = [];
+  if (isOneOf(buildingKeys, key)) {
+    for (let target = BUILDING_STARTING_LEVEL + 1; target <= level; target++) {
+      costs.push(...calculateBuildingUpgradeCost(key, target));
+    }
+  } else if (isOneOf(defenseUpgradeKeys, key)) {
+    for (let target = getDefenseUpgrade(key).startingLevel + 1; target <= level; target++) {
+      costs.push(...calculateDefenseUpgradeCost(key, target));
+    }
+  }
+  return costs;
+}
+
 /** Influence counts the resources invested in stations and fleet, see INFLUENCE_* constants. */
 export function calculateInfluence(input: InfluenceInput): InfluenceBreakdown {
   let buildings = 0;
   let defense = 0;
   for (const { key, level } of input.levels) {
-    if (isOneOf(buildingKeys, key)) {
-      for (let target = BUILDING_STARTING_LEVEL + 1; target <= level; target++) {
-        buildings += sumAmounts(calculateBuildingUpgradeCost(key, target));
-      }
-    } else if (isOneOf(defenseUpgradeKeys, key)) {
-      for (let target = getDefenseUpgrade(key).startingLevel + 1; target <= level; target++) {
-        defense += sumAmounts(calculateDefenseUpgradeCost(key, target));
-      }
-    }
+    const invested = sumAmounts(investedUpgradeCosts(key, level));
+    if (isOneOf(defenseUpgradeKeys, key)) defense += invested;
+    else buildings += invested;
   }
   let research = 0;
   for (const key of researchKeys) {

@@ -12,6 +12,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { join } from 'node:path';
 import { constants as zlib } from 'node:zlib';
+import { trustProxySchema } from './lib/env.js';
 import { logger } from './lib/logger.js';
 import { attachRealtimeServer } from './lib/realtime.js';
 import { errorHandler } from './plugins/error-handler.js';
@@ -29,6 +30,8 @@ export async function buildApp(
 
   const app = Fastify({
     loggerInstance: options.logger === false ? logger.child({}, { level: 'silent' }) : logger,
+    // Behind a proxy, rate limits key on the client's address instead of the proxy's.
+    trustProxy: trustProxySchema.parse(process.env['TRUST_PROXY']),
   }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);

@@ -20,7 +20,10 @@ import { users } from '../../src/lib/db/schema/users.js';
 import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/world/asteroid.js';
 import { researchModifiers } from '@orions-frontier/game-config';
 import { startAttack } from '../../src/services/combat/combat.js';
-import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
+import {
+  createAsteroidAssignment,
+  getStationMiningAssignments,
+} from '../../src/services/mining/assignment.js';
 import {
   getDebrisById,
   getVisibleDebris,
@@ -325,6 +328,68 @@ test('blind mining reveals an unscanned asteroid once the first cargo heads home
   });
   assert.ok('id' in created);
   assert.equal((await getAsteroidById(hiddenAsteroidId, viewerId))?.scanned, false);
+
+  // The station's assignment list keeps the blind asteroid's size, resource and reserve hidden.
+  const [scannedAssignment] = await getDb()
+    .insert(asteroidAssignments)
+    .values({ asteroidId: visibleAsteroidId, stationId: viewerStationId, spacecraftKey: 'mole' })
+    .returning();
+  const listed = await getStationMiningAssignments(viewerStationId, viewerId);
+  const blind = listed.find(({ id }) => id === created.id);
+  const known = listed.find(({ id }) => id === scannedAssignment?.id);
+  assert.deepEqual(
+    [blind?.asteroidSize, blind?.asteroidPrimaryResourceKey, blind?.asteroidRemainingAmount],
+    [null, null, null]
+  );
+  assert.deepEqual(
+    [known?.asteroidSize, known?.asteroidPrimaryResourceKey, known?.asteroidRemainingAmount],
+    ['small', 'carbon', 100]
+  );
+  await getDb()
+    .delete(asteroidAssignments)
+    .where(eq(asteroidAssignments.id, scannedAssignment?.id ?? ''));
+
+  // Outside the scanner a co-miner's cargo stays out of the viewer's in-transit total.
+  const [foreignAssignment] = await getDb()
+    .insert(asteroidAssignments)
+    .values({
+      asteroidId: hiddenAsteroidId,
+      stationId: visibleTargetStationId,
+      spacecraftKey: 'mole',
+      status: 'traveling_to_station',
+    })
+    .returning();
+  await getDb()
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId: targetFleetId,
+      assignmentId: foreignAssignment?.id,
+      groupSize: 1,
+      fromType: 'asteroid',
+      fromId: hiddenAsteroidId,
+      fromX: 2_100,
+      fromY: 0,
+      toType: 'station',
+      toId: visibleTargetStationId,
+      toX: 1_500,
+      toY: 0,
+      departedAt: now,
+      arrivesAt: new Date(now.getTime() + 3_600_000),
+      purpose: 'mining_return',
+      cargoManifest: { carbon: 10 },
+    });
+  const blindDetail = await getAsteroidById(hiddenAsteroidId, viewerId);
+  assert.equal(blindDetail?.operationsVisible, true);
+  assert.deepEqual(blindDetail.inTransit, {});
+  assert.deepEqual(
+    blindDetail.assignments.map(({ id }) => id),
+    [created.id]
+  );
+  await getDb().transaction(async (tx) => {
+    const foreignId = foreignAssignment?.id ?? '';
+    await tx.delete(spacecraftTrips).where(eq(spacecraftTrips.assignmentId, foreignId));
+    await tx.delete(asteroidAssignments).where(eq(asteroidAssignments.id, foreignId));
+  });
 
   await getDb()
     .insert(spacecraftTrips)

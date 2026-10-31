@@ -40,6 +40,7 @@ function bot(overrides: Partial<BotMetrics> = {}): BotMetrics {
     profile: 'technocrat',
     populationKind: 'synthetic_player',
     joinedAt: new Date(start).toISOString(),
+    eliminatedAt: null,
     goals: {},
     milestones: {},
     economy,
@@ -213,13 +214,13 @@ test('every softlock detector has a positive evidence-backed path', () => {
       ],
     },
     {
-      code: 'queue_capacity_bottleneck',
+      code: 'shipyard_capacity_bottleneck',
       candidate: bot({
         development: {
           ...emptyDevelopmentMetrics(),
-          queueActiveSamples: 10,
+          shipyardActiveSamples: 10,
           snapshotSamples: 10,
-          queueUtilization: 1,
+          shipyardUtilization: 1,
         },
       }),
       diagnostics: [],
@@ -263,9 +264,9 @@ test('healthy progress and missing opportunities do not produce false warnings',
     development: {
       ...emptyDevelopmentMetrics(),
       completedResearch: 1,
-      queueActiveSamples: 1,
+      shipyardActiveSamples: 1,
       snapshotSamples: 10,
-      queueUtilization: 0.1,
+      shipyardUtilization: 0.1,
     },
     expansion: { ...emptyExpansionMetrics(), expeditions: 1 },
   });

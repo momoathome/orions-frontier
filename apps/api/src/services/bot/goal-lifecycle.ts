@@ -1,4 +1,4 @@
-import { isOneOf, required, entriesOf } from '@orions-frontier/shared';
+import { isOneOf } from '@orions-frontier/shared';
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 import { getSpacecraft } from '@orions-frontier/game-config';
 import type { GoalBotState, GoalResult, StationSnapshot } from './goal-state.js';
@@ -10,7 +10,8 @@ import {
   generateRetaliateCandidates,
   stepRaid,
   stepRetaliate,
-  isEligibleAttackSource,
+  raidSource,
+  retaliationSource,
 } from './goals/conflict.js';
 import {
   generateEconomicCandidates,
@@ -23,17 +24,16 @@ import {
   generateEstablishColonyCandidate,
   stepExploreSector,
   stepEstablishColony,
-  colonizationCost,
+  expansionOrigin,
 } from './goals/expansion.js';
 import {
-  availableFighterAttack,
   generateFortifyCandidate,
   generateBuildStrikeForceCandidate,
   stepFortifyStation,
   stepBuildStrikeForce,
 } from './goals/military.js';
 import { stepResearchTechnology } from './goals/research.js';
-import { generateSalvageCandidates, stepSalvage, pickBestSalvageStation } from './goals/salvage.js';
+import { generateSalvageCandidates, stepSalvage, salvageSource } from './goals/salvage.js';
 import {
   prioritizeStationsForStabilization,
   pickAvailableMinerKey,
@@ -50,14 +50,13 @@ import {
  */
 export async function checkUrgentMaintenance(
   state: GoalBotState,
-  _profile: BotProfile,
-  _reservedCosts: Record<string, number>,
+  profile: BotProfile,
   activeGoal: { goalType: string; targetRef: string } | null = null
 ): Promise<GoalResult | null> {
   const activeExpansionStationId =
     activeGoal &&
     (activeGoal.goalType === 'explore_sector' || activeGoal.goalType === 'establish_colony')
-      ? findStationForGoal(state, activeGoal.targetRef, activeGoal.goalType, _profile)?.id
+      ? findStationForGoal(state, activeGoal.targetRef, activeGoal.goalType, profile)?.id
       : null;
 
   for (const station of prioritizeStationsForStabilization(state)) {
@@ -101,141 +100,31 @@ export async function checkUrgentMaintenance(
   return null;
 }
 
+/** The station a goal acts from; each goal family picks its own. */
 function findStationForGoal(
   state: GoalBotState,
   targetRef: string,
   goalType: string,
   profile: BotProfile
 ): StationSnapshot | undefined {
-  if (targetRef.startsWith('station:')) {
-    const stationId = targetRef.split(':')[1];
-    const ownStation = state.ownStations.find((station) => station.id === stationId);
-    if (ownStation) return ownStation;
-    if (goalType === 'raid') {
-      const target = state.visibleStations.find((station) => station.id === stationId);
-      if (!target) return undefined;
-      const eligible = [...state.ownStations]
-        .filter((station) =>
-          isEligibleAttackSource(state, station, required(stationId, 'stationId'), profile)
-        )
-        .sort((a, b) => {
-          const distanceA = Math.hypot(a.x - target.x, a.y - target.y);
-          const distanceB = Math.hypot(b.x - target.x, b.y - target.y);
-          return distanceA - distanceB || a.id.localeCompare(b.id);
-        })[0];
-      return (
-        eligible ??
-        state.ownStations.find((station) =>
-          station.combatMissions.some(
-            (mission) =>
-              mission.defenderStationId === stationId &&
-              !['resolved', 'cancelled'].includes(mission.status)
-          )
-        )
-      );
+  const [kind, id = ''] = targetRef.split(':');
+  switch (kind) {
+    case 'station': {
+      const ownStation = state.ownStations.find((station) => station.id === id);
+      if (ownStation || goalType !== 'raid') return ownStation;
+      return raidSource(state, id, profile);
     }
-    return undefined;
+    case 'tech':
+      return state.ownStations.find((station) => station.id === id);
+    case 'sector':
+      return expansionOrigin(state, targetRef, goalType);
+    case 'user':
+      return retaliationSource(state, id, profile);
+    case 'debris':
+      return salvageSource(state, id);
+    default:
+      return undefined;
   }
-  if (targetRef.startsWith('tech:')) {
-    const stationId = targetRef.split(':')[1];
-    return state.ownStations.find((s) => s.id === stationId);
-  }
-  if (targetRef.startsWith('sector:')) {
-    const [, x, y] = targetRef.split(':');
-    const sectorX = Number(x);
-    const sectorY = Number(y);
-    if (!Number.isFinite(sectorX) || !Number.isFinite(sectorY)) return undefined;
-    const activeMissionOrigin = state.ownStations.find((station) =>
-      station.missions.some(
-        (mission) =>
-          (mission.status === 'traveling' || mission.status === 'returning') &&
-          mission.targetSectorX === sectorX &&
-          mission.targetSectorY === sectorY &&
-          ((goalType === 'explore_sector' && mission.missionType === 'expedition') ||
-            (goalType === 'establish_colony' && mission.missionType === 'colonization'))
-      )
-    );
-    if (activeMissionOrigin) return activeMissionOrigin;
-    const colony = state.ownStations.find(
-      (station) => station.sectorX === sectorX && station.sectorY === sectorY
-    );
-    if (goalType === 'establish_colony' && colony) return colony;
-    const availableStations = [...state.ownStations].filter((station) => {
-      if (goalType === 'establish_colony') {
-        return station.fleets.some((fleet) => {
-          const definition = getSpacecraft(fleet.spacecraftKey);
-          return definition?.role === 'miner' && fleet.amount - fleet.lockedAmount > 0;
-        });
-      }
-      return station.fleets.some((fleet) => {
-        const definition = getSpacecraft(fleet.spacecraftKey);
-        return definition?.role !== 'fighter' && fleet.amount - fleet.lockedAmount > 0;
-      });
-    });
-    const affordableStations =
-      goalType === 'establish_colony'
-        ? availableStations.filter((station) =>
-            entriesOf(colonizationCost(state)).every(
-              ([resourceKey, amount]) => (station.resources[resourceKey] ?? 0) >= amount
-            )
-          )
-        : availableStations;
-    const candidateStations =
-      affordableStations.length > 0
-        ? affordableStations
-        : availableStations.length > 0
-          ? availableStations
-          : goalType === 'establish_colony' || goalType === 'explore_sector'
-            ? [...state.ownStations]
-            : [];
-    return candidateStations.sort((a, b) => {
-      const distanceA = Math.hypot(a.sectorX - sectorX, a.sectorY - sectorY);
-      const distanceB = Math.hypot(b.sectorX - sectorX, b.sectorY - sectorY);
-      return distanceA - distanceB || a.id.localeCompare(b.id);
-    })[0];
-  }
-  if (targetRef.startsWith('user:')) {
-    const ownerId = targetRef.split(':')[1];
-    const targets = state.visibleStations.filter(
-      (station) => station.ownerId === ownerId && !station.isOwn
-    );
-    if (targets.length === 0) return undefined;
-    return [...state.ownStations]
-      .filter((station) => {
-        return targets.some((target) => isEligibleAttackSource(state, station, target.id, profile));
-      })
-      .sort((a, b) => {
-        const distanceA = Math.min(
-          ...targets
-            .filter((target) => isEligibleAttackSource(state, a, target.id, profile))
-            .map((target) => Math.hypot(a.x - target.x, a.y - target.y))
-        );
-        const distanceB = Math.min(
-          ...targets
-            .filter((target) => isEligibleAttackSource(state, b, target.id, profile))
-            .map((target) => Math.hypot(b.x - target.x, b.y - target.y))
-        );
-        return (
-          distanceA - distanceB ||
-          availableFighterAttack(b) - availableFighterAttack(a) ||
-          a.id.localeCompare(b.id)
-        );
-      })[0];
-  }
-  if (targetRef.startsWith('debris:')) {
-    const debrisId = targetRef.split(':')[1];
-    if (!debrisId) return undefined;
-    return (
-      pickBestSalvageStation(state, debrisId) ??
-      state.ownStations.find((station) =>
-        station.salvageMissions.some(
-          (mission) => mission.debrisFieldId === debrisId && mission.status !== 'resolved'
-        )
-      ) ??
-      state.ownStations[0]
-    );
-  }
-  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,60 +179,41 @@ export async function generateGoalCandidates(
 // Step dispatch
 // ---------------------------------------------------------------------------
 
-const missingStation = (targetRef: string): GoalResult => ({
-  type: 'blocked',
-  detail: 'station_missing',
-  reason: `Station for ${targetRef} not found`,
-});
-
 export async function determineNextStep(
   state: GoalBotState,
   profile: BotProfile,
   goalType: string,
   targetRef: string
 ): Promise<GoalResult> {
+  if (!isOneOf(goalTypes, goalType)) {
+    return { type: 'blocked', reason: `No step implementation for ${goalType}` };
+  }
   const station = findStationForGoal(state, targetRef, goalType, profile);
+  if (!station) return { type: 'blocked', reason: `Station for ${targetRef} not found` };
 
   switch (goalType) {
     case 'stabilize_station':
-      if (!station) return missingStation(targetRef);
       return stepStabilizeStation(state, station, profile);
     case 'increase_income':
-      if (!station) return missingStation(targetRef);
       return stepIncreaseIncome(state, station, profile);
     case 'increase_capacity':
-      if (!station) return missingStation(targetRef);
       return stepIncreaseCapacity(state, station, targetRef, profile);
     case 'research_technology':
-      if (!station) return missingStation(targetRef);
       return stepResearchTechnology(state, station, targetRef, profile);
     case 'explore_sector':
-      if (!station) return missingStation(targetRef);
       return stepExploreSector(state, station, targetRef, profile);
     case 'establish_colony':
-      if (!station) return missingStation(targetRef);
       return stepEstablishColony(state, station, targetRef, profile);
     case 'fortify_station':
-      if (!station) return missingStation(targetRef);
       return stepFortifyStation(state, station, targetRef, profile);
     case 'build_strike_force':
-      if (!station) return missingStation(targetRef);
       return stepBuildStrikeForce(state, station, targetRef, profile);
     case 'raid':
-      if (!station) return missingStation(targetRef);
       return stepRaid(state, station, targetRef, profile);
     case 'retaliate':
-      if (!station) return missingStation(targetRef);
       return stepRetaliate(state, station, targetRef, profile);
     case 'salvage':
-      if (!station) return missingStation(targetRef);
       return stepSalvage(state, station, targetRef, profile);
-    default:
-      return {
-        type: 'blocked',
-        detail: `No step implementation for goal type: ${goalType}`,
-        reason: `No step implementation for ${goalType}`,
-      };
   }
 }
 

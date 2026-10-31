@@ -308,7 +308,7 @@ test('aggregator covers goals, milestones and every metric family with traceable
   assert.equal(bot.development.completedResearch, 1);
   assert.equal(bot.development.spacecraftUnits, 5);
   assert.equal(bot.development.spacecraftBuilt['collector'], 1);
-  assert.equal(bot.development.queueUtilization, 0.5);
+  assert.equal(bot.development.shipyardUtilization, 0.5);
 
   assert.equal(bot.expansion.expeditions, 1);
   assert.equal(bot.expansion.colonies, 1);
@@ -455,4 +455,21 @@ test('colony stabilization uses an earlier stable snapshot when its event arrive
     metrics.bots[0]?.expansion.coloniesByStation['player-001/station-002']?.stabilizationDurationMs,
     3_600_000
   );
+});
+
+test('a bot that lost its last station is marked eliminated without stale station metrics', () => {
+  const aliases = new PlaytestAliasRegistry([testPopulationMember()]);
+  const aggregator = new PlaytestAggregator(aliases);
+  aggregator.registerPopulationMember(testPopulationMember());
+  aggregator.consumeSnapshot(snapshot(start, [station('player-001/station-001')]));
+  aggregator.consumeSnapshot({ ...snapshot(hour, []), bots: [] });
+  aggregator.consumeSnapshot({ ...snapshot(end, []), bots: [] });
+
+  const bot = aggregator.finalize(end).bots[0]!;
+  assert.equal(bot.eliminatedAt, hour.toISOString());
+  assert.equal(bot.expansion.stations, 0);
+  assert.equal(bot.development.buildingLevelTotal, 0);
+  assert.equal(bot.development.defenseLevelTotal, 0);
+  assert.equal(bot.development.spacecraftUnits, 0);
+  assert.equal(bot.development.snapshotSamples, 1);
 });

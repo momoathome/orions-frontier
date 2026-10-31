@@ -4,7 +4,7 @@ import type { Texture } from 'pixi.js';
 import { Application, Assets, Container, CullerPlugin, extensions, Graphics, Text } from 'pixi.js';
 import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
-import { AsteroidLayer, type AsteroidHit } from './AsteroidLayer.js';
+import { AsteroidLayer, asteroidRadius, type AsteroidHit } from './AsteroidLayer.js';
 import { RouteLayer } from './RouteLayer.js';
 import { TripLayer, type ActiveMovement } from './TripLayer.js';
 import { StationLayer } from './StationLayer.js';
@@ -17,8 +17,6 @@ import {
   CLICK_MOVE_THRESHOLD,
   GRID_WORLD_SIZE,
   GRID_MIN_PX,
-  ASTEROID_SIZE_RADIUS,
-  ASTEROID_DEFAULT_RADIUS,
 } from './constants.js';
 
 /** One assigned mining position — passed to setAssignedAsteroids() */
@@ -26,8 +24,8 @@ export interface AssignedAsteroid {
   asteroidId: string;
   x: number;
   y: number;
-  /** Size category used to derive the visual ring radius */
-  size: string;
+  /** Size category used to derive the visual ring radius; null outside scanner range */
+  size: string | null;
 }
 
 // WorldRenderer
@@ -42,6 +40,15 @@ extensions.add(CullerPlugin);
 
 /** ProMotion displays tick at 120 Hz; the map gains nothing visible from more than 60. */
 const MAX_FPS = 60;
+
+/** What lies under a pointer position, shared by hover and click. */
+interface Pick {
+  world: { x: number; y: number };
+  asteroid: AsteroidHit | null;
+  ownStation: boolean;
+  foreignStation: VisibleStation | null;
+  debris: DebrisField | null;
+}
 
 export interface StationInfo {
   id: string;
@@ -233,9 +240,7 @@ export class WorldRenderer {
 
     // Trip layer — animated ship markers, above assignment rings
     this.tripLayer = new TripLayer((x, y) => this.asteroidLayer.hitTest(x, y, 1)?.r ?? null);
-    this.tripLayer.setScannerCircles(
-      scannerStations.map((entry) => ({ ...entry, range: entry.scannerRange }))
-    );
+    this._syncTripScanner();
     this.worldContainer.addChild(this.tripLayer.container);
 
     // Hover and selection rings — drawn on top of asteroids in world space
@@ -309,18 +314,35 @@ export class WorldRenderer {
     const current = this.stationInfo && stations.find((s) => s.id === this.stationInfo?.id);
     if (current) this.stationInfo = current;
     this.stationRingsDirty = true;
-    this.tripLayer.setScannerCircles(
-      this.scannerBypass ? [] : stations.map((entry) => ({ ...entry, range: entry.scannerRange }))
-    );
+    this._syncTripScanner();
   }
 
   setScannerBypass(enabled: boolean): void {
     this.scannerBypass = enabled;
     this.stationRingsDirty = true;
-    this.tripLayer.setScannerCircles(
-      enabled ? [] : this.scannerStations.map((entry) => ({ ...entry, range: entry.scannerRange }))
-    );
+    this._syncTripScanner();
     this.streamer.setScannerBypass(enabled, this.camera);
+  }
+
+  /** Mirrors the station panel: the active station keeps its brackets while the panel is open. */
+  setStationSelected(selected: boolean): void {
+    this._selectedStation = selected;
+    this._syncStationOverlay();
+  }
+
+  /** In bypass every identified contact is visible, so the trip layer gets no scanner limit. */
+  private _syncTripScanner() {
+    this.tripLayer.setScannerCircles(
+      this.scannerBypass
+        ? null
+        : this.scannerStations.map((entry) => ({ ...entry, range: entry.scannerRange }))
+    );
+  }
+
+  private _syncStationOverlay() {
+    if (this.stationOverlay) {
+      this.stationOverlay.visible = this._hoveredStation || this._selectedStation;
+    }
   }
 
   getVisibleChunkRange(margin = 1) {
@@ -365,7 +387,7 @@ export class WorldRenderer {
       if (seen.has(a.asteroidId)) continue;
       seen.add(a.asteroidId);
 
-      const r = ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS;
+      const r = asteroidRadius(a.size);
 
       // Inner ring — solid
       g.circle(a.x, a.y, r + 6);
@@ -573,40 +595,7 @@ export class WorldRenderer {
           this.lastPointerY = e.clientY;
           this.streamer.scheduleUpdate(this.camera);
         } else if (!this.isDragging) {
-          // Hover hit-test when not panning
-          const rect = el.getBoundingClientRect();
-          const world = this.camera.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-          const tolerance = Math.max(15, 20 / this.camera.zoom);
-
-          // Asteroid hover
-          const hit = this.asteroidLayer.hitTest(world.x, world.y, tolerance);
-          const newId = hit?.id ?? null;
-          if (newId !== this._hoveredAsteroidId) {
-            this._hoveredAsteroidId = newId;
-            this._redrawHoverRing();
-          }
-
-          // Station hover
-          const newHoveredStation = this.stationInfo
-            ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
-              this.activeStationRadius + 5
-            : false;
-          const foreignStation = this.stationLayer.hitTest(world.x, world.y, tolerance);
-          const debris = this.debrisLayer.hitTest(world.x, world.y, tolerance);
-          if (newHoveredStation !== this._hoveredStation) {
-            this._hoveredStation = newHoveredStation;
-            if (this.stationOverlay) {
-              this.stationOverlay.visible = newHoveredStation || this._selectedStation;
-            }
-          }
-
-          // Unified cursor callback
-          const isHovering =
-            newId !== null || newHoveredStation || foreignStation !== null || debris !== null;
-          if (isHovering !== this._isHoveringEntity) {
-            this._isHoveringEntity = isHovering;
-            this.onHoverEntityChange?.(isHovering);
-          }
+          this._onHover(this._pickAt(e.clientX, e.clientY));
         }
       },
       { signal }
@@ -620,38 +609,7 @@ export class WorldRenderer {
 
       // Emit a click if the pointer barely moved (not a pan)
       const moved = Math.hypot(e.clientX - this.pointerDownX, e.clientY - this.pointerDownY);
-      if (moved < CLICK_MOVE_THRESHOLD) {
-        const rect = el.getBoundingClientRect();
-        const world = this.camera.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-        const tolerance = Math.max(15, 20 / this.camera.zoom);
-        const hit = this.asteroidLayer.hitTest(world.x, world.y, tolerance);
-        const stationHit = this.stationInfo
-          ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
-            this.activeStationRadius + 5
-          : false;
-        const foreignStationHit = this.stationLayer.hitTest(world.x, world.y, tolerance);
-        const debrisHit = this.debrisLayer.hitTest(world.x, world.y, tolerance);
-        if (debrisHit) {
-          this._selectedStation = false;
-          this.onDebrisClick?.(debrisHit);
-        } else if (hit) {
-          this._selectedStation = false;
-          if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;
-          this.onAsteroidClick?.(hit.id);
-        } else if (stationHit) {
-          this._selectedStation = true;
-          if (this.stationOverlay) this.stationOverlay.visible = true;
-          this.onStationClick?.();
-        } else if (foreignStationHit) {
-          this._selectedStation = false;
-          if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;
-          this.onForeignStationClick?.(foreignStationHit);
-        } else {
-          this._selectedStation = false;
-          if (this.stationOverlay) this.stationOverlay.visible = this._hoveredStation;
-          this.onEmptyClick?.(world.x, world.y);
-        }
-      }
+      if (moved < CLICK_MOVE_THRESHOLD) this._onClick(this._pickAt(e.clientX, e.clientY));
     };
 
     el.addEventListener('pointerup', onPointerEnd, { signal });
@@ -668,5 +626,51 @@ export class WorldRenderer {
       },
       { signal }
     );
+  }
+
+  private _pickAt(clientX: number, clientY: number): Pick {
+    const rect = this.app.canvas.getBoundingClientRect();
+    const world = this.camera.screenToWorld(clientX - rect.left, clientY - rect.top);
+    const tolerance = Math.max(15, 20 / this.camera.zoom);
+    return {
+      world,
+      asteroid: this.asteroidLayer.hitTest(world.x, world.y, tolerance),
+      ownStation: this.stationInfo
+        ? Math.hypot(world.x - this.stationInfo.x, world.y - this.stationInfo.y) <=
+          this.activeStationRadius + 5
+        : false,
+      foreignStation: this.stationLayer.hitTest(world.x, world.y, tolerance),
+      debris: this.debrisLayer.hitTest(world.x, world.y, tolerance),
+    };
+  }
+
+  private _onHover(pick: Pick) {
+    const hoveredId = pick.asteroid?.id ?? null;
+    if (hoveredId !== this._hoveredAsteroidId) {
+      this._hoveredAsteroidId = hoveredId;
+      this._redrawHoverRing();
+    }
+
+    if (pick.ownStation !== this._hoveredStation) {
+      this._hoveredStation = pick.ownStation;
+      this._syncStationOverlay();
+    }
+
+    // Unified cursor callback
+    const isHovering =
+      hoveredId !== null || pick.ownStation || pick.foreignStation !== null || pick.debris !== null;
+    if (isHovering !== this._isHoveringEntity) {
+      this._isHoveringEntity = isHovering;
+      this.onHoverEntityChange?.(isHovering);
+    }
+  }
+
+  /** The station selection follows the panel through `setStationSelected`. */
+  private _onClick(pick: Pick) {
+    if (pick.debris) this.onDebrisClick?.(pick.debris);
+    else if (pick.asteroid) this.onAsteroidClick?.(pick.asteroid.id);
+    else if (pick.ownStation) this.onStationClick?.();
+    else if (pick.foreignStation) this.onForeignStationClick?.(pick.foreignStation);
+    else this.onEmptyClick?.(pick.world.x, pick.world.y);
   }
 }

@@ -29,6 +29,8 @@ import { assignIdleMiners } from '../mining/index.js';
 
 const logger = rootLogger.child({ name: 'simulation' });
 const MAX_DRAIN_PASSES = 10_000;
+// Bounds one realtime tick; bots left over stay due and go first in the next tick.
+const BOT_DECISIONS_PER_TICK = 20;
 
 export type SimulationPhase =
   'transports' | 'buildings' | 'spacecraft' | 'research' | 'world_missions';
@@ -54,9 +56,67 @@ interface SimulationPhasePassResult extends SimulationPhaseResult {
   events: PlaytestCompletionEvent[];
 }
 
+/** Parallel Construction adds a build slot, which every station's queue may use at once. */
+const researchQueueHooks: ResearchQueueHooks = {
+  credit: creditStationResources,
+  afterComplete: async (tx, userId, technologyKey, at) => {
+    if (technologyKey !== 'parallel_construction') return [];
+    const dropped = [];
+    // Id order, so two transactions locking several stations cannot deadlock.
+    const ids = (await listActiveStationsByUser(tx, userId)).map((station) => station.id).sort();
+    for (const id of ids) {
+      const station = await findStationForUpdate(tx, id);
+      if (station) dropped.push(...(await advanceStationQueue(tx, station, at)).dropped);
+    }
+    return dropped;
+  },
+};
+
+type StationWorkResults = Record<Exclude<SimulationPhase, 'transports'>, SimulationPhasePassResult>;
+
+const addResult = (
+  total: SimulationPhasePassResult,
+  result: Omit<SimulationPhasePassResult, 'phase'>
+) => {
+  total.completed += result.completed;
+  total.failed += result.failed;
+  total.events.push(...result.events);
+};
+
+/** Buildings, spacecraft, research and world missions due by `context.now`, in phase order. */
+async function completeDueStationWork(
+  context: GameExecutionContext,
+  totals: StationWorkResults,
+  tickNow = context.now
+) {
+  addResult(totals.buildings, await completeDueBuildings(context.now));
+  addResult(
+    totals.spacecraft,
+    // The Autonomous Mining Fleet sends new miners out right away.
+    await completeDueSpacecraft(context.now, (built) =>
+      getDb().transaction((tx) =>
+        assignIdleMiners(
+          tx,
+          {
+            stationId: built.stationId,
+            spacecraftKey: built.spacecraftKey,
+            amount: built.amount,
+            resourceKey: null,
+            departedAt: built.builtAt,
+          },
+          context
+        )
+      )
+    )
+  );
+  addResult(totals.research, await completeDueResearch(context.now, researchQueueHooks));
+  // A failure backs off from the tick's time, so the main pass does not retry it again.
+  addResult(totals.world_missions, await completeDueWorldMissions(context, tickNow));
+}
+
 async function completeDueTransports(
   context: GameExecutionContext,
-  earlyMissions: SimulationPhasePassResult
+  stationWork: StationWorkResults
 ): Promise<SimulationPhasePassResult> {
   const db = getDb();
   const dueTrips = await listDueTripsWithOwner(db, context.now);
@@ -69,11 +129,9 @@ async function completeDueTransports(
 
   for (const { trip, userId } of dueTrips) {
     if (trip.purpose === 'combat' && trip.toType === 'station') {
-      // Missions due before the attack land first: it may destroy the station they belong to.
-      const missions = await completeDueWorldMissions(context.at(trip.arrivesAt));
-      earlyMissions.completed += missions.completed;
-      earlyMissions.failed += missions.failed;
-      earlyMissions.events.push(...missions.events);
+      // Work due before the attack lands first: finished fighters defend, and the attack may
+      // destroy the station the rest belongs to.
+      await completeDueStationWork(context.at(trip.arrivesAt), stationWork, context.now);
     }
     try {
       const arrival = await settleTripArrival(trip, context);
@@ -117,59 +175,18 @@ async function completeDueTransports(
   return { phase: 'transports', completed, failed, events };
 }
 
-/** Parallel Construction adds a build slot, which every station's queue may use at once. */
-const researchQueueHooks: ResearchQueueHooks = {
-  credit: creditStationResources,
-  afterComplete: async (tx, userId, technologyKey, at) => {
-    if (technologyKey !== 'parallel_construction') return [];
-    const dropped = [];
-    for (const { id } of await listActiveStationsByUser(tx, userId)) {
-      const station = await findStationForUpdate(tx, id);
-      if (station) dropped.push(...(await advanceStationQueue(tx, station, at)).dropped);
-    }
-    return dropped;
-  },
-};
-
 async function runCompletionPass(
   context: GameExecutionContext
 ): Promise<SimulationPhasePassResult[]> {
-  const missions: SimulationPhasePassResult = {
-    phase: 'world_missions',
-    completed: 0,
-    failed: 0,
-    events: [],
+  const totals: StationWorkResults = {
+    buildings: { phase: 'buildings', completed: 0, failed: 0, events: [] },
+    spacecraft: { phase: 'spacecraft', completed: 0, failed: 0, events: [] },
+    research: { phase: 'research', completed: 0, failed: 0, events: [] },
+    world_missions: { phase: 'world_missions', completed: 0, failed: 0, events: [] },
   };
-  return [
-    await completeDueTransports(context, missions),
-    { phase: 'buildings', ...(await completeDueBuildings(context.now)) },
-    {
-      phase: 'spacecraft',
-      // The Autonomous Mining Fleet sends new miners out right away.
-      ...(await completeDueSpacecraft(context.now, (built) =>
-        getDb().transaction((tx) =>
-          assignIdleMiners(
-            tx,
-            {
-              stationId: built.stationId,
-              spacecraftKey: built.spacecraftKey,
-              amount: built.amount,
-              resourceKey: null,
-              departedAt: built.builtAt,
-            },
-            context
-          )
-        )
-      )),
-    },
-    { phase: 'research', ...(await completeDueResearch(context.now, researchQueueHooks)) },
-    await completeDueWorldMissions(context).then((due) => ({
-      ...missions,
-      completed: missions.completed + due.completed,
-      failed: missions.failed + due.failed,
-      events: [...missions.events, ...due.events],
-    })),
-  ];
+  const transports = await completeDueTransports(context, totals);
+  await completeDueStationWork(context, totals);
+  return [transports, totals.buildings, totals.spacecraft, totals.research, totals.world_missions];
 }
 
 const PHASES: SimulationPhase[] = [
@@ -214,11 +231,12 @@ async function drainDueWork(context: GameExecutionContext): Promise<SimulationDr
 }
 
 export async function runWorldTick(
-  contextOrNow?: GameExecutionContext | Date
+  contextOrNow?: GameExecutionContext | Date,
+  botLimit?: number
 ): Promise<WorldTickResult> {
   const context = resolveGameExecutionContext(contextOrNow);
   const drained = await drainDueWork(context);
-  const botDecisions = await runBotDecisionTick(context);
+  const botDecisions = await runBotDecisionTick(context, botLimit);
   return {
     now: context.now,
     ...drained,
@@ -228,7 +246,9 @@ export async function runWorldTick(
 
 /** One world tick across all API processes; a process that finds another ticking skips this one. */
 export function runExclusiveWorldTick(): Promise<WorldTickResult | undefined> {
-  return withExclusiveLock('world-tick', () => runWorldTick(createRealtimeExecutionContext()));
+  return withExclusiveLock('world-tick', () =>
+    runWorldTick(createRealtimeExecutionContext(), BOT_DECISIONS_PER_TICK)
+  );
 }
 
 export function startSimulationScheduler(intervalMs = 1_000): NodeJS.Timeout {

@@ -6,18 +6,14 @@ import {
 import {
   calculateBuildingEffect,
   buildings,
+  discountedBuildingUpgradeCost,
   getBuilding,
   unlocksByBuildingLevel,
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
 import { isOneOf, buildingKeys, required } from '@orions-frontier/shared';
 import { getStationResearchModifiers } from '../research/index.js';
-import {
-  cancelStationUpgrade,
-  plannedLevels,
-  queueStationUpgrade,
-  upgradeCost,
-} from './construction.js';
+import { cancelStationUpgrade, plannedLevels, queueStationUpgrade } from './construction.js';
 import { listStationQueue } from './repositories/queued-jobs.js';
 import {
   createRealtimeExecutionContext,
@@ -85,7 +81,7 @@ export const getStationBuildings = async (
         upgradeCosts:
           queuedLevel >= definition.maxLevel
             ? []
-            : upgradeCost(key, queuedLevel + 1, modifiers.buildingCost),
+            : discountedBuildingUpgradeCost(key, queuedLevel + 1, modifiers.buildingCost),
         unlockMilestones: unlocksByBuildingLevel(key),
       };
     })

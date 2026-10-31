@@ -359,6 +359,33 @@ test('a newly selected saving goal remains persisted', async () => {
   await db.delete(asteroids).where(eq(asteroids.id, localAsteroidId));
 });
 
+test('a bot decision limit leaves the remaining due bots for the next tick', async () => {
+  const db = getDb();
+  const botUserIds: string[] = [];
+  // Due long before every other test bot, so only these three are due at `now`.
+  for (const offsetMs of [0, 1, 2]) {
+    const botUserId = (await createTestUser()).id;
+    botUserIds.push(botUserId);
+    await db
+      .insert(botControllers)
+      .values({ userId: botUserId, nextDecisionAt: new Date(offsetMs) });
+  }
+  const now = new Date(10);
+
+  const limited = await runBotDecisionTick(now, 2);
+  assert.deepEqual(
+    limited.map((outcome) => outcome.botUserId),
+    botUserIds.slice(0, 2)
+  );
+  const rest = await runBotDecisionTick(now);
+  assert.deepEqual(
+    rest.map((outcome) => outcome.botUserId),
+    botUserIds.slice(2)
+  );
+
+  await deleteTestData({ userIds: botUserIds });
+});
+
 test('parallel bot ticks claim one decision and create one domain action', async () => {
   const db = getDb();
   const botUserId = (await createTestUser()).id;

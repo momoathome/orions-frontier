@@ -1,6 +1,8 @@
 import { getDb, type Tx } from '../../lib/db/index.js';
 import {
   addAssignmentRecallRequest,
+  getUserRevealedAsteroidIds,
+  isPointVisible,
   findAsteroid,
   findAsteroidForUpdate,
   insertAsteroidAssignment,
@@ -13,6 +15,7 @@ import {
   reserveSpacecraft,
   findOwnedStation,
   findOwnedStationForUpdate,
+  getUserScannerCoverages,
 } from '../station/index.js';
 import { AppError, ErrorCode, type AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
@@ -184,9 +187,10 @@ export interface StationMiningAssignment {
   asteroidId: string;
   asteroidX: number;
   asteroidY: number;
-  asteroidSize: AsteroidSize;
+  /** Size, resource and reserve stay null unless the asteroid is scanned; blind mining is allowed. */
+  asteroidSize: AsteroidSize | null;
   asteroidPrimaryResourceKey: string | null;
-  asteroidRemainingAmount: number;
+  asteroidRemainingAmount: number | null;
   spacecraftKey: string;
   spacecraftName: string;
   spacecraftMiningRate: number;
@@ -198,28 +202,39 @@ export interface StationMiningAssignment {
 }
 
 export const getStationMiningAssignments = async (
-  stationId: string
+  stationId: string,
+  userId: string
 ): Promise<StationMiningAssignment[]> => {
   const db = getDb();
 
-  const { visibleResources } = await getStationResearchModifiers(db, stationId);
+  const [{ visibleResources }, coverages, revealedIds] = await Promise.all([
+    getStationResearchModifiers(db, stationId),
+    getUserScannerCoverages(userId),
+    getUserRevealedAsteroidIds(userId),
+  ]);
   const rows = await listStationAssignmentsWithAsteroid(db, stationId, visibleResources);
 
-  return rows.map((r) => ({
-    id: r.id,
-    asteroidId: r.asteroidId,
-    asteroidX: r.asteroidX,
-    asteroidY: r.asteroidY,
-    asteroidSize: r.asteroidSize,
-    asteroidPrimaryResourceKey: r.asteroidPrimaryResourceKey,
-    asteroidRemainingAmount: r.asteroidRemainingAmount,
-    spacecraftKey: r.spacecraftKey,
-    spacecraftName: requireSpacecraft(r.spacecraftKey).name,
-    spacecraftMiningRate: requireSpacecraft(r.spacecraftKey).miningRate,
-    assignedAmount: r.assignedAmount,
-    assignedAt: r.assignedAt.toISOString(),
-    status: r.status,
-    recallRequestedAt: r.recallRequestedAt?.toISOString() ?? null,
-    recallRequestedAmount: r.recallRequestedAmount,
-  }));
+  return rows.map((r) => {
+    // Same rule as the asteroid detail.
+    const scanned =
+      revealedIds.has(r.asteroidId) ||
+      isPointVisible(coverages, { x: r.asteroidX, y: r.asteroidY });
+    return {
+      id: r.id,
+      asteroidId: r.asteroidId,
+      asteroidX: r.asteroidX,
+      asteroidY: r.asteroidY,
+      asteroidSize: scanned ? r.asteroidSize : null,
+      asteroidPrimaryResourceKey: scanned ? r.asteroidPrimaryResourceKey : null,
+      asteroidRemainingAmount: scanned ? r.asteroidRemainingAmount : null,
+      spacecraftKey: r.spacecraftKey,
+      spacecraftName: requireSpacecraft(r.spacecraftKey).name,
+      spacecraftMiningRate: requireSpacecraft(r.spacecraftKey).miningRate,
+      assignedAmount: r.assignedAmount,
+      assignedAt: r.assignedAt.toISOString(),
+      status: r.status,
+      recallRequestedAt: r.recallRequestedAt?.toISOString() ?? null,
+      recallRequestedAmount: r.recallRequestedAmount,
+    };
+  });
 };

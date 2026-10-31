@@ -182,6 +182,51 @@ test('auditor aborts on overfull storage, a negative build order and work withou
   }
 });
 
+test('auditor flags fleet locks that no mission, assignment or trip holds', async () => {
+  const db = getDb();
+  const auditor = new PlaytestInvariantAuditor(aliases());
+  await auditor.auditTick(tick());
+
+  const [fleet] = await db
+    .select()
+    .from(stationSpacecrafts)
+    .where(eq(stationSpacecrafts.stationId, stationId))
+    .limit(1);
+  const [trip] = await db
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId: fleet!.id,
+      groupSize: 1,
+      fromType: 'station',
+      fromId: stationId,
+      toType: 'station',
+      toId: stationId,
+      departedAt: now,
+      arrivesAt: new Date(now.getTime() + 60_000),
+      purpose: 'relocate',
+    })
+    .returning();
+  try {
+    await db
+      .update(stationSpacecrafts)
+      .set({ amount: 2, lockedAmount: 1 })
+      .where(eq(stationSpacecrafts.id, fleet!.id));
+    await auditor.auditTick(tick());
+
+    await db
+      .update(stationSpacecrafts)
+      .set({ lockedAmount: 2 })
+      .where(eq(stationSpacecrafts.id, fleet!.id));
+    await rejectsWith(auditor.auditTick(tick()), 'fleet_lock_mismatch');
+  } finally {
+    await db.delete(spacecraftTrips).where(eq(spacecraftTrips.id, trip!.id));
+    await db
+      .update(stationSpacecrafts)
+      .set({ amount: fleet!.amount, lockedAmount: fleet!.lockedAmount })
+      .where(eq(stationSpacecrafts.id, fleet!.id));
+  }
+});
+
 test('auditor rejects duplicate completions, repeated successful actions and missing visibility proof', async () => {
   const auditor = new PlaytestInvariantAuditor(aliases());
   const event = {

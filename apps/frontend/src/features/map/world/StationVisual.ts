@@ -113,7 +113,8 @@ export const stationVisualRadius = (profile: StationVisualProfile): number => {
     profile.defense.armor_plating * 9 + 18,
     profile.defense.guardian_cannon * 19 + 24,
     profile.defense.defense_drones > 0 ? profile.defense.defense_drones * 14 + 60 : 0,
-    profile.defense.minefield * 22 + 30
+    // Mines orbit at core + 78 + tier·18, wobble ±5 and a 4.8 halo: see addMinefield.
+    profile.defense.minefield > 0 ? profile.defense.minefield * 18 + 88 : 0
   );
   return core + moduleReach;
 };

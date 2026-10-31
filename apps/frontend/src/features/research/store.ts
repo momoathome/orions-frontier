@@ -19,12 +19,16 @@ const state = reactive<ResearchStoreState>({
   focus: null,
 });
 
+let researchRequest = 0;
 async function refresh(): Promise<void> {
+  const request = ++researchRequest;
   try {
-    state.research = await apiClient.get<ResearchState>('/me/research');
+    const research = await apiClient.get<ResearchState>('/me/research');
+    if (request !== researchRequest) return;
+    state.research = research;
     state.error = null;
   } catch {
-    state.error = 'Research could not be loaded';
+    if (request === researchRequest) state.error = 'Research could not be loaded';
   }
 }
 

@@ -49,7 +49,8 @@ function reportSummary(report: CombatReport): string {
   const integrity = report.stationDestroyed
     ? ', station destroyed'
     : report.integrityDamage > 0
-      ? `, integrity −${report.integrityDamage} to ${report.defenderIntegrity}`
+      ? // Attackers only learn the upper bound of the integrity tier.
+        `, integrity −${report.integrityDamage} to ${report.defenderStationId === stationId ? '' : '≤'}${report.defenderIntegrity}`
       : '';
   return `${sent}${report.attackerLosses} attacker losses, ${report.defenderLosses} defender losses${integrity}`;
 }

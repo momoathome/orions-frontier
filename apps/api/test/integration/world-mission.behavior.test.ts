@@ -462,9 +462,20 @@ test('a broken world mission is counted as failed without blocking the others', 
     ])
     .returning();
 
-  const result = await completeDueWorldMissions(new Date());
+  const now = new Date();
+  const result = await completeDueWorldMissions(now);
   assert.equal(result.failed, 1);
   const [returned] = await db.select().from(worldMissions).where(eq(worldMissions.id, healthy!.id));
   assert.equal(returned?.status, 'arrived');
+
+  // The broken mission waits 2 s, then 4 s, instead of failing on every tick.
+  const failedAt = async (ms: number) =>
+    (await completeDueWorldMissions(new Date(now.getTime() + ms))).failed;
+  assert.equal(await failedAt(1_000), 0);
+  assert.equal(await failedAt(2_000), 1);
+  assert.equal(await failedAt(5_000), 0);
+  assert.equal(await failedAt(6_000), 1);
+  const [retried] = await db.select().from(worldMissions).where(eq(worldMissions.id, broken!.id));
+  assert.equal(retried?.settleFailures, 3);
   await db.delete(worldMissions).where(eq(worldMissions.id, broken!.id));
 });

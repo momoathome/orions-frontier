@@ -173,14 +173,8 @@ export async function getStationHangar(stationId: string): Promise<{
   };
 }
 
-export const buildSpacecrafts = async (
-  stationId: string,
-  userId: string,
-  orders: BuildOrder[],
-  context: GameExecutionContext = createRealtimeExecutionContext()
-): Promise<void> => {
-  const db = getDb();
-
+/** Validates the orders and adds up what they cost in resources and crew. */
+function priceOrders(orders: BuildOrder[]) {
   if (orders.length === 0) {
     throw new AppError(ErrorCode.VALIDATION_ERROR, 'No orders provided');
   }
@@ -194,18 +188,19 @@ export const buildSpacecrafts = async (
     throw new AppError(ErrorCode.NOT_FOUND, `Spacecraft definition '${missing}' not found`);
   }
 
-  const defByKey = new Map(defs.map((d) => [d.key, d]));
-
   for (const order of orders) {
     if (!Number.isInteger(order.amount) || order.amount <= 0) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Amount must be a positive integer');
     }
   }
 
-  // Aggregate total resource costs across all orders
+  const defByKey = new Map(defs.map((d) => [d.key, d]));
+  const lines = orders.map((order) => ({
+    order,
+    def: required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)'),
+  }));
   const totalCosts = new Map<ResourceKey, number>();
-  for (const order of orders) {
-    const def = required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)');
+  for (const { order, def } of lines) {
     for (const cost of def.costs) {
       totalCosts.set(
         cost.resourceKey,
@@ -213,6 +208,48 @@ export const buildSpacecrafts = async (
       );
     }
   }
+  const requestedCrew = lines.reduce((sum, { order, def }) => sum + order.amount * def.crew, 0);
+  return { defs, lines, totalCosts, requestedCrew };
+}
+
+/**
+ * Each production slot builds one order at a time, its ships one after another. A new order goes
+ * to the slot that is free first. `busy` holds when each slot's current orders end.
+ */
+export function planBuildSlots<T extends { order: BuildOrder; def: { buildTime: number } }>(
+  nowMs: number,
+  slots: number,
+  busy: { slot: number; endsAt: Date | null }[],
+  lines: T[],
+  buildTimeFactor: number
+) {
+  const slotEnds = Array.from({ length: slots }, () => nowMs);
+  for (const { slot, endsAt } of busy) {
+    if (slot < slots && endsAt) slotEnds[slot] = Math.max(nowMs, endsAt.getTime());
+  }
+  return lines.map((line) => {
+    const start = Math.min(...slotEnds);
+    const slot = slotEnds.indexOf(start);
+    const stepMs = Math.ceil(line.def.buildTime * buildTimeFactor) * 1000;
+    slotEnds[slot] = start + stepMs * line.order.amount;
+    return {
+      ...line,
+      slot,
+      stepMs,
+      nextAt: new Date(start + stepMs),
+      endsAt: new Date(start + stepMs * line.order.amount),
+    };
+  });
+}
+
+export const buildSpacecrafts = async (
+  stationId: string,
+  userId: string,
+  orders: BuildOrder[],
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> => {
+  const db = getDb();
+  const { defs, lines, totalCosts, requestedCrew } = priceOrders(orders);
 
   const resources = await db.transaction(async (tx) => {
     const station = await findOwnedStationForUpdate(tx, stationId, userId);
@@ -239,13 +276,6 @@ export const buildSpacecrafts = async (
     }
     const capacity = calculateCrewCapacity(unlocks.buildings.hangar ?? 0, unlocks.modifiers.crew);
     const hangarUsed = calculateCrewUsage(fleet) + calculateCrewUsage(queued);
-    const requestedCrew = orders.reduce(
-      (sum, order) =>
-        sum +
-        order.amount *
-          required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)').crew,
-      0
-    );
     if (hangarUsed + requestedCrew > capacity) {
       throw new AppError(
         ErrorCode.VALIDATION_ERROR,
@@ -262,29 +292,13 @@ export const buildSpacecrafts = async (
     }
 
     const buildTimeMultiplier = shipBuildFactor(shipyardLevel, unlocks.modifiers.shipBuildBonus);
-    const slots = calculateProductionSlots(shipyardLevel);
-    // Each production slot builds one order at a time, its ships one after another. A new order
-    // goes to the slot that is free first.
-    const slotEnds = Array.from({ length: slots }, () => context.now.getTime());
-    for (const { slot, endsAt } of await listBuildSlotEnds(tx, stationId)) {
-      if (slot < slots && endsAt)
-        slotEnds[slot] = Math.max(context.now.getTime(), endsAt.getTime());
-    }
-    const orderEndsAt = orders.map((order) => {
-      const def = required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)');
-      const start = Math.min(...slotEnds);
-      const slot = slotEnds.indexOf(start);
-      const stepMs = Math.ceil(def.buildTime * buildTimeMultiplier) * 1000;
-      slotEnds[slot] = start + stepMs * order.amount;
-      return {
-        order,
-        def,
-        slot,
-        stepMs,
-        nextAt: new Date(start + stepMs),
-        endsAt: new Date(start + stepMs * order.amount),
-      };
-    });
+    const orderEndsAt = planBuildSlots(
+      context.now.getTime(),
+      calculateProductionSlots(shipyardLevel),
+      await listBuildSlotEnds(tx, stationId),
+      lines,
+      buildTimeMultiplier
+    );
 
     for (const { order, def, slot, stepMs, nextAt, endsAt } of orderEndsAt) {
       await insertBuildOrder(tx, {

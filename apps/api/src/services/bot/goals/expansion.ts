@@ -16,13 +16,12 @@ import {
   canAcquireCosts,
   canAfford,
   freeCrewCapacity,
-  getShipyardLevel,
   hasMinerInBuild,
-  isUpgrading,
   moleCost,
   nextIncomeCosts,
   pickAvailableMinerKey,
   seeksMoreForeignContact,
+  stepTowardSpacecraft,
   waitForCosts,
 } from './shared.js';
 
@@ -48,10 +47,6 @@ function canPrepareMobileSupportShip(
   ) {
     return true;
   }
-  if (getShipyardLevel(station) < 1) {
-    const costs = buildingUpgradeCost(station, 'shipyard');
-    return canAfford(station, costs) || canAcquireCosts(state, station, costs);
-  }
   const moleCrew = getSpacecraft('mole')?.crew ?? 0;
   if (freeCrewCapacity(station) < moleCrew) {
     const costs = buildingUpgradeCost(station, 'hangar');
@@ -73,74 +68,10 @@ function prepareMobileSupportShip(
   if (hasMinerInBuild(station)) {
     return {
       type: 'waiting',
-      detail: 'support_ship_building',
       reason: `Waiting for a mobile support ship for ${purpose} at ${station.name}`,
     };
   }
-  if (getShipyardLevel(station) < 1) {
-    const costs = buildingUpgradeCost(station, 'shipyard');
-    if (isUpgrading(station, 'shipyard')) {
-      return {
-        type: 'waiting',
-        detail: 'shipyard_upgrading',
-        reason: `Waiting for Shipyard needed by ${purpose} at ${station.name}`,
-      };
-    }
-    if (canAfford(station, costs)) {
-      return {
-        type: 'success',
-        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
-        reason: `Preparing Shipyard at ${station.name} for ${purpose}`,
-      };
-    }
-    return {
-      type: canAcquireCosts(state, station, costs) ? 'saving' : 'blocked',
-      detail: 'support_shipyard',
-      reason: `Shipyard resources for ${purpose} are not yet available at ${station.name}`,
-    };
-  }
-
-  const moleCrew = getSpacecraft('mole')?.crew ?? 0;
-  if (freeCrewCapacity(station) < moleCrew) {
-    const costs = buildingUpgradeCost(station, 'hangar');
-    if (isUpgrading(station, 'hangar')) {
-      return {
-        type: 'waiting',
-        detail: 'hangar_upgrading',
-        reason: `Waiting for Hangar capacity for ${purpose} at ${station.name}`,
-      };
-    }
-    if (canAfford(station, costs)) {
-      return {
-        type: 'success',
-        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'hangar' },
-        reason: `Expanding Hangar at ${station.name} for a ${purpose} support ship`,
-      };
-    }
-    return {
-      type: canAcquireCosts(state, station, costs) ? 'saving' : 'blocked',
-      detail: 'support_hangar',
-      reason: `Hangar resources for ${purpose} are not reachable at ${station.name}`,
-    };
-  }
-
-  if (canAfford(station, moleCost())) {
-    return {
-      type: 'success',
-      intent: {
-        type: 'build_spacecraft',
-        stationId: station.id,
-        spacecraftKey: 'mole',
-        amount: 1,
-      },
-      reason: `Building a mobile Mole for ${purpose} at ${station.name}`,
-    };
-  }
-  return {
-    type: canAcquireCosts(state, station, moleCost()) ? 'saving' : 'blocked',
-    detail: 'support_ship',
-    reason: `Mole resources for ${purpose} are not reachable at ${station.name}`,
-  };
+  return stepTowardSpacecraft(state, station, 'mole', `a ${purpose} support ship`);
 }
 
 /** Same price the server charges: colonies still in flight count as stations. */
@@ -148,7 +79,58 @@ export function colonizationCost(state: GoalBotState) {
   const inFlight = state.ownStations
     .flatMap((station) => station.missions)
     .filter((mission) => mission.missionType === 'colonization').length;
-  return calculateColonizationCost(state.ownStations.length + inFlight);
+  return entriesOf(calculateColonizationCost(state.ownStations.length + inFlight)).map(
+    ([resourceKey, amount]) => ({ resourceKey, amount })
+  );
+}
+
+export const canAffordColony = (state: GoalBotState, station: StationSnapshot): boolean =>
+  canAfford(station, colonizationCost(state));
+
+/**
+ * Origin station for a sector goal: the station already flying there, the colony itself, else
+ * the nearest station that has a suitable ship (and for a colony, its price).
+ */
+export function expansionOrigin(
+  state: GoalBotState,
+  targetRef: string,
+  goalType: string
+): StationSnapshot | undefined {
+  const [, x, y] = targetRef.split(':');
+  const sectorX = Number(x);
+  const sectorY = Number(y);
+  if (!Number.isFinite(sectorX) || !Number.isFinite(sectorY)) return undefined;
+  const colonizing = goalType === 'establish_colony';
+  const activeMissionOrigin = state.ownStations.find((station) =>
+    station.missions.some(
+      (mission) =>
+        mission.targetSectorX === sectorX &&
+        mission.targetSectorY === sectorY &&
+        mission.missionType === (colonizing ? 'colonization' : 'expedition')
+    )
+  );
+  if (activeMissionOrigin) return activeMissionOrigin;
+  const colony = state.ownStations.find(
+    (station) => station.sectorX === sectorX && station.sectorY === sectorY
+  );
+  if (colonizing && colony) return colony;
+  const availableStations = state.ownStations.filter((station) =>
+    colonizing ? pickAvailableMinerKey(station) !== null : hasAvailableMissionShip(station)
+  );
+  const affordableStations = colonizing
+    ? availableStations.filter((station) => canAffordColony(state, station))
+    : availableStations;
+  const candidateStations =
+    affordableStations.length > 0
+      ? affordableStations
+      : availableStations.length > 0
+        ? availableStations
+        : [...state.ownStations];
+  return candidateStations.sort((a, b) => {
+    const distanceA = Math.hypot(a.sectorX - sectorX, a.sectorY - sectorY);
+    const distanceB = Math.hypot(b.sectorX - sectorX, b.sectorY - sectorY);
+    return distanceA - distanceB || a.id.localeCompare(b.id);
+  })[0];
 }
 
 export async function generateExploreSectorCandidate(
@@ -231,23 +213,8 @@ export async function generateEstablishColonyCandidate(
   }
 
   // Check if we can afford colonization
-  const colonyCost = colonizationCost(state);
-  const canAffordColony = entriesOf(colonyCost).every(
-    ([key, amount]) => (station.resources[key] ?? 0) >= amount
-  );
-  if (
-    !canAffordColony &&
-    !canAcquireCosts(
-      state,
-      station,
-      entriesOf(colonyCost).map(([resourceKey, amount]) => ({
-        resourceKey,
-        amount,
-      }))
-    )
-  ) {
-    return null;
-  }
+  const affordable = canAffordColony(state, station);
+  if (!affordable && !canAcquireCosts(state, station, colonizationCost(state))) return null;
   // Check if station has a miner ship to send
   const hasMiner = station.fleets.some((f) => {
     const sc = getSpacecraft(f.spacecraftKey);
@@ -266,7 +233,7 @@ export async function generateEstablishColonyCandidate(
   const baseNeed = Math.min(
     100,
     Math.round(
-      (canAffordColony ? 60 : 40) *
+      (affordable ? 60 : 40) *
         Math.max(0.1, 1 - nearest.distance / maxDist) *
         PROFILE_PARAMS[profile].colonizationFactor
     ) + (contactSearch ? 30 : 0)
@@ -280,9 +247,9 @@ export async function generateEstablishColonyCandidate(
     opportunity: (hasMiner ? 20 : 5) + (contactSearch ? 25 : 0),
     longTermValue: 70 + (contactSearch ? 15 : 0),
     commitment: 0,
-    cost: canAffordColony ? 20 : 40,
+    cost: affordable ? 20 : 40,
     risk: 15,
-    blockers: canAffordColony ? (hasMiner ? 0 : 15) : 40,
+    blockers: affordable ? (hasMiner ? 0 : 15) : 40,
   };
 }
 
@@ -298,7 +265,6 @@ export async function stepExploreSector(
   if (isNaN(sectorX) || isNaN(sectorY)) {
     return {
       type: 'blocked',
-      detail: 'invalid_coords',
       reason: `Invalid sector target: ${targetRef}`,
     };
   }
@@ -316,7 +282,6 @@ export async function stepExploreSector(
   if (existing) {
     return {
       type: 'waiting',
-      detail: 'expedition_traveling',
       reason: `Expedition to sector ${sectorX}:${sectorY} underway`,
     };
   }
@@ -353,7 +318,6 @@ export async function stepEstablishColony(
   if (isNaN(sectorX) || isNaN(sectorY)) {
     return {
       type: 'blocked',
-      detail: 'invalid_coords',
       reason: `Invalid colony target: ${targetRef}`,
     };
   }
@@ -387,7 +351,6 @@ export async function stepEstablishColony(
   if (existing) {
     return {
       type: 'waiting',
-      detail: 'colony_traveling',
       reason: `Colony ship to sector ${sectorX}:${sectorY} underway`,
     };
   }
@@ -396,20 +359,11 @@ export async function stepEstablishColony(
   if (supportPreparation) return supportPreparation;
 
   // Check resources
-  const colonyCost = colonizationCost(_state);
-  const canAffordColony = entriesOf(colonyCost).every(
-    ([key, amount]) => (station.resources[key] ?? 0) >= amount
-  );
-  if (!canAffordColony) {
-    const colonyCosts = entriesOf(colonyCost).map(([resourceKey, amount]) => ({
-      resourceKey,
-      amount,
-    }));
+  if (!canAffordColony(_state, station)) {
     return waitForCosts(
       _state,
       station,
-      colonyCosts,
-      'colony_cost',
+      colonizationCost(_state),
       `Saving resources for colony at sector ${sectorX}:${sectorY}`,
       `Colony resources for sector ${sectorX}:${sectorY} are not reachable`
     );

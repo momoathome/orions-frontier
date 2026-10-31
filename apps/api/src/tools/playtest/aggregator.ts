@@ -24,7 +24,11 @@ import {
   type ProfileMetrics,
 } from './metrics.js';
 import type { PlaytestPopulationMember } from './population.js';
-import type { PlaytestStateSnapshot } from './snapshot-loader.js';
+import type {
+  PlaytestBotSnapshot,
+  PlaytestStateSnapshot,
+  PlaytestStationSnapshot,
+} from './snapshot-loader.js';
 
 interface BotAggregationState {
   metrics: BotMetrics;
@@ -53,6 +57,7 @@ function createBot(
       profile,
       populationKind,
       joinedAt,
+      eliminatedAt: null,
       goals: {},
       milestones: {},
       economy: emptyEconomyMetrics(),
@@ -180,7 +185,7 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
     aggregate.development.influence += bot.development.influence;
     aggregate.development.spacecraftUnits += bot.development.spacecraftUnits;
     sumRecord(aggregate.development.spacecraftBuilt, bot.development.spacecraftBuilt);
-    aggregate.development.queueActiveSamples += bot.development.queueActiveSamples;
+    aggregate.development.shipyardActiveSamples += bot.development.shipyardActiveSamples;
     aggregate.development.snapshotSamples += bot.development.snapshotSamples;
 
     aggregate.expansion.expeditions += bot.expansion.expeditions;
@@ -226,8 +231,8 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
     aggregate.salvage.missions += bot.salvage.missions;
     aggregate.salvage.collectorBuilds += bot.salvage.collectorBuilds;
   }
-  aggregate.development.queueUtilization = safeRatio(
-    aggregate.development.queueActiveSamples,
+  aggregate.development.shipyardUtilization = safeRatio(
+    aggregate.development.shipyardActiveSamples,
     aggregate.development.snapshotSamples
   );
   return aggregate;
@@ -240,6 +245,71 @@ function normalizeAggregate(aggregate: AggregateMetrics): AggregateMetrics {
     }
   }
   return aggregate;
+}
+
+function applyBotSnapshot(
+  state: BotAggregationState,
+  botSnapshot: PlaytestBotSnapshot,
+  ownedStations: readonly PlaytestStationSnapshot[],
+  capturedAt: string
+): void {
+  const { metrics } = state;
+  metrics.eliminatedAt = null;
+  metrics.profile = botSnapshot.profile;
+  metrics.populationKind = botSnapshot.populationKind;
+  metrics.development.buildingLevelTotal = ownedStations.reduce(
+    (sum, station) => sum + station.buildingLevelTotal,
+    0
+  );
+  metrics.development.defenseLevelTotal = ownedStations.reduce(
+    (sum, station) => sum + station.defenseLevelTotal,
+    0
+  );
+  metrics.development.completedResearch = botSnapshot.completedResearch;
+  metrics.development.influence = botSnapshot.influence;
+  metrics.development.spacecraftUnits = botSnapshot.spacecraftUnits;
+  metrics.development.snapshotSamples += 1;
+  if (ownedStations.some((station) => station.activeBuildOrders > 0)) {
+    metrics.development.shipyardActiveSamples += 1;
+  }
+  metrics.development.shipyardUtilization = safeRatio(
+    metrics.development.shipyardActiveSamples,
+    metrics.development.snapshotSamples
+  );
+  metrics.expansion.stations = botSnapshot.stationCount;
+  metrics.conflict.maximumObservedReserve = Math.max(
+    metrics.conflict.maximumObservedReserve,
+    botSnapshot.spacecraftUnits - botSnapshot.lockedSpacecraftUnits
+  );
+  if (
+    ownedStations.some(
+      (station) =>
+        station.stationAlias.endsWith('/station-001') &&
+        station.resourceUnits > 0 &&
+        station.spacecraftUnits > 0
+    )
+  ) {
+    recordMilestone(metrics.milestones, 'stableInitialStation', capturedAt);
+  }
+  const spacecraftByKey: Record<string, number> = {};
+  for (const station of ownedStations) {
+    sumRecord(spacecraftByKey, station.spacecraftByKey);
+  }
+  if ((spacecraftByKey['mole'] ?? 0) >= 3 && (spacecraftByKey['titan'] ?? 0) >= 1) {
+    recordMilestone(metrics.milestones, 'threeMolesAndTitan', capturedAt);
+  }
+}
+
+/** Clears what only stations provide; research and event totals stay. */
+function eliminateBot(state: BotAggregationState, capturedAt: string): void {
+  const { metrics } = state;
+  metrics.eliminatedAt ??= capturedAt;
+  metrics.development.buildingLevelTotal = 0;
+  metrics.development.defenseLevelTotal = 0;
+  metrics.development.spacecraftUnits = 0;
+  // ponytail: influence also drops its research share; recompute from research if reports need it.
+  metrics.development.influence = 0;
+  metrics.expansion.stations = 0;
 }
 
 export class PlaytestAggregator {
@@ -454,79 +524,52 @@ export class PlaytestAggregator {
           snapshot.capturedAt
         );
       this.bots.set(botSnapshot.botAlias, state);
-      state.metrics.profile = botSnapshot.profile;
-      state.metrics.populationKind = botSnapshot.populationKind;
-      state.metrics.development.buildingLevelTotal = snapshot.stations
-        .filter((station) => station.ownerAlias === botSnapshot.botAlias)
-        .reduce((sum, station) => sum + station.buildingLevelTotal, 0);
-      state.metrics.development.defenseLevelTotal = snapshot.stations
-        .filter((station) => station.ownerAlias === botSnapshot.botAlias)
-        .reduce((sum, station) => sum + station.defenseLevelTotal, 0);
-      state.metrics.development.completedResearch = botSnapshot.completedResearch;
-      state.metrics.development.influence = botSnapshot.influence;
-      state.metrics.development.spacecraftUnits = botSnapshot.spacecraftUnits;
-      state.metrics.development.snapshotSamples += 1;
       const ownedStations = snapshot.stations.filter(
         (station) => station.ownerAlias === botSnapshot.botAlias
       );
-      if (ownedStations.some((station) => station.activeBuildOrders > 0)) {
-        state.metrics.development.queueActiveSamples += 1;
+      applyBotSnapshot(state, botSnapshot, ownedStations, snapshot.capturedAt);
+      for (const station of ownedStations) this.sampleStation(state, station, capturedAt);
+    }
+    const present = new Set(snapshot.bots.map((bot) => bot.botAlias));
+    for (const state of this.bots.values()) {
+      // Snapshots list bots by their stations, so a bot that lost its last one disappears.
+      if (state.metrics.development.snapshotSamples > 0 && !present.has(state.metrics.botAlias)) {
+        eliminateBot(state, snapshot.capturedAt);
       }
-      state.metrics.development.queueUtilization = safeRatio(
-        state.metrics.development.queueActiveSamples,
-        state.metrics.development.snapshotSamples
+    }
+  }
+
+  private sampleStation(
+    state: BotAggregationState,
+    station: PlaytestStationSnapshot,
+    capturedAt: number
+  ): void {
+    for (const resourceKey of resourceKeys) {
+      const amount = station.resources[resourceKey] ?? 0;
+      const current = state.metrics.economy.minimumResources[resourceKey];
+      state.metrics.economy.minimumResources[resourceKey] =
+        current === undefined ? amount : Math.min(current, amount);
+    }
+    const previous = this.stationSamples.get(station.stationAlias);
+    if (previous?.wasFull) {
+      const duration = Math.max(0, capturedAt - previous.capturedAt);
+      state.metrics.economy.fullStorageDurationMs += duration;
+      state.metrics.economy.fullStorageDurationByStationMs[station.stationAlias] =
+        (state.metrics.economy.fullStorageDurationByStationMs[station.stationAlias] ?? 0) +
+        duration;
+    }
+    const isFull =
+      station.storageCapacityPerResource > 0 &&
+      Object.values(station.resources).some(
+        (amount) => amount >= station.storageCapacityPerResource
       );
-      state.metrics.expansion.stations = botSnapshot.stationCount;
-      state.metrics.conflict.maximumObservedReserve = Math.max(
-        state.metrics.conflict.maximumObservedReserve,
-        botSnapshot.spacecraftUnits - botSnapshot.lockedSpacecraftUnits
-      );
-      if (
-        ownedStations.some(
-          (station) =>
-            station.stationAlias.endsWith('/station-001') &&
-            station.resourceUnits > 0 &&
-            station.spacecraftUnits > 0
-        )
-      ) {
-        recordMilestone(state.metrics.milestones, 'stableInitialStation', snapshot.capturedAt);
-      }
-      const spacecraftByKey: Record<string, number> = {};
-      for (const station of ownedStations) {
-        sumRecord(spacecraftByKey, station.spacecraftByKey);
-      }
-      if ((spacecraftByKey['mole'] ?? 0) >= 3 && (spacecraftByKey['titan'] ?? 0) >= 1) {
-        recordMilestone(state.metrics.milestones, 'threeMolesAndTitan', snapshot.capturedAt);
-      }
-      for (const station of ownedStations) {
-        for (const resourceKey of resourceKeys) {
-          const amount = station.resources[resourceKey] ?? 0;
-          const current = state.metrics.economy.minimumResources[resourceKey];
-          state.metrics.economy.minimumResources[resourceKey] =
-            current === undefined ? amount : Math.min(current, amount);
-        }
-        const previous = this.stationSamples.get(station.stationAlias);
-        if (previous?.wasFull) {
-          const duration = Math.max(0, capturedAt - previous.capturedAt);
-          state.metrics.economy.fullStorageDurationMs += duration;
-          state.metrics.economy.fullStorageDurationByStationMs[station.stationAlias] =
-            (state.metrics.economy.fullStorageDurationByStationMs[station.stationAlias] ?? 0) +
-            duration;
-        }
-        const isFull =
-          station.storageCapacityPerResource > 0 &&
-          Object.values(station.resources).some(
-            (amount) => amount >= station.storageCapacityPerResource
-          );
-        this.stationSamples.set(station.stationAlias, {
-          ownerAlias: station.ownerAlias,
-          capturedAt,
-          wasFull: isFull,
-        });
-        if (station.resourceUnits > 0 && station.spacecraftUnits > 0) {
-          recordColonyStabilization(state, station.stationAlias, capturedAt);
-        }
-      }
+    this.stationSamples.set(station.stationAlias, {
+      ownerAlias: station.ownerAlias,
+      capturedAt,
+      wasFull: isFull,
+    });
+    if (station.resourceUnits > 0 && station.spacecraftUnits > 0) {
+      recordColonyStabilization(state, station.stationAlias, capturedAt);
     }
   }
 

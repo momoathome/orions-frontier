@@ -53,8 +53,13 @@ const logbook = useLogbookStore();
 const ranking = useRankingStore();
 const research = useResearchStore();
 
+let tripsRequest = 0;
 const refreshTrips = () =>
-  guarded(async () => (state.trips = await apiClient.get<UserTrip[]>('/me/trips')));
+  guarded(async () => {
+    const request = ++tripsRequest;
+    const trips = await apiClient.get<UserTrip[]>('/me/trips');
+    if (request === tripsRequest) state.trips = trips;
+  });
 
 async function refreshAll(): Promise<void> {
   await station.refreshStations();

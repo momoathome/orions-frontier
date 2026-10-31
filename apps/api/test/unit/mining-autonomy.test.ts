@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { largestResource, selectMiningTarget } from '../../src/services/mining/autonomy.js';
+import { requireSpacecraft } from '@orions-frontier/game-config';
+import {
+  firstTripDeliveryPerHour,
+  largestResource,
+  selectMiningTarget,
+} from '../../src/services/mining/autonomy.js';
 
 const station = { x: 0, y: 0 };
 const targets = [
@@ -21,6 +26,27 @@ test('the fleet picks the best delivery per hour, ties go to the nearer asteroid
   const byRemaining = (_distance: number, remaining: number) => remaining;
   assert.equal(selectMiningTarget(station, targets, null, byRemaining)?.id, 'b-far-rich');
   assert.equal(selectMiningTarget(station, targets, null, () => 1)?.id, 'c-titanium');
+});
+
+test('the real score prefers a full far asteroid over an almost empty near one', () => {
+  const mole = requireSpacecraft('mole');
+  const score = firstTripDeliveryPerHour({
+    speed: mole.speed,
+    miningRate: mole.miningRate,
+    cargoCapacity: mole.cargo,
+    minerCount: 3,
+  });
+  const rocks = [
+    { id: 'near-empty', x: 100, y: 0, remainingByResource: { carbon: 5 }, remainingAmount: 5 },
+    {
+      id: 'far-full',
+      x: 2_000,
+      y: 0,
+      remainingByResource: { carbon: 9_000 },
+      remainingAmount: 9_000,
+    },
+  ];
+  assert.equal(selectMiningTarget(station, rocks, null, score)?.id, 'far-full');
 });
 
 test('largestResource names the biggest cargo share', () => {

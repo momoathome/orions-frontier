@@ -85,7 +85,7 @@ export async function getMiningPreview({
   const preview = scanned
     ? {
         distance,
-        speed: spacecraft.speed,
+        speed: effectiveSpeed,
         miningRate: effectiveRate,
         cargoCapacity: effectiveCargo,
         remainingAmount,
@@ -93,7 +93,7 @@ export async function getMiningPreview({
       }
     : {
         distance,
-        speed: spacecraft.speed,
+        speed: effectiveSpeed,
         miningRate: effectiveRate,
         cargoCapacity: effectiveCargo,
         ...cycle,

@@ -36,7 +36,10 @@ const asteroid = ref<AsteroidDetail | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
+let loadRequest = 0;
 async function loadAsteroid(id: string, showLoading = true) {
+  // A later click or refresh may start another load meanwhile; only the newest one answers.
+  const request = ++loadRequest;
   if (showLoading) loading.value = true;
   error.value = null;
   if (showLoading) asteroid.value = null;
@@ -44,18 +47,18 @@ async function loadAsteroid(id: string, showLoading = true) {
     const response = await apiClient.get<AsteroidDetail>(`/asteroids/${id}`, {
       params: { scannerBypass: scannerBypass },
     });
-    // A later click may have selected another asteroid meanwhile.
-    if (id !== asteroidId) return;
+    if (request !== loadRequest) return;
     asteroid.value = response;
   } catch (cause) {
-    if (id !== asteroidId) return;
+    if (request !== loadRequest) return;
     if (cause instanceof ApiError && cause.status === 404) {
       emit('close');
       return;
     }
     error.value = 'Unable to retrieve asteroid data.';
   } finally {
-    if (showLoading && id === asteroidId) loading.value = false;
+    // The newest load also ends a spinner a superseded first load left on.
+    if (request === loadRequest) loading.value = false;
   }
 }
 

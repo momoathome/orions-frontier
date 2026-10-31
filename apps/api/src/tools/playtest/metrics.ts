@@ -39,9 +39,9 @@ export interface DevelopmentMetrics {
   influence: number;
   spacecraftUnits: number;
   spacecraftBuilt: Record<string, number>;
-  queueActiveSamples: number;
+  shipyardActiveSamples: number;
   snapshotSamples: number;
-  queueUtilization: number;
+  shipyardUtilization: number;
 }
 
 export interface ExpansionMetrics {
@@ -84,6 +84,8 @@ export interface BotMetrics {
   profile: string;
   populationKind: string;
   joinedAt: string;
+  /** First snapshot without any station of this bot; null while it still owns one. */
+  eliminatedAt: string | null;
   goals: Record<string, GoalMetrics>;
   milestones: Milestones;
   economy: EconomyMetrics;
@@ -154,9 +156,9 @@ export function emptyDevelopmentMetrics(): DevelopmentMetrics {
     influence: 0,
     spacecraftUnits: 0,
     spacecraftBuilt: {},
-    queueActiveSamples: 0,
+    shipyardActiveSamples: 0,
     snapshotSamples: 0,
-    queueUtilization: 0,
+    shipyardUtilization: 0,
   };
 }
 

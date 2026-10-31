@@ -41,6 +41,7 @@ export interface StationSnapshot {
     arrivesAt: Date;
     toId: string;
   }[];
+  /** Moving world missions only (traveling or returning). */
   missions: {
     missionType: string;
     status: string;
@@ -48,6 +49,7 @@ export interface StationSnapshot {
     targetSectorX: number;
     targetSectorY: number;
   }[];
+  /** Unresolved attacks only. */
   combatMissions: {
     id: string;
     defenderStationId: string;
@@ -94,7 +96,5 @@ export interface GoalBotState {
 
 export type GoalResult =
   | { type: 'success'; intent: BotIntent; reason: string }
-  | { type: 'waiting'; detail: string; reason: string }
-  | { type: 'saving'; detail: string; reason: string }
-  | { type: 'blocked'; detail: string; reason: string }
+  | { type: 'waiting' | 'saving' | 'blocked'; reason: string }
   | { type: 'complete'; goalType: string; targetRef: string; reason: string };

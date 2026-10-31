@@ -1,4 +1,4 @@
-import { and, between, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, between, eq, exists, inArray, or, sql } from 'drizzle-orm';
 import { required, type ResourceKey } from '@orions-frontier/shared';
 import type { getDb, QueryDb, Tx } from '../../../lib/db/index.js';
 import { asteroidAssignments, asteroids, asteroidVeins } from '../../../lib/db/schema/asteroids.js';
@@ -7,7 +7,7 @@ import { stations } from '../../../lib/db/schema/stations.js';
 
 /** Narrowed db so world generation and seeding can pass a transaction or a stub. */
 type InsertDb = Pick<ReturnType<typeof getDb>, 'insert'>;
-type SelectDistinctDb = Pick<ReturnType<typeof getDb>, 'selectDistinct'>;
+type ScannerDb = Pick<ReturnType<typeof getDb>, 'select' | 'selectDistinct'>;
 
 export interface ChunkBounds {
   minChunkX: number;
@@ -251,19 +251,28 @@ export function listAsteroidAssignmentsWithOwner(db: QueryDb, asteroidId: string
 }
 
 /** Asteroids the user's miners have already worked, i.e. returned cargo from. */
-export async function listWorkedAsteroidIdsByUser(db: SelectDistinctDb, userId: string) {
+export async function listWorkedAsteroidIdsByUser(db: ScannerDb, userId: string) {
+  // EXISTS stops at the first return per assignment, so the trip history does not add up.
   const rows = await db
     .selectDistinct({ asteroidId: asteroidAssignments.asteroidId })
     .from(asteroidAssignments)
     .innerJoin(stations, eq(stations.id, asteroidAssignments.stationId))
-    .innerJoin(
-      spacecraftTrips,
+    .where(
       and(
-        eq(spacecraftTrips.assignmentId, asteroidAssignments.id),
-        eq(spacecraftTrips.purpose, 'mining_return')
+        eq(stations.userId, userId),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(spacecraftTrips)
+            .where(
+              and(
+                eq(spacecraftTrips.assignmentId, asteroidAssignments.id),
+                eq(spacecraftTrips.purpose, 'mining_return')
+              )
+            )
+        )
       )
-    )
-    .where(eq(stations.userId, userId));
+    );
   return rows.map((row) => row.asteroidId);
 }
 

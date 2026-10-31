@@ -24,6 +24,7 @@ import {
   cancelBuildingUpgrade,
   cancelBuildOrder,
   cancelResearch,
+  completeDueBuildings,
   creditStationResources,
   getBuildSlots,
   getResearchState,
@@ -508,4 +509,28 @@ test('a laboratory that is only upgrading or queued does not unlock the next res
   assert.deepEqual(state.technologies.find((t) => t.definition.key === 'weapons')?.blockers, [
     { type: 'lab_cap', level: 2, current: 1 },
   ]);
+});
+
+test('an upgrade of a building removed from the config is dropped with a refund, not retried', async () => {
+  const [row] = await getDb()
+    .insert(stationBuildings)
+    .values({
+      stationId,
+      buildingKey: 'removed_building',
+      upgradeEndsAt: new Date(Date.now() - 1_000),
+      upgradePaidCost: [{ resourceKey: 'carbon', amount: 100 }],
+    })
+    .returning();
+  try {
+    assert.equal((await completeDueBuildings(new Date())).failed, 1);
+    const [cleared] = await getDb()
+      .select()
+      .from(stationBuildings)
+      .where(eq(stationBuildings.id, row!.id));
+    assert.equal(cleared?.upgradeEndsAt, null);
+    assert.deepEqual(await stock(), { ...STOCK, carbon: STOCK.carbon! + 100 });
+    assert.equal((await completeDueBuildings(new Date())).failed, 0, 'not retried');
+  } finally {
+    await getDb().delete(stationBuildings).where(eq(stationBuildings.id, row!.id));
+  }
 });

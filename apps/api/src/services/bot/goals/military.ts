@@ -4,6 +4,7 @@ import {
   calculateDefenseUpgradeCost,
   calculateDefenseUpgradeEffect,
   getDefenseUpgrade,
+  requireSpacecraft,
   requirementBlockers,
   spacecrafts,
 } from '@orions-frontier/game-config';
@@ -13,13 +14,14 @@ import type { GoalCandidate } from '../goal-driven-v1.js';
 import { GOAL_CATEGORY } from '../goal-driven-v1.js';
 import {
   assignMinerTowardCosts,
-  buildingUpgradeCost,
+  buildingCanUpgrade,
   canAcquireCosts,
   canAfford,
   freeCrewCapacity,
   hasActiveMining,
   stationBuildingLevels,
   stationModifiers,
+  stepTowardBuildingLevel,
 } from './shared.js';
 
 // ---------------------------------------------------------------------------
@@ -116,6 +118,21 @@ export function unlockedFighters(station: StationSnapshot): { key: string; attac
     .map((definition) => ({ key: definition.key, attack: definition.attack }));
 }
 
+/** Unlocked fighter with the best attack per crew that fits the free crew and the filter. */
+function bestFighter(
+  station: StationSnapshot,
+  crew: number,
+  filter: (fighter: ReturnType<typeof requireSpacecraft>) => boolean
+) {
+  return unlockedFighters(station)
+    .map((fighter) => requireSpacecraft(fighter.key))
+    .filter((fighter) => fighter.crew <= crew && filter(fighter))
+    .sort(
+      (left, right) =>
+        right.attack / right.crew - left.attack / left.crew || left.key.localeCompare(right.key)
+    )[0];
+}
+
 /** Choose the best defense upgrade by defense gain per cost. */
 export function bestDefenseUpgrade(
   station: StationSnapshot,
@@ -206,24 +223,20 @@ export async function stepFortifyStation(
     };
   }
 
+  // The server runs one defense upgrade per station at a time.
+  const upgrading = station.defense.find((d) => d.upgradeEndsAt);
+  if (upgrading) {
+    return {
+      type: 'waiting',
+      reason: `Defense ${upgrading.upgradeKey} upgrading to level ${upgrading.level + 1}`,
+    };
+  }
+
   const best = bestDefenseUpgrade(station, _state);
   if (!best) {
     return {
       type: 'blocked',
-      detail: 'no_upgradeable_defense',
-      reason: `All defenses at max level or upgrading`,
-    };
-  }
-
-  // Check if already upgrading this defense
-  const isUpgradingDef = station.defense.some(
-    (d) => d.upgradeKey === best.upgradeKey && d.upgradeEndsAt !== null
-  );
-  if (isUpgradingDef) {
-    return {
-      type: 'waiting',
-      detail: 'defense_upgrading',
-      reason: `Defense ${best.upgradeKey} upgrading to level ${best.targetLevel}`,
+      reason: `All defenses at max level or out of reach`,
     };
   }
 
@@ -238,7 +251,6 @@ export async function stepFortifyStation(
     if (supply) return supply;
     return {
       type: 'saving',
-      detail: 'defense_cost',
       reason: `Saving resources for ${best.upgradeKey} level ${best.targetLevel} (+${best.gain} defense)`,
     };
   }
@@ -275,6 +287,13 @@ export function generateBuildStrikeForceCandidate(
 
   const current = localFighterAttack(station);
   if (current >= TARGET_STRIKE_ATTACK) return null;
+  // Without crew room and a Hangar level left the step could only block.
+  if (
+    !buildingCanUpgrade(station, 'hangar') &&
+    !bestFighter(station, freeCrewCapacity(station), () => true)
+  ) {
+    return null;
+  }
 
   // Higher need for warlord, or if station was recently attacked
   const isNewColony = !hasActiveMining(station);
@@ -313,77 +332,18 @@ export async function stepBuildStrikeForce(
   }
 
   // The candidate requires an unlocked fighter (Shipyard included), and neither unlock can drop.
-  const crewCapacity = freeCrewCapacity(station);
-  if (crewCapacity <= 0) {
-    // Try upgrading hangar
-    const hangar = station.buildings.find((b) => b.buildingKey === 'hangar');
-    if (hangar?.upgradeEndsAt === null) {
-      if (!canAfford(station, buildingUpgradeCost(station, 'hangar'))) {
-        return {
-          type: 'saving',
-          detail: 'hangar_cost',
-          reason: `Saving for Hangar level ${hangar.level + 1}`,
-        };
-      }
-      return {
-        type: 'success',
-        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'hangar' },
-        reason: `Building Hangar to level ${hangar.level + 1} for more crew capacity`,
-      };
-    }
-    if (hangar) {
-      return {
-        type: 'waiting',
-        detail: 'hangar_upgrading',
-        reason: `Hangar upgrading for crew capacity`,
-      };
-    }
-    return {
-      type: 'blocked',
-      detail: 'no_hangar_capacity',
-      reason: `No crew capacity for more fighters`,
-    };
+  const crew = freeCrewCapacity(station);
+  if (!bestFighter(station, crew, () => true)) {
+    return stepTowardBuildingLevel(_state, station, 'hangar', 'fighter crew');
   }
-
-  // Pick the best fighter: best attack per crew ratio among unlocked, affordable types
-  const unlocked = unlockedFighters(station);
-  let best: { key: string; attack: number } | null = null;
-
-  for (const f of unlocked) {
-    const sc = getSpacecraft(f.key);
-    if (!sc) continue;
-    const costs = sc.costs;
-    if (!canAfford(station, costs)) continue;
-    const maxCount = Math.min(
-      Math.floor(crewCapacity / sc.crew),
-      1 // Build one at a time
-    );
-    if (maxCount < 1) continue;
-    const efficiency = sc.attack / sc.crew;
-    if (!best || efficiency > best.attack / (getSpacecraft(best.key)?.crew ?? 1)) {
-      best = { key: f.key, attack: sc.attack };
-    }
-  }
-
+  const best = bestFighter(station, crew, (fighter) => canAfford(station, fighter.costs));
   if (!best) {
-    const reachable = unlocked
-      .flatMap((fighter) => {
-        const definition = getSpacecraft(fighter.key);
-        return definition ? [definition] : [];
-      })
-      .filter((fighter) => fighter.crew <= crewCapacity)
-      .filter(
-        (fighter) =>
-          canAcquireCosts(_state, station, fighter.costs) && !canAfford(station, fighter.costs)
-      )
-      .sort(
-        (left, right) =>
-          right.attack / right.crew - left.attack / left.crew || left.key.localeCompare(right.key)
-      )[0];
+    const reachable = bestFighter(station, crew, (fighter) =>
+      canAcquireCosts(_state, station, fighter.costs)
+    );
     if (!reachable) {
       return {
         type: 'blocked',
-        detail: 'fighter_resources',
         reason: `No unlocked fighter has a reachable resource path at ${station.name}`,
       };
     }
@@ -396,7 +356,6 @@ export async function stepBuildStrikeForce(
     if (supply) return supply;
     return {
       type: 'saving',
-      detail: 'fighter_cost',
       reason: `Saving for ${reachable.key} at ${station.name}`,
     };
   }
@@ -409,6 +368,6 @@ export async function stepBuildStrikeForce(
       spacecraftKey: best.key,
       amount: 1,
     },
-    reason: `Building 1 ${best.key} (attack ${best.attack}, crew ${getSpacecraft(best.key)?.crew})`,
+    reason: `Building 1 ${best.key} (attack ${best.attack}, crew ${best.crew})`,
   };
 }

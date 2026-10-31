@@ -82,7 +82,8 @@ export class TripLayer {
 
   private graphics = new Graphics();
   private trips: ActiveMovement[] = [];
-  private scannerCircles: ScannerCircle[] = [];
+  /** Null in the admin scanner bypass: every identified contact is drawn. */
+  private scannerCircles: ScannerCircle[] | null = [];
 
   constructor(private asteroidRadiusAt: AsteroidRadiusLookup) {
     this.container.addChild(this.graphics);
@@ -92,7 +93,7 @@ export class TripLayer {
     this.trips = trips;
   }
 
-  setScannerCircles(circles: ScannerCircle[]) {
+  setScannerCircles(circles: ScannerCircle[] | null) {
     this.scannerCircles = circles;
   }
 
@@ -164,11 +165,12 @@ export class TripLayer {
         const elapsedSeconds = Math.max(0, Math.min(7.5, (now - trip.observedAt) / 1_000));
         const x = trip.x + trip.velocityX * elapsedSeconds;
         const y = trip.y + trip.velocityY * elapsedSeconds;
-        const visible = this.scannerCircles.some((circle) => {
-          const dx = x - circle.x;
-          const dy = y - circle.y;
-          return dx * dx + dy * dy <= circle.range * circle.range;
-        });
+        const visible =
+          this.scannerCircles?.some((circle) => {
+            const dx = x - circle.x;
+            const dy = y - circle.y;
+            return dx * dx + dy * dy <= circle.range * circle.range;
+          }) ?? true;
         // Unidentified civil traffic shows as a faint dot anywhere on the map.
         if (trip.signature === null) {
           this.graphics.circle(x, y, 2);

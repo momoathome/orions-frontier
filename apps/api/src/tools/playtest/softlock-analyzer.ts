@@ -12,7 +12,7 @@ export type PlaytestWarningCode =
   | 'unreachable_resource_without_expansion'
   | 'storage_capacity_bottleneck'
   | 'hangar_capacity_bottleneck'
-  | 'queue_capacity_bottleneck'
+  | 'shipyard_capacity_bottleneck'
   | 'warlord_without_attack_chance'
   | 'warlord_ignored_attack_chance'
   | 'peaceful_profile_without_economic_progress';
@@ -296,69 +296,75 @@ function analyzeGoalChurn(
   return null;
 }
 
-function analyzeBot(
+/** The part of the run the bot took part in. */
+interface Participation {
+  start: number;
+  end: number;
+  durationMs: number;
+}
+
+function analyzeUnstableColonies(
   bot: BotMetrics,
-  diagnostics: readonly PlaytestDiagnostic[],
-  virtualStart: number,
-  virtualEnd: number,
+  participation: Participation,
   thresholds: SoftlockThresholds
 ): PlaytestWarning[] {
   const warnings: PlaytestWarning[] = [];
-  const decisions = decisionDiagnostics(diagnostics);
-  for (const candidate of [
-    analyzeBlockedGoal(bot, decisions, thresholds),
-    analyzeNoProgress(bot, diagnostics, thresholds),
-    analyzeRepeatedAction(bot, diagnostics, thresholds),
-    analyzeGoalChurn(bot, decisions, thresholds),
-  ]) {
-    if (candidate) warnings.push(candidate);
-  }
-
-  const joinedAt = new Date(bot.joinedAt).getTime();
-  const participationStart = Math.max(virtualStart, joinedAt);
-  const participationMs = Math.max(0, virtualEnd - participationStart);
   for (const [stationAlias, colony] of Object.entries(bot.expansion.coloniesByStation)) {
     const colonyAt = new Date(colony.foundedAt).getTime();
     if (
       colony.stabilizationDurationMs !== null ||
-      virtualEnd - colonyAt < thresholds.unstableColonyMs
+      participation.end - colonyAt < thresholds.unstableColonyMs
     ) {
       continue;
     }
     const colonyWarning = warning(
       'unstable_colony',
       bot.botAlias,
-      Math.max(colonyAt, participationStart),
-      virtualEnd,
-      { durationMs: virtualEnd - colonyAt, stationAlias },
+      Math.max(colonyAt, participation.start),
+      participation.end,
+      { durationMs: participation.end - colonyAt, stationAlias },
       'This founded colony did not reach the stable-colony milestone in time.'
     );
     colonyWarning.affectedAliases.push(stationAlias);
     warnings.push(colonyWarning);
   }
+  return warnings;
+}
 
+function analyzeUnreachableResource(
+  bot: BotMetrics,
+  decisions: ReturnType<typeof decisionDiagnostics>,
+  participation: Participation,
+  thresholds: SoftlockThresholds
+): PlaytestWarning | null {
   const resourceSpan = spanForReason(decisions, /not reachable/i);
   if (
-    bot.economy.unreachableResourceNeeds > 0 &&
-    bot.expansion.expeditions === 0 &&
-    resourceSpan &&
-    virtualEnd - resourceSpan.start >= thresholds.capacityBottleneckMs
+    bot.economy.unreachableResourceNeeds <= 0 ||
+    bot.expansion.expeditions !== 0 ||
+    !resourceSpan ||
+    participation.end - resourceSpan.start < thresholds.capacityBottleneckMs
   ) {
-    warnings.push(
-      warning(
-        'unreachable_resource_without_expansion',
-        bot.botAlias,
-        Math.max(resourceSpan.start, participationStart),
-        virtualEnd,
-        {
-          resourceNeedDecisions: bot.economy.unreachableResourceNeeds,
-          expeditions: bot.expansion.expeditions,
-        },
-        'Resource needs remained unresolved without an exploration response.'
-      )
-    );
+    return null;
   }
+  return warning(
+    'unreachable_resource_without_expansion',
+    bot.botAlias,
+    Math.max(resourceSpan.start, participation.start),
+    participation.end,
+    {
+      resourceNeedDecisions: bot.economy.unreachableResourceNeeds,
+      expeditions: bot.expansion.expeditions,
+    },
+    'Resource needs remained unresolved without an exploration response.'
+  );
+}
 
+function analyzeStorageBottleneck(
+  bot: BotMetrics,
+  participation: Participation,
+  thresholds: SoftlockThresholds
+): PlaytestWarning[] {
+  const warnings: PlaytestWarning[] = [];
   for (const [stationAlias, durationMs] of Object.entries(
     bot.economy.fullStorageDurationByStationMs
   )) {
@@ -366,11 +372,11 @@ function analyzeBot(
     const storageWarning = warning(
       'storage_capacity_bottleneck',
       bot.botAlias,
-      participationStart,
-      virtualEnd,
+      participation.start,
+      participation.end,
       {
         fullStorageDurationMs: durationMs,
-        observationWindowMs: participationMs,
+        observationWindowMs: participation.durationMs,
         stationAlias,
       },
       'This station was observed full for more accumulated station time than the configured capacity window.'
@@ -378,90 +384,138 @@ function analyzeBot(
     storageWarning.affectedAliases.push(stationAlias);
     warnings.push(storageWarning);
   }
-  const hangarSpan = spanForReason(decisions, /hangar|crew capacity/i);
-  if (hangarSpan && hangarSpan.end - hangarSpan.start >= thresholds.capacityBottleneckMs) {
-    warnings.push(
-      warning(
-        'hangar_capacity_bottleneck',
-        bot.botAlias,
-        hangarSpan.start,
-        hangarSpan.end,
-        { matchingDecisions: hangarSpan.count, durationMs: hangarSpan.end - hangarSpan.start },
-        'Hangar or crew-capacity reasons persisted beyond the configured window.'
-      )
-    );
-  }
-  if (
-    participationMs >= thresholds.capacityBottleneckMs &&
-    bot.development.snapshotSamples > 0 &&
-    bot.development.queueUtilization >= 0.95
-  ) {
-    warnings.push(
-      warning(
-        'queue_capacity_bottleneck',
-        bot.botAlias,
-        participationStart,
-        virtualEnd,
-        {
-          queueUtilization: bot.development.queueUtilization,
-          snapshotSamples: bot.development.snapshotSamples,
-        },
-        'Construction queues were occupied in at least 95% of observed snapshots.'
-      )
-    );
-  }
-
-  if (
-    bot.profile === 'warlord' &&
-    participationMs >= thresholds.coreMilestoneMs &&
-    bot.conflict.attacks === 0 &&
-    bot.conflict.opportunitySamples > 0
-  ) {
-    const hadViableTarget = bot.conflict.viableTargets > 0;
-    warnings.push(
-      warning(
-        hadViableTarget ? 'warlord_ignored_attack_chance' : 'warlord_without_attack_chance',
-        bot.botAlias,
-        participationStart,
-        virtualEnd,
-        {
-          attacks: 0,
-          eligibleAfterProtectionAndCooldown: bot.conflict.eligibleAfterProtectionAndCooldown,
-          opportunitySamples: bot.conflict.opportunitySamples,
-          opportunityStages: JSON.stringify(bot.conflict.opportunityStages),
-          sufficientFleetAndReserve: bot.conflict.sufficientFleetAndReserve,
-          viableTargets: bot.conflict.viableTargets,
-          visibleTargets: bot.conflict.visibleTargets,
-        },
-        hadViableTarget
-          ? 'The warlord observed at least one viable attack target but did not launch an attack.'
-          : 'The warlord had no viable attack target during its observed opportunity samples.'
-      )
-    );
-  }
-  if (
-    bot.profile !== 'warlord' &&
-    participationMs >= thresholds.coreMilestoneMs &&
-    resourceTotal(bot.economy.deliveredResources) === 0 &&
-    bot.development.completedResearch === 0 &&
-    bot.expansion.expeditions === 0
-  ) {
-    warnings.push(
-      warning(
-        'peaceful_profile_without_economic_progress',
-        bot.botAlias,
-        participationStart,
-        virtualEnd,
-        {
-          deliveredResources: 0,
-          completedResearch: 0,
-          expeditions: 0,
-        },
-        'A peaceful profile reached no economic, research or exploration progress milestone.'
-      )
-    );
-  }
   return warnings;
+}
+
+function analyzeHangarBottleneck(
+  bot: BotMetrics,
+  decisions: ReturnType<typeof decisionDiagnostics>,
+  thresholds: SoftlockThresholds
+): PlaytestWarning | null {
+  const hangarSpan = spanForReason(decisions, /hangar|crew capacity/i);
+  if (!hangarSpan || hangarSpan.end - hangarSpan.start < thresholds.capacityBottleneckMs) {
+    return null;
+  }
+  return warning(
+    'hangar_capacity_bottleneck',
+    bot.botAlias,
+    hangarSpan.start,
+    hangarSpan.end,
+    { matchingDecisions: hangarSpan.count, durationMs: hangarSpan.end - hangarSpan.start },
+    'Hangar or crew-capacity reasons persisted beyond the configured window.'
+  );
+}
+
+function analyzeShipyardBottleneck(
+  bot: BotMetrics,
+  participation: Participation,
+  thresholds: SoftlockThresholds
+): PlaytestWarning | null {
+  if (
+    participation.durationMs < thresholds.capacityBottleneckMs ||
+    bot.development.snapshotSamples <= 0 ||
+    bot.development.shipyardUtilization < 0.95
+  ) {
+    return null;
+  }
+  return warning(
+    'shipyard_capacity_bottleneck',
+    bot.botAlias,
+    participation.start,
+    participation.end,
+    {
+      shipyardUtilization: bot.development.shipyardUtilization,
+      snapshotSamples: bot.development.snapshotSamples,
+    },
+    'Spacecraft build orders were pending in at least 95% of observed snapshots.'
+  );
+}
+
+function analyzeWarlordAttacks(
+  bot: BotMetrics,
+  participation: Participation,
+  thresholds: SoftlockThresholds
+): PlaytestWarning | null {
+  if (
+    bot.profile !== 'warlord' ||
+    participation.durationMs < thresholds.coreMilestoneMs ||
+    bot.conflict.attacks !== 0 ||
+    bot.conflict.opportunitySamples <= 0
+  ) {
+    return null;
+  }
+  const hadViableTarget = bot.conflict.viableTargets > 0;
+  return warning(
+    hadViableTarget ? 'warlord_ignored_attack_chance' : 'warlord_without_attack_chance',
+    bot.botAlias,
+    participation.start,
+    participation.end,
+    {
+      attacks: 0,
+      eligibleAfterProtectionAndCooldown: bot.conflict.eligibleAfterProtectionAndCooldown,
+      opportunitySamples: bot.conflict.opportunitySamples,
+      opportunityStages: JSON.stringify(bot.conflict.opportunityStages),
+      sufficientFleetAndReserve: bot.conflict.sufficientFleetAndReserve,
+      viableTargets: bot.conflict.viableTargets,
+      visibleTargets: bot.conflict.visibleTargets,
+    },
+    hadViableTarget
+      ? 'The warlord observed at least one viable attack target but did not launch an attack.'
+      : 'The warlord had no viable attack target during its observed opportunity samples.'
+  );
+}
+
+function analyzePeacefulProgress(
+  bot: BotMetrics,
+  participation: Participation,
+  thresholds: SoftlockThresholds
+): PlaytestWarning | null {
+  if (
+    bot.profile === 'warlord' ||
+    participation.durationMs < thresholds.coreMilestoneMs ||
+    resourceTotal(bot.economy.deliveredResources) !== 0 ||
+    bot.development.completedResearch !== 0 ||
+    bot.expansion.expeditions !== 0
+  ) {
+    return null;
+  }
+  return warning(
+    'peaceful_profile_without_economic_progress',
+    bot.botAlias,
+    participation.start,
+    participation.end,
+    {
+      deliveredResources: 0,
+      completedResearch: 0,
+      expeditions: 0,
+    },
+    'A peaceful profile reached no economic, research or exploration progress milestone.'
+  );
+}
+
+function analyzeBot(
+  bot: BotMetrics,
+  diagnostics: readonly PlaytestDiagnostic[],
+  virtualStart: number,
+  virtualEnd: number,
+  thresholds: SoftlockThresholds
+): PlaytestWarning[] {
+  const decisions = decisionDiagnostics(diagnostics);
+  const start = Math.max(virtualStart, new Date(bot.joinedAt).getTime());
+  const participation = { start, end: virtualEnd, durationMs: Math.max(0, virtualEnd - start) };
+  return [
+    analyzeBlockedGoal(bot, decisions, thresholds),
+    analyzeNoProgress(bot, diagnostics, thresholds),
+    analyzeRepeatedAction(bot, diagnostics, thresholds),
+    analyzeGoalChurn(bot, decisions, thresholds),
+    ...analyzeUnstableColonies(bot, participation, thresholds),
+    analyzeUnreachableResource(bot, decisions, participation, thresholds),
+    ...analyzeStorageBottleneck(bot, participation, thresholds),
+    analyzeHangarBottleneck(bot, decisions, thresholds),
+    analyzeShipyardBottleneck(bot, participation, thresholds),
+    analyzeWarlordAttacks(bot, participation, thresholds),
+    analyzePeacefulProgress(bot, participation, thresholds),
+  ].filter((candidate) => candidate !== null);
 }
 
 export function analyzeSoftlocks(input: SoftlockAnalysisInput): PlaytestWarning[] {

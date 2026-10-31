@@ -1,5 +1,6 @@
 import { required } from '@orions-frontier/shared';
 import { LAB_SPEED_PER_LEVEL } from './research.js';
+import { applyBuildingCostDiscount } from './research-effects.js';
 import { scaledUpgradeCosts, type UpgradeCostConfig } from './upgrade-cost.js';
 import type {
   BuildingKey,
@@ -157,6 +158,14 @@ export function calculateBuildingUpgradeCost(
 ): BuildingUpgradeCost[] {
   return scaledUpgradeCosts(UPGRADE_COST_CONFIG[buildingKey], targetLevel);
 }
+
+/** What the player pays: the upgrade cost after the Nanite Assembly factor (research `buildingCost`). */
+export const discountedBuildingUpgradeCost = (
+  buildingKey: BuildingKey,
+  targetLevel: number,
+  costFactor: number
+): BuildingUpgradeCost[] =>
+  applyBuildingCostDiscount(calculateBuildingUpgradeCost(buildingKey, targetLevel), costFactor);
 
 // Build Time Calculation
 

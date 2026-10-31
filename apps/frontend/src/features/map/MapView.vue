@@ -79,8 +79,10 @@ const stationInfo = computed(
   () => stationStore.state.stations.find((station) => station.id === stationId.value) ?? null
 );
 
+let tripsRequest = 0;
 async function loadTrips(): Promise<void> {
   if (!renderer) return;
+  const request = ++tripsRequest;
   try {
     const range = renderer.getVisibleChunkRange();
     const response = await apiClient.get<VisibleWorldMovement[]>('/world/trips', {
@@ -92,6 +94,8 @@ async function loadTrips(): Promise<void> {
         scannerBypass: scannerBypass.value,
       },
     });
+    // A newer load (pan, interval, event) may have answered first; never draw older trips over it.
+    if (request !== tripsRequest) return;
     renderer.setActiveTrips(
       response.map((movement): ActiveMovement =>
         movement.kind === 'own_trip'
@@ -221,7 +225,8 @@ let world: WorldRenderer | null = null;
 let tripRefreshInterval: ReturnType<typeof setInterval> | null = null;
 // Registered at once so an unmount during the bootstrap below still removes them.
 const unsubscribers = [
-  // A settled trip can change both the visible phase and the assignment.
+  // A settled trip can change the visible phase and the assignment, and it is the only event for
+  // world changes from arrivals: depleted asteroids, destroyed stations, new or salvaged debris.
   wsClient.on('transport_tick_completed', () => {
     scheduleChunkRefresh();
     scheduleMiningRefresh();
@@ -317,11 +322,15 @@ onMounted(async () => {
   if (scannerBypass.value && canBypassScanner.value) {
     renderer.setScannerBypass(true);
   }
+  renderer.setStationSelected(stationPanelOpen.value);
   drawAssignments();
   await loadTrips();
   if (isDisposed()) return;
   tripRefreshInterval = setInterval(() => void loadTrips(), 5_000);
 });
+
+// The station brackets follow the panel, however it was opened or closed.
+watch(stationPanelOpen, (open) => renderer?.setStationSelected(open));
 
 // Sync selected asteroid → renderer selection ring
 watch(selectedEntity, (entity) => {

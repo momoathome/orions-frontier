@@ -18,6 +18,8 @@ export class StationLayer {
   addChunk(key: ChunkKey, stations: VisibleStation[]): void {
     this.removeChunk(key);
     const chunk = new Container();
+    // No cullArea: labels grow when zoomed out, so Pixi measures the real bounds.
+    chunk.cullable = true;
     const visibleStations = stations.filter((entry) => entry.id !== this.activeStationId);
     const visuals: StationVisual[] = [];
     const labels: Text[] = [];
@@ -84,7 +86,9 @@ export class StationLayer {
   }
 
   animate(timeMs: number, zoom: number): void {
-    for (const visuals of this.visualsByChunk.values()) {
+    for (const [key, visuals] of this.visualsByChunk) {
+      // `culled` is from the last render; a chunk scrolling in animates from the next frame.
+      if (this.chunks.get(key)?.culled) continue;
       for (const visual of visuals) visual.animate(timeMs, zoom);
     }
     // Keep names readable when zoomed out so neighbours stay identifiable on the overview.

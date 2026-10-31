@@ -13,7 +13,10 @@ export default defineRoute(async (app) => {
       onRequest: [authenticate],
       schema: {
         params: z.object({ id: z.uuid(), assignmentId: z.uuid() }),
-        querystring: z.object({ amount: z.coerce.number().int().min(1).default(1) }),
+        // Bounded to the integer column it is compared with.
+        querystring: z.object({
+          amount: z.coerce.number().int().min(1).max(2_147_483_647).default(1),
+        }),
       },
     },
     async (request, reply) => {

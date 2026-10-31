@@ -231,7 +231,6 @@ test('returns null when no candidate has positive score', () => {
 test('returns null for empty candidate list', () => {
   const result = selectGoal([], 'industrialist', null);
   assert.equal(result.selected, null);
-  assert.equal(result.scored, null);
   assert.ok(result.reason.includes('No candidates'));
 });
 
@@ -260,24 +259,6 @@ test('identical input produces identical result', () => {
   const result2 = selectGoal(candidates, 'technocrat', null);
 
   assert.deepEqual(result1, result2);
-});
-
-// ---------------------------------------------------------------------------
-// Score breakdown is present in result
-// ---------------------------------------------------------------------------
-
-test('scored candidate includes breakdown', () => {
-  const c = cand({ goalType: 'stabilize_station', targetRef: 'station:x' });
-  const scored = scoreCandidate(c, 'pioneer');
-  assert.ok('score' in scored);
-  assert.ok('scoreBreakdown' in scored);
-  assert.ok(typeof scored.scoreBreakdown.baseNeedWeighted === 'number');
-  assert.ok(typeof scored.scoreBreakdown.opportunity === 'number');
-  assert.ok(typeof scored.scoreBreakdown.longTermValueWeighted === 'number');
-  assert.ok(typeof scored.scoreBreakdown.commitment === 'number');
-  assert.ok(typeof scored.scoreBreakdown.cost === 'number');
-  assert.ok(typeof scored.scoreBreakdown.riskWeighted === 'number');
-  assert.ok(typeof scored.scoreBreakdown.blockers === 'number');
 });
 
 // ---------------------------------------------------------------------------
@@ -680,7 +661,7 @@ test('active expansion keeps its last free support miner out of urgent mining', 
     targetRef: 'sector:1:0',
   };
   assert.equal(
-    await checkUrgentMaintenance(baseState(onlySupportMiner), 'pioneer', {}, activeGoal),
+    await checkUrgentMaintenance(baseState(onlySupportMiner), 'pioneer', activeGoal),
     null
   );
 
@@ -693,7 +674,6 @@ test('active expansion keeps its last free support miner out of urgent mining', 
   const otherAssignment = await checkUrgentMaintenance(
     baseState(onlySupportMiner, { ownStations: [onlySupportMiner, otherStation] }),
     'pioneer',
-    {},
     activeGoal
   );
   assert.equal(
@@ -715,7 +695,7 @@ test('active expansion keeps its last free support miner out of urgent mining', 
       },
     ],
   });
-  const result = await checkUrgentMaintenance(baseState(station), 'pioneer', {}, activeGoal);
+  const result = await checkUrgentMaintenance(baseState(station), 'pioneer', activeGoal);
 
   assert.equal(result, null);
 
@@ -726,7 +706,6 @@ test('active expansion keeps its last free support miner out of urgent mining', 
   const assignment = await checkUrgentMaintenance(
     baseState(stationWithSpareMiner),
     'pioneer',
-    {},
     activeGoal
   );
   assert.equal(assignment?.type, 'success');
@@ -819,8 +798,7 @@ test('urgent miner maintenance acts on an unstable colony first', async () => {
   });
   const result = await checkUrgentMaintenance(
     baseState(initial, { ownStations: [initial, colony] }),
-    'industrialist',
-    {}
+    'industrialist'
   );
 
   assert.equal(result?.type, 'success');
@@ -1127,4 +1105,268 @@ test('outcomes shift weights and they revert toward the profile start weights', 
   for (let i = 0; i < 200; i += 1) drifted = adaptCategoryWeights(drifted, 'pioneer', []);
   assert.ok(Math.abs(drifted.research - base.research) < 0.05);
   assert.deepEqual(categoryWeightsFor('pioneer', { research: Number.NaN }), base);
+});
+
+// ---------------------------------------------------------------------------
+// Goal outcome and switching
+// ---------------------------------------------------------------------------
+
+import { chooseGoalStep, goalOutcome } from '../../src/services/bot/bot.js';
+import { determineNextStep } from '../../src/services/bot/goal-lifecycle.js';
+import {
+  generateRetaliateCandidates,
+  stepRetaliate,
+} from '../../src/services/bot/goals/conflict.js';
+import { stepBuildStrikeForce, stepFortifyStation } from '../../src/services/bot/goals/military.js';
+import { getBuilding } from '@orions-frontier/game-config';
+import type { CombatReport } from '@orions-frontier/shared';
+
+const foreignStation = (id: string, ownerId: string) => ({
+  id,
+  name: 'Target',
+  x: 100,
+  y: 0,
+  chunkX: 0,
+  chunkY: 0,
+  ownerType: 'player' as const,
+  ownerId,
+  isOwn: false,
+  scanned: true,
+  integrity: null,
+  visualProfile: {
+    scaleTier: 1 as const,
+    modules: {
+      core: 0 as const,
+      shipyard: 0 as const,
+      warehouse: 0 as const,
+      scanner: 0 as const,
+      hangar: 0 as const,
+      laboratory: 0 as const,
+    },
+    defense: {
+      armor_plating: 0 as const,
+      guardian_cannon: 0 as const,
+      defense_drones: 0 as const,
+      minefield: 0 as const,
+    },
+    traffic: { civilian: 0 as const, military: 0 as const },
+  },
+});
+
+const combatReport = (
+  attackerUserId: string,
+  defenderUserId: string,
+  createdAt: Date
+): CombatReport => ({
+  id: `report-${attackerUserId}`,
+  attackerStationId: 'attacker-station',
+  defenderStationId: 'defender-station',
+  attackerUserId,
+  defenderUserId,
+  attackerFleet: null,
+  attackerAmount: null,
+  attackerLosses: 0,
+  defenderLosses: 0,
+  winner: 'attacker',
+  loot: {},
+  integrityDamage: 0,
+  defenderIntegrity: null,
+  stationDestroyed: false,
+  status: 'resolved',
+  arrivesAt: createdAt.toISOString(),
+  createdAt: createdAt.toISOString(),
+  resolvedAt: createdAt.toISOString(),
+});
+
+test('a goal is released after five blocked intervals and a protected target is remembered', () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  const goal = { goalType: 'raid' as const, targetRef: 'station:target-1' };
+  const blocked = { type: 'blocked' as const, action: 'blocked', reason: 'No source' };
+  const controller = {
+    activeGoalType: goal.goalType,
+    activeGoalTarget: goal.targetRef,
+    blockedCount: 3,
+    goalStartedAt: new Date(0),
+  };
+
+  const fourth = goalOutcome(controller, goal, blocked, now);
+  assert.equal(fourth.update.blockedCount, 4);
+  assert.equal(fourth.update.activeGoalType, 'raid');
+  assert.deepEqual(fourth.update.goalStartedAt, new Date(0));
+
+  const fifth = goalOutcome({ ...controller, blockedCount: 4 }, goal, blocked, now);
+  assert.equal(fifth.update.activeGoalType, null);
+  assert.equal(fifth.update.blockedCount, 0);
+  assert.equal(fifth.result.action, 'blocked');
+  assert.match(fifth.result.reason, /released after 5 blocked intervals/);
+
+  // A blocked first step of another goal starts its own count.
+  const other = goalOutcome(
+    { ...controller, blockedCount: 4 },
+    { ...goal, targetRef: 'station:x' },
+    blocked,
+    now
+  );
+  assert.equal(other.update.blockedCount, 1);
+  assert.deepEqual(other.update.goalStartedAt, now);
+
+  const protectedTarget = goalOutcome(
+    controller,
+    goal,
+    { type: 'blocked', action: 'blocked', reason: 'Target protected', retryAfterMs: 60_000 },
+    now
+  );
+  assert.equal(protectedTarget.update.activeGoalType, null);
+  assert.equal(protectedTarget.update.raidBlockedTarget, 'station:target-1');
+  assert.deepEqual(protectedTarget.update.raidBlockedUntil, new Date(now.getTime() + 60_000));
+});
+
+test('a waiting goal gives way to another goal only once its commitment has faded', async () => {
+  // The only defense upgrades already, so fortify waits and is no longer a candidate.
+  const station = baseStation({
+    defense: [{ upgradeKey: 'armor_plating', level: 1, upgradeEndsAt: new Date('2026-01-02') }],
+  });
+  const state = baseState(station);
+  const fortify = {
+    activeGoalType: 'fortify_station' as const,
+    activeGoalTarget: 'station:station-1',
+  };
+  const weights = categoryWeightsFor('industrialist', null);
+
+  const committed = await chooseGoalStep(
+    state,
+    'industrialist',
+    { ...fortify, goalStartedAt: state.now, lastProgressAt: null },
+    weights,
+    state.now
+  );
+  assert.ok(committed.goal);
+  assert.equal(committed.goal.goalType, 'fortify_station');
+  assert.equal(committed.step.type, 'waiting');
+
+  const faded = await chooseGoalStep(
+    state,
+    'industrialist',
+    { ...fortify, goalStartedAt: new Date(0), lastProgressAt: null },
+    weights,
+    state.now
+  );
+  assert.ok(faded.goal);
+  assert.notEqual(faded.goal.goalType, 'fortify_station');
+});
+
+test('fortify waits while any defense upgrade runs', async () => {
+  const station = baseStation({
+    defense: [
+      { upgradeKey: 'armor_plating', level: 1, upgradeEndsAt: new Date('2026-01-02') },
+      { upgradeKey: 'guardian_cannon', level: 0, upgradeEndsAt: null },
+    ],
+  });
+  const result = await stepFortifyStation(
+    baseState(station),
+    station,
+    'station:station-1',
+    'warlord'
+  );
+  assert.equal(result.type, 'waiting');
+});
+
+test('a full Hangar at its maximum level neither offers nor loops a strike force', async () => {
+  const station = baseStation({
+    buildings: baseStation().buildings.map((building) =>
+      building.buildingKey === 'shipyard'
+        ? { ...building, level: 2 }
+        : building.buildingKey === 'hangar'
+          ? { ...building, level: getBuilding('hangar').maxLevel }
+          : building
+    ),
+    research: { weapons: 1 },
+    fleets: [{ spacecraftKey: 'mole', amount: 100_000, lockedAmount: 0 }],
+  });
+  const state = baseState(station);
+  assert.equal(generateBuildStrikeForceCandidate(state, station), null);
+  const result = await stepBuildStrikeForce(state, station, 'station:station-1', 'warlord');
+  assert.equal(result.type, 'blocked');
+});
+
+test('a Collector in the shipyard counts as owned for salvage', async () => {
+  const station = baseStation({
+    buildings: shipyardAt(2),
+    research: { cargo_compression: 2 },
+    builds: [{ spacecraftKey: 'collector', amount: 1 }],
+  });
+  const state = baseState(station, {
+    visibleDebris: [{ id: 'debris-rich', x: 100, y: 0, resources: { astatine: 1_000 } }],
+  });
+  const [candidate] = generateSalvageCandidates(state, 'industrialist');
+  assert.equal(candidate?.cost, 10);
+  const result = await stepSalvage(state, station, 'debris:debris-rich', 'industrialist');
+  assert.equal(result.type, 'waiting');
+});
+
+test('retaliation waits for its launched attack and skips a protected attacker', async () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  const report = combatReport('opponent-1', 'bot-1', new Date(now.getTime() - 2 * 3_600_000));
+  const launched = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 3 }],
+    combatMissions: [
+      { id: 'mission-1', defenderStationId: 'target-1', status: 'traveling', createdAt: now },
+    ],
+  });
+  const state = baseState(launched, {
+    visibleStations: [foreignStation('target-1', 'opponent-1')],
+    combatReports: [report],
+  });
+  const result = await determineNextStep(state, 'warlord', 'retaliate', 'user:opponent-1');
+  assert.equal(result.type, 'waiting');
+
+  const docked = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 0 }],
+  });
+  const dockedState = baseState(docked, {
+    visibleStations: [foreignStation('target-1', 'opponent-1')],
+    combatReports: [report],
+  });
+  assert.equal(generateRetaliateCandidates(dockedState, 'warlord').length, 1);
+  assert.equal(
+    generateRetaliateCandidates({ ...dockedState, blockedRaidTarget: 'user:opponent-1' }, 'warlord')
+      .length,
+    0
+  );
+  assert.equal(
+    (await stepRetaliate(dockedState, docked, 'user:opponent-1', 'warlord')).type,
+    'success'
+  );
+});
+
+test('a raid completes only after the bot attacked, not after being attacked', async () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 0 }],
+  });
+  const recent = new Date(now.getTime() - 10 * 60_000);
+  const attacked = baseState(station, {
+    visibleStations: [foreignStation('target-1', 'opponent-1')],
+    combatReports: [combatReport('opponent-1', 'bot-1', recent)],
+  });
+  assert.equal((await stepRaid(attacked, station, 'station:target-1', 'warlord')).type, 'waiting');
+
+  const attackedByBot = {
+    ...attacked,
+    combatReports: [combatReport('bot-1', 'opponent-1', recent)],
+  };
+  assert.equal(
+    (await stepRaid(attackedByBot, station, 'station:target-1', 'warlord')).type,
+    'complete'
+  );
+
+  // Another own station still attacking the target keeps the raid waiting.
+  const attacking = baseStation({
+    id: 'station-2',
+    combatMissions: [
+      { id: 'mission-1', defenderStationId: 'target-1', status: 'traveling', createdAt: now },
+    ],
+  });
+  const busy = { ...attacked, combatReports: [], ownStations: [station, attacking] };
+  assert.equal((await stepRaid(busy, station, 'station:target-1', 'warlord')).type, 'waiting');
 });

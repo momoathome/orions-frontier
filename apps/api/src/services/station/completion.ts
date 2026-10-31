@@ -7,11 +7,13 @@ import { completionEventId, type PlaytestCompletionEvent } from '../../lib/compl
 import { claimBuiltShips, listDueBuildOrders } from './repositories/spacecraft-build-orders.js';
 import {
   completeBuildingUpgrade,
+  findStationBuildingByKeyForUpdate,
   listDueBuildingUpgrades,
+  updateStationBuilding,
 } from './repositories/station-buildings.js';
 import { addBuiltSpacecraft } from './repositories/station-spacecrafts.js';
 import { findStationForUpdate } from './repositories/stations.js';
-import { advanceStationQueue } from './construction.js';
+import { advanceStationQueue, dropStationUpgrade } from './construction.js';
 import { defenseUpgradeMaxLevel } from './defense.js';
 
 const logger = rootLogger.child({ name: 'station-completion' });
@@ -39,7 +41,12 @@ export async function completeDueBuildings(now: Date): Promise<CompletionPassRes
         ? getBuilding(building.buildingKey).maxLevel
         : defenseUpgradeMaxLevel(building.buildingKey);
       const endsAt = building.upgradeEndsAt;
-      if (maxLevel === null || endsAt === null) continue;
+      if (endsAt === null) continue;
+      if (maxLevel === null) {
+        result.failed += 1;
+        result.events.push(...(await dropUnknownUpgrade(building, endsAt)));
+        continue;
+      }
       // The freed slot goes to the next queued job at the moment it freed.
       const completed = await db.transaction(async (tx) => {
         const station = await findStationForUpdate(tx, building.stationId);
@@ -89,6 +96,40 @@ export async function completeDueBuildings(now: Date): Promise<CompletionPassRes
     }
   }
   return result;
+}
+
+/**
+ * A building type removed from the config can never complete; its upgrade is dropped with a
+ * refund, like a broken queued job, instead of being retried every tick.
+ */
+async function dropUnknownUpgrade(
+  building: { id: string; stationId: string; buildingKey: string },
+  endsAt: Date
+) {
+  logger.error(
+    { buildingId: building.id, buildingKey: building.buildingKey },
+    'Dropping the upgrade of an unknown building'
+  );
+  return getDb().transaction(async (tx) => {
+    const station = await findStationForUpdate(tx, building.stationId);
+    const row = await findStationBuildingByKeyForUpdate(
+      tx,
+      building.stationId,
+      building.buildingKey
+    );
+    if (!row?.upgradeEndsAt) return [];
+    if (station && !station.destroyedAt) {
+      const paidCost = row.upgradePaidCost ?? [];
+      return dropStationUpgrade(tx, station, { id: row.id, paidCost }, endsAt);
+    }
+    // A destroyed station gets nothing back and keeps no queue, as when an upgrade completes there.
+    await updateStationBuilding(tx, row.id, {
+      upgradeEndsAt: null,
+      upgradePaidCost: null,
+      updatedAt: endsAt,
+    });
+    return [];
+  });
 }
 
 /** `afterBuilt` runs after the ships are committed, in its own transaction. */

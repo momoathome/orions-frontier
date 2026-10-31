@@ -141,7 +141,6 @@ export async function stepResearchTechnology(
   if (!def || !Number.isInteger(level)) {
     return {
       type: 'blocked',
-      detail: 'invalid_target',
       reason: `Invalid research target: ${targetRef}`,
     };
   }
@@ -157,19 +156,18 @@ export async function stepResearchTechnology(
   if (state.research.active.includes(def.key)) {
     return {
       type: 'waiting',
-      detail: `${def.key}_researching`,
       reason: `Waiting for ${def.name} ${level}`,
     };
   }
   if (state.research.active.length >= state.research.slots) {
-    return { type: 'waiting', detail: 'research_slot', reason: 'Waiting for a research slot' };
+    return { type: 'waiting', reason: 'Waiting for a research slot' };
   }
 
   const blockers = researchBlockers(def.key, state.research.levels, highestBuildingLevels(state));
   if (blockers.length > 0) {
     // Only buildings are in the bot's hands; missing research or a maxed level ends the goal.
     if (!blockers.every(isBuildingBlocker)) {
-      return { type: 'blocked', detail: 'research_locked', reason: `${def.name} is locked` };
+      return { type: 'blocked', reason: `${def.name} is locked` };
     }
     const blocker = blockers[0];
     const buildingKey: BuildingKey = blocker?.type === 'building' ? blocker.key : 'laboratory';
@@ -183,7 +181,6 @@ export async function stepResearchTechnology(
     if (isUpgrading(target, buildingKey)) {
       return {
         type: 'waiting',
-        detail: `${buildingKey}_upgrading`,
         reason: `Waiting for ${name} for ${def.name}`,
       };
     }
@@ -200,7 +197,6 @@ export async function stepResearchTechnology(
     const reachable = hasActiveMining(target) && canAcquireCosts(state, target, costs);
     return {
       type: reachable ? 'saving' : 'blocked',
-      detail: `no_${buildingKey}`,
       reason: reachable
         ? `Saving for ${name} required by ${def.name}`
         : `${name} resources for ${def.name} are not reachable`,
@@ -214,7 +210,6 @@ export async function stepResearchTechnology(
     if (supply) return supply;
     return {
       type: reachable ? 'saving' : 'blocked',
-      detail: `research_${def.key}`,
       reason: reachable
         ? `Saving resources for ${def.name}`
         : `Resources for ${def.name} are not reachable`,

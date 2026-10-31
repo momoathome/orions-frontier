@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { required, type WorldMissionType } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { botControllers } from '../../../lib/db/schema/bot-controllers.js';
@@ -128,11 +128,6 @@ export async function insertWorldMission(tx: Tx, values: typeof worldMissions.$i
   return required(created, 'created');
 }
 
-export async function findWorldMission(db: QueryDb, id: string) {
-  const [row] = await db.select().from(worldMissions).where(eq(worldMissions.id, id));
-  return row;
-}
-
 /** The user's newest missions first. */
 export function listWorldMissionsByUser(
   db: QueryDb,
@@ -148,7 +143,7 @@ export function listWorldMissionsByUser(
     .offset(page.offset);
 }
 
-/** Missions under way or returning that arrive by `now`, oldest first. */
+/** Missions under way or returning that arrive by `now` and wait for no retry, oldest first. */
 export function listDueWorldMissionIds(db: QueryDb, now: Date) {
   return db
     .select({ id: worldMissions.id })
@@ -156,10 +151,27 @@ export function listDueWorldMissionIds(db: QueryDb, now: Date) {
     .where(
       and(
         inArray(worldMissions.status, ['traveling', 'returning']),
-        lte(worldMissions.arrivesAt, now)
+        lte(worldMissions.arrivesAt, now),
+        or(isNull(worldMissions.retryAt), lte(worldMissions.retryAt, now))
       )
     )
     .orderBy(asc(worldMissions.arrivesAt), asc(worldMissions.id));
+}
+
+/**
+ * Counts a failed completion and waits before the next try: 2, 4, 8 … seconds, at most an hour,
+ * like a trip that fails to settle.
+ */
+export async function recordWorldMissionFailure(db: QueryDb, id: string, now: Date) {
+  const [row] = await db
+    .update(worldMissions)
+    .set({
+      settleFailures: sql`${worldMissions.settleFailures} + 1`,
+      retryAt: sql`${now.toISOString()}::timestamp + least(power(2, ${worldMissions.settleFailures} + 1), 3600) * interval '1 second'`,
+    })
+    .where(eq(worldMissions.id, id))
+    .returning({ settleFailures: worldMissions.settleFailures });
+  return row?.settleFailures ?? 0;
 }
 
 /** Locks the mission if it is still due; undefined if another worker completed it. */

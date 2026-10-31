@@ -1,7 +1,8 @@
-import { and, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lt, lte, ne, or, sql, type SQLWrapper } from 'drizzle-orm';
+import { unionAll } from 'drizzle-orm/pg-core';
 import { calculateStorageCapacity as warehouseCapacity } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
-import { asteroidVeins } from '../../lib/db/schema/asteroids.js';
+import { asteroidAssignments, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { combatMissions } from '../../lib/db/schema/combat-missions.js';
 import { salvageMissions } from '../../lib/db/schema/debris-fields.js';
 import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
@@ -18,6 +19,7 @@ export type DatabaseInvariantCode =
   | 'negative_asteroid_reserve'
   | 'negative_fleet'
   | 'invalid_fleet_lock'
+  | 'fleet_lock_mismatch'
   | 'negative_build_order'
   | 'overdue_active_work'
   | 'storage_capacity_exceeded'
@@ -48,9 +50,56 @@ export async function queryDatabaseInvariantState(
   if (controlledUserIds.length === 0) return { violations: [], stationOwners: [] };
   const db = getDb();
 
+  // Everything that holds ships locked; per fleet row the holders must add up to lockedAmount.
+  const holder = (stationSpacecraftId: SQLWrapper, amount: SQLWrapper) => ({
+    stationSpacecraftId: sql<string>`${stationSpacecraftId}`.as('holder_fleet_id'),
+    amount: sql<number>`${amount}`.as('held_amount'),
+  });
+  const lockHolders = unionAll(
+    db
+      .select(holder(stationSpacecrafts.id, asteroidAssignments.assignedAmount))
+      .from(asteroidAssignments)
+      .innerJoin(
+        stationSpacecrafts,
+        and(
+          eq(stationSpacecrafts.stationId, asteroidAssignments.stationId),
+          eq(stationSpacecrafts.spacecraftKey, asteroidAssignments.spacecraftKey)
+        )
+      ),
+    db
+      .select(
+        holder(
+          stationSpacecrafts.id,
+          sql`coalesce((case when ${combatMissions.status} = 'returning' then ${combatMissions.attackerSurvivors} else ${combatMissions.attackerFleet} end ->> ${stationSpacecrafts.spacecraftKey})::int, 0)`
+        )
+      )
+      .from(combatMissions)
+      .innerJoin(
+        stationSpacecrafts,
+        and(
+          eq(stationSpacecrafts.stationId, combatMissions.attackerStationId),
+          sql`${combatMissions.attackerFleet} ? ${stationSpacecrafts.spacecraftKey}`
+        )
+      )
+      .where(ne(combatMissions.status, 'resolved')),
+    db
+      .select(holder(salvageMissions.stationSpacecraftId, salvageMissions.amount))
+      .from(salvageMissions)
+      .where(ne(salvageMissions.status, 'resolved')),
+    db
+      .select(holder(worldMissions.stationSpacecraftId, sql`1`))
+      .from(worldMissions)
+      .where(inArray(worldMissions.status, ['traveling', 'returning'])),
+    db
+      .select(holder(spacecraftTrips.stationSpacecraftId, spacecraftTrips.groupSize))
+      .from(spacecraftTrips)
+      .where(and(eq(spacecraftTrips.purpose, 'relocate'), eq(spacecraftTrips.status, 'traveling')))
+  ).as('lock_holders');
+
   const [
     negativeVeins,
     invalidFleets,
+    lockMismatches,
     negativeOrders,
     resourceRows,
     warehouseRows,
@@ -94,6 +143,21 @@ export async function queryDatabaseInvariantState(
           )
         )
       ),
+    db
+      .select({
+        id: stationSpacecrafts.id,
+        userId: stations.userId,
+        stationId: stationSpacecrafts.stationId,
+        spacecraftKey: stationSpacecrafts.spacecraftKey,
+        lockedAmount: stationSpacecrafts.lockedAmount,
+        heldAmount: sql<number>`coalesce(sum(${lockHolders.amount}), 0)::int`,
+      })
+      .from(stationSpacecrafts)
+      .innerJoin(stations, eq(stations.id, stationSpacecrafts.stationId))
+      .leftJoin(lockHolders, eq(lockHolders.stationSpacecraftId, stationSpacecrafts.id))
+      .where(inArray(stations.userId, controlledUserIds))
+      .groupBy(stationSpacecrafts.id, stations.userId)
+      .having(sql`${stationSpacecrafts.lockedAmount} <> coalesce(sum(${lockHolders.amount}), 0)`),
     db
       .select({
         id: spacecraftBuildOrders.id,
@@ -308,6 +372,20 @@ export async function queryDatabaseInvariantState(
         spacecraftKey: row.spacecraftKey,
         amount: row.amount,
         lockedAmount: row.lockedAmount,
+      },
+    });
+  }
+  for (const row of lockMismatches) {
+    violations.push({
+      code: 'fleet_lock_mismatch',
+      userId: row.userId,
+      stationId: row.stationId,
+      entityKind: 'work',
+      entityId: row.id,
+      values: {
+        spacecraftKey: row.spacecraftKey,
+        lockedAmount: row.lockedAmount,
+        heldAmount: row.heldAmount,
       },
     });
   }

@@ -1,8 +1,8 @@
 export {
   COLONIZATION_COST,
   ATTACK_PROTECTION_DURATION_MS,
-  attackProtectionEndsAt,
   calculateColonizationCost,
+  isAttackProtected,
   resources,
 } from './resources.js';
 export { currentIntegrity, integrityWaveDamage, coarseIntegrity } from './integrity.js';
@@ -17,6 +17,7 @@ export {
   buildings,
   getBuilding,
   calculateBuildingUpgradeCost,
+  discountedBuildingUpgradeCost,
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   calculateConstructionSpeedBonus,
@@ -56,5 +57,5 @@ export {
   researchModifiers,
 } from './research-effects.js';
 export type { ResearchModifiers } from './research-effects.js';
-export { calculateInfluence } from './influence.js';
+export { calculateInfluence, investedUpgradeCosts } from './influence.js';
 export type { InfluenceInput } from './influence.js';

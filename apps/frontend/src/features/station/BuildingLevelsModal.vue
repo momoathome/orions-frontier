@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
 import {
-  applyBuildingCostDiscount,
   calculateBuildingBuildTime,
   calculateBuildingEffect,
-  calculateBuildingUpgradeCost,
+  discountedBuildingUpgradeCost,
 } from '@orions-frontier/game-config';
 import type { BuildingKey } from '@orions-frontier/shared';
 import { formatBuildingEffect, formatBuildTime } from '../../shared/lib/format';
@@ -41,12 +40,7 @@ const rows = computed(() => {
       ),
       // Nanite Assembly discounts every level, like the building card.
       costs:
-        level > 1
-          ? applyBuildingCostDiscount(
-              calculateBuildingUpgradeCost(key, level),
-              research.modifiers.buildingCost
-            )
-          : [],
+        level > 1 ? discountedBuildingUpgradeCost(key, level, research.modifiers.buildingCost) : [],
       // Today's Core and Construction Robotics, like the building card.
       buildTime:
         level > 1

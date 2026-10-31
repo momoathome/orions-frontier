@@ -108,7 +108,7 @@ anderer erreichbarer Engpass Vorrang, wird das bisherige Kapazitätsziel abgesch
 Eine produktive Station mit mindestens drei Minern hält grundsätzlich einen freien mobilen Miner
 zurück. Während eines aktiven Expeditions- oder Kolonisationsziels wird der letzte freie Miner
 ebenfalls nicht automatisch dem Bergbau zugeteilt. Fehlt das Missionsschiff, bereitet das Ziel
-seine Voraussetzungen über die normalen Spieleraktionen vor: Shipyard beziehungsweise Hangar
+seine Voraussetzungen über die normalen Spieleraktionen vor: bei Bedarf den Hangar
 ausbauen, eine Mole bauen und anschließend die Mission starten. Fehlt Long-Range Survey oder ist das
 Stationslimit erreicht, entsteht kein Expansionsziel; der Research-Goal priorisiert dann genau diese
 Forschung. Gesperrte Schiffe (Titan, Jäger) führen ebenso zu Forschung statt zu einem Bauauftrag.
@@ -126,8 +126,10 @@ abgeschlossene Expeditionsmissionen aus dem persistenten Missionsverlauf.
 
 Der API-interne Welttakt verarbeitet zuerst fällige Reisen, Upgrades und Bauaufträge, anschließend
 Weltmissionen und Bot-Entscheidungen. `nextDecisionAt` bleibt in PostgreSQL, damit ein Neustart
-keinen Bot zurücksetzt. Erwartete Domain-Fehler führen erst beim nächsten regulären Termin zu einem
-neuen Versuch.
+keinen Bot zurücksetzt. Ein Echtzeit-Takt entscheidet höchstens 20 fällige Bots, die am längsten
+wartenden zuerst; die übrigen bleiben fällig und folgen im nächsten Takt. Erwartete Domain-Fehler
+führen erst beim nächsten regulären Termin zu einem neuen Versuch; ein unerwarteter Fehler zählt wie
+`blocked`, sodass ein dauerhaft scheiterndes Ziel nach der Blockadegrenze freigegeben wird.
 
 ## Sichtbarkeit
 

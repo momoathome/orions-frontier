@@ -1,4 +1,5 @@
 import {
+  coarseIntegrity,
   getBuilding,
   getDefenseUpgrade,
   getResearchDefinition,
@@ -125,16 +126,18 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
       }
       const won = event.winner === 'attacker';
       const losses = `losses: ${event.attackerLosses} attacker, ${event.defenderLosses} defender`;
-      const integrity = event.stationDestroyed
-        ? ' Station destroyed.'
-        : event.integrityDamage > 0
-          ? ` Integrity -${event.integrityDamage} to ${event.defenderIntegrity}.`
-          : '';
+      // The attacker learns the integrity in coarse tiers only, like the combat report.
+      const integrity = (shown: (value: number) => number) =>
+        event.stationDestroyed
+          ? ' Station destroyed.'
+          : event.integrityDamage > 0 && event.defenderIntegrity !== null
+            ? ` Integrity -${event.integrityDamage} to ${shown(event.defenderIntegrity)}.`
+            : '';
       const entries = [
         entry(
           event,
           event.type,
-          `Attack ${won ? 'succeeded' : 'repelled'} (${losses}).${integrity}`
+          `Attack ${won ? 'succeeded' : 'repelled'} (${losses}).${integrity(coarseIntegrity)}`
         ),
       ];
       if (defenderUserId && defenderUserId !== event.userId) {
@@ -142,7 +145,7 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
           entry(
             event,
             'combat_defended',
-            `Station attacked, ${won ? 'defense broken' : 'attack repelled'} (${losses}).${integrity}`,
+            `Station attacked, ${won ? 'defense broken' : 'attack repelled'} (${losses}).${integrity((value) => value)}`,
             defenderUserId,
             event.defenderStationId
           )

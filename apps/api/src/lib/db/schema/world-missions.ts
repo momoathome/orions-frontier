@@ -39,6 +39,9 @@ export const worldMissions = pgTable(
       .notNull()
       .default('traveling'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
+    /** Failed completion attempts; each one pushes `retryAt` further out. */
+    settleFailures: integer('settle_failures').notNull().default(0),
+    retryAt: timestamp('retry_at'),
   },
   (table) => [
     index('world_missions_due_idx').on(table.status, table.arrivesAt),

@@ -6,11 +6,12 @@ import {
   type ResourceMap,
 } from '@orions-frontier/shared';
 import {
-  attackProtectionEndsAt,
   calculateProtectedStorage,
+  coarseIntegrity,
   currentIntegrity,
   getSpacecraft,
   integrityWaveDamage,
+  isAttackProtected,
   requireSpacecraft,
 } from '@orions-frontier/game-config';
 import { getDb, type Tx } from '../../lib/db/index.js';
@@ -25,6 +26,7 @@ import {
 import { insertTrip, updateTripCargo, type TripRow } from '../fleet/index.js';
 import { findUserForUpdate, updateUser } from '../auth/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
+import { resolveBattle } from './battle.js';
 import { createDebrisFromLosses } from './salvage.js';
 import { destroyStation } from './destruction.js';
 import { publishUserEvent } from '../../lib/realtime.js';
@@ -74,6 +76,13 @@ const toReport = (
 ): CombatReport => {
   // The defender learns the composition of an incoming attack on arrival, or earlier with Signature Analysis.
   const hidden = row.status === 'traveling' && viewerUserId !== row.userId && !signatureAnalysis;
+  // Outsiders learn the integrity only from a wave that hit it, and then in coarse tiers.
+  const defenderIntegrity =
+    row.defenderIntegrity === null || viewerUserId === defenderUserId
+      ? row.defenderIntegrity
+      : row.integrityDamage > 0
+        ? coarseIntegrity(row.defenderIntegrity)
+        : null;
   return {
     id: row.id,
     attackerStationId: row.attackerStationId,
@@ -87,7 +96,7 @@ const toReport = (
     winner: row.winner,
     loot: row.loot ?? {},
     integrityDamage: row.integrityDamage,
-    defenderIntegrity: row.defenderIntegrity,
+    defenderIntegrity,
     stationDestroyed: row.stationDestroyed,
     status: row.status,
     arrivesAt: arrivesAt.toISOString(),
@@ -96,16 +105,9 @@ const toReport = (
   };
 };
 
-export async function startAttack(params: {
-  userId: string;
-  stationId: string;
-  targetStationId: string;
-  /** Ships per spacecraft key; fighters and bombers travel together. */
-  fleet: Record<string, number>;
-  now?: Date;
-  context?: GameExecutionContext;
-}): Promise<CombatReport> {
-  const groups = Object.entries(params.fleet)
+/** Validates the requested ships: groups in key order, the slowest key and the total amount. */
+function parseAttackFleet(fleet: Record<string, number>) {
+  const groups = Object.entries(fleet)
     .filter(([, amount]) => amount !== 0)
     .sort(([a], [b]) => a.localeCompare(b));
   if (groups.length === 0 || groups.some(([, amount]) => !Number.isInteger(amount) || amount < 1)) {
@@ -117,12 +119,50 @@ export async function startAttack(params: {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Selected spacecraft cannot attack');
     }
   }
-  const slowest = groups.reduce((best, group) =>
+  const [slowestKey] = groups.reduce((best, group) =>
     (spacecraftByKey.get(group[0])?.speed ?? 0) < (spacecraftByKey.get(best[0])?.speed ?? 0)
       ? group
       : best
   );
   const totalAmount = groups.reduce((sum, [, amount]) => sum + amount, 0);
+  return { groups, slowestKey, totalAmount };
+}
+
+/**
+ * Locks both accounts, rejects a protected defender and ends the attacker's own protection. The
+ * user rows lock in stable ID order to prevent deadlocks.
+ */
+async function lockUsersAndCheckProtection(
+  tx: Tx,
+  attackerUserId: string,
+  defenderUserId: string,
+  now: Date
+) {
+  const sortedIds = [attackerUserId, defenderUserId].sort();
+  const [userA, userB] = await Promise.all([
+    findUserForUpdate(tx, required(sortedIds[0], 'sortedIds[0]')),
+    findUserForUpdate(tx, required(sortedIds[1], 'sortedIds[1]')),
+  ]);
+  const attUser = sortedIds[0] === attackerUserId ? userA : userB;
+  const defUser = sortedIds[0] === defenderUserId ? userA : userB;
+  if (defUser && isAttackProtected(defUser, now)) {
+    throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target account is protected from attacks');
+  }
+  if (attUser && !attUser.attackProtectionBrokenAt) {
+    await updateUser(tx, attackerUserId, { attackProtectionBrokenAt: now });
+  }
+}
+
+export async function startAttack(params: {
+  userId: string;
+  stationId: string;
+  targetStationId: string;
+  /** Ships per spacecraft key; fighters and bombers travel together. */
+  fleet: Record<string, number>;
+  now?: Date;
+  context?: GameExecutionContext;
+}): Promise<CombatReport> {
+  const { groups, slowestKey, totalAmount } = parseAttackFleet(params.fleet);
   const context = resolveGameExecutionContext(params.context ?? params.now);
   const db = getDb();
   const mission = await db.transaction(async (tx) => {
@@ -136,27 +176,7 @@ export async function startAttack(params: {
     if (!isPointVisible(coverages, defender)) {
       throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
     }
-
-    // Lock both user rows in stable ID order to prevent deadlocks
-    const { now } = context;
-    const defenderUserId = defender.userId;
-    const sortedIds = [params.userId, defenderUserId].sort();
-    const [userA, userB] = await Promise.all([
-      findUserForUpdate(tx, required(sortedIds[0], 'sortedIds[0]')),
-      findUserForUpdate(tx, required(sortedIds[1], 'sortedIds[1]')),
-    ]);
-    const attUser = sortedIds[0] === params.userId ? userA : userB;
-    const defUser = sortedIds[0] === defenderUserId ? userA : userB;
-
-    // Check if defender is still protected
-    if (defUser) {
-      if (
-        now < attackProtectionEndsAt(defUser.createdAt, defUser.protectedUntil) &&
-        !defUser.attackProtectionBrokenAt
-      ) {
-        throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target account is protected from attacks');
-      }
-    }
+    await lockUsersAndCheckProtection(tx, params.userId, defender.userId, context.now);
 
     const rows = await listStationSpacecraftIdsByKeys(
       tx,
@@ -173,21 +193,16 @@ export async function startAttack(params: {
       }
     }
 
-    // Mark attacker's protection as broken if still active
-    if (attUser && !attUser.attackProtectionBrokenAt) {
-      await updateUser(tx, params.userId, { attackProtectionBrokenAt: now });
-    }
-
     const departedAt = context.now;
     const baseArrivesAt = calcArrivesAt(
       departedAt,
       calcDistance(attacker, defender),
-      requireSpacecraft(slowest[0]).speed
+      requireSpacecraft(slowestKey).speed
     );
     const arrivesAt = await applyTravelSpeed(tx, attacker.id, baseArrivesAt, departedAt);
     const tripId = await insertTrip(tx, {
       id: context.nextId('trip'),
-      stationSpacecraftId: required(rowIdByKey.get(slowest[0]), 'slowest group'),
+      stationSpacecraftId: required(rowIdByKey.get(slowestKey), 'slowest group'),
       groupSize: totalAmount,
       fromType: 'station',
       fromId: attacker.id,
@@ -252,6 +267,172 @@ async function attackerGroups(tx: Tx, stationId: string, fleet: Record<string, n
     .sort((a, b) => a.spacecraft.speed - b.spacecraft.speed || a.key.localeCompare(b.key));
 }
 
+type AttackerGroup = Awaited<ReturnType<typeof attackerGroups>>[number];
+
+interface CombatOutcome {
+  attackerSurvivors: Record<string, number>;
+  attackerLosses: number;
+  defenderLosses: number;
+  winner: 'attacker' | 'defender' | null;
+  loot: Record<string, number>;
+  integrityDamage: number;
+  defenderIntegrity: number | null;
+  stationDestroyed: boolean;
+}
+
+/** A won wave takes 10% of every unprotected resource, in key order, until the cargo is full. */
+async function plunderStation(
+  tx: Tx,
+  defenderStationId: string,
+  cargoCapacity: number
+): Promise<Record<string, number>> {
+  const loot: Record<string, number> = {};
+  let cargoLeft = cargoCapacity;
+  const protectedAmount = calculateProtectedStorage(
+    (await findBuildingLevel(tx, defenderStationId, 'warehouse')) ?? 0
+  );
+  const resources = await listStationResourcesInKeyOrderForUpdate(tx, defenderStationId);
+  for (const resource of resources) {
+    if (cargoLeft <= 0) break;
+    const available = Math.max(0, resource.amount - protectedAmount);
+    const amount = Math.min(cargoLeft, Math.floor(available * 0.1));
+    if (amount <= 0) continue;
+    loot[resource.resourceKey] = amount;
+    cargoLeft -= amount;
+    await deductStationResource(tx, defenderStationId, resource.resourceKey, amount);
+  }
+  return loot;
+}
+
+/** Surviving bombers of a won wave lower the integrity; at 0 the station is destroyed. */
+async function damageStation(
+  tx: Tx,
+  defenderStation: { id: string; userId: string; integrity: number; integrityUpdatedAt: Date },
+  survivingBombers: number,
+  winner: 'attacker' | 'defender',
+  at: Date,
+  context: GameExecutionContext
+) {
+  const integrityBefore = currentIntegrity(
+    defenderStation.integrity,
+    defenderStation.integrityUpdatedAt,
+    at
+  );
+  const integrityDamage = winner === 'attacker' ? integrityWaveDamage(survivingBombers) : 0;
+  const defenderIntegrity = Math.max(0, integrityBefore - integrityDamage);
+  if (integrityDamage > 0) {
+    await updateStation(tx, defenderStation.id, {
+      integrity: defenderIntegrity,
+      integrityUpdatedAt: at,
+    });
+  }
+  const stationDestroyed = defenderIntegrity === 0;
+  const remains = stationDestroyed ? await destroyStation(tx, defenderStation, context) : null;
+  return { integrityDamage, defenderIntegrity, stationDestroyed, remains };
+}
+
+function combatEvents(
+  mission: CombatMissionRow,
+  defenderUserId: string,
+  at: Date,
+  outcome: CombatOutcome,
+  debris: { id: string; resources: ResourceMap } | null
+): PlaytestCompletionEvent[] {
+  const base = {
+    occurredAt: at,
+    userId: mission.userId,
+    stationId: mission.attackerStationId,
+    missionId: mission.id,
+  };
+  const { attackerLosses, defenderLosses } = outcome;
+  const events: PlaytestCompletionEvent[] = [
+    {
+      ...base,
+      type: 'combat_resolved',
+      eventId: completionEventId('combat_resolved', mission.id),
+      defenderStationId: mission.defenderStationId,
+      defenderUserId,
+      winner: outcome.winner ?? 'none',
+      attackerLosses,
+      defenderLosses,
+      integrityDamage: outcome.integrityDamage,
+      defenderIntegrity: outcome.defenderIntegrity,
+      stationDestroyed: outcome.stationDestroyed,
+      targetVisibilityVerified: true,
+    },
+  ];
+  if (Object.keys(outcome.loot).length > 0) {
+    events.push({
+      ...base,
+      type: 'loot_acquired',
+      eventId: completionEventId('loot_acquired', mission.id),
+      resources: outcome.loot,
+    });
+  }
+  if (attackerLosses + defenderLosses > 0) {
+    events.push({
+      ...base,
+      type: 'fleet_losses',
+      eventId: completionEventId('fleet_losses', mission.id),
+      attackerLosses,
+      defenderLosses,
+    });
+  }
+  if (debris) {
+    events.push({
+      ...base,
+      type: 'debris_created',
+      eventId: completionEventId('debris_created', mission.id),
+      debrisId: debris.id,
+      resources: debris.resources,
+    });
+  }
+  return events;
+}
+
+/** Survivors fly home together at the speed of the slowest surviving group, carrying the loot. */
+async function sendSurvivorsHome(
+  tx: Tx,
+  mission: CombatMissionRow,
+  defenderStation: { x: number; y: number },
+  slowest: AttackerGroup,
+  outcome: CombatOutcome,
+  departedAt: Date,
+  context: GameExecutionContext
+): Promise<string> {
+  const attackerStation = await findStation(tx, mission.attackerStationId);
+  if (!attackerStation) throw new Error('Combat station no longer exists');
+  const baseArrivesAt = calcArrivesAt(
+    departedAt,
+    calcDistance(defenderStation, attackerStation),
+    slowest.spacecraft.speed
+  );
+  const arrivesAt = await applyTravelSpeed(
+    tx,
+    mission.attackerStationId,
+    baseArrivesAt,
+    departedAt
+  );
+  return insertTrip(tx, {
+    id: context.nextId('trip'),
+    stationSpacecraftId: slowest.rowId,
+    groupSize: Object.values(outcome.attackerSurvivors).reduce((sum, amount) => sum + amount, 0),
+    fromType: 'station',
+    fromId: mission.defenderStationId,
+    fromX: defenderStation.x,
+    fromY: defenderStation.y,
+    toType: 'station',
+    toId: mission.attackerStationId,
+    toX: attackerStation.x,
+    toY: attackerStation.y,
+    departedAt,
+    arrivesAt,
+    purpose: 'combat_return',
+    cargoManifest: outcome.loot,
+    createdAt: departedAt,
+  });
+}
+
 async function resolveOutboundCombat(
   tx: Tx,
   trip: Trip,
@@ -266,15 +447,20 @@ async function resolveOutboundCombat(
 
   const groups = await attackerGroups(tx, mission.attackerStationId, mission.attackerFleet);
   const survivors = new Map(groups.map((group) => [group.key, group.amount]));
-  let attackerLosses = 0;
-  let defenderLosses = 0;
-  let winner: 'attacker' | 'defender' | null = null;
-  let integrityDamage = 0;
-  let defenderIntegrity: number | null = null;
-  let stationDestroyed = false;
-  const loot: Record<string, number> = {};
   const destroyed = new Map<string, number>();
-  const debrisResources: ResourceMap = {};
+  const addDestroyed = (key: string, amount: number) =>
+    destroyed.set(key, (destroyed.get(key) ?? 0) + amount);
+  const outcome: CombatOutcome = {
+    attackerSurvivors: {},
+    attackerLosses: 0,
+    defenderLosses: 0,
+    winner: null,
+    loot: {},
+    integrityDamage: 0,
+    defenderIntegrity: null,
+    stationDestroyed: false,
+  };
+  let debrisResources: ResourceMap = {};
 
   // A wave that arrives at a destroyed station finds nothing to fight and turns around.
   if (!defenderStation.destroyedAt) {
@@ -283,184 +469,76 @@ async function resolveOutboundCombat(
       getStationResearchModifiers(tx, mission.defenderStationId),
     ]);
     const defenderRows = await listStationSpacecraftsForUpdate(tx, mission.defenderStationId);
-    const defenderFleets = defenderRows
-      .map((fleet) => ({
-        ...fleet,
-        defense: requireSpacecraft(fleet.spacecraftKey).defense * defenderResearch.shipDefense,
-      }))
-      .sort((a, b) => a.defense - b.defense || a.id.localeCompare(b.id));
-    const defenderFleetPower = defenderFleets.reduce(
-      (sum, fleet) => sum + Math.max(0, fleet.amount - fleet.lockedAmount) * fleet.defense,
-      0
+    const battle = resolveBattle(
+      groups,
+      defenderRows,
+      await getStationDefenseScore(tx, mission.defenderStationId),
+      attackerResearch,
+      defenderResearch
     );
-    const defenderPower =
-      defenderFleetPower +
-      (await getStationDefenseScore(tx, mission.defenderStationId)) *
-        defenderResearch.stationDefense;
-    const attackerPower = groups.reduce(
-      (sum, group) => sum + group.amount * group.spacecraft.attack * attackerResearch.attack,
-      0
-    );
-    const attackerDefense = groups.reduce(
-      (sum, group) =>
-        sum + group.amount * Math.max(1, group.spacecraft.defense * attackerResearch.shipDefense),
-      0
-    );
-    // Every group loses the same share, so bombers are neither shielded nor singled out.
-    const lossShare = Math.min(1, defenderPower / Math.max(1, attackerDefense));
+    outcome.winner = battle.winner;
     for (const group of groups) {
-      const losses = Math.floor(group.amount * lossShare);
+      const losses = battle.attackerLosses.get(group.key) ?? 0;
       if (losses === 0) continue;
-      attackerLosses += losses;
+      outcome.attackerLosses += losses;
       survivors.set(group.key, group.amount - losses);
-      destroyed.set(group.key, losses);
+      addDestroyed(group.key, losses);
       await removeLockedSpacecraft(tx, group.rowId, losses);
     }
-    const survivorTotal = [...survivors.values()].reduce((sum, amount) => sum + amount, 0);
-
-    let remainingDamage = attackerPower;
-    for (const fleet of defenderFleets) {
-      const losses = Math.min(
-        Math.max(0, fleet.amount - fleet.lockedAmount),
-        Math.floor(remainingDamage / Math.max(1, fleet.defense))
+    for (const [rowId, losses] of battle.defenderLosses) {
+      const row = required(
+        defenderRows.find((candidate) => candidate.id === rowId),
+        'defender fleet'
       );
-      if (losses === 0) continue;
-      defenderLosses += losses;
-      destroyed.set(fleet.spacecraftKey, (destroyed.get(fleet.spacecraftKey) ?? 0) + losses);
-      remainingDamage -= losses * Math.max(1, fleet.defense);
-      await removeSpacecraft(tx, fleet.id, losses);
+      outcome.defenderLosses += losses;
+      addDestroyed(row.spacecraftKey, losses);
+      await removeSpacecraft(tx, rowId, losses);
     }
 
-    winner = survivorTotal > 0 && attackerPower > defenderPower ? 'attacker' : 'defender';
-    if (winner === 'attacker') {
+    if (outcome.winner === 'attacker') {
       // Whole units only: Cargo Compression makes the capacity fractional, resources are bigint.
-      let cargoLeft = Math.floor(
+      const cargoCapacity = Math.floor(
         groups.reduce(
           (sum, group) =>
             sum + (survivors.get(group.key) ?? 0) * group.spacecraft.cargo * attackerResearch.cargo,
           0
         )
       );
-      const protectedAmount = calculateProtectedStorage(
-        (await findBuildingLevel(tx, mission.defenderStationId, 'warehouse')) ?? 0
-      );
-      const resources = await listStationResourcesInKeyOrderForUpdate(
-        tx,
-        mission.defenderStationId
-      );
-      for (const resource of resources) {
-        if (cargoLeft <= 0) break;
-        const available = Math.max(0, resource.amount - protectedAmount);
-        const amount = Math.min(cargoLeft, Math.floor(available * 0.1));
-        if (amount <= 0) continue;
-        loot[resource.resourceKey] = amount;
-        cargoLeft -= amount;
-        await deductStationResource(tx, mission.defenderStationId, resource.resourceKey, amount);
-      }
+      outcome.loot = await plunderStation(tx, mission.defenderStationId, cargoCapacity);
     }
 
     const survivingBombers = groups
       .filter((group) => group.spacecraft.role === 'bomber')
       .reduce((sum, group) => sum + (survivors.get(group.key) ?? 0), 0);
-    const integrityBefore = currentIntegrity(
-      defenderStation.integrity,
-      defenderStation.integrityUpdatedAt,
-      trip.arrivesAt
+    const damage = await damageStation(
+      tx,
+      defenderStation,
+      survivingBombers,
+      outcome.winner,
+      trip.arrivesAt,
+      context
     );
-    integrityDamage = winner === 'attacker' ? integrityWaveDamage(survivingBombers) : 0;
-    defenderIntegrity = Math.max(0, integrityBefore - integrityDamage);
-    if (integrityDamage > 0) {
-      await updateStation(tx, defenderStation.id, {
-        integrity: defenderIntegrity,
-        integrityUpdatedAt: trip.arrivesAt,
-      });
-    }
-    if (defenderIntegrity === 0) {
-      stationDestroyed = true;
-      const remains = await destroyStation(tx, defenderStation, context);
-      for (const [key, amount] of remains.dockedShips) {
-        destroyed.set(key, (destroyed.get(key) ?? 0) + amount);
-      }
-      Object.assign(debrisResources, remains.resources);
+    outcome.integrityDamage = damage.integrityDamage;
+    outcome.defenderIntegrity = damage.defenderIntegrity;
+    outcome.stationDestroyed = damage.stationDestroyed;
+    if (damage.remains) {
+      for (const [key, amount] of damage.remains.dockedShips) addDestroyed(key, amount);
+      debrisResources = damage.remains.resources;
     }
   }
 
   const debris = await createDebrisFromLosses(
     tx,
-    mission.defenderStationId,
+    defenderStation,
     destroyed,
     context,
     debrisResources
   );
-  const survivorFleet = Object.fromEntries(survivors);
-  const survivorCount = [...survivors.values()].reduce((sum, amount) => sum + amount, 0);
-  const events: PlaytestCompletionEvent[] = [
-    {
-      type: 'combat_resolved',
-      eventId: completionEventId('combat_resolved', mission.id),
-      occurredAt: trip.arrivesAt,
-      userId: mission.userId,
-      stationId: mission.attackerStationId,
-      missionId: mission.id,
-      defenderStationId: mission.defenderStationId,
-      defenderUserId: defenderStation.userId,
-      winner: winner ?? 'none',
-      attackerLosses,
-      defenderLosses,
-      integrityDamage,
-      defenderIntegrity,
-      stationDestroyed,
-      targetVisibilityVerified: true,
-    },
-  ];
-  if (Object.keys(loot).length > 0) {
-    events.push({
-      type: 'loot_acquired',
-      eventId: completionEventId('loot_acquired', mission.id),
-      occurredAt: trip.arrivesAt,
-      userId: mission.userId,
-      stationId: mission.attackerStationId,
-      missionId: mission.id,
-      resources: loot,
-    });
-  }
-  if (attackerLosses + defenderLosses > 0) {
-    events.push({
-      type: 'fleet_losses',
-      eventId: completionEventId('fleet_losses', mission.id),
-      occurredAt: trip.arrivesAt,
-      userId: mission.userId,
-      stationId: mission.attackerStationId,
-      missionId: mission.id,
-      attackerLosses,
-      defenderLosses,
-    });
-  }
-  if (debris) {
-    events.push({
-      type: 'debris_created',
-      eventId: completionEventId('debris_created', mission.id),
-      occurredAt: trip.arrivesAt,
-      userId: mission.userId,
-      stationId: mission.attackerStationId,
-      missionId: mission.id,
-      debrisId: debris.id,
-      resources: debris.resources,
-    });
-  }
+  outcome.attackerSurvivors = Object.fromEntries(survivors);
+  const events = combatEvents(mission, defenderStation.userId, trip.arrivesAt, outcome, debris);
 
-  const outcome = {
-    attackerSurvivors: survivorFleet,
-    attackerLosses,
-    defenderLosses,
-    winner,
-    loot,
-    integrityDamage,
-    defenderIntegrity,
-    stationDestroyed,
-  };
-  const returning = groups.find((group) => (survivors.get(group.key) ?? 0) > 0);
-  if (!returning) {
+  const slowest = groups.find((group) => (survivors.get(group.key) ?? 0) > 0);
+  if (!slowest) {
     await updateCombatMission(tx, mission.id, {
       ...outcome,
       status: 'resolved',
@@ -468,39 +546,15 @@ async function resolveOutboundCombat(
     });
     return events;
   }
-
-  const attackerStation = await findStation(tx, mission.attackerStationId);
-  if (!attackerStation) throw new Error('Combat station no longer exists');
-  const departedAt = trip.arrivesAt;
-  const baseArrivesAt = calcArrivesAt(
-    departedAt,
-    calcDistance(defenderStation, attackerStation),
-    returning.spacecraft.speed
-  );
-  const arrivesAt = await applyTravelSpeed(
+  const returnTripId = await sendSurvivorsHome(
     tx,
-    mission.attackerStationId,
-    baseArrivesAt,
-    departedAt
+    mission,
+    defenderStation,
+    slowest,
+    outcome,
+    trip.arrivesAt,
+    context
   );
-  const returnTripId = await insertTrip(tx, {
-    id: context.nextId('trip'),
-    stationSpacecraftId: returning.rowId,
-    groupSize: survivorCount,
-    fromType: 'station',
-    fromId: mission.defenderStationId,
-    fromX: defenderStation.x,
-    fromY: defenderStation.y,
-    toType: 'station',
-    toId: mission.attackerStationId,
-    toX: attackerStation.x,
-    toY: attackerStation.y,
-    departedAt,
-    arrivesAt,
-    purpose: 'combat_return',
-    cargoManifest: loot,
-    createdAt: departedAt,
-  });
   await updateCombatMission(tx, mission.id, { ...outcome, returnTripId, status: 'returning' });
   return events;
 }

@@ -65,17 +65,19 @@ const toMission = (row: SalvageMissionRow): SalvageMission => ({
   resolvedAt: row.resolvedAt?.toISOString() ?? null,
 });
 
+/** A field whose resources are all taken stays only until its last salvager returns. */
+const hasResources = (resources: ResourceMap) =>
+  Object.values(resources).some((amount) => amount > 0);
+
 export async function createDebrisFromLosses(
   tx: Tx,
-  stationId: string,
+  /** The locked station row of the fight. */
+  station: { sectorId: string; x: number; y: number },
   losses: Map<string, number>,
   context: GameExecutionContext,
   /** Further remains, e.g. the storage and investment of a destroyed station. */
   extra: ResourceMap = {}
 ): Promise<{ id: string; resources: ResourceMap } | null> {
-  const station = await findStation(tx, stationId);
-  if (!station) throw new Error('Combat station no longer exists');
-
   const resources: ResourceMap = { ...extra };
   for (const [spacecraftKey, amount] of losses) {
     for (const cost of getSpacecraft(spacecraftKey)?.costs ?? []) {
@@ -87,6 +89,8 @@ export async function createDebrisFromLosses(
   }
   if (Object.keys(resources).length === 0) return null;
 
+  // ponytail: every fight adds its own field at the same point; merging would lock the existing
+  // field after the fleet rows and deadlock against startSalvage (debris, then fleet).
   const x = station.x + 90;
   const y = station.y + 70;
   const id = context.nextId('debris');
@@ -121,7 +125,7 @@ export async function getVisibleDebris(
   const rows = await listDebrisFieldsInChunks(getDb(), bounds);
   if (stats) stats.debrisCandidates = rows.length;
   return rows.flatMap((row) =>
-    scannerBypass || isPointVisible(coverages, row)
+    hasResources(row.resources) && (scannerBypass || isPointVisible(coverages, row))
       ? [
           {
             id: row.id,
@@ -141,7 +145,7 @@ export async function getDebrisById(id: string, userId: string): Promise<DebrisF
     findDebrisField(getDb(), id),
     getUserScannerCoverages(userId),
   ]);
-  return row && isPointVisible(coverages, row)
+  return row && hasResources(row.resources) && isPointVisible(coverages, row)
     ? {
         id: row.id,
         x: row.x,
@@ -172,7 +176,9 @@ export async function startSalvage(
 
     // Locked so the last returning salvager cannot delete it while this mission starts.
     const debris = await findDebrisFieldForUpdate(tx, params.debrisFieldId);
-    if (!debris) throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
+    if (!debris || !hasResources(debris.resources)) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
+    }
     const coverages = await getUserScannerCoverages(params.userId, tx);
     if (!isPointVisible(coverages, debris)) {
       throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
@@ -303,7 +309,7 @@ async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<PlaytestComplet
 
   if (debrisFieldId) {
     const active = await hasUnresolvedSalvageOnDebris(tx, debrisFieldId);
-    if (!active && debris && Object.values(debris.resources).every((amount) => amount <= 0)) {
+    if (!active && debris && !hasResources(debris.resources)) {
       await deleteDebrisField(tx, debrisFieldId);
     }
   }

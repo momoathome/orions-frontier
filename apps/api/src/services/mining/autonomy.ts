@@ -67,6 +67,44 @@ export const largestResource = (map: ResourceMap): ResourceKey | null => {
   return largest?.[0] ?? null;
 };
 
+/** Asteroids inside the user's scanner coverage with what remains of each visible resource. */
+async function listVisibleMiningTargets(
+  tx: Tx,
+  userId: string,
+  visibleResources: readonly ResourceKey[]
+): Promise<MiningTarget[]> {
+  const coverages = await getUserScannerCoverages(userId, tx);
+  const bounds = scannerChunkBounds(coverages, WORLD_CONFIG.CHUNK_SIZE);
+  if (bounds.length === 0) return [];
+
+  const targets = new Map<string, MiningTarget>();
+  for (const row of await listAsteroidVeinsInChunks(tx, bounds, visibleResources)) {
+    if (!isPointVisible(coverages, row)) continue;
+    const target = targets.get(row.id) ?? {
+      id: row.id,
+      x: row.x,
+      y: row.y,
+      remainingByResource: {},
+      remainingAmount: 0,
+    };
+    target.remainingByResource[row.resourceKey] =
+      (target.remainingByResource[row.resourceKey] ?? 0) + row.remainingAmount;
+    target.remainingAmount += row.remainingAmount;
+    targets.set(row.id, target);
+  }
+  return [...targets.values()];
+}
+
+/**
+ * Delivery per hour of the group's next round trip: an almost empty asteroid fills fewer holds,
+ * so it loses to a fuller one farther away.
+ */
+export const firstTripDeliveryPerHour =
+  (miners: { speed: number; miningRate: number; cargoCapacity: number; minerCount: number }) =>
+  (distance: number, remainingAmount: number) =>
+    Math.min(miners.cargoCapacity * miners.minerCount, remainingAmount) /
+    calculateMiningCycle({ distance, ...miners, remainingAmount }).roundTripHours;
+
 /**
  * Sends idle miners to a new asteroid when research allows it: Autonomous Rerouting keeps the
  * resource they mined, the Autonomous Mining Fleet picks the best target otherwise.
@@ -100,36 +138,13 @@ export async function assignIdleMiners(
   // Station first, like every station write, before the asteroid and fleet locks below.
   const station = await findStationForUpdate(tx, params.stationId);
   if (!station || station.destroyedAt) return null;
-  const coverages = await getUserScannerCoverages(station.userId, tx);
-  const bounds = scannerChunkBounds(coverages, WORLD_CONFIG.CHUNK_SIZE);
-  if (bounds.length === 0) return null;
-
-  const targets = new Map<string, MiningTarget>();
-  for (const row of await listAsteroidVeinsInChunks(tx, bounds, modifiers.visibleResources)) {
-    if (!isPointVisible(coverages, row)) continue;
-    const target = targets.get(row.id) ?? {
-      id: row.id,
-      x: row.x,
-      y: row.y,
-      remainingByResource: {},
-      remainingAmount: 0,
-    };
-    target.remainingByResource[row.resourceKey] =
-      (target.remainingByResource[row.resourceKey] ?? 0) + row.remainingAmount;
-    target.remainingAmount += row.remainingAmount;
-    targets.set(row.id, target);
-  }
-
-  const deliveryPerHour = (distance: number, remainingAmount: number) =>
-    calculateMiningCycle({
-      distance,
-      speed: spacecraft.speed * modifiers.speed,
-      miningRate: spacecraft.miningRate * modifiers.miningRate,
-      cargoCapacity: spacecraft.cargo * modifiers.cargo,
-      minerCount: params.amount,
-      remainingAmount,
-    }).totalDeliveryPerHour;
-  const candidates = [...targets.values()];
+  const candidates = await listVisibleMiningTargets(tx, station.userId, modifiers.visibleResources);
+  const deliveryPerHour = firstTripDeliveryPerHour({
+    speed: spacecraft.speed * modifiers.speed,
+    miningRate: spacecraft.miningRate * modifiers.miningRate,
+    cargoCapacity: spacecraft.cargo * modifiers.cargo,
+    minerCount: params.amount,
+  });
   const sameResource = reroute
     ? selectMiningTarget(station, candidates, params.resourceKey, deliveryPerHour)
     : null;

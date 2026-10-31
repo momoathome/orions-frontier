@@ -19,6 +19,11 @@ import type { ChunkKey } from './ChunkStreamer.js';
 const BLUR_MIN_ZOOM = 0.25;
 /** Sprites reach past their chunk edge by up to the largest drawn radius. */
 const CULL_PADDING = 80;
+/** Largest hit radius, so a large asteroid in a neighbouring chunk still counts. */
+const MAX_ASTEROID_RADIUS = Math.max(
+  UNSCANNED_ASTEROID_RADIUS,
+  ...Object.values(ASTEROID_SIZE_RADIUS)
+);
 
 export interface AsteroidHit {
   id: string;
@@ -27,8 +32,9 @@ export interface AsteroidHit {
   r: number;
 }
 
-const radiusFor = (a: VisibleAsteroid): number =>
-  a.size ? (ASTEROID_SIZE_RADIUS[a.size] ?? ASTEROID_DEFAULT_RADIUS) : UNSCANNED_ASTEROID_RADIUS;
+/** Hit and ring radius; an unknown size (outside scanner range) gets the uniform unscanned one. */
+export const asteroidRadius = (size: string | null): number =>
+  size ? (ASTEROID_SIZE_RADIUS[size] ?? ASTEROID_DEFAULT_RADIUS) : UNSCANNED_ASTEROID_RADIUS;
 
 export class AsteroidLayer {
   /** Root container — add this to the world container */
@@ -98,7 +104,7 @@ export class AsteroidLayer {
         continue;
       }
 
-      const r = radiusFor(a);
+      const r = asteroidRadius(a.size);
       const remaining = a.remainingFraction ?? 1;
       // diameter = 2 * r, with a slight visual margin; mined-out asteroids shrink and fade
       const size = r * 2.4 * (0.45 + 0.55 * remaining);
@@ -117,7 +123,7 @@ export class AsteroidLayer {
       id: a.id,
       x: a.x,
       y: a.y,
-      r: radiusFor(a),
+      r: asteroidRadius(a.size),
     }));
     this.chunkAsteroidData.set(key, hitData);
     for (const h of hitData) {
@@ -154,25 +160,33 @@ export class AsteroidLayer {
 
   /**
    * Returns the asteroid at world position (wx, wy) within the given tolerance,
-   * or null if none. Only checks the chunk that contains the point.
+   * or null if none. Checks every chunk the reach around the point overlaps.
    * `tolerance` is the minimum clickable radius in world units (ensures
    * small asteroids are still clickable at low zoom).
    */
   hitTest(wx: number, wy: number, tolerance: number): AsteroidHit | null {
-    const cx = Math.floor(wx / CHUNK_SIZE);
-    const cy = Math.floor(wy / CHUNK_SIZE);
-    const key = chunkKey(cx, cy);
-    const candidates = this.chunkAsteroidData.get(key) ?? [];
-
+    const reach = Math.max(tolerance, MAX_ASTEROID_RADIUS);
     let best: AsteroidHit | null = null;
     let bestDist = Infinity;
 
-    for (const a of candidates) {
-      const dist = Math.hypot(wx - a.x, wy - a.y);
-      const threshold = Math.max(a.r, tolerance);
-      if (dist <= threshold && dist < bestDist) {
-        bestDist = dist;
-        best = a;
+    for (
+      let cx = Math.floor((wx - reach) / CHUNK_SIZE);
+      cx <= Math.floor((wx + reach) / CHUNK_SIZE);
+      cx++
+    ) {
+      for (
+        let cy = Math.floor((wy - reach) / CHUNK_SIZE);
+        cy <= Math.floor((wy + reach) / CHUNK_SIZE);
+        cy++
+      ) {
+        for (const a of this.chunkAsteroidData.get(chunkKey(cx, cy)) ?? []) {
+          const dist = Math.hypot(wx - a.x, wy - a.y);
+          const threshold = Math.max(a.r, tolerance);
+          if (dist <= threshold && dist < bestDist) {
+            bestDist = dist;
+            best = a;
+          }
+        }
       }
     }
 

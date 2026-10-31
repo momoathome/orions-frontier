@@ -85,6 +85,32 @@ export async function runPlaytest(
   let maximumControlledPopulation = 0;
   let faultInjected = false;
 
+  // The only writer of playerIndex, nextJoinAt and maximumControlledPopulation.
+  const joinDuePlayers = async (now: Date): Promise<void> => {
+    while (playerIndex < config.populationLimit && nextJoinAt.getTime() <= now.getTime()) {
+      const joined = await joinSyntheticPlayer(
+        {
+          playerIndex,
+          profileWeights: config.profileWeights,
+          registry: population,
+        },
+        context.at(nextJoinAt)
+      );
+      aliases.registerPopulationMember(joined.member);
+      aggregator.registerPopulationMember(joined.member);
+      for (const resident of joined.registeredResidents) {
+        aliases.registerPopulationMember(resident);
+        aggregator.registerPopulationMember(resident);
+      }
+      playerIndex += 1;
+      nextJoinAt = new Date(config.virtualStart.getTime() + playerIndex * config.joinIntervalMs);
+      maximumControlledPopulation = Math.max(
+        maximumControlledPopulation,
+        population.snapshot().length
+      );
+    }
+  };
+
   const buildResult = (completedAt: Date): PlaytestRunResult => {
     const metrics = aggregator.finalize(completedAt);
     const warnings = analyzeSoftlocks({
@@ -116,28 +142,7 @@ export async function runPlaytest(
 
   try {
     for (;;) {
-      while (playerIndex < config.populationLimit && nextJoinAt.getTime() <= now.getTime()) {
-        const joined = await joinSyntheticPlayer(
-          {
-            playerIndex,
-            profileWeights: config.profileWeights,
-            registry: population,
-          },
-          context.at(nextJoinAt)
-        );
-        aliases.registerPopulationMember(joined.member);
-        aggregator.registerPopulationMember(joined.member);
-        for (const resident of joined.registeredResidents) {
-          aliases.registerPopulationMember(resident);
-          aggregator.registerPopulationMember(resident);
-        }
-        playerIndex += 1;
-        nextJoinAt = new Date(config.virtualStart.getTime() + playerIndex * config.joinIntervalMs);
-        maximumControlledPopulation = Math.max(
-          maximumControlledPopulation,
-          population.snapshot().length
-        );
-      }
+      await joinDuePlayers(now);
       if (!faultInjected) {
         await injectConfiguredInvariantFault(population.snapshot());
         faultInjected = true;

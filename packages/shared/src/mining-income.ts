@@ -34,12 +34,21 @@ export interface StationIncome {
 export const activeMiners = (assignment: AsteroidDetailAssignment) =>
   assignment.assignedAmount - assignment.recallRequestedAmount;
 
-/** Repeating cycle of one assignment, timed by its current trip leg; null when nothing is active. */
+/**
+ * Repeating cycle of one assignment, timed by its current trip leg; null when nothing is active
+ * or the ships cannot mine.
+ */
 export function estimateAssignmentCycle(
   assignment: AsteroidDetailAssignment,
   remainingAmount: number
 ): MiningCycleEstimate | null {
-  if (activeMiners(assignment) <= 0) return null;
+  if (
+    activeMiners(assignment) <= 0 ||
+    assignment.spacecraftMiningRate <= 0 ||
+    assignment.spacecraftCargo <= 0
+  ) {
+    return null;
+  }
   const trip = assignment.activeTrip;
   const oneWayTravelHours = trip
     ? Math.max(0, (Date.parse(trip.arrivesAt) - Date.parse(trip.departedAt)) / 3_600_000)

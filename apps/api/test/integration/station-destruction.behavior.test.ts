@@ -7,8 +7,10 @@ import { runMigrations } from '../../src/lib/db/migrate.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields } from '../../src/lib/db/schema/debris-fields.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
+import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -96,8 +98,37 @@ test('a mixed fleet travels at bomber speed, hides its composition and damages i
   const report = (await getUserCombatReports(attackerUserId)).find((r) => r.id === started.id);
   assert.equal(report?.winner, 'attacker');
   assert.equal(report.integrityDamage, 20);
-  assert.equal(report.defenderIntegrity, 80);
+  // The attacker sees the coarse tier, the defender the exact value.
+  assert.equal(report.defenderIntegrity, 100);
   assert.equal(report.stationDestroyed, false);
+  const defenderView = (await getUserCombatReports(defenderUserId)).find(
+    (r) => r.id === started.id
+  );
+  assert.equal(defenderView?.defenderIntegrity, 80);
+});
+
+test('a losing probe learns nothing about the integrity', async () => {
+  await getDb()
+    .update(stationSpacecrafts)
+    .set({ amount: 20 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, defenderStationId),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    );
+  const probe = await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: defenderStationId,
+    fleet: { merlin: 1 },
+  });
+  await settleTripArrival(await outboundTrip(probe.id));
+  const report = (await getUserCombatReports(attackerUserId)).find((r) => r.id === probe.id);
+  assert.equal(report?.winner, 'defender');
+  assert.equal(report.defenderIntegrity, null);
+  const defenderView = (await getUserCombatReports(defenderUserId)).find((r) => r.id === probe.id);
+  assert.equal(defenderView?.defenderIntegrity, 100);
 });
 
 test('two concurrent waves destroy a weak station exactly once and relocate its ships', async () => {
@@ -307,6 +338,38 @@ test('a colony due before the attack that destroys the last station is founded i
   );
 });
 
+test('fighters finished before an attack lands defend in the same tick', async () => {
+  const wave = await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: defenderStationId,
+    fleet: { merlin: 3, hammer: 1 },
+  });
+  const outbound = await outboundTrip(wave.id);
+  const doneAt = new Date(outbound.arrivesAt.getTime() - 1_000);
+  const db = getDb();
+  // As buildSpacecrafts does: the fleet row exists before the first ship is done.
+  await db.insert(stationSpacecrafts).values({
+    stationId: defenderStationId,
+    spacecraftKey: 'reaper',
+    amount: 0,
+  });
+  await db.insert(spacecraftBuildOrders).values({
+    stationId: defenderStationId,
+    spacecraftKey: 'reaper',
+    amount: 2,
+    orderedAmount: 2,
+    unitCost: [],
+    nextAt: doneAt,
+    endsAt: doneAt,
+  });
+
+  await runWorldTick(new Date(outbound.arrivesAt.getTime() + 1));
+
+  const report = (await getUserCombatReports(defenderUserId)).find((r) => r.id === wave.id);
+  assert.equal(report?.winner, 'defender');
+});
+
 test('a player who lost every station restarts with fresh attack protection', async () => {
   const db = getDb();
   await db
@@ -320,6 +383,77 @@ test('a player who lost every station restarts with fresh attack protection', as
   const [defender] = await db.select().from(users).where(eq(users.id, defenderUserId));
   assert.ok(defender?.protectedUntil && defender.protectedUntil.getTime() > Date.now());
   await assert.rejects(createStation(defenderUserId, { name: 'Third', sectorId }), /already has/);
+});
+
+test('a returning mixed fleet relocates per ship type and delivers its loot once', async () => {
+  const db = getDb();
+  const raid = await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: defenderStationId,
+    fleet: { merlin: 3, hammer: 1 },
+  });
+  assert.equal((await settleTripArrival(await outboundTrip(raid.id))).settled, true);
+  const [returning] = await db.select().from(combatMissions).where(eq(combatMissions.id, raid.id));
+  assert.equal(returning?.status, 'returning');
+  const loot = returning.loot ?? {};
+  assert.ok(Object.keys(loot).length > 0);
+
+  // The raider's home falls to a counter wave while the raid flies back with its loot.
+  const refuge = await createTestStation({
+    userId: attackerUserId,
+    sectorId,
+    name: 'Refuge',
+    x: 500,
+  });
+  await db
+    .update(stations)
+    .set({ integrity: 20, integrityUpdatedAt: new Date() })
+    .where(eq(stations.id, attackerStationId));
+  await db
+    .update(stationSpacecrafts)
+    .set({ amount: stationSpacecrafts.lockedAmount })
+    .where(eq(stationSpacecrafts.stationId, attackerStationId));
+  await db.insert(stationSpacecrafts).values([
+    { stationId: defenderStationId, spacecraftKey: 'merlin', amount: 3 },
+    { stationId: defenderStationId, spacecraftKey: 'hammer', amount: 1 },
+  ]);
+  const counter = await startAttack({
+    userId: defenderUserId,
+    stationId: defenderStationId,
+    targetStationId: attackerStationId,
+    fleet: { merlin: 3, hammer: 1 },
+  });
+  await settleTripArrival(await outboundTrip(counter.id));
+
+  const [resolved] = await db.select().from(combatMissions).where(eq(combatMissions.id, raid.id));
+  assert.equal(resolved?.status, 'resolved');
+  const relocations = await db
+    .select({ trip: spacecraftTrips, spacecraftKey: stationSpacecrafts.spacecraftKey })
+    .from(spacecraftTrips)
+    .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
+    .where(and(eq(spacecraftTrips.toId, refuge.id), eq(spacecraftTrips.purpose, 'relocate')));
+  assert.deepEqual(
+    Object.fromEntries(relocations.map((row) => [row.spacecraftKey, row.trip.groupSize])),
+    returning.attackerSurvivors
+  );
+  assert.equal(relocations.length, 2);
+
+  const refugeStock = async () =>
+    Object.fromEntries(
+      (
+        await db.select().from(stationResources).where(eq(stationResources.stationId, refuge.id))
+      ).map((row) => [row.resourceKey, row.amount])
+    );
+  const stockBefore = await refugeStock();
+  for (const { trip } of relocations) {
+    assert.equal((await settleTripArrival(trip)).settled, true);
+    assert.equal((await settleTripArrival(trip)).settled, false);
+  }
+  const stockAfter = await refugeStock();
+  for (const [key, amount] of Object.entries(loot)) {
+    assert.equal(stockAfter[key], (stockBefore[key] ?? 0) + amount, key);
+  }
 });
 
 async function outboundTrip(missionId: string) {

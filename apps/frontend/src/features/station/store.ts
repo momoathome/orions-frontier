@@ -23,7 +23,8 @@ export interface MiningAssignment {
   asteroidId: string;
   asteroidX: number;
   asteroidY: number;
-  asteroidSize: string;
+  /** Null while the asteroid is outside scanner range. */
+  asteroidSize: string | null;
 }
 
 export interface StationDetail {
@@ -99,8 +100,15 @@ async function loadStationDetail(id: string): Promise<void> {
 }
 
 const refreshStation = (id: string) => guarded(() => loadStationDetail(id));
+let latestStations: Promise<Station[]> = Promise.resolve([]);
 const refreshStations = () =>
-  guarded(async () => (state.stations = await apiClient.get<Station[]>('/stations')));
+  guarded(async () => {
+    let request = (latestStations = apiClient.get<Station[]>('/stations'));
+    let stations = await request;
+    // A newer request wins; callers such as `stationsLoaded` wait for it instead of resolving empty.
+    while (request !== latestStations) stations = await (request = latestStations);
+    state.stations = stations;
+  });
 
 let stationsLoaded: Promise<void> = Promise.resolve();
 

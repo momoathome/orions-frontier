@@ -12,7 +12,7 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { getUserCombatReports, startAttack } from '../../src/services/combat/combat.js';
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
-import { startSalvage } from '../../src/services/combat/salvage.js';
+import { getDebrisById, startSalvage } from '../../src/services/combat/salvage.js';
 import { resolveSalvageMissionByTrip } from '../../src/services/combat/repositories/debris-fields.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import { entriesOf, type CombatReport, type ResearchLevels } from '@orions-frontier/shared';
@@ -349,6 +349,27 @@ test('a salvager whose debris is gone on arrival returns empty', async () => {
     .where(eq(salvageMissions.id, started.id));
   assert.equal(mission!.status, 'returning');
   assert.deepEqual(mission!.cargo, {});
+});
+
+test('an emptied debris field is hidden and cannot be salvaged', async () => {
+  await resolveAttack();
+  const [field] = await getDb()
+    .select()
+    .from(debrisFields)
+    .where(eq(debrisFields.sectorId, sectorId));
+  assert.ok(await getDebrisById(field!.id, attackerUserId));
+  await getDb()
+    .update(debrisFields)
+    .set({ resources: { carbon: 0, titanium: 0, hydrogenium: 0 } })
+    .where(eq(debrisFields.id, field!.id));
+  await getDb().insert(stationSpacecrafts).values({
+    stationId: attackerStationId,
+    spacecraftKey: 'collector',
+    amount: 1,
+  });
+
+  assert.equal(await getDebrisById(field!.id, attackerUserId), null);
+  await assert.rejects(launchSalvage(field!.id), /debris field not found/i);
 });
 
 test('Signature Analysis reveals an incoming fleet before it arrives', async () => {

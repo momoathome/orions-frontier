@@ -1,16 +1,5 @@
-import {
-  calculateBuildingUpgradeCost,
-  calculateDefenseUpgradeCost,
-  getDefenseUpgrade,
-  requireSpacecraft,
-} from '@orions-frontier/game-config';
-import {
-  buildingKeys,
-  defenseUpgradeKeys,
-  entriesOf,
-  isOneOf,
-  type ResourceMap,
-} from '@orions-frontier/shared';
+import { investedUpgradeCosts, requireSpacecraft } from '@orions-frontier/game-config';
+import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 import type { Tx } from '../../lib/db/index.js';
 import { deleteStationAssignments, releaseSpawnSlots } from '../map/index.js';
 import {
@@ -104,57 +93,43 @@ async function tripGroups(
   return { [spacecraftKey]: trip.groupSize };
 }
 
-/**
- * Destroys a station whose integrity reached 0. Must run inside the transaction that holds the
- * station row lock, so it happens exactly once. Ships in flight relocate to the owner's nearest
- * surviving station; without one they are lost. Returns what the debris field receives.
- */
-export async function destroyStation(
-  tx: Tx,
-  station: { id: string; userId: string },
-  context: GameExecutionContext
-): Promise<{ dockedShips: Map<string, number>; resources: ResourceMap }> {
-  const { now } = context;
-  const fleetRows = await listStationSpacecraftsForUpdate(tx, station.id);
-  const fleetIds = fleetRows.map((row) => row.id);
-  const keyByRow = new Map(fleetRows.map((row) => [row.id, row.spacecraftKey]));
-  const dockedShips = new Map<string, number>();
-  for (const row of fleetRows) {
-    const docked = row.amount - row.lockedAmount;
-    if (docked > 0) dockedShips.set(row.spacecraftKey, docked);
-  }
+/** The nearest surviving station of the owner, if any. */
+type Refuge = (point: Coordinate) => { id: string; x: number; y: number } | undefined;
 
+/** What a destroyed station leaves: its storage and a share of its paid upgrades. */
+async function stationRemains(tx: Tx, stationId: string): Promise<ResourceMap> {
   const resources: ResourceMap = {};
-  const storage = await listStationResources(tx, station.id);
-  for (const row of storage) addResources(resources, { [row.resourceKey]: row.amount });
-
-  const levels = await listBuildingLevels(tx, station.id);
-  for (const { buildingKey: key, level } of levels) {
-    const costs = isOneOf(buildingKeys, key)
-      ? Array.from({ length: Math.max(0, level - 1) }, (_, i) =>
-          calculateBuildingUpgradeCost(key, i + 2)
-        )
-      : isOneOf(defenseUpgradeKeys, key)
-        ? Array.from(
-            { length: Math.max(0, level - getDefenseUpgrade(key).startingLevel) },
-            (_, i) => calculateDefenseUpgradeCost(key, getDefenseUpgrade(key).startingLevel + i + 1)
-          )
-        : [];
-    for (const cost of costs.flat()) {
+  for (const row of await listStationResources(tx, stationId)) {
+    addResources(resources, { [row.resourceKey]: row.amount });
+  }
+  for (const { buildingKey, level } of await listBuildingLevels(tx, stationId)) {
+    for (const cost of investedUpgradeCosts(buildingKey, level)) {
       addResources(resources, { [cost.resourceKey]: cost.amount }, INVESTMENT_DEBRIS_SHARE);
     }
   }
+  return resources;
+}
 
-  const survivors = await listOtherActiveStationPositionsByUser(tx, station.userId, station.id);
-  const nearest = (point: Coordinate) =>
-    survivors.reduce<(typeof survivors)[number] | undefined>(
-      (best, candidate) =>
-        !best || calcDistance(point, candidate) < calcDistance(point, best) ? candidate : best,
-      undefined
-    );
-
+/**
+ * Cancels the trips of the station's ships and sends each ship type from where it is to the
+ * nearest refuge, cargo with the first group. Without a refuge the ships are lost.
+ */
+async function relocateTrips(
+  tx: Tx,
+  station: { id: string },
+  fleetRows: { id: string; spacecraftKey: string }[],
+  nearest: Refuge,
+  context: GameExecutionContext
+) {
+  const { now } = context;
+  const keyByRow = new Map(fleetRows.map((row) => [row.id, row.spacecraftKey]));
   const trips =
-    fleetIds.length === 0 ? [] : await listTravelingTripsBySpacecraftForUpdate(tx, fleetIds);
+    fleetRows.length === 0
+      ? []
+      : await listTravelingTripsBySpacecraftForUpdate(
+          tx,
+          fleetRows.map((row) => row.id)
+        );
   for (const trip of trips) {
     await cancelTrip(tx, trip.id);
     const groups = await tripGroups(tx, trip, keyByRow.get(trip.stationSpacecraftId) ?? '', now);
@@ -195,7 +170,15 @@ export async function destroyStation(
       cargo = null;
     }
   }
+}
 
+/** Moving world missions of the station's ships change home to the refuge nearest their origin. */
+async function rehomeWorldMissions(
+  tx: Tx,
+  fleetIds: string[],
+  nearest: Refuge,
+  context: GameExecutionContext
+) {
   const missions =
     fleetIds.length === 0 ? [] : await listMovingWorldMissionsBySpacecraftForUpdate(tx, fleetIds);
   for (const mission of missions) {
@@ -212,6 +195,41 @@ export async function destroyStation(
       originStationId: target.id,
     });
   }
+}
+
+/**
+ * Destroys a station whose integrity reached 0. Must run inside the transaction that holds the
+ * station row lock, so it happens exactly once. Ships in flight relocate to the owner's nearest
+ * surviving station; without one they are lost. Returns what the debris field receives.
+ */
+export async function destroyStation(
+  tx: Tx,
+  station: { id: string; userId: string },
+  context: GameExecutionContext
+): Promise<{ dockedShips: Map<string, number>; resources: ResourceMap }> {
+  const { now } = context;
+  const fleetRows = await listStationSpacecraftsForUpdate(tx, station.id);
+  const dockedShips = new Map<string, number>();
+  for (const row of fleetRows) {
+    const docked = row.amount - row.lockedAmount;
+    if (docked > 0) dockedShips.set(row.spacecraftKey, docked);
+  }
+  const resources = await stationRemains(tx, station.id);
+
+  const survivors = await listOtherActiveStationPositionsByUser(tx, station.userId, station.id);
+  const nearest: Refuge = (point) =>
+    survivors.reduce<(typeof survivors)[number] | undefined>(
+      (best, candidate) =>
+        !best || calcDistance(point, candidate) < calcDistance(point, best) ? candidate : best,
+      undefined
+    );
+  await relocateTrips(tx, station, fleetRows, nearest, context);
+  await rehomeWorldMissions(
+    tx,
+    fleetRows.map((row) => row.id),
+    nearest,
+    context
+  );
 
   await clearStationSpacecrafts(tx, station.id, now);
   await deleteStationBuildings(tx, station.id);

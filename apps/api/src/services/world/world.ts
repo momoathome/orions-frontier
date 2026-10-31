@@ -12,9 +12,9 @@ import {
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
 import {
-  attackProtectionEndsAt,
   coarseIntegrity,
   currentIntegrity,
+  isAttackProtected,
   requireSpacecraft,
 } from '@orions-frontier/game-config';
 import {
@@ -95,8 +95,7 @@ export async function getVisibleChunkStations(
       scanned &&
       combatDiagnostics &&
       !isOwn &&
-      !station.attackProtectionBrokenAt &&
-      combatDiagnostics.now < attackProtectionEndsAt(station.ownerCreatedAt, station.protectedUntil)
+      isAttackProtected({ ...station, createdAt: station.ownerCreatedAt }, combatDiagnostics.now)
     ) {
       combatDiagnostics.protectedOwnerIds.add(station.userId);
     }
@@ -164,92 +163,100 @@ export async function getVisibleWorldMovements(
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
   ]);
 
-  const visibleTrips = trips.flatMap((trip): VisibleWorldMovement[] => {
-    const position = interpolateWorldPosition(trip, now);
-    if (!isInsideWorldBounds(position, bounds)) return [];
-    const spacecraft = requireSpacecraft(trip.spacecraftKey);
-    if (trip.userId !== userId) {
-      const scanned = scannerBypass || isPointVisible(coverages, position);
-      // Civil traffic outside the scanner is a bare blip; military traffic stays dark.
-      if (!scanned && MILITARY_TRIP_PURPOSES.has(trip.purpose)) return [];
-      return [
-        {
-          kind: 'radar_contact',
-          id: trip.id,
-          ...position,
-          observedAt: now.toISOString(),
-          signature: scanned ? spacecraft.role : null,
-        },
-      ];
-    }
-    return [
-      {
-        kind: 'own_trip',
-        id: trip.id,
-        fromX: trip.fromX,
-        fromY: trip.fromY,
-        toX: trip.toX,
-        toY: trip.toY,
-        departedAt: trip.departedAt.toISOString(),
-        arrivesAt: trip.arrivesAt.toISOString(),
-        purpose: trip.purpose,
-        groupSize: trip.groupSize,
-        ...(trip.purpose === 'mining_return' && { miningStartedAt: trip.createdAt.toISOString() }),
-        ownerType: trip.botUserId ? 'bot' : 'player',
-        spacecraft: { name: spacecraft.name, image: spacecraft.image, role: spacecraft.role },
-      },
-    ];
-  });
+  const viewer = { userId, coverages, bounds, now, scannerBypass };
+  return [
+    ...trips.map((trip) => projectTrip(trip, viewer)),
+    ...missions.map((mission) => projectMission(mission, viewer)),
+  ].filter((movement) => movement !== null);
+}
 
-  const visibleMissions = missions.flatMap((mission): VisibleWorldMovement[] => {
-    const spacecraft = requireSpacecraft(mission.spacecraftKey);
-    const targetX = mission.targetX ?? mission.targetSectorX * WORLD_CONFIG.SECTOR.WIDTH;
-    const targetY = mission.targetY ?? mission.targetSectorY * WORLD_CONFIG.SECTOR.HEIGHT;
-    const returning = mission.status === 'returning';
-    const fromX = returning ? targetX : mission.fromX;
-    const fromY = returning ? targetY : mission.fromY;
-    const toX = returning ? mission.fromX : targetX;
-    const toY = returning ? mission.fromY : targetY;
-    const path = {
-      fromX,
-      fromY,
-      toX,
-      toY,
-      departedAt: mission.departedAt,
-      arrivesAt: mission.arrivesAt,
+type TripRow = Awaited<ReturnType<typeof listTravelingTripsInBounds>>[number];
+type MissionRow = Awaited<ReturnType<typeof listMovingWorldMissionsInBounds>>[number];
+
+/** Who looks at the map, and where: decides how much of each movement shows. */
+interface MovementViewer {
+  userId: string;
+  coverages: readonly ScannerCoverage[];
+  bounds: ReturnType<typeof worldBounds>;
+  now: Date;
+  scannerBypass: boolean;
+}
+
+function projectTrip(trip: TripRow, viewer: MovementViewer): VisibleWorldMovement | null {
+  const position = interpolateWorldPosition(trip, viewer.now);
+  if (!isInsideWorldBounds(position, viewer.bounds)) return null;
+  const spacecraft = requireSpacecraft(trip.spacecraftKey);
+  if (trip.userId !== viewer.userId) {
+    const scanned = viewer.scannerBypass || isPointVisible(viewer.coverages, position);
+    // Civil traffic outside the scanner is a bare blip; military traffic stays dark.
+    if (!scanned && MILITARY_TRIP_PURPOSES.has(trip.purpose)) return null;
+    return {
+      kind: 'radar_contact',
+      id: trip.id,
+      ...position,
+      observedAt: viewer.now.toISOString(),
+      signature: scanned ? spacecraft.role : null,
     };
-    const position = interpolateWorldPosition(path, now);
-    if (!isInsideWorldBounds(position, bounds)) return [];
-    if (mission.userId !== userId) {
-      return scannerBypass || isPointVisible(coverages, position)
-        ? [
-            {
-              kind: 'radar_contact',
-              id: mission.id,
-              ...position,
-              observedAt: now.toISOString(),
-              signature: spacecraft.role,
-            },
-          ]
-        : [];
-    }
-    return [
-      {
-        kind: 'own_trip',
-        id: mission.id,
-        fromX,
-        fromY,
-        toX,
-        toY,
-        departedAt: mission.departedAt.toISOString(),
-        arrivesAt: mission.arrivesAt.toISOString(),
-        purpose: mission.purpose,
-        groupSize: 1,
-        ownerType: mission.botUserId ? 'bot' : 'player',
-        spacecraft: { name: spacecraft.name, image: spacecraft.image, role: spacecraft.role },
-      },
-    ];
-  });
+  }
+  return {
+    kind: 'own_trip',
+    id: trip.id,
+    fromX: trip.fromX,
+    fromY: trip.fromY,
+    toX: trip.toX,
+    toY: trip.toY,
+    departedAt: trip.departedAt.toISOString(),
+    arrivesAt: trip.arrivesAt.toISOString(),
+    purpose: trip.purpose,
+    groupSize: trip.groupSize,
+    ...(trip.purpose === 'mining_return' && { miningStartedAt: trip.createdAt.toISOString() }),
+    ownerType: trip.botUserId ? 'bot' : 'player',
+    spacecraft: { name: spacecraft.name, image: spacecraft.image, role: spacecraft.role },
+  };
+}
 
-  return [...visibleTrips, ...visibleMissions];
+function projectMission(mission: MissionRow, viewer: MovementViewer): VisibleWorldMovement | null {
+  const spacecraft = requireSpacecraft(mission.spacecraftKey);
+  const targetX = mission.targetX ?? mission.targetSectorX * WORLD_CONFIG.SECTOR.WIDTH;
+  const targetY = mission.targetY ?? mission.targetSectorY * WORLD_CONFIG.SECTOR.HEIGHT;
+  const returning = mission.status === 'returning';
+  const fromX = returning ? targetX : mission.fromX;
+  const fromY = returning ? targetY : mission.fromY;
+  const toX = returning ? mission.fromX : targetX;
+  const toY = returning ? mission.fromY : targetY;
+  const path = {
+    fromX,
+    fromY,
+    toX,
+    toY,
+    departedAt: mission.departedAt,
+    arrivesAt: mission.arrivesAt,
+  };
+  const position = interpolateWorldPosition(path, viewer.now);
+  if (!isInsideWorldBounds(position, viewer.bounds)) return null;
+  if (mission.userId !== viewer.userId) {
+    return viewer.scannerBypass || isPointVisible(viewer.coverages, position)
+      ? {
+          kind: 'radar_contact',
+          id: mission.id,
+          ...position,
+          observedAt: viewer.now.toISOString(),
+          signature: spacecraft.role,
+        }
+      : null;
+  }
+  return {
+    kind: 'own_trip',
+    id: mission.id,
+    fromX,
+    fromY,
+    toX,
+    toY,
+    departedAt: mission.departedAt.toISOString(),
+    arrivesAt: mission.arrivesAt.toISOString(),
+    purpose: mission.purpose,
+    groupSize: 1,
+    ownerType: mission.botUserId ? 'bot' : 'player',
+    spacecraft: { name: spacecraft.name, image: spacecraft.image, role: spacecraft.role },
+  };
 }

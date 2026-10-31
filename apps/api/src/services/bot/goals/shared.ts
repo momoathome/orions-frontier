@@ -1,11 +1,12 @@
 import type { BotProfile } from '../../../lib/db/schema/bot-controllers.js';
 import {
   getSpacecraft,
-  applyBuildingCostDiscount,
-  calculateBuildingUpgradeCost,
+  discountedBuildingUpgradeCost,
   getBuilding,
   calculateCrewCapacity,
   calculateCrewUsage,
+  requireSpacecraft,
+  requirementBlockers,
   researchModifiers,
 } from '@orions-frontier/game-config';
 import {
@@ -53,11 +54,6 @@ export const minerCount = (station: StationSnapshot): number =>
   station.fleets
     .filter((fleet) => getSpacecraft(fleet.spacecraftKey)?.role === 'miner')
     .reduce((sum, fleet) => sum + fleet.amount, 0);
-
-export const getShipyardLevel = (station: StationSnapshot): number => {
-  const b = station.buildings.find((bld) => bld.buildingKey === 'shipyard');
-  return b?.level ?? 0;
-};
 
 export const getHangarLevel = (station: StationSnapshot): number => {
   const b = station.buildings.find((bld) => bld.buildingKey === 'hangar');
@@ -113,14 +109,12 @@ export function waitForCosts(
   state: GoalBotState,
   station: StationSnapshot,
   costs: readonly ResourceCost[],
-  detail: string,
   savingReason: string,
   blockedReason: string
 ): GoalResult {
   const reachable = canAcquireCosts(state, station, costs);
   return {
     type: reachable ? 'saving' : 'blocked',
-    detail,
     reason: reachable ? savingReason : blockedReason,
   };
 }
@@ -184,7 +178,6 @@ export function nextIncomeCosts(station: StationSnapshot): readonly ResourceCost
   const moleAmount = station.fleets.find((fleet) => fleet.spacecraftKey === 'mole')?.amount ?? 0;
   const moleInBuild = Number(hasInBuild(station, 'mole'));
   if (moleAmount + moleInBuild < 3) {
-    if (getShipyardLevel(station) < 1) return buildingUpgradeCost(station, 'shipyard');
     if (freeCrewCapacity(station) < (getSpacecraft('mole')?.crew ?? 0)) {
       return buildingUpgradeCost(station, 'hangar');
     }
@@ -195,11 +188,13 @@ export function nextIncomeCosts(station: StationSnapshot): readonly ResourceCost
     (station.fleets.find((fleet) => fleet.spacecraftKey === 'titan')?.amount ?? 0) > 0 ||
     hasInBuild(station, 'titan');
   if (hasTitan) return [];
-  if (getShipyardLevel(station) < 5) return buildingUpgradeCost(station, 'shipyard');
+  if ((stationBuildingLevels(station).shipyard ?? 0) < 5) {
+    return buildingUpgradeCost(station, 'shipyard');
+  }
   if (freeCrewCapacity(station) < (getSpacecraft('titan')?.crew ?? 0)) {
     return buildingUpgradeCost(station, 'hangar');
   }
-  return titanCost();
+  return TITAN_COST;
 }
 
 export function initialStationId(state: GoalBotState): string | null {
@@ -237,7 +232,6 @@ export const canAfford = (station: StationSnapshot, costs: readonly ResourceCost
   costs.every((c) => (station.resources[c.resourceKey] ?? 0) >= c.amount);
 
 export const moleCost = () => MINER_COST;
-export const titanCost = () => TITAN_COST;
 
 /** The same research multipliers the services apply to the owner's stations. */
 export const stationModifiers = (station: StationSnapshot) => researchModifiers(station.research);
@@ -253,8 +247,9 @@ export function travelFactor(station: StationSnapshot): number {
 export const buildingUpgradeCost = (station: StationSnapshot, buildingKey: BuildingKey) => {
   const level =
     station.buildings.find((building) => building.buildingKey === buildingKey)?.level ?? 0;
-  return applyBuildingCostDiscount(
-    calculateBuildingUpgradeCost(buildingKey, level + 1),
+  return discountedBuildingUpgradeCost(
+    buildingKey,
+    level + 1,
     stationModifiers(station).buildingCost
   );
 };
@@ -331,5 +326,105 @@ export function freeCrewCapacity(station: StationSnapshot): number {
     calculateCrewCapacity(getHangarLevel(station), stationModifiers(station).crew) -
     calculateCrewUsage(station.fleets) -
     calculateCrewUsage(station.builds)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Acquisition steps
+// ---------------------------------------------------------------------------
+
+/** Next step toward one more level of a building: wait, upgrade, send a miner or save. */
+export function stepTowardBuildingLevel(
+  state: GoalBotState,
+  station: StationSnapshot,
+  key: BuildingKey,
+  purpose: string
+): GoalResult {
+  const name = getBuilding(key).name;
+  if (isUpgrading(station, key)) {
+    return { type: 'waiting', reason: `Waiting for ${name} for ${purpose} at ${station.name}` };
+  }
+  if (!buildingCanUpgrade(station, key)) {
+    return {
+      type: 'blocked',
+      reason: `${name} at ${station.name} is at its maximum level, ${purpose} cannot proceed`,
+    };
+  }
+  const costs = buildingUpgradeCost(station, key);
+  if (canAfford(station, costs)) {
+    return {
+      type: 'success',
+      intent: { type: 'upgrade_building', stationId: station.id, buildingKey: key },
+      reason: `Upgrading ${name} at ${station.name} for ${purpose}`,
+    };
+  }
+  return (
+    assignMinerTowardCosts(state, station, costs, `${name} for ${purpose}`) ??
+    waitForCosts(
+      state,
+      station,
+      costs,
+      `Saving for ${name} for ${purpose} at ${station.name}`,
+      `${name} resources for ${purpose} are not reachable at ${station.name}`
+    )
+  );
+}
+
+/** Next step toward one more spacecraft: wait, raise a required building or the Hangar, build. */
+export function stepTowardSpacecraft(
+  state: GoalBotState,
+  station: StationSnapshot,
+  key: string,
+  purpose: string
+): GoalResult {
+  const definition = requireSpacecraft(key);
+  if (hasInBuild(station, key)) {
+    return {
+      type: 'waiting',
+      reason: `Waiting for ${definition.name} construction at ${station.name}`,
+    };
+  }
+  const blockers = requirementBlockers(
+    definition.requirements,
+    station.research,
+    stationBuildingLevels(station)
+  );
+  for (const blocker of blockers) {
+    if (blocker.type === 'building') {
+      return stepTowardBuildingLevel(
+        state,
+        station,
+        blocker.key,
+        `${definition.name} for ${purpose}`
+      );
+    }
+  }
+  if (blockers.length > 0) {
+    return { type: 'blocked', reason: `${definition.name} for ${purpose} needs research` };
+  }
+  if (freeCrewCapacity(station) < definition.crew) {
+    return stepTowardBuildingLevel(
+      state,
+      station,
+      'hangar',
+      `${definition.name} crew for ${purpose}`
+    );
+  }
+  if (canAfford(station, definition.costs)) {
+    return {
+      type: 'success',
+      intent: { type: 'build_spacecraft', stationId: station.id, spacecraftKey: key, amount: 1 },
+      reason: `Building ${definition.name} for ${purpose} at ${station.name}`,
+    };
+  }
+  return (
+    assignMinerTowardCosts(state, station, definition.costs, `${definition.name} for ${purpose}`) ??
+    waitForCosts(
+      state,
+      station,
+      definition.costs,
+      `Saving for ${definition.name} for ${purpose} at ${station.name}`,
+      `${definition.name} resources for ${purpose} are not reachable at ${station.name}`
+    )
   );
 }

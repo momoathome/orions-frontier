@@ -22,12 +22,20 @@ export const runMigrations = async (): Promise<void> => {
     throw new Error('DATABASE_URL is not defined');
   }
 
+  // One connection, so the session lock and the migration share it.
   const client = postgres(connectionString, { max: 1 });
   const db = drizzle(client, { schema });
-
-  await migrate(db, { migrationsFolder: join(import.meta.dirname, 'migrations') });
-
-  await client.end();
+  try {
+    // Processes starting together migrate one after another; the later ones find nothing to do.
+    await client`SELECT pg_advisory_lock(hashtext('orions:migrations'))`;
+    try {
+      await migrate(db, { migrationsFolder: join(import.meta.dirname, 'migrations') });
+    } finally {
+      await client`SELECT pg_advisory_unlock(hashtext('orions:migrations'))`;
+    }
+  } finally {
+    await client.end();
+  }
 };
 
 if (import.meta.main) {

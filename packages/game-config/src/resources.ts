@@ -54,7 +54,15 @@ export const calculateColonizationCost = (stationCount: number) => {
 export const ATTACK_PROTECTION_DURATION_MS = 24 * 60 * 60 * 1_000;
 
 /** Protection ends 24h after registration or at the renewed end after a restart. */
-export const attackProtectionEndsAt = (createdAt: Date, protectedUntil: Date | null): Date =>
+const attackProtectionEndsAt = (createdAt: Date, protectedUntil: Date | null): Date =>
   new Date(
     Math.max(createdAt.getTime() + ATTACK_PROTECTION_DURATION_MS, protectedUntil?.getTime() ?? 0)
   );
+
+/** True while the account is young or restarted and has not attacked anyone itself. */
+export const isAttackProtected = (
+  user: { createdAt: Date; protectedUntil: Date | null; attackProtectionBrokenAt: Date | null },
+  now: Date
+): boolean =>
+  !user.attackProtectionBrokenAt &&
+  now < attackProtectionEndsAt(user.createdAt, user.protectedUntil);

@@ -34,12 +34,14 @@ interface SubRange {
 export class ChunkStreamer {
   /** All currently loaded chunk data */
   private loadedChunks = new Map<ChunkKey, WorldChunk>();
-  /** Chunks whose fetch is in-flight */
-  private pendingChunks = new Set<ChunkKey>();
+  /**
+   * Chunks whose fetch is in flight, with the newest request for each. Only that request may
+   * write the chunk, so an older overlapping or other-visibility-mode response is dropped.
+   */
+  private pendingChunks = new Map<ChunkKey, number>();
+  private lastRequest = 0;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private scannerBypass = false;
-  /** Bumped per visibility mode, so a response from the other mode is dropped. */
-  private generation = 0;
 
   onChunkLoaded: ((key: ChunkKey, chunk: WorldChunk) => void) | null = null;
   onChunkUnloaded: ((key: ChunkKey) => void) | null = null;
@@ -69,7 +71,6 @@ export class ChunkStreamer {
   setScannerBypass(enabled: boolean, camera: Camera) {
     if (this.scannerBypass === enabled) return;
     this.scannerBypass = enabled;
-    this.generation += 1;
     this.pendingChunks.clear();
     // Drop everything so no chunk keeps data from the other visibility mode.
     for (const key of this.loadedChunks.keys()) this.onChunkUnloaded?.(key);
@@ -151,11 +152,12 @@ export class ChunkStreamer {
   }
 
   private async _fetchChunks(sub: SubRange, replace = false) {
-    const generation = this.generation;
+    const request = ++this.lastRequest;
+    const ownsChunk = (key: ChunkKey) => this.pendingChunks.get(key) === request;
     // Mark all chunks in this sub-range as pending
     for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
       for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {
-        this.pendingChunks.add(chunkKey(cx, cy));
+        this.pendingChunks.set(chunkKey(cx, cy), request);
       }
     }
 
@@ -170,7 +172,6 @@ export class ChunkStreamer {
         },
       });
 
-      if (generation !== this.generation) return;
       const { asteroids, stations, debris } = response;
 
       // Build a per-chunk map covering every chunk in the sub-range
@@ -195,6 +196,7 @@ export class ChunkStreamer {
       }
 
       for (const [key, chunk] of byChunk) {
+        if (!ownsChunk(key)) continue;
         this.pendingChunks.delete(key);
         // A strip can include a chunk loaded in the meantime; rebuilding it only costs GC.
         if (!replace && this.loadedChunks.has(key)) continue;
@@ -202,11 +204,10 @@ export class ChunkStreamer {
         this.onChunkLoaded?.(key, chunk);
       }
     } catch {
-      if (generation !== this.generation) return;
       // Clear pending so the chunks can be retried on the next camera update
       for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
         for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {
-          this.pendingChunks.delete(chunkKey(cx, cy));
+          if (ownsChunk(chunkKey(cx, cy))) this.pendingChunks.delete(chunkKey(cx, cy));
         }
       }
     }

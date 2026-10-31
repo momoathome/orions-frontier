@@ -109,3 +109,13 @@ test('unknown composition still counts toward income', () => {
   assert.equal(source.byResource.length, 0);
   assert.equal(source.depletionHours, null);
 });
+
+test('an assignment whose ships cannot mine adds nothing instead of breaking the summary', () => {
+  const [own, rival] = asteroid.assignments;
+  assert.ok(own && rival);
+  const income = summarizeStationIncome('own', [
+    { ...asteroid, assignments: [own, { ...rival, stationId: 'own', spacecraftMiningRate: 0 }] },
+  ]);
+
+  assert.equal(income.perHour.carbon?.toFixed(2), '50.00');
+});

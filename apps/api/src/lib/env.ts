@@ -1,3 +1,4 @@
+import type { FastifyServerOptions } from 'fastify';
 import { z } from 'zod';
 
 /** Placeholders from compose.yaml and .env.example; anyone can sign tokens with them. */
@@ -5,6 +6,22 @@ const DEV_JWT_SECRETS = new Set([
   'local-development-secret',
   'change-this-in-production-to-a-secure-random-string',
 ]);
+
+/**
+ * Fastify's trustProxy: "true"/"false", a hop count, or a comma list of proxy IPs/CIDRs. Off by
+ * default: without a proxy, a client could fake its address via X-Forwarded-For.
+ */
+export const trustProxySchema = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value): FastifyServerOptions['trustProxy'] => {
+    if (!value || value === 'false') return false;
+    if (value === 'true') return true;
+    if (!/^\d+$/.test(value)) return value;
+    const hops = Number(value);
+    return (_address, hop) => hop < hops;
+  });
 
 const envSchema = z
   .object({
@@ -15,6 +32,7 @@ const envSchema = z
     API_PORT: z.coerce.number().int().positive().default(3000),
     API_HOST: z.string().min(1).default('0.0.0.0'),
     CORS_ORIGIN: z.string().min(1).optional(),
+    TRUST_PROXY: trustProxySchema,
     // Read by WORLD_CONFIG; validated here so production cannot start on the public default.
     WORLD_SEED: z.string().min(16).optional(),
     LOG_LEVEL: z

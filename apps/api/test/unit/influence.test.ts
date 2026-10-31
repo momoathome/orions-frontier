@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { calculateInfluence } from '@orions-frontier/game-config';
+import {
+  calculateBuildingUpgradeCost,
+  calculateInfluence,
+  investedUpgradeCosts,
+} from '@orions-frontier/game-config';
 
 test('influence counts invested resources per category, the fleet at half its build cost', () => {
   const influence = calculateInfluence({
@@ -21,4 +25,17 @@ test('influence counts invested resources per category, the fleet at half its bu
     ],
   });
   assert.deepEqual(influence, { buildings: 21, research: 4, defense: 2, fleet: 2, total: 29 });
+});
+
+test('invested upgrade costs list every paid upgrade above the free starting level', () => {
+  assert.deepEqual(investedUpgradeCosts('core', 3), [
+    ...calculateBuildingUpgradeCost('core', 2),
+    ...calculateBuildingUpgradeCost('core', 3),
+  ]);
+  const total = (key: string, level: number) =>
+    investedUpgradeCosts(key, level).reduce((sum, cost) => sum + cost.amount, 0);
+  assert.equal(total('core', 3), 2_080);
+  assert.equal(total('armor_plating', 1), 200);
+  assert.deepEqual(investedUpgradeCosts('core', 1), []);
+  assert.deepEqual(investedUpgradeCosts('unknown_building', 9), []);
 });

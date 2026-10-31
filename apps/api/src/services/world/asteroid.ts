@@ -1,6 +1,6 @@
 import { getDb } from '../../lib/db/index.js';
 import { listTravelingTripsByAsteroid } from '../fleet/index.js';
-import { requireSpacecraft } from '@orions-frontier/game-config';
+import { requireSpacecraft, type ResearchModifiers } from '@orions-frontier/game-config';
 import {
   isOneOf,
   resourceKeys as allResourceKeys,
@@ -109,63 +109,6 @@ export const getAsteroidById = async (
   // would betray its unresearched veins.
   if (!veins.some((vein) => vein.remainingAmount > 0)) return null;
 
-  // Miners fly individually; each assignment shows its next arrival.
-  const activeTrips = new Map(
-    travelingTrips
-      .slice()
-      .sort((a, b) => b.arrivesAt.getTime() - a.arrivesAt.getTime())
-      .flatMap((trip) =>
-        trip.assignmentId && (trip.purpose === 'mine' || trip.purpose === 'mining_return')
-          ? [[trip.assignmentId, { ...trip, purpose: trip.purpose }] as const]
-          : []
-      )
-  );
-
-  // Cargo of unresearched resources stays hidden, also in co-miners' manifests.
-  const visibleCargo = (cargo: ResourceMap): ResourceMap =>
-    Object.fromEntries(Object.entries(cargo).filter(([key]) => isOneOf(visibleResources, key)));
-  const inTransit: Record<string, number> = {};
-  for (const trip of travelingTrips) {
-    if (!trip.cargoManifest) continue;
-    for (const [key, amount] of Object.entries(visibleCargo(trip.cargoManifest))) {
-      inTransit[key] = (inTransit[key] ?? 0) + amount;
-    }
-  }
-
-  const mayObserveOperations =
-    scannerBypass || assignmentRows.some((assignment) => assignment.ownerUserId === userId);
-  const visibleAssignments = mayObserveOperations ? assignmentRows : [];
-  // Research is account-wide; only the viewer's own assignments show it.
-  const assignmentViews = visibleAssignments.map((assignment): AsteroidDetailAssignment => {
-    const spacecraft = requireSpacecraft(assignment.spacecraftKey);
-    const isOwnAssignment = assignment.ownerUserId === userId;
-    const miningRate = spacecraft.miningRate * (isOwnAssignment ? modifiers.miningRate : 1);
-    const cargo = spacecraft.cargo * (isOwnAssignment ? modifiers.cargo : 1);
-    const activeTrip = activeTrips.get(assignment.id);
-    return {
-      id: assignment.id,
-      stationId: isOwnAssignment ? assignment.stationId : null,
-      spacecraftKey: assignment.spacecraftKey,
-      spacecraftName: spacecraft.name,
-      spacecraftMiningRate: miningRate,
-      spacecraftCargo: cargo,
-      assignedAmount: assignment.assignedAmount,
-      assignedAt: assignment.assignedAt.toISOString(),
-      recallRequestedAt: assignment.recallRequestedAt?.toISOString() ?? null,
-      recallRequestedAmount: assignment.recallRequestedAmount,
-      activeTrip: activeTrip
-        ? {
-            id: activeTrip.id,
-            purpose: activeTrip.purpose,
-            groupSize: activeTrip.groupSize,
-            departedAt: activeTrip.departedAt.toISOString(),
-            arrivesAt: activeTrip.arrivesAt.toISOString(),
-            cargoManifest: activeTrip.cargoManifest && visibleCargo(activeTrip.cargoManifest),
-          }
-        : null,
-    };
-  });
-
   return {
     id: row.id,
     x: row.x,
@@ -183,8 +126,96 @@ export const getAsteroidById = async (
       remainingAmount: v.remainingAmount,
       initialAmount: v.initialAmount,
     })),
-    operationsVisible: mayObserveOperations,
-    assignments: assignmentViews,
-    inTransit: mayObserveOperations ? inTransit : {},
+    ...describeOperations(
+      assignmentRows,
+      travelingTrips,
+      userId,
+      modifiers,
+      visibleResources,
+      scanned,
+      scannerBypass
+    ),
   };
 };
+
+type AssignmentRow = Awaited<ReturnType<typeof listAsteroidAssignmentsWithOwner>>[number];
+type TravelingTrip = Awaited<ReturnType<typeof listTravelingTripsByAsteroid>>[number];
+
+/**
+ * Mining on the asteroid, visible to viewers with an own assignment there. Outside the scanner
+ * only the viewer's own assignments and cargo show.
+ */
+function describeOperations(
+  assignmentRows: AssignmentRow[],
+  travelingTrips: TravelingTrip[],
+  userId: string,
+  modifiers: ResearchModifiers,
+  visibleResources: readonly ResourceKey[],
+  scanned: boolean,
+  scannerBypass: boolean
+): Pick<AsteroidDetail, 'operationsVisible' | 'assignments' | 'inTransit'> {
+  const ownAssignmentIds = new Set(
+    assignmentRows.filter((row) => row.ownerUserId === userId).map((row) => row.id)
+  );
+  const mayObserveOperations = scannerBypass || ownAssignmentIds.size > 0;
+  if (!mayObserveOperations) return { operationsVisible: false, assignments: [], inTransit: {} };
+
+  // Miners fly individually; each assignment shows its next arrival.
+  const activeTrips = new Map(
+    travelingTrips
+      .slice()
+      .sort((a, b) => b.arrivesAt.getTime() - a.arrivesAt.getTime())
+      .flatMap((trip) =>
+        trip.assignmentId && (trip.purpose === 'mine' || trip.purpose === 'mining_return')
+          ? [[trip.assignmentId, { ...trip, purpose: trip.purpose }] as const]
+          : []
+      )
+  );
+
+  // Cargo of unresearched resources stays hidden, also in co-miners' manifests.
+  const visibleCargo = (cargo: ResourceMap): ResourceMap =>
+    Object.fromEntries(Object.entries(cargo).filter(([key]) => isOneOf(visibleResources, key)));
+  const inTransit: Record<string, number> = {};
+  const isVisible = (assignmentId: string | null) =>
+    scanned || (assignmentId !== null && ownAssignmentIds.has(assignmentId));
+  for (const trip of travelingTrips) {
+    if (!trip.cargoManifest || !isVisible(trip.assignmentId)) continue;
+    for (const [key, amount] of Object.entries(visibleCargo(trip.cargoManifest))) {
+      inTransit[key] = (inTransit[key] ?? 0) + amount;
+    }
+  }
+
+  // Research is account-wide; only the viewer's own assignments show it.
+  const assignments = assignmentRows
+    .filter((assignment) => isVisible(assignment.id))
+    .map((assignment): AsteroidDetailAssignment => {
+      const spacecraft = requireSpacecraft(assignment.spacecraftKey);
+      const isOwnAssignment = assignment.ownerUserId === userId;
+      const miningRate = spacecraft.miningRate * (isOwnAssignment ? modifiers.miningRate : 1);
+      const cargo = spacecraft.cargo * (isOwnAssignment ? modifiers.cargo : 1);
+      const activeTrip = activeTrips.get(assignment.id);
+      return {
+        id: assignment.id,
+        stationId: isOwnAssignment ? assignment.stationId : null,
+        spacecraftKey: assignment.spacecraftKey,
+        spacecraftName: spacecraft.name,
+        spacecraftMiningRate: miningRate,
+        spacecraftCargo: cargo,
+        assignedAmount: assignment.assignedAmount,
+        assignedAt: assignment.assignedAt.toISOString(),
+        recallRequestedAt: assignment.recallRequestedAt?.toISOString() ?? null,
+        recallRequestedAmount: assignment.recallRequestedAmount,
+        activeTrip: activeTrip
+          ? {
+              id: activeTrip.id,
+              purpose: activeTrip.purpose,
+              groupSize: activeTrip.groupSize,
+              departedAt: activeTrip.departedAt.toISOString(),
+              arrivesAt: activeTrip.arrivesAt.toISOString(),
+              cargoManifest: activeTrip.cargoManifest && visibleCargo(activeTrip.cargoManifest),
+            }
+          : null,
+      };
+    });
+  return { operationsVisible: true, assignments, inTransit };
+}

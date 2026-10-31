@@ -28,3 +28,17 @@ test('production refuses placeholder and short JWT secrets', () => {
     parseEnv({ ...production, NODE_ENV: 'development', JWT_SECRET: 'local-development-secret' })
   );
 });
+
+test('TRUST_PROXY is off by default and takes a flag, a hop count or proxy addresses', () => {
+  const trustProxy = (value?: string) =>
+    parseEnv({ ...production, TRUST_PROXY: value }).TRUST_PROXY;
+  assert.equal(trustProxy(undefined), false);
+  assert.equal(trustProxy('false'), false);
+  assert.equal(trustProxy('true'), true);
+  assert.equal(trustProxy('10.0.0.0/8, 127.0.0.1'), '10.0.0.0/8, 127.0.0.1');
+  // One hop: trust the proxy in front of the API, not what reached it before.
+  const oneHop = trustProxy('1');
+  assert.ok(typeof oneHop === 'function');
+  assert.equal(oneHop('10.0.0.1', 0), true);
+  assert.equal(oneHop('10.0.0.1', 1), false);
+});

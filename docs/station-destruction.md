@@ -91,7 +91,8 @@ POST attack  { stationId, targetStationId, fleet: { merlin: 40, hammer: 4 } }
   mehr Schaden.
 - Integrität ist für den Besitzer sichtbar, für andere nur innerhalb der Scannerabdeckung, und dann
   grob in Stufen (100–76, 75–51, 50–26, 25–1).
-- Der Kampfbericht nennt den Wellenschaden und die neue Integrität.
+- Der Kampfbericht nennt den Wellenschaden und die neue Integrität: dem Verteidiger genau, dem
+  Angreifer nur nach Schaden und dann in Stufen; ohne Schaden erfährt er sie nicht.
 
 ## 4. Vernichtung
 
@@ -99,8 +100,8 @@ Fällt die Integrität auf 0, wird die Station in derselben Transaktion wie der 
 
 1. **Trümmerfeld** an der Stationsposition:
    - der gesamte verbleibende Lagerbestand nach der Beute;
-   - 20 % der in Gebäude und Defense investierten Ressourcen (dieselbe Kostenrechnung wie
-     `calculateInfluence`);
+   - 20 % der in Gebäude und Defense investierten Ressourcen (`investedUpgradeCosts`, dieselbe
+     Kostenrechnung wie `calculateInfluence`);
    - angedockte Schiffe nach der bestehenden 30-%-Regel (`createDebrisFromLosses`).
 2. **Schiffe:** Alle angedockten Schiffe sind verloren. Reisen, die von dieser Station ausgehen
    oder zu ihr zurückkehren, werden abgebrochen. Ihre Schiffe fliegen mit ihrer Fracht von der
