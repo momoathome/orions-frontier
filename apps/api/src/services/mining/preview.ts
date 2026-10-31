@@ -1,13 +1,12 @@
 import { getSpacecraft } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
-import { sumAsteroidRemainingAmount } from '../../repositories/asteroids.js';
-import { findMiningRoute } from '../../repositories/stations.js';
+import { findMiningRoute, getUserScannerCoverages } from '../station/index.js';
 import { calculateMiningCycle } from '../../lib/mining-cycle.js';
 import { calcDistance } from '../../lib/travel.js';
 import {
   getUserRevealedAsteroidIds,
-  getUserScannerCoverages,
   isPointVisible,
+  sumAsteroidRemainingAmount,
 } from '../map/index.js';
 import { getStationResearchModifiers } from '../research/index.js';
 

@@ -20,8 +20,7 @@ import {
   insertLogbookEntries,
   listLogbookEntriesByUser,
   type NewLogbookEntry,
-} from '../../repositories/logbook-entries.js';
-import { listStationOwners } from '../../repositories/stations.js';
+} from './repositories/logbook-entries.js';
 import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
 
 type NewEntry = NewLogbookEntry;
@@ -166,22 +165,11 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
  */
 export async function recordLogbookEvents(events: readonly PlaytestCompletionEvent[]) {
   if (events.length === 0) return;
-  const db = getDb();
-  const defenderIds = [
-    ...new Set(
-      events.flatMap((event) => (event.type === 'combat_resolved' ? [event.defenderStationId] : []))
-    ),
-  ];
-  const defenders = defenderIds.length === 0 ? [] : await listStationOwners(db, defenderIds);
-  const defenderOwner = new Map(defenders.map((station) => [station.id, station.userId]));
   const rows = events.flatMap((event) =>
-    entriesFor(
-      event,
-      event.type === 'combat_resolved' ? defenderOwner.get(event.defenderStationId) : undefined
-    )
+    entriesFor(event, event.type === 'combat_resolved' ? event.defenderUserId : undefined)
   );
   if (rows.length === 0) return;
-  await insertLogbookEntries(db, rows);
+  await insertLogbookEntries(getDb(), rows);
 }
 
 export async function getLogbook(userId: string, limit: number): Promise<LogbookEntry[]> {

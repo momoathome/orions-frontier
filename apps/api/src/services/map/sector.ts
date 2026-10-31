@@ -1,12 +1,12 @@
 import { required } from '@orions-frontier/shared';
 import type { getDb } from '../../lib/db/index.js';
-import { insertAsteroids, insertAsteroidVeins } from '../../repositories/asteroids.js';
+import { insertAsteroids, insertAsteroidVeins } from './repositories/asteroids.js';
 import {
   findSectorByCoordinates,
   insertSectorIfAbsent,
   listSectorCoordinates,
-} from '../../repositories/sectors.js';
-import { insertSpawnSlots } from '../../repositories/spawn-slots.js';
+} from './repositories/sectors.js';
+import { insertSpawnSlots } from './repositories/spawn-slots.js';
 import { generateSector } from '../../lib/world-gen/sector-gen.js';
 import type { GeneratedAsteroid, SectorRole } from '../../lib/world-gen/types.js';
 import {

@@ -19,7 +19,7 @@ import {
   insertStationBuildingsIfMissing,
   listBuildingLevels,
   listStationBuildings,
-} from '../../repositories/station-buildings.js';
+} from './repositories/station-buildings.js';
 import { constructionFactor, getResearchLevels } from '../research/index.js';
 import {
   asBuildingLevels,
@@ -28,7 +28,7 @@ import {
   queueStationUpgrade,
   toBuildingLevels,
 } from './construction.js';
-import { listStationQueue } from '../../repositories/queued-jobs.js';
+import { listStationQueue } from './repositories/queued-jobs.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,

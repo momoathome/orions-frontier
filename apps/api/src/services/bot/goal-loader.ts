@@ -1,24 +1,18 @@
 import { getDb } from '../../lib/db/index.js';
 import {
-  listAsteroidAssignmentsByStations,
-  listAsteroidVeinsInChunks,
-} from '../../repositories/asteroids.js';
-import { listUnresolvedCombatMissionsByUser } from '../../repositories/combat-missions.js';
-import {
-  listDebrisFieldsInChunks,
-  listUnresolvedSalvageMissionsByUser,
-} from '../../repositories/debris-fields.js';
-import { listBuildOrdersByStations } from '../../repositories/spacecraft-build-orders.js';
-import { listTravelingTripsByStations } from '../../repositories/spacecraft-trips.js';
-import { listStationBuildingsByStations } from '../../repositories/station-buildings.js';
-import { listUserResearch } from '../../repositories/user-research.js';
-import { listStationResourcesByStations } from '../../repositories/station-resources.js';
-import { listStationSpacecraftsByStations } from '../../repositories/station-spacecrafts.js';
-import { listActiveStationsWithSectorByUser } from '../../repositories/stations.js';
+  listBuildOrdersByStations,
+  listStationBuildingsByStations,
+  listStationResourcesByStations,
+  listStationSpacecraftsByStations,
+  listActiveStationsWithSectorByUser,
+  getUserScannerCoverages,
+} from '../station/index.js';
+import { listTravelingTripsByStations } from '../fleet/index.js';
+import { listUserResearch } from '../research/index.js';
 import {
   countArrivedExpeditionsByUser,
   listMovingWorldMissionsByStations,
-} from '../../repositories/world-missions.js';
+} from '../missions/index.js';
 import { buildingKeys, defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import type { ResearchKey, ResearchLevels, ResourceMap } from '@orions-frontier/shared';
 import {
@@ -27,9 +21,19 @@ import {
   researchModifiers,
 } from '@orions-frontier/game-config';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
-import { getUserScannerCoverages, isPointVisible, scannerChunkBounds } from '../map/index.js';
+import {
+  isPointVisible,
+  scannerChunkBounds,
+  listAsteroidAssignmentsByStations,
+  listAsteroidVeinsInChunks,
+} from '../map/index.js';
 import { getVisibleChunkStations } from '../world/index.js';
-import { getUserCombatReports } from '../combat/index.js';
+import {
+  getUserCombatReports,
+  listUnresolvedCombatMissionsByUser,
+  listDebrisFieldsInChunks,
+  listUnresolvedSalvageMissionsByUser,
+} from '../combat/index.js';
 import type { GoalBotState, StationSnapshot } from './goal-state.js';
 
 export async function loadGoalBotState(

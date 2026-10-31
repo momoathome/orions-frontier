@@ -5,7 +5,7 @@ import {
   insertStationSpacecrafts,
   listSpacecraftAmounts,
   listStationSpacecrafts,
-} from '../../repositories/station-spacecrafts.js';
+} from './repositories/station-spacecrafts.js';
 import {
   deleteBuildOrderBefore,
   insertBuildOrder,
@@ -14,11 +14,10 @@ import {
   listBuildSlotEnds,
   updateBuildOrderTimes,
   type BuildOrderRow,
-} from '../../repositories/spacecraft-build-orders.js';
-import { listStationResources, payStationCosts } from '../../repositories/station-resources.js';
-import { findBuildingLevel, listBuildingLevels } from '../../repositories/station-buildings.js';
-import { findOwnedStationForUpdate } from '../../repositories/stations.js';
-import { listStationOwnerResearch } from '../../repositories/user-research.js';
+} from './repositories/spacecraft-build-orders.js';
+import { listStationResources, payStationCosts } from './repositories/station-resources.js';
+import { findBuildingLevel, listBuildingLevels } from './repositories/station-buildings.js';
+import { findOwnedStationForUpdate } from './repositories/stations.js';
 import {
   calculateCrewCapacity,
   calculateCrewUsage,
@@ -37,7 +36,8 @@ import type {
 } from '@orions-frontier/shared';
 import { required, AppError, ErrorCode, QUEUE_LIMIT } from '@orions-frontier/shared';
 import type { QueryDb } from '../../lib/db/index.js';
-import { describeBlockers, toResearchLevels } from '../research/index.js';
+import { listStationOwnerResearch, toResearchLevels } from '../research/index.js';
+import { describeBlockers } from './research-queue.js';
 import { toBuildingLevels } from './construction.js';
 import { creditStationResources } from './resources.js';
 import {

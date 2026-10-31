@@ -23,7 +23,7 @@ import {
   requestAsteroidAssignmentRecall,
 } from '../../src/services/mining/assignment.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
-import { getAsteroidById } from '../../src/services/map/asteroid.js';
+import { getAsteroidById } from '../../src/services/world/asteroid.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 
 const userId = randomUUID();

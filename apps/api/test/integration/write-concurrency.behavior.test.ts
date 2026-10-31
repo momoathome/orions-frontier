@@ -37,13 +37,13 @@ import {
   getStationResources,
   seedStationResources,
 } from '../../src/services/station/resources.js';
-import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
+import { getUserScannerCoverages } from '../../src/services/station/scanner-coverage.js';
 import {
   cancelResearch,
   completeDueResearch,
   getResearchState,
   startResearch,
-} from '../../src/services/research/research.js';
+} from '../../src/services/station/research-queue.js';
 import { deleteTestData, grantResearch, setTestResources } from '../helpers/fixtures.js';
 import { runSimulationTick } from '../../src/services/simulation/simulation.js';
 import {
@@ -51,7 +51,7 @@ import {
   applyTravelSpeed,
   getStationResearchModifiers,
 } from '../../src/services/research/effects.js';
-import { payStationCosts } from '../../src/repositories/station-resources.js';
+import { payStationCosts } from '../../src/services/station/repositories/station-resources.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();

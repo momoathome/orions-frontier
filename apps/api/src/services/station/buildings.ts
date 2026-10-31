@@ -2,7 +2,7 @@ import { getDb } from '../../lib/db/index.js';
 import {
   insertStationBuildingsIfMissing,
   listStationBuildings,
-} from '../../repositories/station-buildings.js';
+} from './repositories/station-buildings.js';
 import {
   calculateBuildingEffect,
   buildings,
@@ -18,7 +18,7 @@ import {
   queueStationUpgrade,
   upgradeCost,
 } from './construction.js';
-import { listStationQueue } from '../../repositories/queued-jobs.js';
+import { listStationQueue } from './repositories/queued-jobs.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,

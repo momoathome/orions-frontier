@@ -6,8 +6,8 @@ import {
   type ResearchModifiers,
 } from '@orions-frontier/game-config';
 import type { ResearchLevels } from '@orions-frontier/shared';
-import type { QueryDb } from '../../lib/db/index.js';
-import { listStationOwnerResearch, listUserResearch } from '../../repositories/user-research.js';
+import { getDb, type QueryDb } from '../../lib/db/index.js';
+import { listStationOwnerResearch, listUserResearch } from './repositories/user-research.js';
 
 export const toResearchLevels = (rows: { technologyKey: string; level: number }[]) => {
   const levels: ResearchLevels = {};
@@ -24,6 +24,9 @@ export async function getResearchLevels(db: QueryDb, userId: string): Promise<Re
 export async function getResearchModifiers(db: QueryDb, userId: string) {
   return researchModifiers(await getResearchLevels(db, userId));
 }
+
+export const getUserResearchModifiers = (userId: string, db: QueryDb = getDb()) =>
+  getResearchModifiers(db, userId);
 
 /** Modifiers of the station's owner; research is account-wide. */
 export async function getStationResearchModifiers(

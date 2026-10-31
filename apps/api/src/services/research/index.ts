@@ -6,17 +6,18 @@ export {
   getResearchLevels,
   getResearchModifiers,
   getStationResearchModifiers,
+  getUserResearchModifiers,
   toResearchLevels,
 } from './effects.js';
+
+// Reads and writes other modules may use; the tables stay owned by this module.
 export {
-  cancelResearch,
-  completeDueResearch,
-  describeBlockers,
-  getResearchState,
-  recheckResearchQueue,
-  removeQueuedResearch,
-  startResearch,
-  toQueuedJob,
-  toResourceMap,
-} from './research.js';
-export type { ResearchQueueHooks } from './research.js';
+  cancelResearchLevel,
+  completeResearchLevel,
+  listDueResearch,
+  listStationOwnerResearch,
+  listUserResearch,
+  listUserResearchByUsers,
+  lockUserResearch,
+  startResearchLevel,
+} from './repositories/user-research.js';

@@ -17,7 +17,7 @@ import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
-import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/map/asteroid.js';
+import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/world/asteroid.js';
 import { researchModifiers } from '@orions-frontier/game-config';
 import { startAttack } from '../../src/services/combat/combat.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
@@ -26,7 +26,7 @@ import {
   getVisibleDebris,
   startSalvage,
 } from '../../src/services/combat/salvage.js';
-import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
+import { getUserScannerCoverages } from '../../src/services/station/scanner-coverage.js';
 import { starterStationVisualProfile } from '../../src/services/station/visual.js';
 import {
   getVisibleChunkStations,

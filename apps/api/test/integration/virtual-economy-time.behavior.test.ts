@@ -24,7 +24,7 @@ import {
   getStationDefenseUpgrades,
   startDefenseUpgrade,
 } from '../../src/services/station/defense.js';
-import { startResearch } from '../../src/services/research/research.js';
+import { startResearch } from '../../src/services/station/research-queue.js';
 import { buildSpacecrafts } from '../../src/services/station/spacecraft.js';
 import {
   createTestSector,

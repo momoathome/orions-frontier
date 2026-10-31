@@ -9,7 +9,7 @@ import { userResearch } from '../../src/lib/db/schema/user-research.js';
 import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
 import { PlaytestCollector } from '../../src/tools/playtest/collector.js';
 import { loadPlaytestSnapshot } from '../../src/tools/playtest/snapshot-loader.js';
-import { completeDueResearch } from '../../src/services/research/research.js';
+import { completeDueResearch } from '../../src/services/station/research-queue.js';
 import { creditStationResources } from '../../src/services/station/index.js';
 import {
   createTestSector,

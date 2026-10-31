@@ -6,13 +6,18 @@ import type { GameExecutionContext } from '../../lib/game-execution-context.js';
 import { calculateMiningCycle } from '../../lib/mining-cycle.js';
 import { calcDistance } from '../../lib/travel.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
-import { findAsteroidForUpdate, listAsteroidVeinsInChunks } from '../../repositories/asteroids.js';
 import {
   findStationSpacecraftByKey,
   reserveSpacecraft,
-} from '../../repositories/station-spacecrafts.js';
-import { findActiveStation } from '../../repositories/stations.js';
-import { getUserScannerCoverages, isPointVisible, scannerChunkBounds } from '../map/index.js';
+  findActiveStation,
+  getUserScannerCoverages,
+} from '../station/index.js';
+import {
+  isPointVisible,
+  scannerChunkBounds,
+  findAsteroidForUpdate,
+  listAsteroidVeinsInChunks,
+} from '../map/index.js';
 import { getStationResearchModifiers } from '../research/index.js';
 import { launchReservedMiners } from './assignment.js';
 

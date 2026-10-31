@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { startResearch } from '../../../services/research/index.js';
+import { startResearch } from '../../../services/station/index.js';
 import { defineRoute } from '../../../lib/route.js';
 
 /** POST /api/me/research/:technologyKey: pays the next level from `stationId` and starts or queues it. */

@@ -31,27 +31,25 @@ import {
   listStationBuildings,
   updateStationBuilding,
   type StationBuildingRow,
-} from '../../repositories/station-buildings.js';
+} from './repositories/station-buildings.js';
 import {
   deleteQueuedJob,
   insertQueuedJob,
   listStationQueue,
   type QueuedJobRow,
-} from '../../repositories/queued-jobs.js';
-import { listStationResources, payStationCosts } from '../../repositories/station-resources.js';
-import { findOwnedStationForUpdate } from '../../repositories/stations.js';
+} from './repositories/queued-jobs.js';
+import { listStationResources, payStationCosts } from './repositories/station-resources.js';
+import { findOwnedStationForUpdate } from './repositories/stations.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import {
   applyConstructionSpeed,
-  describeBlockers,
   getResearchLevels,
   getStationResearchModifiers,
-  toQueuedJob,
-  toResourceMap,
 } from '../research/index.js';
+import { describeBlockers, toQueuedJob, toResourceMap } from './research-queue.js';
 import { recordLogbookEvents } from '../logbook/index.js';
 import { creditStationResources } from './resources.js';
 

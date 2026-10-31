@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { removeQueuedResearch } from '../../../services/research/index.js';
 import { recordLogbookEvents } from '../../../services/logbook/index.js';
-import { creditStationResources } from '../../../services/station/index.js';
+import { removeQueuedResearch, creditStationResources } from '../../../services/station/index.js';
 import { defineRoute } from '../../../lib/route.js';
 
 /** DELETE /api/me/research/queue/:jobId: removes waiting research; refunds as far as storage allows. */

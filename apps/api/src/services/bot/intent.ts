@@ -1,8 +1,12 @@
 import type { BuildingKey, DefenseUpgradeKey } from '@orions-frontier/shared';
 import { AppError } from '@orions-frontier/shared';
 import { createAsteroidAssignment } from '../mining/index.js';
-import { buildSpacecrafts, startBuildingUpgrade, startDefenseUpgrade } from '../station/index.js';
-import { startResearch } from '../research/index.js';
+import {
+  buildSpacecrafts,
+  startBuildingUpgrade,
+  startDefenseUpgrade,
+  startResearch,
+} from '../station/index.js';
 import { startColonization, startExpedition } from '../missions/index.js';
 import { startAttack, startSalvage } from '../combat/index.js';
 import {

@@ -7,7 +7,7 @@ import {
   hasUserWithUsername,
   insertUser,
   type UserRow,
-} from '../../repositories/users.js';
+} from './repositories/users.js';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import type { AuthenticatedUser } from '@orions-frontier/shared';
 

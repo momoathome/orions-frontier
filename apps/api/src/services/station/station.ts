@@ -7,9 +7,8 @@ import {
   listStationDestroyedAtByUser,
   lockStationCreation,
   type StationRow,
-} from '../../repositories/stations.js';
-import { updateUser } from '../../repositories/users.js';
-import { assignSpawnSlot, findFreeSpawnSlotForUpdate } from '../../repositories/spawn-slots.js';
+} from './repositories/stations.js';
+import { updateUser } from '../auth/index.js';
 import { seedStationResources } from './resources.js';
 import { seedStationBuildings } from './buildings.js';
 import { seedStationDefenseUpgrades } from './defense.js';
@@ -18,10 +17,12 @@ import type { ResourceMap, Station } from '@orions-frontier/shared';
 import { AppError, ErrorCode } from '@orions-frontier/shared';
 import { generateStarterPocket } from '../../lib/world-gen/sector-gen.js';
 import {
-  getUserScannerCoverages,
   insertGeneratedAsteroids,
   openNextSettlementSector,
+  assignSpawnSlot,
+  findFreeSpawnSlotForUpdate,
 } from '../map/index.js';
+import { getUserScannerCoverages } from './scanner-coverage.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import {
   ATTACK_PROTECTION_DURATION_MS,

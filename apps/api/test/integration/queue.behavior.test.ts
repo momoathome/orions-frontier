@@ -17,27 +17,25 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { userResearch } from '../../src/lib/db/schema/user-research.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
-import {
-  applyConstructionSpeed,
-  cancelResearch,
-  getResearchState,
-  recheckResearchQueue,
-  removeQueuedResearch,
-  startResearch,
-  toResourceMap,
-} from '../../src/services/research/index.js';
+import { applyConstructionSpeed } from '../../src/services/research/index.js';
 import { runWorldTick } from '../../src/services/simulation/index.js';
 import {
   buildSpacecrafts,
   cancelBuildingUpgrade,
   cancelBuildOrder,
+  cancelResearch,
   creditStationResources,
   getBuildSlots,
+  getResearchState,
   getStationBuildings,
   getStationDefenseUpgrades,
+  recheckResearchQueue,
+  removeQueuedResearch,
   removeQueuedStationJob,
   startBuildingUpgrade,
   startDefenseUpgrade,
+  startResearch,
+  toResourceMap,
 } from '../../src/services/station/index.js';
 import {
   createTestSector,

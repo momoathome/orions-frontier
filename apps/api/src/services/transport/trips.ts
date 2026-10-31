@@ -1,9 +1,8 @@
 import { getSpacecraft } from '@orions-frontier/game-config';
 import type { UserTrip } from '@orions-frontier/shared';
 import { getDb } from '../../lib/db/index.js';
-import { listTravelingTripsBySpacecraft } from '../../repositories/spacecraft-trips.js';
-import { listStationSpacecraftKeysByStations } from '../../repositories/station-spacecrafts.js';
-import { listStationIdsByUser } from '../../repositories/stations.js';
+import { listTravelingTripsBySpacecraft } from '../fleet/index.js';
+import { listStationSpacecraftKeysByStations, listStationIdsByUser } from '../station/index.js';
 
 /** All traveling trips across the user's stations, for the map's in-flight spacecraft. */
 export async function getActiveUserTrips(userId: string): Promise<UserTrip[]> {

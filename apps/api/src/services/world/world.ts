@@ -1,9 +1,8 @@
 import { getDb } from '../../lib/db/index.js';
 import { interpolateWorldPosition } from '../../lib/travel.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
-import { listTravelingTripsInBounds } from '../../repositories/spacecraft-trips.js';
-import { listStationsInChunks } from '../../repositories/stations.js';
-import { listMovingWorldMissionsInBounds } from '../../repositories/world-missions.js';
+import { listTravelingTripsInBounds } from '../fleet/index.js';
+import { listMovingWorldMissionsInBounds } from '../missions/index.js';
 import {
   required,
   AppError,
@@ -19,12 +18,16 @@ import {
   requireSpacecraft,
 } from '@orions-frontier/game-config';
 import {
-  getUserScannerCoverages,
   isPointVisible,
   type ScannerCoverage,
   type VisibilityProjectionStats,
 } from '../map/index.js';
-import { getStationVisualProfiles, starterStationVisualProfile } from '../station/index.js';
+import {
+  getStationVisualProfiles,
+  starterStationVisualProfile,
+  listStationsInChunks,
+  getUserScannerCoverages,
+} from '../station/index.js';
 
 export interface WorldChunkRange {
   minChunkX: number;

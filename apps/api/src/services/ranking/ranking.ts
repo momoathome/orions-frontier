@@ -5,10 +5,12 @@ import {
 } from '@orions-frontier/game-config';
 import type { Ranking, RankingEntry } from '@orions-frontier/shared';
 import { getDb } from '../../lib/db/index.js';
-import { listBuildingLevelsByStations } from '../../repositories/station-buildings.js';
-import { listSpacecraftAmountsByStations } from '../../repositories/station-spacecrafts.js';
-import { listActiveStationOwners } from '../../repositories/stations.js';
-import { listUserResearchByUsers } from '../../repositories/user-research.js';
+import {
+  listBuildingLevelsByStations,
+  listSpacecraftAmountsByStations,
+  listActiveStationOwners,
+} from '../station/index.js';
+import { listUserResearchByUsers } from '../research/index.js';
 
 /** Server-wide ranking by the Influence of every station and ship a player owns. */
 export async function getRanking(userId: string, limit: number): Promise<Ranking> {

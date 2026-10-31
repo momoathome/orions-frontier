@@ -1,5 +1,5 @@
 import { getDb } from '../../lib/db/index.js';
-import { claimTripArrival, type TripRow } from '../../repositories/spacecraft-trips.js';
+import { claimTripArrival, type TripRow } from '../fleet/index.js';
 import { handleMineArrival, handleMiningReturnArrival } from './trip-handlers.js';
 import {
   handleCombatTripArrival,

@@ -5,12 +5,7 @@ import {
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
-import { listDueTripsWithOwner } from '../../repositories/spacecraft-trips.js';
-import {
-  findStation,
-  findStationForUpdate,
-  listActiveStationsByUser,
-} from '../../repositories/stations.js';
+import { listDueTripsWithOwner } from '../fleet/index.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
@@ -18,14 +13,15 @@ import { type BotDecisionOutcome, runBotDecisionTick } from '../bot/index.js';
 import {
   advanceStationQueue,
   completeDueBuildings,
+  completeDueResearch,
   completeDueSpacecraft,
   creditStationResources,
-} from '../station/index.js';
-import {
-  completeDueResearch,
+  findStation,
+  findStationForUpdate,
+  listActiveStationsByUser,
   recheckResearchQueue,
   type ResearchQueueHooks,
-} from '../research/index.js';
+} from '../station/index.js';
 import { settleTripArrival } from '../transport/index.js';
 import { completeDueWorldMissions } from '../missions/index.js';
 import { recordLogbookEvents } from '../logbook/index.js';

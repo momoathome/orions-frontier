@@ -12,42 +12,20 @@ import {
   type ResourceMap,
 } from '@orions-frontier/shared';
 import type { Tx } from '../../lib/db/index.js';
-import { deleteStationAssignments } from '../../repositories/asteroids.js';
-import { resolveCombatMissionByTrip } from '../../repositories/combat-missions.js';
-import { resolveSalvageMissionByTrip } from '../../repositories/debris-fields.js';
-import { deleteStationQueue } from '../../repositories/queued-jobs.js';
-import { deleteBuildOrders } from '../../repositories/spacecraft-build-orders.js';
+import { deleteStationAssignments, releaseSpawnSlots } from '../map/index.js';
 import {
   cancelTrip,
   insertTrip,
   listTravelingTripsBySpacecraftForUpdate,
   updateTripCargo,
   type TripRow,
-} from '../../repositories/spacecraft-trips.js';
-import { releaseSpawnSlots } from '../../repositories/spawn-slots.js';
-import {
-  deleteStationBuildings,
-  listBuildingLevels,
-} from '../../repositories/station-buildings.js';
-import {
-  deleteStationResources,
-  listStationResources,
-} from '../../repositories/station-resources.js';
-import {
-  addLockedSpacecraft,
-  clearStationSpacecrafts,
-  listStationSpacecraftsForUpdate,
-  releaseSpacecraftClamped,
-} from '../../repositories/station-spacecrafts.js';
-import {
-  findStation,
-  listOtherActiveStationPositionsByUser,
-  updateStation,
-} from '../../repositories/stations.js';
+} from '../fleet/index.js';
 import {
   listMovingWorldMissionsBySpacecraftForUpdate,
   updateWorldMission,
-} from '../../repositories/world-missions.js';
+} from '../missions/index.js';
+import { resolveCombatMissionByTrip } from './repositories/combat-missions.js';
+import { resolveSalvageMissionByTrip } from './repositories/debris-fields.js';
 import {
   calcArrivesAt,
   calcDistance,
@@ -56,7 +34,22 @@ import {
 } from '../../lib/travel.js';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
 import { applyTravelSpeed } from '../research/index.js';
-import { creditStationResources } from '../station/index.js';
+import {
+  creditStationResources,
+  deleteStationQueue,
+  deleteBuildOrders,
+  deleteStationBuildings,
+  listBuildingLevels,
+  deleteStationResources,
+  listStationResources,
+  addLockedSpacecraft,
+  clearStationSpacecrafts,
+  listStationSpacecraftsForUpdate,
+  releaseSpacecraftClamped,
+  findStation,
+  listOtherActiveStationPositionsByUser,
+  updateStation,
+} from '../station/index.js';
 
 type Trip = TripRow;
 

@@ -5,7 +5,7 @@ import { defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
+import { getUserScannerCoverages } from '../../src/services/station/scanner-coverage.js';
 import { getStationBuildings, startBuildingUpgrade } from '../../src/services/station/buildings.js';
 import {
   getStationDefenseUpgrades,

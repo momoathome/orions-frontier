@@ -4,13 +4,13 @@ import { getDb } from '../../lib/db/index.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import { completionEventId, type PlaytestCompletionEvent } from '../../lib/completion-events.js';
-import { claimBuiltShips, listDueBuildOrders } from '../../repositories/spacecraft-build-orders.js';
+import { claimBuiltShips, listDueBuildOrders } from './repositories/spacecraft-build-orders.js';
 import {
   completeBuildingUpgrade,
   listDueBuildingUpgrades,
-} from '../../repositories/station-buildings.js';
-import { addBuiltSpacecraft } from '../../repositories/station-spacecrafts.js';
-import { findStationForUpdate } from '../../repositories/stations.js';
+} from './repositories/station-buildings.js';
+import { addBuiltSpacecraft } from './repositories/station-spacecrafts.js';
+import { findStationForUpdate } from './repositories/stations.js';
 import { advanceStationQueue } from './construction.js';
 import { defenseUpgradeMaxLevel } from './defense.js';
 

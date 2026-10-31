@@ -7,7 +7,7 @@ import {
   updateBotController,
   updateBotControllerReturningGoal,
   type BotControllerUpdate,
-} from '../../repositories/bot-controllers.js';
+} from './repositories/bot-controllers.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { loadGoalBotState } from './goal-loader.js';
 import { checkUrgentMaintenance, determineNextStep, selectGoalForState } from './goal-lifecycle.js';

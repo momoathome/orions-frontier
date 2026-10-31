@@ -85,6 +85,8 @@ export interface CombatResolvedEvent extends CompletionEventBase {
   type: 'combat_resolved';
   missionId: string;
   defenderStationId: string;
+  /** Owner of the defending station, so the logbook can tell them without a lookup. */
+  defenderUserId?: string;
   winner: string;
   attackerLosses: number;
   defenderLosses: number;

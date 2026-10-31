@@ -6,13 +6,13 @@ import {
   insertAsteroidAssignment,
   listAsteroidVeins,
   listStationAssignmentsWithAsteroid,
-} from '../../repositories/asteroids.js';
-import { insertTrip } from '../../repositories/spacecraft-trips.js';
+} from '../map/index.js';
+import { insertTrip } from '../fleet/index.js';
 import {
   findStationSpacecraftByKey,
   reserveSpacecraft,
-} from '../../repositories/station-spacecrafts.js';
-import { findOwnedStation } from '../../repositories/stations.js';
+  findOwnedStation,
+} from '../station/index.js';
 import { AppError, ErrorCode, type AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';

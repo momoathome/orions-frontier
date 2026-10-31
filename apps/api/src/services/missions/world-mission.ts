@@ -11,30 +11,6 @@ import {
   requireSpacecraft,
 } from '@orions-frontier/game-config';
 import { getDb, type QueryDb, type Tx } from '../../lib/db/index.js';
-import { listAsteroidPositionsInSector } from '../../repositories/asteroids.js';
-import {
-  findSectorByCoordinates,
-  isUnknownFrontierCoordinate,
-  listFrontierCoordinates,
-  listNearestSectors,
-} from '../../repositories/sectors.js';
-import { payStationCosts } from '../../repositories/station-resources.js';
-import {
-  addDockedSpacecraft,
-  listAvailableStationSpacecrafts,
-  releaseSpacecraftClamped,
-  reserveSpacecraft,
-  takeLockedSpacecraft,
-} from '../../repositories/station-spacecrafts.js';
-import {
-  countActiveStationsByUser,
-  findOwnedStationInSector,
-  findOwnedStationWithSector,
-  findOwnedStationWithSectorForUpdate,
-  findStation,
-  listActiveStationPositionsInSector,
-  listActiveStationSectorIdsByUser,
-} from '../../repositories/stations.js';
 import {
   countMovingWorldMissionsByUser,
   findDueWorldMissionForUpdate,
@@ -48,14 +24,36 @@ import {
   lockUserWorldMissions,
   updateWorldMission,
   type WorldMissionRow,
-} from '../../repositories/world-missions.js';
+} from './repositories/world-missions.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { SeededRng } from '../../lib/world-gen/rng.js';
 import { calcArrivesAt, calcDistance, calcTravelHours } from '../../lib/travel.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import { logger as rootLogger } from '../../lib/logger.js';
-import { insertSeededStation } from '../station/index.js';
-import { ensureSector } from '../map/index.js';
+import {
+  insertSeededStation,
+  payStationCosts,
+  addDockedSpacecraft,
+  listAvailableStationSpacecrafts,
+  releaseSpacecraftClamped,
+  reserveSpacecraft,
+  takeLockedSpacecraft,
+  countActiveStationsByUser,
+  findOwnedStationInSector,
+  findOwnedStationWithSector,
+  findOwnedStationWithSectorForUpdate,
+  findStation,
+  listActiveStationPositionsInSector,
+  listActiveStationSectorIdsByUser,
+} from '../station/index.js';
+import {
+  ensureSector,
+  listAsteroidPositionsInSector,
+  findSectorByCoordinates,
+  isUnknownFrontierCoordinate,
+  listFrontierCoordinates,
+  listNearestSectors,
+} from '../map/index.js';
 import {
   applyTravelSpeed,
   getResearchModifiers,

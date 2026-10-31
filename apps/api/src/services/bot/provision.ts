@@ -3,12 +3,15 @@ import {
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
-import { insertBotControllerIfAbsent } from '../../repositories/bot-controllers.js';
-import { findSettlementSector, listBotSettlementSectorIds } from '../../repositories/sectors.js';
-import { hasHumanStationInSector, listBotUserIdsInSector } from '../../repositories/stations.js';
-import { findUserByEmail, insertUserIfAbsent } from '../../repositories/users.js';
+import { insertBotControllerIfAbsent } from './repositories/bot-controllers.js';
+import { findSettlementSector, listBotSettlementSectorIds } from '../map/index.js';
+import { findUserByEmail, insertUserIfAbsent } from '../auth/index.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
-import { createStation } from '../station/index.js';
+import {
+  createStation,
+  hasHumanStationInSector,
+  listBotUserIdsInSector,
+} from '../station/index.js';
 import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION, profileForKey } from './profiles.js';
 
 const coordinateKey = (value: number) => (value < 0 ? `m${-value}` : `p${value}`);

@@ -1,10 +1,7 @@
 import type { ResourceKey } from '@orions-frontier/shared';
 import type { Tx } from '../../lib/db/index.js';
 import type { CargoManifest } from '../../lib/db/schema/spacecraft-trips.js';
-import {
-  listAsteroidVeinsForUpdate,
-  updateAsteroidVeinRemaining,
-} from '../../repositories/asteroids.js';
+import { listAsteroidVeinsForUpdate, updateAsteroidVeinRemaining } from '../map/index.js';
 
 export interface MiningClaim {
   cargoManifest: CargoManifest;

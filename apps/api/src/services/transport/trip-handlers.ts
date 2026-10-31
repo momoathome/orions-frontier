@@ -8,19 +8,17 @@ import {
   listAsteroidVeins,
   sumAsteroidRemainingAmount,
   updateAsteroidAssignment,
-} from '../../repositories/asteroids.js';
+} from '../map/index.js';
 import {
   insertTrip,
   sumHomeboundGroupSize,
   updateTripCargo,
   type TripRow,
-} from '../../repositories/spacecraft-trips.js';
-import { releaseSpacecraftClamped } from '../../repositories/station-spacecrafts.js';
-import { findStation } from '../../repositories/stations.js';
+} from '../fleet/index.js';
 import { assignIdleMiners, claimMiningCargo, largestResource } from '../mining/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
-import { creditStationResources } from '../station/index.js';
+import { creditStationResources, releaseSpacecraftClamped, findStation } from '../station/index.js';
 import { applySpeed, getStationResearchModifiers } from '../research/index.js';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
 import {

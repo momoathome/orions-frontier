@@ -1,5 +1,5 @@
 import { authenticate } from '../../../middleware/auth.js';
-import { getAsteroidById } from '../../../services/map/index.js';
+import { getAsteroidById } from '../../../services/world/index.js';
 import { defineRoute, idParams, scannerBypassQuery } from '../../../lib/route.js';
 
 export default defineRoute(async (app) => {

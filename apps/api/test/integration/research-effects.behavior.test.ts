@@ -13,15 +13,13 @@ import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { userResearch } from '../../src/lib/db/schema/user-research.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
-import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/map/asteroid.js';
-import {
-  getUserResearchModifiers,
-  getUserScannerCoverages,
-} from '../../src/services/map/scanner-visibility.js';
+import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/world/asteroid.js';
+import { getUserResearchModifiers } from '../../src/services/research/effects.js';
+import { getUserScannerCoverages } from '../../src/services/station/scanner-coverage.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
 import { assignIdleMiners } from '../../src/services/mining/autonomy.js';
 import { startExpedition } from '../../src/services/missions/world-mission.js';
-import { cancelResearch, startResearch } from '../../src/services/research/index.js';
+import { cancelResearch, startResearch } from '../../src/services/station/research-queue.js';
 import {
   cancelBuildingUpgrade,
   startBuildingUpgrade,

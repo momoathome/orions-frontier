@@ -21,35 +21,33 @@ import {
   listCombatMissionsByUser,
   updateCombatMission,
   type CombatMissionRow,
-} from '../../repositories/combat-missions.js';
-import { insertTrip, updateTripCargo, type TripRow } from '../../repositories/spacecraft-trips.js';
-import { findBuildingLevel } from '../../repositories/station-buildings.js';
+} from './repositories/combat-missions.js';
+import { insertTrip, updateTripCargo, type TripRow } from '../fleet/index.js';
+import { findUserForUpdate, updateUser } from '../auth/index.js';
+import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
+import { createDebrisFromLosses } from './salvage.js';
+import { destroyStation } from './destruction.js';
+import { publishUserEvent } from '../../lib/realtime.js';
+import { isPointVisible } from '../map/index.js';
 import {
+  creditStationResources,
+  getStationDefenseScore,
+  findBuildingLevel,
   deductStationResource,
   listStationResourcesInKeyOrderForUpdate,
-} from '../../repositories/station-resources.js';
-import {
   listStationSpacecraftIdsByKeys,
   listStationSpacecraftsForUpdate,
   releaseSpacecraft,
   removeLockedSpacecraft,
   removeSpacecraft,
   reserveSpacecraft,
-} from '../../repositories/station-spacecrafts.js';
-import {
   findActiveStation,
   findOwnedStationForUpdate,
   findStation,
   findStationForUpdate,
   updateStation,
-} from '../../repositories/stations.js';
-import { findUserForUpdate, updateUser } from '../../repositories/users.js';
-import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
-import { createDebrisFromLosses } from './salvage.js';
-import { destroyStation } from './destruction.js';
-import { publishUserEvent } from '../../lib/realtime.js';
-import { getUserScannerCoverages, isPointVisible } from '../map/index.js';
-import { creditStationResources, getStationDefenseScore } from '../station/index.js';
+  getUserScannerCoverages,
+} from '../station/index.js';
 import {
   applyTravelSpeed,
   getResearchModifiers,
@@ -407,6 +405,7 @@ async function resolveOutboundCombat(
       stationId: mission.attackerStationId,
       missionId: mission.id,
       defenderStationId: mission.defenderStationId,
+      defenderUserId: defenderStation.userId,
       winner: winner ?? 'none',
       attackerLosses,
       defenderLosses,

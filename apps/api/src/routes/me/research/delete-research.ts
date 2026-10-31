@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { cancelResearch } from '../../../services/research/index.js';
 import { recordLogbookEvents } from '../../../services/logbook/index.js';
-import { creditStationResources } from '../../../services/station/index.js';
+import { cancelResearch, creditStationResources } from '../../../services/station/index.js';
 import { defineRoute } from '../../../lib/route.js';
 
 /** DELETE /api/me/research/:technologyKey: cancels running research; refunds as far as storage allows. */
