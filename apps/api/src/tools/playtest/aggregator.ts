@@ -17,7 +17,6 @@ import {
   emptySalvageMetrics,
   safeRatio,
   snapshotWorld,
-  sortedResources,
   type AggregateMetrics,
   type BotMetrics,
   type GoalMetrics,
@@ -25,7 +24,11 @@ import {
   type ProfileMetrics,
 } from './metrics.js';
 import type { PlaytestPopulationMember } from './population.js';
-import type { PlaytestStateSnapshot } from './snapshot-loader.js';
+import type {
+  PlaytestBotSnapshot,
+  PlaytestStateSnapshot,
+  PlaytestStationSnapshot,
+} from './snapshot-loader.js';
 
 interface BotAggregationState {
   metrics: BotMetrics;
@@ -54,6 +57,7 @@ function createBot(
       profile,
       populationKind,
       joinedAt,
+      eliminatedAt: null,
       goals: {},
       milestones: {},
       economy: emptyEconomyMetrics(),
@@ -146,7 +150,6 @@ function addGoal(target: GoalMetrics, source: GoalMetrics): void {
 function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
   const aggregate = emptyAggregate();
   aggregate.bots = bots.length;
-  let minimumInitialized = false;
   for (const bot of bots) {
     for (const [goalType, source] of Object.entries(bot.goals)) {
       addGoal((aggregate.goals[goalType] ??= emptyGoalMetrics()), source);
@@ -161,12 +164,13 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
     addResources(aggregate.economy.discardedResources, bot.economy.discardedResources);
     aggregate.economy.weightedDeliveredUnits += bot.economy.weightedDeliveredUnits;
     for (const resourceKey of resourceKeys) {
-      const current = bot.economy.minimumResources[resourceKey] ?? 0;
-      aggregate.economy.minimumResources[resourceKey] = minimumInitialized
-        ? Math.min(aggregate.economy.minimumResources[resourceKey] ?? current, current)
-        : current;
+      // A bot without a station snapshot has no minimum; it must not pull the aggregate to 0.
+      const current = bot.economy.minimumResources[resourceKey];
+      if (current === undefined) continue;
+      const known = aggregate.economy.minimumResources[resourceKey];
+      aggregate.economy.minimumResources[resourceKey] =
+        known === undefined ? current : Math.min(known, current);
     }
-    minimumInitialized = true;
     aggregate.economy.fullStorageDurationMs += bot.economy.fullStorageDurationMs;
     sumRecord(
       aggregate.economy.fullStorageDurationByStationMs,
@@ -181,11 +185,10 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
     aggregate.development.influence += bot.development.influence;
     aggregate.development.spacecraftUnits += bot.development.spacecraftUnits;
     sumRecord(aggregate.development.spacecraftBuilt, bot.development.spacecraftBuilt);
-    aggregate.development.queueActiveSamples += bot.development.queueActiveSamples;
+    aggregate.development.shipyardActiveSamples += bot.development.shipyardActiveSamples;
     aggregate.development.snapshotSamples += bot.development.snapshotSamples;
 
     aggregate.expansion.expeditions += bot.expansion.expeditions;
-    aggregate.expansion.discoveredSectors += bot.expansion.discoveredSectors;
     aggregate.expansion.colonies += bot.expansion.colonies;
     aggregate.expansion.stations += bot.expansion.stations;
     Object.assign(
@@ -228,8 +231,8 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
     aggregate.salvage.missions += bot.salvage.missions;
     aggregate.salvage.collectorBuilds += bot.salvage.collectorBuilds;
   }
-  aggregate.development.queueUtilization = safeRatio(
-    aggregate.development.queueActiveSamples,
+  aggregate.development.shipyardUtilization = safeRatio(
+    aggregate.development.shipyardActiveSamples,
     aggregate.development.snapshotSamples
   );
   return aggregate;
@@ -241,48 +244,72 @@ function normalizeAggregate(aggregate: AggregateMetrics): AggregateMetrics {
       if (!Number.isFinite(value)) goalMetrics[key] = 0;
     }
   }
-  aggregate.economy.minedResources = sortedResources(aggregate.economy.minedResources);
-  aggregate.economy.deliveredResources = sortedResources(aggregate.economy.deliveredResources);
-  aggregate.economy.discardedResources = sortedResources(aggregate.economy.discardedResources);
-  aggregate.economy.minimumResources = sortedResources(aggregate.economy.minimumResources);
-  aggregate.economy.fullStorageDurationByStationMs = Object.fromEntries(
-    Object.entries(aggregate.economy.fullStorageDurationByStationMs).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
-  );
-  aggregate.conflict.loot = sortedResources(aggregate.conflict.loot);
-  aggregate.salvage.debrisCreatedResources = sortedResources(
-    aggregate.salvage.debrisCreatedResources
-  );
-  aggregate.salvage.salvagedResources = sortedResources(aggregate.salvage.salvagedResources);
-  aggregate.salvage.remainingDebrisResources = sortedResources(
-    aggregate.salvage.remainingDebrisResources
-  );
-  aggregate.goals = Object.fromEntries(
-    Object.entries(aggregate.goals).sort(([left], [right]) => left.localeCompare(right))
-  );
-  aggregate.milestonesReached = Object.fromEntries(
-    Object.entries(aggregate.milestonesReached).sort(([left], [right]) => left.localeCompare(right))
-  );
-  aggregate.development.spacecraftBuilt = Object.fromEntries(
-    Object.entries(aggregate.development.spacecraftBuilt).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
-  );
-  aggregate.conflict.targets = Object.fromEntries(
-    Object.entries(aggregate.conflict.targets).sort(([left], [right]) => left.localeCompare(right))
-  );
-  aggregate.conflict.opportunityStages = Object.fromEntries(
-    Object.entries(aggregate.conflict.opportunityStages).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
-  );
-  aggregate.expansion.coloniesByStation = Object.fromEntries(
-    Object.entries(aggregate.expansion.coloniesByStation).sort(([left], [right]) =>
-      left.localeCompare(right)
-    )
-  );
   return aggregate;
+}
+
+function applyBotSnapshot(
+  state: BotAggregationState,
+  botSnapshot: PlaytestBotSnapshot,
+  ownedStations: readonly PlaytestStationSnapshot[],
+  capturedAt: string
+): void {
+  const { metrics } = state;
+  metrics.eliminatedAt = null;
+  metrics.profile = botSnapshot.profile;
+  metrics.populationKind = botSnapshot.populationKind;
+  metrics.development.buildingLevelTotal = ownedStations.reduce(
+    (sum, station) => sum + station.buildingLevelTotal,
+    0
+  );
+  metrics.development.defenseLevelTotal = ownedStations.reduce(
+    (sum, station) => sum + station.defenseLevelTotal,
+    0
+  );
+  metrics.development.completedResearch = botSnapshot.completedResearch;
+  metrics.development.influence = botSnapshot.influence;
+  metrics.development.spacecraftUnits = botSnapshot.spacecraftUnits;
+  metrics.development.snapshotSamples += 1;
+  if (ownedStations.some((station) => station.activeBuildOrders > 0)) {
+    metrics.development.shipyardActiveSamples += 1;
+  }
+  metrics.development.shipyardUtilization = safeRatio(
+    metrics.development.shipyardActiveSamples,
+    metrics.development.snapshotSamples
+  );
+  metrics.expansion.stations = botSnapshot.stationCount;
+  metrics.conflict.maximumObservedReserve = Math.max(
+    metrics.conflict.maximumObservedReserve,
+    botSnapshot.spacecraftUnits - botSnapshot.lockedSpacecraftUnits
+  );
+  if (
+    ownedStations.some(
+      (station) =>
+        station.stationAlias.endsWith('/station-001') &&
+        station.resourceUnits > 0 &&
+        station.spacecraftUnits > 0
+    )
+  ) {
+    recordMilestone(metrics.milestones, 'stableInitialStation', capturedAt);
+  }
+  const spacecraftByKey: Record<string, number> = {};
+  for (const station of ownedStations) {
+    sumRecord(spacecraftByKey, station.spacecraftByKey);
+  }
+  if ((spacecraftByKey['mole'] ?? 0) >= 3 && (spacecraftByKey['titan'] ?? 0) >= 1) {
+    recordMilestone(metrics.milestones, 'threeMolesAndTitan', capturedAt);
+  }
+}
+
+/** Clears what only stations provide; research and event totals stay. */
+function eliminateBot(state: BotAggregationState, capturedAt: string): void {
+  const { metrics } = state;
+  metrics.eliminatedAt ??= capturedAt;
+  metrics.development.buildingLevelTotal = 0;
+  metrics.development.defenseLevelTotal = 0;
+  metrics.development.spacecraftUnits = 0;
+  // ponytail: influence also drops its research share; recompute from research if reports need it.
+  metrics.development.influence = 0;
+  metrics.expansion.stations = 0;
 }
 
 export class PlaytestAggregator {
@@ -362,9 +389,7 @@ export class PlaytestAggregator {
     }
     if (
       (decision.resultKind === 'blocked' || decision.resultKind === 'saving') &&
-      /insufficient|saving resources|cannot afford|no mineable|resource/i.test(
-        decision.normalizedReason
-      )
+      /not reachable/i.test(decision.normalizedReason)
     ) {
       state.metrics.economy.unreachableResourceNeeds += 1;
     }
@@ -382,7 +407,11 @@ export class PlaytestAggregator {
       state.metrics.conflict.opportunityStages[opportunity.lastExclusionStage] =
         (state.metrics.conflict.opportunityStages[opportunity.lastExclusionStage] ?? 0) + 1;
     }
-    if (decision.resultKind === 'success' && (before === 'retaliate' || after === 'retaliate')) {
+    if (
+      decision.resultKind === 'success' &&
+      decision.action === 'start_attack' &&
+      (before === 'retaliate' || after === 'retaliate')
+    ) {
       state.metrics.conflict.retaliations += 1;
       recordMilestone(state.metrics.milestones, 'firstRetaliation', decision.decidedAt);
     }
@@ -416,6 +445,10 @@ export class PlaytestAggregator {
         break;
       case 'research_completed':
         recordMilestone(metrics.milestones, 'firstResearch', event.occurredAt);
+        // Spectral is the bridge to Kyber and the midgame.
+        if (event.technologyKey === 'spectral_analysis') {
+          recordMilestone(metrics.milestones, 'spectralAnalysis', event.occurredAt);
+        }
         break;
       case 'defense_completed':
         recordMilestone(metrics.milestones, 'firstDefense', event.occurredAt);
@@ -423,7 +456,6 @@ export class PlaytestAggregator {
       case 'world_mission_completed':
         if (event.missionType === 'expedition' && event.stage === 'target_reached') {
           metrics.expansion.expeditions += 1;
-          metrics.expansion.discoveredSectors += 1;
           recordMilestone(metrics.milestones, 'firstExpedition', event.occurredAt);
         }
         break;
@@ -492,79 +524,52 @@ export class PlaytestAggregator {
           snapshot.capturedAt
         );
       this.bots.set(botSnapshot.botAlias, state);
-      state.metrics.profile = botSnapshot.profile;
-      state.metrics.populationKind = botSnapshot.populationKind;
-      state.metrics.development.buildingLevelTotal = snapshot.stations
-        .filter((station) => station.ownerAlias === botSnapshot.botAlias)
-        .reduce((sum, station) => sum + station.buildingLevelTotal, 0);
-      state.metrics.development.defenseLevelTotal = snapshot.stations
-        .filter((station) => station.ownerAlias === botSnapshot.botAlias)
-        .reduce((sum, station) => sum + station.defenseLevelTotal, 0);
-      state.metrics.development.completedResearch = botSnapshot.completedResearch;
-      state.metrics.development.influence = botSnapshot.influence;
-      state.metrics.development.spacecraftUnits = botSnapshot.spacecraftUnits;
-      state.metrics.development.snapshotSamples += 1;
       const ownedStations = snapshot.stations.filter(
         (station) => station.ownerAlias === botSnapshot.botAlias
       );
-      if (ownedStations.some((station) => station.activeBuildOrders > 0)) {
-        state.metrics.development.queueActiveSamples += 1;
+      applyBotSnapshot(state, botSnapshot, ownedStations, snapshot.capturedAt);
+      for (const station of ownedStations) this.sampleStation(state, station, capturedAt);
+    }
+    const present = new Set(snapshot.bots.map((bot) => bot.botAlias));
+    for (const state of this.bots.values()) {
+      // Snapshots list bots by their stations, so a bot that lost its last one disappears.
+      if (state.metrics.development.snapshotSamples > 0 && !present.has(state.metrics.botAlias)) {
+        eliminateBot(state, snapshot.capturedAt);
       }
-      state.metrics.development.queueUtilization = safeRatio(
-        state.metrics.development.queueActiveSamples,
-        state.metrics.development.snapshotSamples
+    }
+  }
+
+  private sampleStation(
+    state: BotAggregationState,
+    station: PlaytestStationSnapshot,
+    capturedAt: number
+  ): void {
+    for (const resourceKey of resourceKeys) {
+      const amount = station.resources[resourceKey] ?? 0;
+      const current = state.metrics.economy.minimumResources[resourceKey];
+      state.metrics.economy.minimumResources[resourceKey] =
+        current === undefined ? amount : Math.min(current, amount);
+    }
+    const previous = this.stationSamples.get(station.stationAlias);
+    if (previous?.wasFull) {
+      const duration = Math.max(0, capturedAt - previous.capturedAt);
+      state.metrics.economy.fullStorageDurationMs += duration;
+      state.metrics.economy.fullStorageDurationByStationMs[station.stationAlias] =
+        (state.metrics.economy.fullStorageDurationByStationMs[station.stationAlias] ?? 0) +
+        duration;
+    }
+    const isFull =
+      station.storageCapacityPerResource > 0 &&
+      Object.values(station.resources).some(
+        (amount) => amount >= station.storageCapacityPerResource
       );
-      state.metrics.expansion.stations = botSnapshot.stationCount;
-      state.metrics.conflict.maximumObservedReserve = Math.max(
-        state.metrics.conflict.maximumObservedReserve,
-        botSnapshot.spacecraftUnits - botSnapshot.lockedSpacecraftUnits
-      );
-      if (
-        ownedStations.some(
-          (station) =>
-            station.stationAlias.endsWith('/station-001') &&
-            station.resourceUnits > 0 &&
-            station.spacecraftUnits > 0
-        )
-      ) {
-        recordMilestone(state.metrics.milestones, 'stableInitialStation', snapshot.capturedAt);
-      }
-      const spacecraftByKey: Record<string, number> = {};
-      for (const station of ownedStations) {
-        sumRecord(spacecraftByKey, station.spacecraftByKey);
-      }
-      if ((spacecraftByKey['mole'] ?? 0) >= 3 && (spacecraftByKey['titan'] ?? 0) >= 1) {
-        recordMilestone(state.metrics.milestones, 'threeMolesAndTitan', snapshot.capturedAt);
-      }
-      for (const station of ownedStations) {
-        for (const resourceKey of resourceKeys) {
-          const amount = station.resources[resourceKey] ?? 0;
-          const current = state.metrics.economy.minimumResources[resourceKey];
-          state.metrics.economy.minimumResources[resourceKey] =
-            current === undefined ? amount : Math.min(current, amount);
-        }
-        const previous = this.stationSamples.get(station.stationAlias);
-        if (previous?.wasFull) {
-          const duration = Math.max(0, capturedAt - previous.capturedAt);
-          state.metrics.economy.fullStorageDurationMs += duration;
-          state.metrics.economy.fullStorageDurationByStationMs[station.stationAlias] =
-            (state.metrics.economy.fullStorageDurationByStationMs[station.stationAlias] ?? 0) +
-            duration;
-        }
-        const isFull =
-          station.storageCapacityPerResource > 0 &&
-          Object.values(station.resources).some(
-            (amount) => amount >= station.storageCapacityPerResource
-          );
-        this.stationSamples.set(station.stationAlias, {
-          ownerAlias: station.ownerAlias,
-          capturedAt,
-          wasFull: isFull,
-        });
-        if (station.resourceUnits > 0 && station.spacecraftUnits > 0) {
-          recordColonyStabilization(state, station.stationAlias, capturedAt);
-        }
-      }
+    this.stationSamples.set(station.stationAlias, {
+      ownerAlias: station.ownerAlias,
+      capturedAt,
+      wasFull: isFull,
+    });
+    if (station.resourceUnits > 0 && station.spacecraftUnits > 0) {
+      recordColonyStabilization(state, station.stationAlias, capturedAt);
     }
   }
 
@@ -591,33 +596,6 @@ export class PlaytestAggregator {
     const bots = [...this.bots.values()]
       .map((state) => structuredClone(state.metrics))
       .sort((left, right) => left.botAlias.localeCompare(right.botAlias));
-    for (const bot of bots) {
-      bot.goals = Object.fromEntries(
-        Object.entries(bot.goals).sort(([left], [right]) => left.localeCompare(right))
-      );
-      bot.economy.minedResources = sortedResources(bot.economy.minedResources);
-      bot.economy.deliveredResources = sortedResources(bot.economy.deliveredResources);
-      bot.economy.discardedResources = sortedResources(bot.economy.discardedResources);
-      bot.economy.minimumResources = sortedResources(bot.economy.minimumResources);
-      bot.economy.fullStorageDurationByStationMs = Object.fromEntries(
-        Object.entries(bot.economy.fullStorageDurationByStationMs).sort(([left], [right]) =>
-          left.localeCompare(right)
-        )
-      );
-      bot.conflict.loot = sortedResources(bot.conflict.loot);
-      bot.expansion.coloniesByStation = Object.fromEntries(
-        Object.entries(bot.expansion.coloniesByStation).sort(([left], [right]) =>
-          left.localeCompare(right)
-        )
-      );
-      bot.conflict.opportunityStages = Object.fromEntries(
-        Object.entries(bot.conflict.opportunityStages).sort(([left], [right]) =>
-          left.localeCompare(right)
-        )
-      );
-      bot.salvage.debrisCreatedResources = sortedResources(bot.salvage.debrisCreatedResources);
-      bot.salvage.salvagedResources = sortedResources(bot.salvage.salvagedResources);
-    }
     const profileNames = [...new Set(bots.map((bot) => bot.profile))].sort();
     const profiles: ProfileMetrics[] = profileNames.map((profile) => ({
       profile,
@@ -625,7 +603,7 @@ export class PlaytestAggregator {
     }));
     const run = normalizeAggregate(aggregateBots(bots));
     const world = snapshotWorld(this.latestSnapshot);
-    run.salvage.remainingDebrisResources = sortedResources(world.debrisResources);
+    run.salvage.remainingDebrisResources = { ...world.debrisResources };
     return {
       bots,
       profiles,

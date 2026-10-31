@@ -5,12 +5,12 @@ import {
   listOwnedStationResources,
   listStationResourcesInKeyOrderForUpdate,
   setStationResourceAmount,
-} from '../../repositories/station-resources.js';
-import { findBuildingLevel } from '../../repositories/station-buildings.js';
-import { findOwnedStation, findStationForUpdate } from '../../repositories/stations.js';
-import { listMiningDeliveriesSince } from '../../repositories/spacecraft-trips.js';
-import { listStationSpacecraftIds } from '../../repositories/station-spacecrafts.js';
-import { calculateBuildingEffect } from '@orions-frontier/game-config';
+} from './repositories/station-resources.js';
+import { findBuildingLevel } from './repositories/station-buildings.js';
+import { findOwnedStation, findStationForUpdate } from './repositories/stations.js';
+import { listMiningDeliveriesSince } from '../fleet/index.js';
+import { listStationSpacecraftIds } from './repositories/station-spacecrafts.js';
+import { calculateStorageCapacity } from '@orions-frontier/game-config';
 import {
   isOneOf,
   AppError,
@@ -36,11 +36,6 @@ const INITIAL_RESOURCES: Record<ResourceKey, number> = {
 };
 
 type SeedDb = Pick<ReturnType<typeof getDb>, 'insert'>;
-
-const storageCapacity = (warehouseLevel: number): number =>
-  calculateBuildingEffect('warehouse', warehouseLevel).find(
-    (effect) => effect.type === 'storage_capacity'
-  )?.value ?? 0;
 
 // Seed resources for a newly created station
 
@@ -76,7 +71,7 @@ export const getStationResources = async (
 export const getStationStorageCapacity = async (stationId: string): Promise<number> => {
   const warehouseLevel = await findBuildingLevel(getDb(), stationId, 'warehouse');
 
-  return storageCapacity(warehouseLevel ?? 0);
+  return calculateStorageCapacity(warehouseLevel ?? 0);
 };
 
 /**
@@ -95,7 +90,7 @@ export const creditStationResources = async (
   await findStationForUpdate(tx, stationId);
 
   const warehouseLevel = await findBuildingLevel(tx, stationId, 'warehouse');
-  const capacity = storageCapacity(warehouseLevel ?? 0);
+  const capacity = calculateStorageCapacity(warehouseLevel ?? 0);
   const rows = await listStationResourcesInKeyOrderForUpdate(tx, stationId);
   const amounts = new Map(rows.map((row) => [row.resourceKey, row.amount]));
   const credited: ResourceMap = {};

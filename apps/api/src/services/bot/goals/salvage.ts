@@ -1,5 +1,5 @@
 import type { BotProfile } from '../../../lib/db/schema/bot-controllers.js';
-import { getSpacecraft } from '@orions-frontier/game-config';
+import { getSpacecraft, requirementBlockers } from '@orions-frontier/game-config';
 import {
   entriesOf,
   resourceKeys,
@@ -11,14 +11,11 @@ import type { GoalBotState, StationSnapshot, GoalResult } from '../goal-state.js
 import type { GoalCandidate } from '../goal-driven-v1.js';
 import { GOAL_CATEGORY } from '../goal-driven-v1.js';
 import {
-  buildingUpgradeCost,
   canAfford,
   effectiveCargo,
-  freeCrewCapacity,
-  getShipyardLevel,
-  hasActiveMining,
-  hasCompletedTechnology,
-  isUpgrading,
+  hasInBuild,
+  stationModifiers,
+  stepTowardSpacecraft,
   travelFactor,
 } from './shared.js';
 
@@ -28,6 +25,8 @@ import {
 
 const COLLECTOR_KEY = 'collector';
 const COLLECTOR_COST = getSpacecraft(COLLECTOR_KEY)?.costs ?? [];
+// Only the research part: stepSalvage raises the Shipyard itself.
+const COLLECTOR_RESEARCH = { research: getSpacecraft(COLLECTOR_KEY)?.requirements.research };
 const PAYBACK_THRESHOLD = 1.25;
 
 /** Resource preference weights for valuing salvage cargo. */
@@ -97,9 +96,7 @@ function bestMiningRate(state: GoalBotState, station: StationSnapshot): number {
 
   const mole = getSpacecraft('mole');
   if (!mole) return 0;
-  const miningRate = hasCompletedTechnology(station, 'extraction_algorithms')
-    ? mole.miningRate * 1.1
-    : mole.miningRate;
+  const miningRate = mole.miningRate * stationModifiers(station).miningRate;
   const cargo = effectiveCargo(station, mole.cargo);
   const miningHours = cargo / miningRate;
   const roundTripHours =
@@ -148,6 +145,17 @@ export function pickBestSalvageStation(
   );
 }
 
+const salvagingStation = (state: GoalBotState, debrisId: string) =>
+  state.ownStations.find((station) =>
+    station.salvageMissions.some(
+      (mission) => mission.debrisFieldId === debrisId && mission.status !== 'resolved'
+    )
+  );
+
+/** The station already salvaging the debris, else the most profitable one. */
+export const salvageSource = (state: GoalBotState, debrisId: string) =>
+  salvagingStation(state, debrisId) ?? pickBestSalvageStation(state, debrisId) ?? undefined;
+
 /** Generate salvage candidates for visible debris fields. */
 export function generateSalvageCandidates(
   state: GoalBotState,
@@ -157,18 +165,18 @@ export function generateSalvageCandidates(
 
   for (const debris of state.visibleDebris) {
     if (debrisValue(debris.resources) <= 0) continue;
-    const hasActiveMission = state.ownStations.some((station) =>
-      station.salvageMissions.some(
-        (mission) => mission.debrisFieldId === debris.id && mission.status !== 'resolved'
-      )
-    );
-    if (hasActiveMission) continue;
+    if (salvagingStation(state, debris.id)) continue;
     const station = pickBestSalvageStation(state, debris.id);
     if (!station) continue;
 
     const collector = station.fleets.find((f) => f.spacecraftKey === COLLECTOR_KEY);
     const availableCollectors = collector ? collector.amount - collector.lockedAmount : 0;
-    const needsBuild = availableCollectors <= 0;
+    // A Collector in the shipyard counts as owned; the step waits for it.
+    const needsBuild = availableCollectors <= 0 && !hasInBuild(station, COLLECTOR_KEY);
+    // The server rejects the build, so the goal would only block and be picked again.
+    if (needsBuild && requirementBlockers(COLLECTOR_RESEARCH, station.research, {}).length > 0) {
+      continue;
+    }
     const hasCapacity = needsBuild ? canAfford(station, COLLECTOR_COST) : true;
 
     const baseNeed = needsBuild ? 40 : 60;
@@ -210,7 +218,6 @@ export async function stepSalvage(
   if (activeMission) {
     return {
       type: 'waiting',
-      detail: 'salvage_underway',
       reason: `Salvage at ${debrisId} is ${activeMission.status}`,
     };
   }
@@ -244,80 +251,11 @@ export async function stepSalvage(
     if (weightedValue < buildCostWeighted * PAYBACK_THRESHOLD) {
       return {
         type: 'blocked',
-        detail: 'salvage_not_worthwhile',
         reason: `Debris weighted value ${weightedValue} below ${PAYBACK_THRESHOLD}x build cost ${buildCostWeighted}`,
       };
     }
 
-    // Need to build a Collector first
-    const canBuild = canAfford(station, COLLECTOR_COST);
-    if (!canBuild) {
-      return {
-        type: hasActiveMining(station) ? 'saving' : 'blocked',
-        detail: 'collector_cost',
-        reason: hasActiveMining(station)
-          ? `Saving resources for Collector build`
-          : `Collector build is blocked without active income`,
-      };
-    }
-
-    // Check shipyard level
-    const syLevel = getShipyardLevel(station);
-    if (syLevel < 2) {
-      if (isUpgrading(station, 'shipyard')) {
-        return {
-          type: 'waiting',
-          detail: 'shipyard_upgrading',
-          reason: `Waiting for Shipyard level 2 needed by Collector`,
-        };
-      }
-      if (canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
-        return {
-          type: 'success',
-          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
-          reason: `Upgrading Shipyard to unlock Collector`,
-        };
-      }
-      return {
-        type: 'saving',
-        detail: 'low_shipyard',
-        reason: `Saving for Shipyard level 2 needed by Collector`,
-      };
-    }
-
-    const collectorCrew = getSpacecraft(COLLECTOR_KEY)?.crew ?? 0;
-    if (freeCrewCapacity(station) < collectorCrew) {
-      if (isUpgrading(station, 'hangar')) {
-        return {
-          type: 'waiting',
-          detail: 'hangar_upgrading',
-          reason: `Waiting for Hangar capacity for Collector`,
-        };
-      }
-      if (canAfford(station, buildingUpgradeCost(station, 'hangar'))) {
-        return {
-          type: 'success',
-          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'hangar' },
-          reason: `Expanding Hangar for Collector`,
-        };
-      }
-      return {
-        type: 'saving',
-        detail: 'hangar_capacity',
-        reason: `Saving for Hangar capacity for Collector`,
-      };
-    }
-
-    return {
-      type: 'success',
-      intent: {
-        type: 'build_spacecraft',
-        stationId: station.id,
-        spacecraftKey: COLLECTOR_KEY,
-        amount: 1,
-      },
-      reason: `Building Collector for salvage at debris ${debrisId}`,
-    };
+    return stepTowardSpacecraft(_state, station, COLLECTOR_KEY, `salvage at debris ${debrisId}`);
   }
 
   // Already have a collector — start salvage

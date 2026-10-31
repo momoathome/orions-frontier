@@ -1,4 +1,4 @@
-export const MAX_STATION_INTEGRITY = 100;
+const MAX_STATION_INTEGRITY = 100;
 const REGENERATION_INTERVAL_MS = 60 * 60 * 1_000;
 
 /** Stored integrity plus +1 per full hour since the last change, computed on read. */

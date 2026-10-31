@@ -1,7 +1,5 @@
-import { calculateScannerRange } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
-import { listWorkedAsteroidIdsByUser } from '../../repositories/asteroids.js';
-import { listScannerStationsByUser } from '../../repositories/stations.js';
+import { listWorkedAsteroidIdsByUser } from './repositories/asteroids.js';
 
 export interface WorldPoint {
   x: number;
@@ -27,20 +25,6 @@ export interface VisibilityProjectionStats {
 }
 
 type ScannerDb = Pick<ReturnType<typeof getDb>, 'select' | 'selectDistinct'>;
-
-export async function getUserScannerCoverages(
-  userId: string,
-  db: ScannerDb = getDb()
-): Promise<ScannerCoverage[]> {
-  const rows = await listScannerStationsByUser(db, userId);
-
-  return rows.map((row) => ({
-    stationId: row.stationId,
-    x: row.x,
-    y: row.y,
-    range: calculateScannerRange(row.level),
-  }));
-}
 
 /** Asteroids outside scanner coverage that the user's own miners have already worked. */
 export async function getUserRevealedAsteroidIds(

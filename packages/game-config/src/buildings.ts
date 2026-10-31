@@ -1,11 +1,13 @@
 import { required } from '@orions-frontier/shared';
+import { LAB_SPEED_PER_LEVEL } from './research.js';
+import { applyBuildingCostDiscount } from './research-effects.js';
+import { scaledUpgradeCosts, type UpgradeCostConfig } from './upgrade-cost.js';
 import type {
   BuildingKey,
   BuildingEffectType,
   BuildingUpgradeCost,
   BuildingEffect,
 } from '@orions-frontier/shared';
-import type { ResourceKey } from '@orions-frontier/shared';
 
 // Seed Definition
 
@@ -24,20 +26,21 @@ export const buildings: BuildingSeedDefinition[] = [
     key: 'core',
     name: 'Core',
     description:
-      'The heart of your station. Increases overall station capacity and unlocks advanced systems.',
+      'The heart of your station. Each level speeds up building and defense upgrades by 2%.',
     image: '/assets/buildings/core.webp',
     baseBuildTime: 60,
     maxLevel: 20,
-    effectType: 'station_progression',
+    effectType: 'construction_speed',
   },
   {
     key: 'shipyard',
     name: 'Shipyard',
-    description: 'Constructs and upgrades spacecraft. Higher levels unlock advanced ship classes.',
+    description:
+      'Constructs spacecraft. Higher levels unlock ship classes, build faster and add production slots at levels 5 and 10.',
     image: '/assets/buildings/shipyard.webp',
     baseBuildTime: 90,
     maxLevel: 15,
-    effectType: 'spacecraft_unlock',
+    effectType: 'production_slots',
   },
   {
     key: 'warehouse',
@@ -70,11 +73,12 @@ export const buildings: BuildingSeedDefinition[] = [
   {
     key: 'laboratory',
     name: 'Laboratory',
-    description: 'Provides capacity for researching advanced technologies.',
+    description:
+      'Opens research tiers and caps research levels. Each level above 1 shortens research by 2%.',
     image: '/assets/buildings/laboratory.webp',
     baseBuildTime: 90,
     maxLevel: 15,
-    effectType: 'research_capacity',
+    effectType: 'research_speed',
   },
 ];
 
@@ -86,69 +90,60 @@ export const getBuilding = (key: BuildingKey) =>
 
 // Upgrade Cost Config
 
-interface ResourceCostEntry {
-  resourceKey: ResourceKey;
-  baseAmount: number;
-  unlocksAtLevel?: number; // resource is added to cost starting at this level
-}
-
-interface UpgradeCostConfig {
-  resourceCosts: ResourceCostEntry[];
-  /** Exponential scale factor applied per level (cost = base * factor^(targetLevel-1)) */
-  factor: number;
-}
-
 const UPGRADE_COST_CONFIG: Record<BuildingKey, UpgradeCostConfig> = {
   core: {
-    factor: 1.5,
+    factor: 1.6,
     resourceCosts: [
-      { resourceKey: 'carbon', baseAmount: 150 },
-      { resourceKey: 'titanium', baseAmount: 100 },
-      { resourceKey: 'kyber_crystal', baseAmount: 20, unlocksAtLevel: 5 },
-      { resourceKey: 'astatine', baseAmount: 10, unlocksAtLevel: 10 },
+      { resourceKey: 'carbon', baseAmount: 300 },
+      { resourceKey: 'titanium', baseAmount: 200 },
+      { resourceKey: 'kyber_crystal', baseAmount: 40, unlocksAtLevel: 5 },
+      { resourceKey: 'astatine', baseAmount: 20, unlocksAtLevel: 10 },
     ],
   },
   shipyard: {
-    factor: 1.4,
+    factor: 1.5,
     resourceCosts: [
-      { resourceKey: 'carbon', baseAmount: 120 },
-      { resourceKey: 'titanium', baseAmount: 80 },
-      { resourceKey: 'hydrogenium', baseAmount: 30, unlocksAtLevel: 5 },
-      { resourceKey: 'kyber_crystal', baseAmount: 15, unlocksAtLevel: 8 },
+      { resourceKey: 'carbon', baseAmount: 240 },
+      { resourceKey: 'titanium', baseAmount: 160 },
+      { resourceKey: 'hydrogenium', baseAmount: 60, unlocksAtLevel: 5 },
+      { resourceKey: 'kyber_crystal', baseAmount: 30, unlocksAtLevel: 8 },
     ],
   },
   warehouse: {
-    factor: 1.35,
+    factor: 1.45,
     resourceCosts: [
-      { resourceKey: 'carbon', baseAmount: 80 },
-      { resourceKey: 'titanium', baseAmount: 60 },
-      { resourceKey: 'hydrogenium', baseAmount: 20, unlocksAtLevel: 7 },
+      { resourceKey: 'carbon', baseAmount: 160 },
+      { resourceKey: 'titanium', baseAmount: 120 },
+      { resourceKey: 'hydrogenium', baseAmount: 40, unlocksAtLevel: 7 },
     ],
   },
   scanner: {
-    factor: 1.4,
+    factor: 1.5,
     resourceCosts: [
-      { resourceKey: 'carbon', baseAmount: 90 },
-      { resourceKey: 'titanium', baseAmount: 70 },
-      { resourceKey: 'hydrogenium', baseAmount: 25, unlocksAtLevel: 6 },
-      { resourceKey: 'kyber_crystal', baseAmount: 10, unlocksAtLevel: 10 },
+      { resourceKey: 'carbon', baseAmount: 180 },
+      { resourceKey: 'titanium', baseAmount: 140 },
+      { resourceKey: 'hydrogenium', baseAmount: 50, unlocksAtLevel: 6 },
+      { resourceKey: 'kyber_crystal', baseAmount: 20, unlocksAtLevel: 10 },
     ],
   },
   hangar: {
-    factor: 1.45,
+    factor: 1.55,
     resourceCosts: [
-      { resourceKey: 'titanium', baseAmount: 150 },
-      { resourceKey: 'hydrogenium', baseAmount: 40 },
-      { resourceKey: 'kyber_crystal', baseAmount: 20, unlocksAtLevel: 5 },
-      { resourceKey: 'astatine', baseAmount: 15, unlocksAtLevel: 10 },
+      { resourceKey: 'titanium', baseAmount: 300 },
+      { resourceKey: 'hydrogenium', baseAmount: 80 },
+      { resourceKey: 'kyber_crystal', baseAmount: 40, unlocksAtLevel: 5 },
+      { resourceKey: 'astatine', baseAmount: 30, unlocksAtLevel: 10 },
     ],
   },
   laboratory: {
-    factor: 1.4,
+    factor: 1.5,
     resourceCosts: [
-      { resourceKey: 'carbon', baseAmount: 100 },
-      { resourceKey: 'kyber_crystal', baseAmount: 10 },
-      { resourceKey: 'astatine', baseAmount: 5, unlocksAtLevel: 5 },
+      // Kyber and Astatine only after the levels that open Spectral and Deep Spectral Analysis.
+      { resourceKey: 'carbon', baseAmount: 200 },
+      { resourceKey: 'titanium', baseAmount: 150 },
+      { resourceKey: 'hydrogenium', baseAmount: 80, unlocksAtLevel: 2 },
+      { resourceKey: 'kyber_crystal', baseAmount: 30, unlocksAtLevel: 5 },
+      { resourceKey: 'astatine', baseAmount: 15, unlocksAtLevel: 9 },
     ],
   },
 };
@@ -161,32 +156,27 @@ export function calculateBuildingUpgradeCost(
   buildingKey: BuildingKey,
   targetLevel: number
 ): BuildingUpgradeCost[] {
-  const config = UPGRADE_COST_CONFIG[buildingKey];
-  const multiplier = Math.pow(config.factor, targetLevel - 1);
-
-  const costs: BuildingUpgradeCost[] = [];
-
-  for (const entry of config.resourceCosts) {
-    if (entry.unlocksAtLevel !== undefined && targetLevel < entry.unlocksAtLevel) {
-      continue;
-    }
-    const amount = Math.max(10, Math.round((entry.baseAmount * multiplier) / 10) * 10);
-    costs.push({ resourceKey: entry.resourceKey, amount });
-  }
-
-  return costs;
+  return scaledUpgradeCosts(UPGRADE_COST_CONFIG[buildingKey], targetLevel);
 }
+
+/** What the player pays: the upgrade cost after the Nanite Assembly factor (research `buildingCost`). */
+export const discountedBuildingUpgradeCost = (
+  buildingKey: BuildingKey,
+  targetLevel: number,
+  costFactor: number
+): BuildingUpgradeCost[] =>
+  applyBuildingCostDiscount(calculateBuildingUpgradeCost(buildingKey, targetLevel), costFactor);
 
 // Build Time Calculation
 
 /**
- * Returns the build time in seconds for upgrading to targetLevel.
- * Scales exponentially from baseBuildTime: buildTime = base * 1.4^(targetLevel-1)
+ * Returns the build time in seconds for upgrading to targetLevel, before Core and research speed-ups.
+ * Scales exponentially from baseBuildTime: buildTime = base * 1.45^(targetLevel-1)
  */
 export function calculateBuildingBuildTime(buildingKey: BuildingKey, targetLevel: number): number {
   const def = buildings.find((b) => b.key === buildingKey);
   if (!def) return 60;
-  return Math.round(def.baseBuildTime * Math.pow(1.4, targetLevel - 1));
+  return Math.round(def.baseBuildTime * Math.pow(1.45, targetLevel - 1));
 }
 
 // Effect Calculation
@@ -198,19 +188,18 @@ export function calculateBuildingBuildTime(buildingKey: BuildingKey, targetLevel
 export function calculateBuildingEffect(buildingKey: BuildingKey, level: number): BuildingEffect[] {
   switch (buildingKey) {
     case 'core':
-      return [{ type: 'station_progression', value: level * 5 }];
+      return [{ type: 'construction_speed', value: calculateConstructionSpeedBonus(level) }];
 
     case 'shipyard':
       return [
-        { type: 'spacecraft_unlock', value: level },
-        { type: 'spacecraft_production_bonus', value: level * 3 },
+        { type: 'production_slots', value: calculateProductionSlots(level) },
+        { type: 'spacecraft_production_bonus', value: calculateShipyardBuildBonus(level) },
       ];
 
     case 'warehouse':
       return [
-        // Grows with upgrade costs so the next upgrade always fits and storage lasts overnight.
-        { type: 'storage_capacity', value: Math.round((5000 * 1.3 ** (level - 1)) / 100) * 100 },
-        { type: 'protected_storage', value: level * 100 },
+        { type: 'storage_capacity', value: calculateStorageCapacity(level) },
+        { type: 'protected_storage', value: calculateProtectedStorage(level) },
       ];
 
     case 'scanner':
@@ -220,31 +209,35 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
       return [{ type: 'hangar_capacity', value: calculateHangarCapacity(level) }];
 
     case 'laboratory':
-      return [{ type: 'research_capacity', value: level * 5 }];
+      return [{ type: 'research_speed', value: (Math.max(1, level) - 1) * LAB_SPEED_PER_LEVEL }];
   }
 }
+
+/** Percent the Core takes off building and defense upgrade times; level 1 is the baseline. */
+export const calculateConstructionSpeedBonus = (coreLevel: number): number =>
+  Math.max(0, coreLevel - 1) * 2;
 
 export const calculateScannerRange = (level: number): number =>
   level <= 0 ? 0 : 1_000 + (level - 1) * 500;
 
-// Unlock Milestones
+/** Ships the Shipyard builds at the same time. */
+export const calculateProductionSlots = (shipyardLevel: number): number =>
+  1 + Number(shipyardLevel >= 5) + Number(shipyardLevel >= 10);
 
-/**
- * Maps shipyard level → spacecraft keys unlocked at that level.
- * Spacecraft only become buildable once the shipyard reaches the required level.
- */
-export const SHIPYARD_UNLOCKS: Record<number, string[]> = {
-  1: ['mole'],
-  2: ['merlin', 'collector'],
-  3: ['comet'],
-  4: ['javelin', 'sentinel'],
-  5: ['titan'],
-  6: ['reclaimer'],
-  7: ['ares', 'hammer'],
-  8: ['nova'],
-  10: ['horus'],
-  12: ['reaper'],
-};
+/** Percent the Shipyard takes off ship build times. */
+export const calculateShipyardBuildBonus = (shipyardLevel: number): number => shipyardLevel * 3;
 
-/** Crew places provided by a station hangar. */
-export const calculateHangarCapacity = (hangarLevel: number): number => 10 + hangarLevel * 10;
+/** Per resource. Grows with upgrade costs so the next upgrade always fits and storage lasts overnight. */
+export const calculateStorageCapacity = (warehouseLevel: number): number =>
+  Math.round((5000 * 1.45 ** (warehouseLevel - 1)) / 100) * 100;
+
+/** Stock per resource that attackers cannot loot. */
+export const calculateProtectedStorage = (warehouseLevel: number): number => warehouseLevel * 100;
+
+/** Crew places provided by a station hangar; the square term keeps late levels worth their cost. */
+export const calculateHangarCapacity = (hangarLevel: number): number =>
+  10 + hangarLevel * 10 + Math.max(0, hangarLevel - 1) ** 2;
+
+/** Crew the hangar holds once Fleet Coordination (`crewFactor`) is applied. */
+export const calculateCrewCapacity = (hangarLevel: number, crewFactor: number): number =>
+  Math.floor(calculateHangarCapacity(hangarLevel) * crewFactor);

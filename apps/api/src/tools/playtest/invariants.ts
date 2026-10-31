@@ -1,12 +1,10 @@
-import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { WorldTickResult } from '../../services/simulation/index.js';
 import type { PlaytestAliasRegistry } from './aliases.js';
-import type { PlaytestConfig } from './config.js';
 import {
   queryDatabaseInvariantState,
   type DatabaseInvariantCode,
   type RawDatabaseInvariantViolation,
+  type StationOwnerState,
 } from './invariant-queries.js';
 
 export type PlaytestInvariantCode =
@@ -69,6 +67,26 @@ export class PlaytestInvariantAuditor {
   constructor(private readonly aliases: PlaytestAliasRegistry) {}
 
   async auditTick(tick: WorldTickResult): Promise<void> {
+    const database = await queryDatabaseInvariantState(tick.now, this.aliases.userIds(), [
+      ...this.stationOwners.keys(),
+    ]);
+    const findings = [
+      ...this.eventFindings(tick),
+      ...this.botActionFindings(tick),
+      ...database.violations.map((violation) => databaseFinding(tick.now, violation, this.aliases)),
+      ...this.stationOwnerFindings(tick.now, database.stationOwners),
+    ];
+    if (findings.length > 0) {
+      findings.sort(
+        (left, right) =>
+          left.code.localeCompare(right.code) ||
+          left.affectedAliases.join(':').localeCompare(right.affectedAliases.join(':'))
+      );
+      throw new PlaytestInvariantError(findings);
+    }
+  }
+
+  private eventFindings(tick: WorldTickResult): PlaytestInvariantFinding[] {
     const findings: PlaytestInvariantFinding[] = [];
     for (const event of tick.events) {
       if (this.completionEventIds.has(event.eventId)) {
@@ -99,14 +117,17 @@ export class PlaytestInvariantAuditor {
             virtualTime: tick.now.toISOString(),
             affectedAliases: [
               this.aliases.user(event.userId),
-              this.aliases.station(event.stationId),
+              ...(event.stationId ? [this.aliases.station(event.stationId)] : []),
             ],
             values: { eventType: event.type },
           })
         );
       }
     }
+    return findings;
+  }
 
+  private botActionFindings(tick: WorldTickResult): PlaytestInvariantFinding[] {
     const successfulActions = new Map<string, number>();
     for (const decision of tick.botDecisions) {
       if (decision.resultKind !== 'success') continue;
@@ -115,9 +136,9 @@ export class PlaytestInvariantAuditor {
         (successfulActions.get(decision.botUserId) ?? 0) + 1
       );
     }
-    for (const [userId, count] of successfulActions) {
-      if (count <= 1) continue;
-      findings.push(
+    return [...successfulActions]
+      .filter(([, count]) => count > 1)
+      .map(([userId, count]) =>
         stableFinding({
           code: 'multiple_successful_bot_actions',
           virtualTime: tick.now.toISOString(),
@@ -125,21 +146,20 @@ export class PlaytestInvariantAuditor {
           values: { successfulActions: count },
         })
       );
-    }
+  }
 
-    const database = await queryDatabaseInvariantState(tick.now, this.aliases.userIds(), [
-      ...this.stationOwners.keys(),
-    ]);
-    findings.push(
-      ...database.violations.map((violation) => databaseFinding(tick.now, violation, this.aliases))
-    );
-    for (const owner of database.stationOwners) {
+  private stationOwnerFindings(
+    now: Date,
+    owners: readonly StationOwnerState[]
+  ): PlaytestInvariantFinding[] {
+    const findings: PlaytestInvariantFinding[] = [];
+    for (const owner of owners) {
       const previousOwner = this.stationOwners.get(owner.stationId);
       if (previousOwner && previousOwner !== owner.userId) {
         findings.push(
           stableFinding({
             code: 'station_owner_changed',
-            virtualTime: tick.now.toISOString(),
+            virtualTime: now.toISOString(),
             affectedAliases: [
               this.aliases.station(owner.stationId),
               this.aliases.user(previousOwner),
@@ -154,53 +174,6 @@ export class PlaytestInvariantAuditor {
         this.stationOwners.set(owner.stationId, owner.userId);
       }
     }
-
-    if (findings.length > 0) {
-      findings.sort(
-        (left, right) =>
-          left.code.localeCompare(right.code) ||
-          left.affectedAliases.join(':').localeCompare(right.affectedAliases.join(':'))
-      );
-      throw new PlaytestInvariantError(findings);
-    }
+    return findings;
   }
-}
-
-function safeSeed(seed: string): string {
-  return seed.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 80);
-}
-
-export async function writePartialInvariantReport(
-  config: PlaytestConfig,
-  error: PlaytestInvariantError
-): Promise<string> {
-  await mkdir(config.outputDirectory, { recursive: true });
-  const filename = `${config.virtualStart.toISOString().replace(/[:.]/g, '-')}-${safeSeed(
-    config.seed
-  )}-failed.json`;
-  const target = join(config.outputDirectory, filename);
-  const temporary = `${target}.${process.pid}.tmp`;
-  const report = {
-    schemaVersion: 'playtest-partial-v1',
-    status: 'failed',
-    seed: config.seed,
-    virtualStart: config.virtualStart.toISOString(),
-    effectiveConfig: {
-      durationMs: config.durationMs,
-      stepMs: config.stepMs,
-      joinIntervalMs: config.joinIntervalMs,
-      populationLimit: config.populationLimit,
-      profileWeights: config.profileWeights,
-      snapshotIntervalMs: config.snapshotIntervalMs,
-      diagnosticWindowSize: config.diagnosticWindowSize,
-      softlockThresholds: config.softlockThresholds,
-    },
-    invariantFindings: error.findings,
-  };
-  await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`, {
-    encoding: 'utf8',
-    flag: 'wx',
-  });
-  await rename(temporary, target);
-  return target;
 }

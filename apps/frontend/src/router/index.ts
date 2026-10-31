@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
+import { useAuthStore } from '../features/auth/index.js';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -12,24 +12,27 @@ declare module 'vue-router' {
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/login',
+    name: 'Landing',
+    component: () => import('../features/auth/index.js').then((m) => m.LandingView),
+    meta: { guestOnly: true },
   },
   {
     path: '/login',
     name: 'Login',
-    component: () => import('../views/LoginView.vue'),
+    component: () => import('../features/auth/index.js').then((m) => m.LoginView),
     meta: { guestOnly: true },
   },
   {
     path: '/register',
     name: 'Register',
-    component: () => import('../views/RegisterView.vue'),
+    component: () => import('../features/auth/index.js').then((m) => m.RegisterView),
     meta: { guestOnly: true },
   },
   {
     path: '/map',
     name: 'Map',
-    component: () => import('../views/MapView.vue'),
+    // The map chunk (Pixi) stays lazy; auth is in the main bundle anyway.
+    component: () => import('../features/map/index.js').then((m) => m.MapView),
     meta: { requiresAuth: true },
   },
 ];

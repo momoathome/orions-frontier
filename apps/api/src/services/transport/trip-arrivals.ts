@@ -1,5 +1,5 @@
 import { getDb } from '../../lib/db/index.js';
-import { claimTripArrival, type TripRow } from '../../repositories/spacecraft-trips.js';
+import { claimTripArrival, type TripRow } from '../fleet/index.js';
 import { handleMineArrival, handleMiningReturnArrival } from './trip-handlers.js';
 import {
   handleCombatTripArrival,
@@ -21,7 +21,7 @@ export interface TripArrivalResult {
   events: PlaytestCompletionEvent[];
 }
 
-export async function settleTripArrivalDetailed(
+export async function settleTripArrival(
   trip: TripRow,
   contextOrNow?: GameExecutionContext | Date
 ): Promise<TripArrivalResult> {
@@ -39,8 +39,7 @@ export async function settleTripArrivalDetailed(
     if (trip.purpose === 'mine' && trip.toType === 'asteroid') {
       await handleMineArrival(tx, trip, context);
     } else if (trip.purpose === 'mining_return' && trip.toType === 'station') {
-      const delivery = await handleMiningReturnArrival(tx, trip, context);
-      if (delivery) events = [delivery];
+      events = await handleMiningReturnArrival(tx, trip, context);
     } else if (trip.purpose === 'combat' || trip.purpose === 'combat_return') {
       events = await handleCombatTripArrival(tx, trip, context);
     } else if (trip.purpose === 'salvage' || trip.purpose === 'salvage_return') {
@@ -51,11 +50,4 @@ export async function settleTripArrivalDetailed(
 
     return { settled: true, events };
   });
-}
-
-export async function settleTripArrival(
-  trip: TripRow,
-  contextOrNow?: GameExecutionContext | Date
-): Promise<boolean> {
-  return (await settleTripArrivalDetailed(trip, contextOrNow)).settled;
 }

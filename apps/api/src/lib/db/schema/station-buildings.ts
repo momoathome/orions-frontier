@@ -1,5 +1,16 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, integer, timestamp, index, unique, varchar } from 'drizzle-orm/pg-core';
+import type { BuildingUpgradeCost } from '@orions-frontier/shared';
+import {
+  pgTable,
+  uuid,
+  integer,
+  jsonb,
+  timestamp,
+  index,
+  check,
+  unique,
+  varchar,
+} from 'drizzle-orm/pg-core';
 import { stations } from './stations.js';
 
 export const stationBuildings = pgTable(
@@ -12,6 +23,8 @@ export const stationBuildings = pgTable(
     buildingKey: varchar('building_key', { length: 64 }).notNull(),
     level: integer('level').notNull().default(1),
     upgradeEndsAt: timestamp('upgrade_ends_at'),
+    /** What the running upgrade cost; a cancel refunds exactly this. */
+    upgradePaidCost: jsonb('upgrade_paid_cost').$type<BuildingUpgradeCost[]>(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -21,6 +34,10 @@ export const stationBuildings = pgTable(
     index('station_buildings_upgrade_ends_at_idx')
       .on(table.upgradeEndsAt)
       .where(sql`${table.upgradeEndsAt} IS NOT NULL`),
+    check(
+      'station_buildings_running_upgrade_has_cost',
+      sql`${table.upgradeEndsAt} IS NULL OR ${table.upgradePaidCost} IS NOT NULL`
+    ),
     unique('station_buildings_station_id_building_key_unique').on(
       table.stationId,
       table.buildingKey

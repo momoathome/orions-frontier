@@ -39,7 +39,7 @@ Neue Schiffsrolle `bomber`. Ein Schiff zum Start:
 | Crew       | 12                                                   |
 | Bauzeit    | 600                                                  |
 | Kosten     | 800 Carbon, 900 Titanium, 500 Hydrogenium, 150 Kyber |
-| Freischalt | Shipyard Stufe 7 (`SHIPYARD_UNLOCKS[7]`, neben Ares) |
+| Freischalt | Shipyard 7, Weapons 4, Armor 5                       |
 
 - Bomber kämpfen kaum. Sie wirken nur über die Integrität.
 - Durch ihr Tempo bestimmen sie die Ankunftszeit einer gemischten Flotte. Das ist für den
@@ -91,7 +91,8 @@ POST attack  { stationId, targetStationId, fleet: { merlin: 40, hammer: 4 } }
   mehr Schaden.
 - Integrität ist für den Besitzer sichtbar, für andere nur innerhalb der Scannerabdeckung, und dann
   grob in Stufen (100–76, 75–51, 50–26, 25–1).
-- Der Kampfbericht nennt den Wellenschaden und die neue Integrität.
+- Der Kampfbericht nennt den Wellenschaden und die neue Integrität: dem Verteidiger genau, dem
+  Angreifer nur nach Schaden und dann in Stufen; ohne Schaden erfährt er sie nicht.
 
 ## 4. Vernichtung
 
@@ -99,8 +100,8 @@ Fällt die Integrität auf 0, wird die Station in derselben Transaktion wie der 
 
 1. **Trümmerfeld** an der Stationsposition:
    - der gesamte verbleibende Lagerbestand nach der Beute;
-   - 20 % der in Gebäude und Defense investierten Ressourcen (dieselbe Kostenrechnung wie
-     `calculateInfluence`);
+   - 20 % der in Gebäude und Defense investierten Ressourcen (`investedUpgradeCosts`, dieselbe
+     Kostenrechnung wie `calculateInfluence`);
    - angedockte Schiffe nach der bestehenden 30-%-Regel (`createDebrisFromLosses`).
 2. **Schiffe:** Alle angedockten Schiffe sind verloren. Reisen, die von dieser Station ausgehen
    oder zu ihr zurückkehren, werden abgebrochen. Ihre Schiffe fliegen mit ihrer Fracht von der
@@ -108,9 +109,9 @@ Fällt die Integrität auf 0, wird die Station in derselben Transaktion wie der 
    Ankunft als unterwegs. Laufende Kampf- und Bergungsmissionen enden ohne Ergebnis;
    Weltmissionen wechseln ihre Heimatstation. Ohne weitere eigene Station sind die Schiffe
    verloren.
-3. **Laufende Arbeit:** Bau-, Forschungs- und Schiffsaufträge, Mining-Zuweisungen und
-   Weltmissionen der Station werden beendet, ohne Erstattung.
-4. **Datensätze:** Gebäude, Ressourcen, Bauaufträge, Forschung und Zuweisungen werden gelöscht,
+3. **Laufende Arbeit:** Bau- und Schiffsaufträge, Mining-Zuweisungen und Weltmissionen der Station
+   werden beendet, ohne Erstattung. Forschung gehört dem Account und bleibt erhalten.
+4. **Datensätze:** Gebäude, Ressourcen, Bauaufträge und Zuweisungen werden gelöscht,
    Flottenzeilen auf 0 gesetzt (Reisen verweisen weiter darauf). Die Zeile in `stations` bleibt mit `destroyed_at timestamptz` erhalten, damit
    Kampfberichte, Trümmerfelder und Logbuch ihre Referenz behalten.
 5. **Spawn-Slot:** Ein belegter Slot wird wieder frei.

@@ -1,11 +1,15 @@
 import { authenticate } from '../../../middleware/auth.js';
 import {
   getUserRevealedAsteroidIds,
-  getUserScannerCoverages,
-  getVisibleChunkAsteroids,
   type VisibilityProjectionStats,
 } from '../../../services/map/index.js';
-import { getVisibleChunkStations, parseChunkRange } from '../../../services/world/index.js';
+import { getResearchModifiers } from '../../../services/research/index.js';
+import { getUserScannerCoverages } from '../../../services/station/index.js';
+import {
+  getVisibleChunkAsteroids,
+  getVisibleChunkStations,
+  parseChunkRange,
+} from '../../../services/world/index.js';
 import { getVisibleDebris } from '../../../services/combat/index.js';
 import { defineRoute, chunkRangeQuery } from '../../../lib/route.js';
 
@@ -32,17 +36,17 @@ export default defineRoute(async (app) => {
       const { minChunkX, maxChunkX, minChunkY, maxChunkY } = range;
       const scannerBypass = request.user.role === 'admin' && request.query.scannerBypass === 'true';
 
-      const [coverages, revealedIds] = scannerBypass
-        ? [[], new Set<string>()]
-        : await Promise.all([
-            getUserScannerCoverages(request.user.userId),
-            getUserRevealedAsteroidIds(request.user.userId),
-          ]);
+      const [coverages, revealedIds, modifiers] = await Promise.all([
+        scannerBypass ? [] : getUserScannerCoverages(request.user.userId),
+        scannerBypass ? new Set<string>() : getUserRevealedAsteroidIds(request.user.userId),
+        getResearchModifiers(request.user.userId),
+      ]);
       const stats: VisibilityProjectionStats = {};
       const [asteroids, stations, debris] = await Promise.all([
         getVisibleChunkAsteroids(
           { minChunkX, maxChunkX, minChunkY, maxChunkY },
           coverages,
+          modifiers.visibleResources,
           stats,
           scannerBypass,
           revealedIds

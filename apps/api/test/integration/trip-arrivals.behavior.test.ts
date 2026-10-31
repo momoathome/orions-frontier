@@ -14,14 +14,19 @@ import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { assertKnownSpacecraftKeys } from '../../src/services/station/index.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
+import {
+  listDueTripsWithOwner,
+  recordTripSettleFailure,
+} from '../../src/services/fleet/repositories/spacecraft-trips.js';
+import { deleteTestData } from '../helpers/fixtures.js';
 
 let userId: string;
 let stationId: string;
 const spacecraftKey = 'mole';
 let stationSpacecraftId: string;
 const sectorId = randomUUID();
-const tripIds: string[] = [];
 
 before(async () => {
   await runMigrations();
@@ -63,18 +68,40 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  if (tripIds.length) {
-    await db.delete(spacecraftTrips).where(inArray(spacecraftTrips.id, tripIds));
-  }
-  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.id, stationSpacecraftId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(users).where(eq(users.id, userId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
+});
+
+test('a trip that fails to settle waits longer before each retry', async () => {
+  const db = getDb();
+  const now = new Date();
+  const [trip] = await db
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId,
+      groupSize: 1,
+      fromType: 'station',
+      fromId: stationId,
+      toType: 'station',
+      toId: stationId,
+      departedAt: new Date(now.getTime() - 2_000),
+      arrivesAt: new Date(now.getTime() - 1_000),
+      purpose: 'relocate',
+    })
+    .returning();
+  const isDue = async (at: Date) =>
+    (await listDueTripsWithOwner(db, at)).some((due) => due.trip.id === trip!.id);
+  try {
+    assert.equal(await recordTripSettleFailure(db, trip!.id, now), 1);
+    assert.equal(await isDue(now), false);
+    assert.equal(await isDue(new Date(now.getTime() + 2_000)), true);
+
+    assert.equal(await recordTripSettleFailure(db, trip!.id, now), 2);
+    assert.equal(await isDue(new Date(now.getTime() + 2_000)), false);
+    assert.equal(await isDue(new Date(now.getTime() + 4_000)), true);
+  } finally {
+    await db.delete(spacecraftTrips).where(eq(spacecraftTrips.id, trip!.id));
+  }
 });
 
 test('a trip arrival is applied exactly once when two processors race', async () => {
@@ -96,10 +123,9 @@ test('a trip arrival is applied exactly once when two processors race', async ()
     })
     .returning();
   assert.ok(trip);
-  tripIds.push(trip.id);
 
   const results = await Promise.all([settleTripArrival(trip), settleTripArrival(trip)]);
-  assert.deepEqual(results.sort(), [false, true]);
+  assert.deepEqual(results.map((result) => result.settled).sort(), [false, true]);
 
   const [resource] = await db
     .select({ amount: stationResources.amount })
@@ -132,7 +158,6 @@ test('parallel mining returns store only free warehouse capacity', async () => {
       }))
     )
     .returning();
-  tripIds.push(...trips.map((trip) => trip.id));
 
   await Promise.all(trips.map((trip) => settleTripArrival(trip)));
 
@@ -174,9 +199,8 @@ test('simulation tick catches up a trip that became due while the API was offlin
     })
     .returning();
   assert.ok(trip);
-  tripIds.push(trip.id);
 
-  await runSimulationTick(new Date(trip.arrivesAt.getTime() + 1));
+  await runWorldTick(new Date(trip.arrivesAt.getTime() + 1));
 
   const [settled] = await db
     .select({ status: spacecraftTrips.status })
@@ -219,9 +243,8 @@ test('a failing due trip does not block later simulation work', async () => {
     ])
     .returning();
   assert.ok(poisonTrip && validTrip);
-  tripIds.push(poisonTrip.id, validTrip.id);
 
-  await runSimulationTick(now);
+  await runWorldTick(now);
 
   const statuses = await db
     .select({ id: spacecraftTrips.id, status: spacecraftTrips.status })
@@ -235,6 +258,19 @@ test('a failing due trip does not block later simulation work', async () => {
     .where(eq(spacecraftTrips.id, poisonTrip.id));
 });
 
+test('the API refuses to start while ships of a removed type exist', async () => {
+  await assertKnownSpacecraftKeys();
+  const [row] = await getDb()
+    .insert(stationSpacecrafts)
+    .values({ stationId, spacecraftKey: 'retired_hull', amount: 1 })
+    .returning();
+  try {
+    await assert.rejects(assertKnownSpacecraftKeys(), /retired_hull/);
+  } finally {
+    await getDb().delete(stationSpacecrafts).where(eq(stationSpacecrafts.id, row!.id));
+  }
+});
+
 test('simulation tick completes due building and spacecraft work exactly once', async () => {
   const db = getDb();
   const now = new Date();
@@ -245,6 +281,7 @@ test('simulation tick completes due building and spacecraft work exactly once', 
       buildingKey: 'core',
       level: 1,
       upgradeEndsAt: new Date(now.getTime() - 1_000),
+      upgradePaidCost: [],
     })
     .returning({ id: stationBuildings.id });
   const [order] = await db
@@ -253,12 +290,15 @@ test('simulation tick completes due building and spacecraft work exactly once', 
       stationId,
       spacecraftKey,
       amount: 3,
+      orderedAmount: 3,
+      unitCost: [],
+      nextAt: new Date(now.getTime() - 1_000),
       endsAt: new Date(now.getTime() - 1_000),
     })
     .returning({ id: spacecraftBuildOrders.id });
   assert.ok(building && order);
 
-  await Promise.all([runSimulationTick(now), runSimulationTick(now)]);
+  await Promise.all([runWorldTick(now), runWorldTick(now)]);
 
   const [completedBuilding] = await db
     .select({ level: stationBuildings.level, upgradeEndsAt: stationBuildings.upgradeEndsAt })

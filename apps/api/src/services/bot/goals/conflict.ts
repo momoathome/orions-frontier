@@ -11,7 +11,7 @@ import {
   scoreConflictTarget,
 } from '../conflict-intel.js';
 import { availableFighterAttack, wasRecentlyAttacked } from './military.js';
-import { hasActiveMining } from './shared.js';
+import { hasActiveMining, stationModifiers } from './shared.js';
 
 // ---------------------------------------------------------------------------
 // Raid & Retaliate
@@ -44,13 +44,7 @@ function smallestSufficientGroup(
       spacecraftKey: f.spacecraftKey,
       available: f.amount - f.lockedAmount,
       attackPerShip: Math.floor(
-        (getSpacecraft(f.spacecraftKey)?.attack ?? 0) *
-          (station.research.some(
-            (research) =>
-              research.technologyKey === 'combat_analytics' && research.status === 'completed'
-          )
-            ? 1.1
-            : 1)
+        (getSpacecraft(f.spacecraftKey)?.attack ?? 0) * stationModifiers(station).attack
       ),
     }))
     .filter((f) => f.attackPerShip > 0)
@@ -104,12 +98,78 @@ export function isEligibleAttackSource(
   return group !== null && group.totalAttack <= availableOffensivePower(availableAttack, reserve);
 }
 
-/** Check if this station has attacked the given owner recently (cooldown). */
+/** Own station with an unresolved attack on one of the given stations, and that attack. */
+function activeAttack(state: GoalBotState, targetStationIds: readonly string[]) {
+  for (const station of state.ownStations) {
+    const mission = station.combatMissions.find((candidate) =>
+      targetStationIds.includes(candidate.defenderStationId)
+    );
+    if (mission) return { station, mission };
+  }
+  return undefined;
+}
+
+const nearestTo = (target: { x: number; y: number }) => (a: StationSnapshot, b: StationSnapshot) =>
+  Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y) ||
+  a.id.localeCompare(b.id);
+
+/** Raid source: the station already attacking the target, else the nearest eligible one. */
+export function raidSource(
+  state: GoalBotState,
+  targetStationId: string,
+  profile: BotProfile
+): StationSnapshot | undefined {
+  const attacking = activeAttack(state, [targetStationId]);
+  if (attacking) return attacking.station;
+  const target = state.visibleStations.find((station) => station.id === targetStationId);
+  if (!target) return undefined;
+  return state.ownStations
+    .filter((station) => isEligibleAttackSource(state, station, targetStationId, profile))
+    .sort(nearestTo(target))[0];
+}
+
+/**
+ * Retaliation source: the station already attacking one of the owner's visible stations, else the
+ * eligible station nearest to one of them, more free attack breaking ties.
+ */
+export function retaliationSource(
+  state: GoalBotState,
+  ownerId: string,
+  profile: BotProfile
+): StationSnapshot | undefined {
+  const targets = state.visibleStations.filter(
+    (station) => station.ownerId === ownerId && !station.isOwn
+  );
+  const attacking = activeAttack(
+    state,
+    targets.map((target) => target.id)
+  );
+  if (attacking) return attacking.station;
+  const distance = (station: StationSnapshot) =>
+    Math.min(
+      ...targets
+        .filter((target) => isEligibleAttackSource(state, station, target.id, profile))
+        .map((target) => Math.hypot(station.x - target.x, station.y - target.y))
+    );
+  return state.ownStations
+    .filter((station) => Number.isFinite(distance(station)))
+    .sort(
+      (a, b) =>
+        distance(a) - distance(b) ||
+        availableFighterAttack(b) - availableFighterAttack(a) ||
+        a.id.localeCompare(b.id)
+    )[0];
+}
+
+/**
+ * Check if this station has attacked the given owner recently (cooldown). `ownAttack` tells
+ * whether the newest report is the bot's own attack.
+ */
 function hasCooldown(
   state: GoalBotState,
   ownerId: string,
   now: Date
-): { onCooldown: boolean; reason?: string } {
+): { onCooldown: boolean; ownAttack?: boolean; reason?: string } {
   const relevant = state.combatReports.filter(
     (r) =>
       (r.attackerUserId === state.userId || r.defenderUserId === state.userId) &&
@@ -127,6 +187,7 @@ function hasCooldown(
     if (elapsed < COOLDOWN_WIN_MS) {
       return {
         onCooldown: true,
+        ownAttack: true,
         reason: `Cooldown after won attack (${Math.round((COOLDOWN_WIN_MS - elapsed) / 60_000)}min remaining)`,
       };
     }
@@ -134,6 +195,7 @@ function hasCooldown(
     if (elapsed < COOLDOWN_LOSS_MS) {
       return {
         onCooldown: true,
+        ownAttack: true,
         reason: `Cooldown after lost attack (${Math.round((COOLDOWN_LOSS_MS - elapsed) / 60_000)}min remaining)`,
       };
     }
@@ -173,6 +235,7 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
 
     for (const target of state.visibleStations) {
       if (target.isOwn) continue;
+      if (state.blockedRaidOwners?.has(target.ownerId)) continue;
       if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;
 
       const cooldown = hasCooldown(state, target.ownerId, now);
@@ -181,14 +244,11 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
       const dist = Math.hypot(target.x - station.x, target.y - station.y);
       const hostility = calculateHostility(state.userId, state.combatReports, now, target.ownerId);
       const scored = scoreConflictTarget({
-        targetStationId: target.id,
-        ownerId: target.ownerId,
         distance: dist,
         visualProfile: target.visualProfile,
         hostilityScore: hostility,
         profile: _profile,
         ownAttackPower: offensive,
-        botUserId: state.userId,
       });
       if (scored.score <= 0) continue;
 
@@ -328,6 +388,7 @@ export function generateRetaliateCandidates(
     if (offensive <= 0) continue;
 
     for (const ownerId of attackerIds) {
+      if (state.blockedRaidOwners?.has(ownerId)) continue;
       const target = state.visibleStations.find((s) => s.ownerId === ownerId && !s.isOwn);
       if (!target) continue;
       if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;
@@ -338,14 +399,11 @@ export function generateRetaliateCandidates(
       const dist = Math.hypot(target.x - station.x, target.y - station.y);
       const hostility = calculateHostility(state.userId, state.combatReports, now, ownerId);
       const scored = scoreConflictTarget({
-        targetStationId: target.id,
-        ownerId: target.ownerId,
         distance: dist,
         visualProfile: target.visualProfile,
         hostilityScore: hostility,
         profile: _profile,
         ownAttackPower: offensive,
-        botUserId: state.userId,
       });
 
       const candidate: GoalCandidate = {
@@ -383,16 +441,11 @@ export async function stepRaid(
 ): Promise<GoalResult> {
   const [, targetStationId = ''] = targetRef.split(':');
 
-  const activeMission = station.combatMissions.find(
-    (mission) =>
-      mission.defenderStationId === targetStationId &&
-      !['resolved', 'cancelled'].includes(mission.status)
-  );
-  if (activeMission) {
+  const attack = activeAttack(_state, [targetStationId]);
+  if (attack) {
     return {
       type: 'waiting',
-      detail: 'attack_underway',
-      reason: `Attack on ${targetStationId} is ${activeMission.status}`,
+      reason: `Attack on ${targetStationId} from ${attack.station.name} is ${attack.mission.status}`,
     };
   }
 
@@ -400,7 +453,6 @@ export async function stepRaid(
   if (attackPower <= 0) {
     return {
       type: 'blocked',
-      detail: 'no_fighters',
       reason: `No fighter attack power at ${station.name}`,
     };
   }
@@ -409,19 +461,21 @@ export async function stepRaid(
   if (!target) {
     return {
       type: 'blocked',
-      detail: 'target_not_visible',
       reason: `Target station ${targetStationId} not visible`,
     };
   }
 
   const cooldown = hasCooldown(_state, target.ownerId, _state.now);
   if (cooldown.onCooldown) {
-    return {
-      type: 'complete',
-      goalType: 'raid',
-      targetRef,
-      reason: cooldown.reason ?? `Attack on ${targetStationId} completed`,
-    };
+    // Only the bot's own attack finishes the raid; a cooldown from being attacked only delays it.
+    return cooldown.ownAttack
+      ? {
+          type: 'complete',
+          goalType: 'raid',
+          targetRef,
+          reason: cooldown.reason ?? `Attack on ${targetStationId} completed`,
+        }
+      : { type: 'waiting', reason: cooldown.reason ?? `Raid on ${targetStationId} delayed` };
   }
 
   const estimatedDefense = estimateDefenseScore(target.visualProfile);
@@ -438,7 +492,6 @@ export async function stepRaid(
   if (offensive <= 0) {
     return {
       type: 'blocked',
-      detail: 'no_offensive_power',
       reason: `All ${attackPower} attack power reserved (need ${reserve} reserve)`,
     };
   }
@@ -447,7 +500,6 @@ export async function stepRaid(
   if (!group || group.totalAttack > offensive) {
     return {
       type: 'saving',
-      detail: 'needs_more_fighters',
       reason: `Need ${requiredAttack} attack to breach ${estimatedDefense} defense, have ${offensive} offensive power`,
     };
   }
@@ -484,14 +536,33 @@ export async function stepRetaliate(
   profile: BotProfile
 ): Promise<GoalResult> {
   const [, ownerId = ''] = targetRef.split(':');
+  const ownerStations = _state.visibleStations.filter(
+    (candidate) => candidate.ownerId === ownerId && !candidate.isOwn
+  );
 
-  const target = [..._state.visibleStations]
-    .filter(
-      (candidate) =>
-        candidate.ownerId === ownerId &&
-        !candidate.isOwn &&
-        isEligibleAttackSource(_state, station, candidate.id, profile)
-    )
+  // Launched fighters are locked, so no source stays eligible until the attack resolves.
+  const attack = activeAttack(
+    _state,
+    ownerStations.map((candidate) => candidate.id)
+  );
+  if (attack) {
+    return {
+      type: 'waiting',
+      reason: `Retaliation on ${ownerId} from ${attack.station.name} is ${attack.mission.status}`,
+    };
+  }
+  const cooldown = hasCooldown(_state, ownerId, _state.now);
+  if (cooldown.onCooldown && cooldown.ownAttack) {
+    return {
+      type: 'complete',
+      goalType: 'retaliate',
+      targetRef,
+      reason: cooldown.reason ?? `Retaliation on ${ownerId} completed`,
+    };
+  }
+
+  const target = ownerStations
+    .filter((candidate) => isEligibleAttackSource(_state, station, candidate.id, profile))
     .sort((a, b) => {
       const distanceA = Math.hypot(a.x - station.x, a.y - station.y);
       const distanceB = Math.hypot(b.x - station.x, b.y - station.y);
@@ -500,7 +571,6 @@ export async function stepRetaliate(
   if (!target) {
     return {
       type: 'blocked',
-      detail: 'retaliate_target_not_visible',
       reason: `No visible station for attacker ${ownerId}`,
     };
   }

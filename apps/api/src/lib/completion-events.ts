@@ -1,10 +1,11 @@
-import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
+import { entriesOf, type QueuedJobKind, type ResourceMap } from '@orions-frontier/shared';
 
 interface CompletionEventBase {
   eventId: string;
   occurredAt: Date;
   userId: string;
-  stationId: string;
+  /** Null for account-wide events such as research. */
+  stationId: string | null;
 }
 
 export interface MiningDeliveryCompletedEvent extends CompletionEventBase {
@@ -16,6 +17,17 @@ export interface MiningDeliveryCompletedEvent extends CompletionEventBase {
   discarded: ResourceMap;
   targetVisibilityVerified: boolean;
   asteroidExhausted: boolean;
+}
+
+/** Idle miners sent to a new asteroid by Autonomous Rerouting or the Autonomous Mining Fleet. */
+export interface MinersAssignedEvent extends CompletionEventBase {
+  type: 'miners_assigned';
+  assignmentId: string;
+  asteroidId: string;
+  spacecraftKey: string;
+  amount: number;
+  resourceKey: string;
+  rerouted: boolean;
 }
 
 export interface BuildingCompletedEvent extends CompletionEventBase {
@@ -41,6 +53,17 @@ export interface ResearchCompletedEvent extends CompletionEventBase {
   type: 'research_completed';
   researchId: string;
   technologyKey: string;
+  newLevel: number;
+}
+
+/** A queued job that could not start was removed and refunded to the station that paid. */
+export interface QueueJobDroppedEvent extends CompletionEventBase {
+  type: 'queue_job_dropped';
+  jobId: string;
+  kind: QueuedJobKind;
+  key: string;
+  targetLevel: number;
+  refunded: ResourceMap;
 }
 
 export interface WorldMissionCompletedEvent extends CompletionEventBase {
@@ -62,6 +85,8 @@ export interface CombatResolvedEvent extends CompletionEventBase {
   type: 'combat_resolved';
   missionId: string;
   defenderStationId: string;
+  /** Owner of the defending station, so the logbook can tell them without a lookup. */
+  defenderUserId?: string;
   winner: string;
   attackerLosses: number;
   defenderLosses: number;
@@ -110,10 +135,12 @@ export interface SalvageCompletedEvent extends CompletionEventBase {
 
 export type PlaytestCompletionEvent =
   | MiningDeliveryCompletedEvent
+  | MinersAssignedEvent
   | BuildingCompletedEvent
   | DefenseCompletedEvent
   | SpacecraftCompletedEvent
   | ResearchCompletedEvent
+  | QueueJobDroppedEvent
   | WorldMissionCompletedEvent
   | ColonyEstablishedEvent
   | CombatResolvedEvent
@@ -122,6 +149,31 @@ export type PlaytestCompletionEvent =
   | FleetLossesEvent
   | DebrisCreatedEvent
   | SalvageCompletedEvent;
+
+/** The logbook event for a queued job a queue dropped at `at`. */
+export const queueJobDropped = (
+  job: {
+    id: string;
+    userId: string;
+    stationId: string;
+    kind: QueuedJobKind;
+    key: string;
+    targetLevel: number;
+  },
+  at: Date,
+  refunded: ResourceMap
+): QueueJobDroppedEvent => ({
+  type: 'queue_job_dropped',
+  eventId: completionEventId('queue_job_dropped', job.id),
+  occurredAt: at,
+  userId: job.userId,
+  stationId: job.stationId,
+  jobId: job.id,
+  kind: job.kind,
+  key: job.key,
+  targetLevel: job.targetLevel,
+  refunded,
+});
 
 export function completionEventId(
   kind: PlaytestCompletionEvent['type'],

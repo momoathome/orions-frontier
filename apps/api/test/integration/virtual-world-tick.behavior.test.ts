@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import { calculateBuildingBuildTime } from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import {
@@ -10,20 +11,25 @@ import {
   asteroidVeins,
 } from '../../src/lib/db/schema/asteroids.js';
 import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { queuedJobs } from '../../src/lib/db/schema/queued-jobs.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
 import type { MiningDeliveryCompletedEvent } from '../../src/lib/completion-events.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
 import { runWorldTick } from '../../src/services/simulation/simulation.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+  grantResearch,
+  setTestResources,
+} from '../helpers/fixtures.js';
 
 let userId = '';
+let lateUserId = '';
 let stationId = '';
 let sectorId = '';
 let asteroidId = '';
@@ -69,27 +75,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(botControllers).where(eq(botControllers.userId, userId));
-  await db
-    .delete(spacecraftTrips)
-    .where(
-      inArray(
-        spacecraftTrips.stationSpacecraftId,
-        db
-          .select({ id: stationSpacecrafts.id })
-          .from(stationSpacecrafts)
-          .where(eq(stationSpacecrafts.stationId, stationId))
-      )
-    );
-  await db.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, stationId));
-  await db.delete(asteroids).where(eq(asteroids.sectorId, sectorId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(eq(users.id, userId));
+  await deleteTestData({ userIds: [userId, lateUserId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -108,7 +94,6 @@ test('one world tick drains every due travel leg before deciding each bot once',
     },
     context
   );
-  assert.ok(!('code' in assignment));
   const [outbound] = await getDb()
     .select()
     .from(spacecraftTrips)
@@ -168,4 +153,84 @@ test('one world tick drains every due travel leg before deciding each bot once',
   assert.equal(repeated.passes, 0);
   assert.deepEqual(repeated.events, []);
   assert.equal(repeated.botDecisions.filter((outcome) => outcome.botUserId === userId).length, 0);
+});
+
+test('one late world tick replays due work in time order', async () => {
+  const user = await createTestUser();
+  lateUserId = user.id;
+  const station = await createTestStation({ userId: user.id, sectorId, x: 1_000, y: 1_000 });
+  await grantResearch(user.id, { parallel_construction: 1 });
+  await setTestResources(station.id, 5_000); // full at warehouse level 1
+  const db = getDb();
+  const t1 = new Date('2050-06-01T00:00:00.000Z');
+  const second = (s: number) => new Date(t1.getTime() + s * 1_000);
+  const scannerSeconds = calculateBuildingBuildTime('scanner', 2);
+  const t3 = second(scannerSeconds + 30); // the second slot frees after the short job ends
+  const setUpgrade = (buildingKey: string, upgradeEndsAt: Date) =>
+    db
+      .update(stationBuildings)
+      .set({ upgradeEndsAt, upgradePaidCost: [] })
+      .where(
+        and(
+          eq(stationBuildings.stationId, station.id),
+          eq(stationBuildings.buildingKey, buildingKey)
+        )
+      );
+  await setUpgrade('warehouse', t1);
+  await setUpgrade('laboratory', t3);
+  for (const key of ['scanner', 'hangar']) {
+    await db.insert(queuedJobs).values({
+      userId: user.id,
+      stationId: station.id,
+      kind: 'building',
+      key,
+      targetLevel: 2,
+      paidCost: [],
+      createdAt: second(-60),
+    });
+  }
+  const [fleet] = await db
+    .select()
+    .from(stationSpacecrafts)
+    .where(eq(stationSpacecrafts.stationId, station.id))
+    .limit(1);
+  const [returnTrip] = await db
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId: fleet!.id,
+      groupSize: 1,
+      fromType: 'asteroid',
+      fromId: asteroidId,
+      toType: 'station',
+      toId: station.id,
+      departedAt: second(-50),
+      arrivesAt: second(10),
+      purpose: 'mining_return',
+      cargoManifest: { carbon: 1_000 },
+    })
+    .returning();
+
+  const result = await runWorldTick(
+    createSeededExecutionContext({ now: second(scannerSeconds + 60), seed: `late:${station.id}` })
+  );
+
+  // The warehouse finished before the cargo arrived, so it fits.
+  const delivery = result.events.find(
+    (event): event is MiningDeliveryCompletedEvent =>
+      event.type === 'mining_delivery_completed' && event.tripId === returnTrip!.id
+  );
+  assert.ok(delivery);
+  assert.deepEqual(delivery.credited, { carbon: 1_000 });
+  assert.deepEqual(delivery.discarded, {});
+  // The hangar takes the slot the scanner freed, not the one the laboratory freed later.
+  const [hangar] = await db
+    .select()
+    .from(stationBuildings)
+    .where(
+      and(eq(stationBuildings.stationId, station.id), eq(stationBuildings.buildingKey, 'hangar'))
+    );
+  assert.equal(
+    hangar?.upgradeEndsAt?.toISOString(),
+    second(scannerSeconds + calculateBuildingBuildTime('hangar', 2)).toISOString()
+  );
 });

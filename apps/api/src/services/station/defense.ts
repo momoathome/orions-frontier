@@ -4,32 +4,31 @@ import {
   calculateDefenseUpgradeEffect,
   defenseUpgrades,
   getDefenseUpgrade,
+  requirementBlockers,
+  researchModifiers,
 } from '@orions-frontier/game-config';
 import {
   required,
   isOneOf,
-  AppError,
   defenseUpgradeKeys,
-  ErrorCode,
   type DefenseUpgradeKey,
   type StationDefenseUpgradeWithDefinition,
 } from '@orions-frontier/shared';
-import { getDb } from '../../lib/db/index.js';
-import { publishUserEvent } from '../../lib/realtime.js';
+import { getDb, type QueryDb } from '../../lib/db/index.js';
 import {
-  findStationBuildingByKeyForUpdate,
-  insertStationBuildingIfMissing,
   insertStationBuildingsIfMissing,
   listBuildingLevels,
   listStationBuildings,
-  updateStationBuilding,
-} from '../../repositories/station-buildings.js';
+} from './repositories/station-buildings.js';
+import { constructionFactor, getResearchLevels } from '../research/index.js';
 import {
-  deductStationResource,
-  listStationResources,
-} from '../../repositories/station-resources.js';
-import { findOwnedStationForUpdate } from '../../repositories/stations.js';
-import { applyGridOptimization, hasCompletedResearch } from '../research/index.js';
+  asBuildingLevels,
+  cancelStationUpgrade,
+  plannedLevels,
+  queueStationUpgrade,
+} from './construction.js';
+import { toBuildingLevels } from './research-queue.js';
+import { listStationQueue } from './repositories/queued-jobs.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -58,9 +57,7 @@ export const seedStationDefenseUpgrades = async (
 export const defenseUpgradeMaxLevel = (key: string): number | null =>
   isOneOf(defenseUpgradeKeys, key) ? getDefenseUpgrade(key).maxLevel : null;
 
-export function calculateStationDefenseScore(
-  levels: Partial<Record<DefenseUpgradeKey, number>>
-): number {
+function calculateStationDefenseScore(levels: Partial<Record<DefenseUpgradeKey, number>>): number {
   return defenseUpgradeKeys.reduce(
     (sum, key) =>
       sum +
@@ -74,11 +71,24 @@ export function calculateStationDefenseScore(
 
 export const getStationDefenseUpgrades = async (
   stationId: string,
+  userId: string,
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<StationDefenseUpgradeWithDefinition[]> => {
-  const rows = await listStationBuildings(getDb(), stationId);
+  const db = getDb();
+  const [rows, research, queue] = await Promise.all([
+    listStationBuildings(db, stationId),
+    getResearchLevels(db, userId),
+    listStationQueue(db, stationId),
+  ]);
+  const planned = plannedLevels(rows, queue);
+  const buildingLevels = toBuildingLevels(rows);
   const byKey = new Map(rows.map((row) => [row.buildingKey, row]));
   const now = context.now;
+  // The same speed-up as starting an upgrade, so the shown time matches the real one.
+  const speed = constructionFactor(
+    researchModifiers(research).constructionBonus,
+    buildingLevels.core ?? 1
+  );
 
   return defenseUpgrades.map((definition) => {
     const row = byKey.get(definition.key);
@@ -86,6 +96,8 @@ export const getStationDefenseUpgrades = async (
     const upgradeEndsAt = row?.upgradeEndsAt ?? null;
     const isUpgrading = upgradeEndsAt !== null && upgradeEndsAt > now;
     const isAtMax = level >= definition.maxLevel;
+    const queuedLevel = planned.get(definition.key) ?? level;
+    const queuedMax = queuedLevel >= definition.maxLevel;
 
     return {
       definition,
@@ -94,16 +106,22 @@ export const getStationDefenseUpgrades = async (
       isUpgrading,
       effects: calculateDefenseUpgradeEffect(definition.key, level),
       nextLevelEffects: isAtMax ? null : calculateDefenseUpgradeEffect(definition.key, level + 1),
-      upgradeCosts: isAtMax ? [] : calculateDefenseUpgradeCost(definition.key, level + 1),
-      upgradeDurationSeconds: isAtMax
+      queuedLevel,
+      upgradeCosts: queuedMax ? [] : calculateDefenseUpgradeCost(definition.key, queuedLevel + 1),
+      upgradeDurationSeconds: queuedMax
         ? null
-        : calculateDefenseUpgradeBuildTime(definition.key, level + 1),
+        : Math.round(calculateDefenseUpgradeBuildTime(definition.key, queuedLevel + 1) * speed),
+      blockers:
+        queuedLevel > definition.startingLevel
+          ? []
+          : requirementBlockers(definition.requirements, research, asBuildingLevels(planned)),
     };
   });
 };
 
-export async function getStationDefenseScore(stationId: string): Promise<number> {
-  const rows = await listBuildingLevels(getDb(), stationId);
+/** Defense power of the station's own upgrades, before research applies. */
+export async function getStationDefenseScore(db: QueryDb, stationId: string): Promise<number> {
+  const rows = await listBuildingLevels(db, stationId);
   const levels: Partial<Record<DefenseUpgradeKey, number>> = {};
   for (const row of rows) {
     if (isOneOf(defenseUpgradeKeys, row.buildingKey)) {
@@ -113,81 +131,27 @@ export async function getStationDefenseScore(stationId: string): Promise<number>
   return calculateStationDefenseScore(levels);
 }
 
+/** Starts the next level now, or with `queue` adds it to the station queue. */
 export const startDefenseUpgrade = async (
   stationId: string,
   upgradeKey: DefenseUpgradeKey,
   userId: string,
-  context: GameExecutionContext = createRealtimeExecutionContext()
+  context: GameExecutionContext = createRealtimeExecutionContext(),
+  queue = false
 ): Promise<StationDefenseUpgradeWithDefinition> => {
-  const db = getDb();
-  const def = getDefenseUpgrade(upgradeKey);
-
-  const resourceMap = await db.transaction(async (tx) => {
-    const station = await findOwnedStationForUpdate(tx, stationId, userId);
-    if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-
-    const upgrade = await insertStationBuildingIfMissing(tx, {
-      id: context.nextId('station-defense'),
-      stationId,
-      buildingKey: upgradeKey,
-      level: def.startingLevel,
-      createdAt: context.now,
-      updatedAt: context.now,
-    });
-
-    const stationUpgrade =
-      upgrade ?? (await findStationBuildingByKeyForUpdate(tx, stationId, upgradeKey));
-
-    if (!stationUpgrade) throw new AppError(ErrorCode.NOT_FOUND, 'Defense upgrade not found');
-    if (stationUpgrade.upgradeEndsAt) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Defense upgrade is already upgrading');
-    }
-    if (stationUpgrade.level >= def.maxLevel) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Defense upgrade is already at max level');
-    }
-
-    const targetLevel = stationUpgrade.level + 1;
-    const costs = calculateDefenseUpgradeCost(upgradeKey, targetLevel);
-    const resourceRows = await listStationResources(tx, stationId);
-    const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
-
-    for (const cost of costs) {
-      const current = currentResources.get(cost.resourceKey) ?? 0;
-      if (current < cost.amount) {
-        throw new AppError(
-          ErrorCode.VALIDATION_ERROR,
-          `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${current}`
-        );
-      }
-    }
-
-    const baseUpgradeEndsAt = new Date(
-      context.now.getTime() + calculateDefenseUpgradeBuildTime(upgradeKey, targetLevel) * 1000
-    );
-    const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
-    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt, context.now);
-    for (const cost of costs) {
-      await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
-      currentResources.set(
-        cost.resourceKey,
-        (currentResources.get(cost.resourceKey) ?? 0) - cost.amount
-      );
-    }
-
-    await updateStationBuilding(tx, stationUpgrade.id, { upgradeEndsAt, updatedAt: context.now });
-
-    return currentResources;
-  });
-
-  publishUserEvent(userId, 'resources_updated', {
-    stationId,
-    resources: Object.fromEntries(resourceMap),
-  });
-
+  await queueStationUpgrade(stationId, userId, 'defense', upgradeKey, context, queue);
   return required(
-    (await getStationDefenseUpgrades(stationId, context)).find(
+    (await getStationDefenseUpgrades(stationId, userId, context)).find(
       (upgrade) => upgrade.definition.key === upgradeKey
     ),
     `defense upgrade ${upgradeKey}`
   );
 };
+
+/** Cancels a running defense upgrade and refunds its cost. */
+export const cancelDefenseUpgrade = (
+  stationId: string,
+  upgradeKey: DefenseUpgradeKey,
+  userId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> => cancelStationUpgrade(stationId, userId, upgradeKey, context);

@@ -1,12 +1,12 @@
 import { performance } from 'node:perf_hooks';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
-import { runWorldTick, type WorldTickResult } from '../../services/simulation/index.js';
+import { runWorldTick } from '../../services/simulation/index.js';
 import { PlaytestAliasRegistry } from './aliases.js';
 import { bootstrapPlaytestWorld, type PlaytestBootstrapResult } from './bootstrap.js';
 import { PlaytestCollector } from './collector.js';
 import type { PlaytestConfig } from './config.js';
 import { joinSyntheticPlayer, PlaytestPopulationRegistry } from './population.js';
-import { loadPlaytestSnapshot, type PlaytestStateSnapshot } from './snapshot-loader.js';
+import { loadPlaytestSnapshot } from './snapshot-loader.js';
 import { PlaytestInvariantAuditor } from './invariants.js';
 import { PlaytestAggregator } from './aggregator.js';
 import type { PlaytestMetrics } from './metrics.js';
@@ -24,8 +24,6 @@ export interface PlaytestProgress {
 }
 
 export interface PlaytestRunnerHooks {
-  afterTick?: (tick: WorldTickResult) => void | Promise<void>;
-  afterSnapshot?: (snapshot: PlaytestStateSnapshot) => void | Promise<void>;
   onProgress?: (progress: PlaytestProgress) => void;
 }
 
@@ -87,6 +85,32 @@ export async function runPlaytest(
   let maximumControlledPopulation = 0;
   let faultInjected = false;
 
+  // The only writer of playerIndex, nextJoinAt and maximumControlledPopulation.
+  const joinDuePlayers = async (now: Date): Promise<void> => {
+    while (playerIndex < config.populationLimit && nextJoinAt.getTime() <= now.getTime()) {
+      const joined = await joinSyntheticPlayer(
+        {
+          playerIndex,
+          profileWeights: config.profileWeights,
+          registry: population,
+        },
+        context.at(nextJoinAt)
+      );
+      aliases.registerPopulationMember(joined.member);
+      aggregator.registerPopulationMember(joined.member);
+      for (const resident of joined.registeredResidents) {
+        aliases.registerPopulationMember(resident);
+        aggregator.registerPopulationMember(resident);
+      }
+      playerIndex += 1;
+      nextJoinAt = new Date(config.virtualStart.getTime() + playerIndex * config.joinIntervalMs);
+      maximumControlledPopulation = Math.max(
+        maximumControlledPopulation,
+        population.snapshot().length
+      );
+    }
+  };
+
   const buildResult = (completedAt: Date): PlaytestRunResult => {
     const metrics = aggregator.finalize(completedAt);
     const warnings = analyzeSoftlocks({
@@ -118,28 +142,7 @@ export async function runPlaytest(
 
   try {
     for (;;) {
-      while (playerIndex < config.populationLimit && nextJoinAt.getTime() <= now.getTime()) {
-        const joined = await joinSyntheticPlayer(
-          {
-            playerIndex,
-            profileWeights: config.profileWeights,
-            registry: population,
-          },
-          context.at(nextJoinAt)
-        );
-        aliases.registerPopulationMember(joined.member);
-        aggregator.registerPopulationMember(joined.member);
-        for (const resident of joined.registeredResidents) {
-          aliases.registerPopulationMember(resident);
-          aggregator.registerPopulationMember(resident);
-        }
-        playerIndex += 1;
-        nextJoinAt = new Date(config.virtualStart.getTime() + playerIndex * config.joinIntervalMs);
-        maximumControlledPopulation = Math.max(
-          maximumControlledPopulation,
-          population.snapshot().length
-        );
-      }
+      await joinDuePlayers(now);
       if (!faultInjected) {
         await injectConfiguredInvariantFault(population.snapshot());
         faultInjected = true;
@@ -150,14 +153,12 @@ export async function runPlaytest(
       collector.consumeWorldTick(tick);
       aggregator.consumeWorldTick(tick);
       await invariantAuditor.auditTick(tick);
-      await hooks.afterTick?.(tick);
 
       if (now.getTime() >= nextSnapshotAt.getTime() || now.getTime() === virtualEnd.getTime()) {
         const snapshot = await loadPlaytestSnapshot(now, aliases);
         collector.consumeSnapshot(snapshot);
         aggregator.consumeSnapshot(snapshot);
         snapshots += 1;
-        await hooks.afterSnapshot?.(snapshot);
         while (nextSnapshotAt.getTime() <= now.getTime()) {
           nextSnapshotAt = new Date(nextSnapshotAt.getTime() + config.snapshotIntervalMs);
         }

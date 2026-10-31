@@ -1,7 +1,7 @@
 import { buildingKeys, defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import { getDb } from '../../lib/db/index.js';
-import { listBuildingLevelsByStations } from '../../repositories/station-buildings.js';
-import { listSpacecraftAmountsByStations } from '../../repositories/station-spacecrafts.js';
+import { listBuildingLevelsByStations } from './repositories/station-buildings.js';
+import { listSpacecraftAmountsByStations } from './repositories/station-spacecrafts.js';
 import { buildings, defenseUpgrades, getSpacecraft } from '@orions-frontier/game-config';
 import type {
   BuildingKey,

@@ -1,4 +1,5 @@
 import {
+  coarseIntegrity,
   getBuilding,
   getDefenseUpgrade,
   getResearchDefinition,
@@ -10,6 +11,7 @@ import {
   defenseUpgradeKeys,
   entriesOf,
   isOneOf,
+  resourceKeys,
   type LogbookEntry,
   type LogbookEntryType,
   type ResourceMap,
@@ -19,8 +21,7 @@ import {
   insertLogbookEntries,
   listLogbookEntriesByUser,
   type NewLogbookEntry,
-} from '../../repositories/logbook-entries.js';
-import { listStationOwners } from '../../repositories/stations.js';
+} from './repositories/logbook-entries.js';
 import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
 
 type NewEntry = NewLogbookEntry;
@@ -73,9 +74,36 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
       const name = getSpacecraft(event.spacecraftKey)?.name ?? event.spacecraftKey;
       return [entry(event, event.type, `${event.amount}× ${name} built`)];
     }
+    case 'miners_assigned': {
+      const name = getSpacecraft(event.spacecraftKey)?.name ?? event.spacecraftKey;
+      const resource = isOneOf(resourceKeys, event.resourceKey)
+        ? resources[event.resourceKey].name
+        : event.resourceKey;
+      const verb = event.rerouted ? 'rerouted' : 'sent';
+      return [
+        entry(event, event.type, `${event.amount}× ${name} ${verb} to a ${resource} asteroid`),
+      ];
+    }
     case 'research_completed': {
       const name = getResearchDefinition(event.technologyKey)?.name ?? event.technologyKey;
-      return [entry(event, event.type, `Research completed: ${name}`)];
+      return [entry(event, event.type, `Research completed: ${name} ${event.newLevel}`)];
+    }
+    case 'queue_job_dropped': {
+      const name =
+        event.kind === 'research'
+          ? (getResearchDefinition(event.key)?.name ?? event.key)
+          : isOneOf(buildingKeys, event.key)
+            ? getBuilding(event.key).name
+            : isOneOf(defenseUpgradeKeys, event.key)
+              ? getDefenseUpgrade(event.key).name
+              : event.key;
+      return [
+        entry(
+          event,
+          event.type,
+          `Queued ${name} ${event.targetLevel} could not start, refunded ${resourceList(event.refunded)}`
+        ),
+      ];
     }
     case 'world_mission_completed': {
       const mission = event.missionType === 'expedition' ? 'Expedition' : 'Colony ship';
@@ -98,16 +126,18 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
       }
       const won = event.winner === 'attacker';
       const losses = `losses: ${event.attackerLosses} attacker, ${event.defenderLosses} defender`;
-      const integrity = event.stationDestroyed
-        ? ' Station destroyed.'
-        : event.integrityDamage > 0
-          ? ` Integrity -${event.integrityDamage} to ${event.defenderIntegrity}.`
-          : '';
+      // The attacker learns the integrity in coarse tiers only, like the combat report.
+      const integrity = (shown: (value: number) => number) =>
+        event.stationDestroyed
+          ? ' Station destroyed.'
+          : event.integrityDamage > 0 && event.defenderIntegrity !== null
+            ? ` Integrity -${event.integrityDamage} to ${shown(event.defenderIntegrity)}.`
+            : '';
       const entries = [
         entry(
           event,
           event.type,
-          `Attack ${won ? 'succeeded' : 'repelled'} (${losses}).${integrity}`
+          `Attack ${won ? 'succeeded' : 'repelled'} (${losses}).${integrity(coarseIntegrity)}`
         ),
       ];
       if (defenderUserId && defenderUserId !== event.userId) {
@@ -115,7 +145,7 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
           entry(
             event,
             'combat_defended',
-            `Station attacked, ${won ? 'defense broken' : 'attack repelled'} (${losses}).${integrity}`,
+            `Station attacked, ${won ? 'defense broken' : 'attack repelled'} (${losses}).${integrity((value) => value)}`,
             defenderUserId,
             event.defenderStationId
           )
@@ -138,26 +168,18 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
  */
 export async function recordLogbookEvents(events: readonly PlaytestCompletionEvent[]) {
   if (events.length === 0) return;
-  const db = getDb();
-  const defenderIds = [
-    ...new Set(
-      events.flatMap((event) => (event.type === 'combat_resolved' ? [event.defenderStationId] : []))
-    ),
-  ];
-  const defenders = defenderIds.length === 0 ? [] : await listStationOwners(db, defenderIds);
-  const defenderOwner = new Map(defenders.map((station) => [station.id, station.userId]));
   const rows = events.flatMap((event) =>
-    entriesFor(
-      event,
-      event.type === 'combat_resolved' ? defenderOwner.get(event.defenderStationId) : undefined
-    )
+    entriesFor(event, event.type === 'combat_resolved' ? event.defenderUserId : undefined)
   );
   if (rows.length === 0) return;
-  await insertLogbookEntries(db, rows);
+  await insertLogbookEntries(getDb(), rows);
 }
 
-export async function getLogbook(userId: string, limit: number): Promise<LogbookEntry[]> {
-  const rows = await listLogbookEntriesByUser(getDb(), userId, limit);
+export async function getLogbook(
+  userId: string,
+  page: { limit: number; offset: number }
+): Promise<LogbookEntry[]> {
+  const rows = await listLogbookEntriesByUser(getDb(), userId, page);
   return rows.map((row) => ({
     id: row.id,
     type: row.type,

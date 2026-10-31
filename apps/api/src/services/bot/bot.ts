@@ -1,17 +1,16 @@
 import { getDb } from '../../lib/db/index.js';
 import {
   claimBotDecision,
-  findBotController,
   goalTypes,
   listDueBotControllerUserIds,
   updateBotController,
-  updateBotControllerReturningGoal,
+  type BotControllerRow,
   type BotControllerUpdate,
-} from '../../repositories/bot-controllers.js';
+} from './repositories/bot-controllers.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { loadGoalBotState } from './goal-loader.js';
 import { checkUrgentMaintenance, determineNextStep, selectGoalForState } from './goal-lifecycle.js';
-import type { GoalResult } from './goal-state.js';
+import type { GoalBotState, GoalResult } from './goal-state.js';
 import { BotIntentRejected, executeBotIntent } from './intent.js';
 import {
   resolveGameExecutionContext,
@@ -27,6 +26,7 @@ import {
   activeGoalCommitment,
   adaptCategoryWeights,
   categoryWeightsFor,
+  type CategoryWeights,
   type WeightSignal,
 } from './goal-driven-v1.js';
 
@@ -63,7 +63,10 @@ interface BotActionResult {
   completedGoalType: string | null;
 }
 
-export function normalizeBotDecisionReason(reason: string): string {
+/** One decision's logged result and the controller fields it changes. */
+type BotDecision = BotActionResult & { update: BotControllerUpdate };
+
+function normalizeBotDecisionReason(reason: string): string {
   return reason
     .trim()
     .replace(/\s+/g, ' ')
@@ -108,191 +111,164 @@ function botOffsetMs(userId: string): number {
   return hash % DECISION_OFFSET_MAX_MS;
 }
 
-async function handleGoalV1(
+const CLEARED_GOAL = {
+  activeGoalType: null,
+  activeGoalTarget: null,
+  goalStartedAt: null,
+  blockedCount: 0,
+} satisfies BotControllerUpdate;
+
+/** What one step did: its result kind, the action logged for it and why. */
+export interface StepRun {
+  type: 'success' | 'waiting' | 'saving' | 'blocked' | 'complete';
+  action: string;
+  reason: string;
+  retryAfterMs?: number;
+}
+
+/** Executes a step's intent; a rejected or failed intent becomes the step's result. */
+async function runStep(
   userId: string,
-  context: GameExecutionContext,
-  observeConflictOpportunity?: (snapshot: ConflictOpportunitySnapshot) => void
-): Promise<BotActionResult> {
-  const { now } = context;
-  const state = await loadGoalBotState(userId, now);
-  if (!state || state.ownStations.length === 0) {
-    return {
-      action: 'wait',
-      reason: 'Bot has no station',
-      hasProgress: false,
-      completedGoalType: null,
-    };
-  }
-
-  const db = getDb();
-  const controller = await findBotController(db, userId);
-  if (!controller) {
-    return {
-      action: 'wait',
-      reason: 'No controller',
-      hasProgress: false,
-      completedGoalType: null,
-    };
-  }
-
-  const profile = controller.profile;
-  const weights = categoryWeightsFor(profile, controller.categoryWeights);
-  if (profile === 'warlord') {
-    observeConflictOpportunity?.(analyzeConflictOpportunities(state, profile));
-  }
-
-  const clearGoal = async (): Promise<void> => {
-    await updateBotController(db, userId, {
-      activeGoalType: null,
-      activeGoalTarget: null,
-      goalStartedAt: null,
-      blockedCount: 0,
-      updatedAt: now,
-    });
-  };
-
-  const applyStep = async (
-    goalType: GoalType,
-    targetRef: string,
-    step: GoalResult,
-    isNewGoal: boolean,
-    currentBlockedCount: number
-  ): Promise<BotActionResult> => {
-    if (step.type === 'complete') {
-      await clearGoal();
+  step: GoalResult,
+  context: GameExecutionContext
+): Promise<StepRun> {
+  if (step.type !== 'success') return { type: step.type, action: step.type, reason: step.reason };
+  try {
+    await executeBotIntent(userId, step.intent, context);
+    return { type: 'success', action: step.intent.type, reason: step.reason };
+  } catch (error) {
+    if (error instanceof BotIntentRejected) {
       return {
-        action: 'complete',
-        reason: step.reason,
-        hasProgress: false,
-        completedGoalType: goalType,
-      };
-    }
-
-    const baseGoalUpdate = {
-      activeGoalType: goalType,
-      activeGoalTarget: targetRef,
-      goalStartedAt: isNewGoal ? now : (controller.goalStartedAt ?? now),
-      updatedAt: now,
-    };
-
-    if (step.type === 'success') {
-      try {
-        await executeBotIntent(userId, step.intent, context);
-        await updateBotController(db, userId, {
-          ...baseGoalUpdate,
-          blockedCount: 0,
-          lastProgressAt: now,
-        });
-        return {
-          action: step.intent.type,
-          reason: step.reason,
-          hasProgress: true,
-          completedGoalType: null,
-        };
-      } catch (error) {
-        if (!(error instanceof BotIntentRejected)) throw error;
-        const blockedCount = error.kind === 'blocked' ? currentBlockedCount + 1 : 0;
-        if (blockedCount >= MAX_BLOCKED_INTERVALS) {
-          await clearGoal();
-          return {
-            action: 'blocked',
-            reason: `${error.message}; goal released after ${MAX_BLOCKED_INTERVALS} blocked intervals`,
-            hasProgress: false,
-            completedGoalType: null,
-          };
-        }
-        await updateBotController(db, userId, {
-          ...baseGoalUpdate,
-          blockedCount,
-          ...(error.retryAfterMs
-            ? { nextDecisionAt: new Date(now.getTime() + error.retryAfterMs) }
-            : {}),
-        });
-        return {
-          action: error.kind,
-          reason: error.message,
-          hasProgress: false,
-          completedGoalType: null,
-        };
-      }
-    }
-
-    if (step.type === 'blocked') {
-      const blockedCount = currentBlockedCount + 1;
-      if (blockedCount >= MAX_BLOCKED_INTERVALS) {
-        await clearGoal();
-        return {
-          action: 'blocked',
-          reason: `${step.reason}; goal released after ${MAX_BLOCKED_INTERVALS} blocked intervals`,
-          hasProgress: false,
-          completedGoalType: null,
-        };
-      }
-      await updateBotController(db, userId, { ...baseGoalUpdate, blockedCount });
-      return {
-        action: 'blocked',
-        reason: step.reason,
-        hasProgress: false,
-        completedGoalType: null,
-      };
-    }
-
-    await updateBotController(db, userId, { ...baseGoalUpdate, blockedCount: 0 });
-    return {
-      action: step.type,
-      reason: step.reason,
-      hasProgress: false,
-      completedGoalType: null,
-    };
-  };
-
-  // 1. Urgent maintenance uses the regular dispatcher and consumes this interval's action.
-  const maintenance = await checkUrgentMaintenance(
-    state,
-    profile,
-    {},
-    controller.activeGoalType && controller.activeGoalTarget
-      ? { goalType: controller.activeGoalType, targetRef: controller.activeGoalTarget }
-      : null
-  );
-  if (maintenance?.type === 'success') {
-    try {
-      await executeBotIntent(userId, maintenance.intent, context);
-      return {
-        action: maintenance.intent.type,
-        reason: maintenance.reason,
-        hasProgress: true,
-        completedGoalType: null,
-      };
-    } catch (error) {
-      if (!(error instanceof BotIntentRejected)) throw error;
-      return {
+        type: error.kind,
         action: error.kind,
         reason: error.message,
-        hasProgress: false,
-        completedGoalType: null,
+        retryAfterMs: error.retryAfterMs,
       };
     }
+    // An unexpected error counts as blocked, so a goal that keeps failing is released.
+    logger.warn({ botUserId: userId, error }, 'Bot action failed');
+    return {
+      type: 'blocked',
+      action: `${step.intent.type}_failed`,
+      reason: error instanceof Error ? error.message : 'Unknown bot error',
+    };
   }
+}
 
-  // 2. Continue an active goal. Waiting and saving are valid persistent states.
-  let completedGoalType: string | null = null;
+/** Raid blocks that still hold at `now`; expired entries are dropped. */
+export function activeRaidBlocks(
+  blocks: Record<string, string>,
+  now: Date
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(blocks).filter(([, until]) => new Date(until).getTime() > now.getTime())
+  );
+}
+
+/** Owner of a raid (`station:<id>`) or retaliation (`user:<id>`) target the bot can see. */
+function targetOwnerId(state: GoalBotState, targetRef: string): string | undefined {
+  const [kind, id] = targetRef.split(':');
+  if (kind === 'user') return id;
+  if (kind === 'station') return state.visibleStations.find((s) => s.id === id)?.ownerId;
+  return undefined;
+}
+
+/** The controller update and logged result after one step toward a goal. */
+export function goalOutcome(
+  controller: Pick<
+    BotControllerRow,
+    'activeGoalType' | 'activeGoalTarget' | 'blockedCount' | 'goalStartedAt' | 'raidBlockedOwners'
+  >,
+  goal: { goalType: GoalType; targetRef: string; ownerId?: string },
+  run: StepRun,
+  now: Date
+): { update: BotControllerUpdate; result: BotActionResult } {
+  const result: BotActionResult = {
+    action: run.action,
+    reason: run.reason,
+    hasProgress: run.type === 'success',
+    completedGoalType: null,
+  };
+  if (run.type === 'complete') {
+    return { update: CLEARED_GOAL, result: { ...result, completedGoalType: goal.goalType } };
+  }
+  // A protected owner is skipped by raid and retaliation; the bot goes on with its economy.
+  if (run.retryAfterMs) {
+    return {
+      update: {
+        ...CLEARED_GOAL,
+        ...(goal.ownerId
+          ? {
+              raidBlockedOwners: {
+                ...activeRaidBlocks(controller.raidBlockedOwners, now),
+                [goal.ownerId]: new Date(now.getTime() + run.retryAfterMs).toISOString(),
+              },
+            }
+          : {}),
+      },
+      result: { ...result, reason: `${run.reason}; target skipped for a while` },
+    };
+  }
+  const isNewGoal =
+    controller.activeGoalType !== goal.goalType || controller.activeGoalTarget !== goal.targetRef;
+  const blockedCount = run.type === 'blocked' ? (isNewGoal ? 0 : controller.blockedCount) + 1 : 0;
+  if (blockedCount >= MAX_BLOCKED_INTERVALS) {
+    return {
+      update: CLEARED_GOAL,
+      result: {
+        ...result,
+        action: 'blocked',
+        reason: `${run.reason}; goal released after ${MAX_BLOCKED_INTERVALS} blocked intervals`,
+      },
+    };
+  }
+  return {
+    update: {
+      activeGoalType: goal.goalType,
+      activeGoalTarget: goal.targetRef,
+      goalStartedAt: isNewGoal ? now : (controller.goalStartedAt ?? now),
+      blockedCount,
+      ...(run.type === 'success' ? { lastProgressAt: now } : {}),
+    },
+    result,
+  };
+}
+
+type GoalChoice = { completedGoalType: GoalType | null } & (
+  | { goal: { goalType: GoalType; targetRef: string }; step: GoalResult }
+  | { goal: null; reason: string }
+);
+
+/**
+ * Picks the goal to step toward: the active one, a better candidate it may give way to, or a new
+ * selection once it completed or none is active.
+ */
+export async function chooseGoalStep(
+  state: GoalBotState,
+  profile: BotProfile,
+  controller: Pick<
+    BotControllerRow,
+    'activeGoalType' | 'activeGoalTarget' | 'goalStartedAt' | 'lastProgressAt'
+  >,
+  weights: CategoryWeights,
+  now: Date
+): Promise<GoalChoice> {
+  const stepToward = async (goalType: GoalType, targetRef: string) => ({
+    goal: { goalType, targetRef },
+    step: await determineNextStep(state, profile, goalType, targetRef),
+  });
+
+  // Continue an active goal. Waiting and saving are valid persistent states.
+  let completedGoalType: GoalType | null = null;
   if (controller.activeGoalType && controller.activeGoalTarget) {
-    const activeStep = await determineNextStep(
-      state,
-      profile,
-      controller.activeGoalType,
-      controller.activeGoalTarget
-    );
-
-    if (activeStep.type === 'complete') {
-      await clearGoal();
-      completedGoalType = controller.activeGoalType;
+    const active = await stepToward(controller.activeGoalType, controller.activeGoalTarget);
+    if (active.step.type === 'complete') {
+      completedGoalType = active.goal.goalType;
     } else {
       // Apply hysteresis while the active goal is still a generated candidate. A running mission
       // may disappear from generators; it stays bound until its commitment has faded, then the
       // mission runs on in the world while the bot pursues something else.
-      if (activeStep.type !== 'blocked') {
+      if (active.step.type !== 'blocked') {
         // Progress made for an earlier goal does not count toward this one.
         const commitment = activeGoalCommitment(
           now.getTime() -
@@ -304,84 +280,118 @@ async function handleGoalV1(
         const selection = await selectGoalForState(
           state,
           profile,
-          { goalType: controller.activeGoalType, targetRef: controller.activeGoalTarget },
+          active.goal,
           weights,
           commitment
         );
         const mayLeave =
-          selection.activeCandidateFound || (activeStep.type === 'waiting' && commitment === 0);
+          selection.activeCandidateFound || (active.step.type === 'waiting' && commitment === 0);
         if (
           mayLeave &&
           selection.selected &&
-          (selection.selected.goalType !== controller.activeGoalType ||
-            selection.selected.targetRef !== controller.activeGoalTarget)
+          (selection.selected.goalType !== active.goal.goalType ||
+            selection.selected.targetRef !== active.goal.targetRef)
         ) {
-          const selectedStep = await determineNextStep(
-            state,
-            profile,
-            selection.selected.goalType,
-            selection.selected.targetRef
-          );
-          return applyStep(
-            selection.selected.goalType,
-            selection.selected.targetRef,
-            selectedStep,
-            true,
-            0
-          );
+          return {
+            completedGoalType,
+            ...(await stepToward(selection.selected.goalType, selection.selected.targetRef)),
+          };
         }
       }
-      return applyStep(
-        controller.activeGoalType,
-        controller.activeGoalTarget,
-        activeStep,
-        false,
-        controller.blockedCount
-      );
+      return { completedGoalType, ...active };
     }
   }
 
-  // 3. Select and persist a new goal, including saving or waiting first steps.
+  // Select a new goal, including saving or waiting first steps.
   const selection = await selectGoalForState(state, profile, null, weights);
+  if (!selection.selected) return { completedGoalType, goal: null, reason: selection.reason };
+  return {
+    completedGoalType,
+    ...(await stepToward(selection.selected.goalType, selection.selected.targetRef)),
+  };
+}
 
-  if (!selection.selected) {
+async function handleGoalV1(
+  userId: string,
+  controller: BotControllerRow,
+  context: GameExecutionContext,
+  observeConflictOpportunity?: (snapshot: ConflictOpportunitySnapshot) => void
+): Promise<BotDecision> {
+  const { now } = context;
+  const state = await loadGoalBotState(userId, now);
+  if (!state || state.ownStations.length === 0) {
     return {
       action: 'wait',
-      reason: selection.reason,
+      reason: 'Bot has no station',
       hasProgress: false,
-      completedGoalType,
+      completedGoalType: null,
+      update: {},
     };
   }
 
-  // 4. Execute the next step toward the selected goal
-  const step = await determineNextStep(
-    state,
-    profile,
-    selection.selected.goalType,
-    selection.selected.targetRef
+  state.blockedRaidOwners = new Set(
+    Object.keys(activeRaidBlocks(controller.raidBlockedOwners, now))
   );
 
-  const result = await applyStep(
-    selection.selected.goalType,
-    selection.selected.targetRef,
-    step,
-    true,
-    0
+  const profile = controller.profile;
+  const weights = categoryWeightsFor(profile, controller.categoryWeights);
+  if (profile === 'warlord') {
+    observeConflictOpportunity?.(analyzeConflictOpportunities(state, profile));
+  }
+
+  // Urgent maintenance uses the regular dispatcher and consumes this interval's action.
+  const maintenance = await checkUrgentMaintenance(
+    state,
+    profile,
+    controller.activeGoalType && controller.activeGoalTarget
+      ? { goalType: controller.activeGoalType, targetRef: controller.activeGoalTarget }
+      : null
+  );
+  if (maintenance?.type === 'success') {
+    const run = await runStep(userId, maintenance, context);
+    return {
+      action: run.action,
+      reason: run.reason,
+      hasProgress: run.type === 'success',
+      completedGoalType: null,
+      update: {},
+    };
+  }
+
+  const choice = await chooseGoalStep(state, profile, controller, weights, now);
+  const { completedGoalType } = choice;
+  if (!choice.goal) {
+    return {
+      action: 'wait',
+      reason: choice.reason,
+      hasProgress: false,
+      completedGoalType,
+      update: completedGoalType ? CLEARED_GOAL : {},
+    };
+  }
+  const run = await runStep(userId, choice.step, context);
+  const { update, result } = goalOutcome(
+    completedGoalType ? { ...controller, ...CLEARED_GOAL } : controller,
+    { ...choice.goal, ownerId: targetOwnerId(state, choice.goal.targetRef) },
+    run,
+    now
   );
   return {
     ...result,
     completedGoalType: result.completedGoalType ?? completedGoalType,
+    update,
   };
 }
 
 export async function runBotDecisionTick(
-  contextOrNow?: GameExecutionContext | Date
+  contextOrNow?: GameExecutionContext | Date,
+  limit?: number
 ): Promise<BotDecisionOutcome[]> {
   const context = resolveGameExecutionContext(contextOrNow);
   const { now } = context;
   const db = getDb();
   const outcomes: BotDecisionOutcome[] = [];
-  const due = await listDueBotControllerUserIds(db, now);
+  const due = await listDueBotControllerUserIds(db, now, limit);
 
   for (const bot of due) {
     const offsetMs = botOffsetMs(bot.userId);
@@ -389,58 +399,61 @@ export async function runBotDecisionTick(
     const claimed = await claimBotDecision(db, bot.userId, now, nextDecisionAt);
     if (!claimed) continue;
 
-    let action = 'wait';
-    let reason = 'Bot has no station';
-    let hasProgress = false;
-    let completedGoalType: string | null = null;
+    let decision: BotDecision = {
+      action: 'wait',
+      reason: `Unknown bot strategy: ${claimed.strategy}`,
+      hasProgress: false,
+      completedGoalType: null,
+      update: {},
+    };
     let conflictOpportunity: ConflictOpportunitySnapshot | null = null;
-    let errorMessage: string | null = null;
     try {
       if (claimed.strategy === 'goal_v1') {
-        const r = await handleGoalV1(bot.userId, context, (snapshot) => {
+        decision = await handleGoalV1(bot.userId, claimed, context, (snapshot) => {
           conflictOpportunity = snapshot;
         });
-        action = r.action;
-        reason = r.reason;
-        hasProgress = r.hasProgress;
-        completedGoalType = r.completedGoalType;
-      } else {
-        action = 'wait';
-        reason = `Unknown bot strategy: ${claimed.strategy}`;
       }
     } catch (error) {
-      action = `${action}_failed`;
-      errorMessage = error instanceof Error ? error.message : 'Unknown bot error';
       logger.warn({ botUserId: bot.userId, error }, 'Bot action failed');
-    }
-    if (errorMessage !== null) {
-      reason = errorMessage;
+      decision = {
+        action: 'wait_failed',
+        reason: error instanceof Error ? error.message : 'Unknown bot error',
+        hasProgress: false,
+        completedGoalType: null,
+        update: {},
+      };
     }
 
-    // Update action/reason (and lastProgressAt if this was a successful action)
-    const updates: BotControllerUpdate = {
-      lastAction: action,
-      lastReason: reason.slice(0, 255),
-      updatedAt: now,
-    };
-    if (hasProgress) {
-      updates.lastProgressAt = now;
-    }
-    const updated = await updateBotControllerReturningGoal(db, bot.userId, updates);
+    const { action, reason, hasProgress, completedGoalType, update } = decision;
     const resultKind = decisionResultKind(action, hasProgress);
-    if (claimed.strategy === 'goal_v1') {
+    const activeGoalAfter =
+      update.activeGoalType === undefined ? claimed.activeGoalType : update.activeGoalType;
+    const activeGoalTargetAfter =
+      update.activeGoalTarget === undefined ? claimed.activeGoalTarget : update.activeGoalTarget;
+    // One failed bookkeeping write must not end the tick for every bot after this one.
+    try {
       await updateBotController(db, bot.userId, {
-        categoryWeights: adaptCategoryWeights(
-          categoryWeightsFor(claimed.profile, claimed.categoryWeights),
-          claimed.profile,
-          weightSignals(
-            claimed.activeGoalType,
-            updated?.activeGoalType ?? null,
-            completedGoalType,
-            resultKind
-          )
-        ),
+        ...update,
+        ...(claimed.strategy === 'goal_v1'
+          ? {
+              categoryWeights: adaptCategoryWeights(
+                categoryWeightsFor(claimed.profile, claimed.categoryWeights),
+                claimed.profile,
+                weightSignals(
+                  claimed.activeGoalType,
+                  activeGoalAfter,
+                  completedGoalType,
+                  resultKind
+                )
+              ),
+            }
+          : {}),
+        lastAction: action,
+        lastReason: reason.slice(0, 255),
+        updatedAt: now,
       });
+    } catch (error) {
+      logger.warn({ botUserId: bot.userId, error }, 'Bot controller update failed');
     }
     outcomes.push({
       botUserId: bot.userId,
@@ -449,8 +462,8 @@ export async function runBotDecisionTick(
       profile: claimed.profile,
       activeGoalBefore: claimed.activeGoalType,
       activeGoalTargetBefore: claimed.activeGoalTarget,
-      activeGoalAfter: updated?.activeGoalType ?? null,
-      activeGoalTargetAfter: updated?.activeGoalTarget ?? null,
+      activeGoalAfter,
+      activeGoalTargetAfter,
       completedGoalType,
       action,
       resultKind,

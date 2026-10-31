@@ -1,12 +1,9 @@
+import { resourceTotal } from './metrics.js';
 import type { PlaytestReport } from './report-schema.js';
 
 function duration(ms: number): string {
   if (ms < 1_000) return `${Math.round(ms)}ms`;
   return `${(ms / 1_000).toFixed(2)}s`;
-}
-
-function resourceTotal(resources: Record<string, number | undefined>): number {
-  return Object.values(resources).reduce<number>((sum, amount) => sum + (amount ?? 0), 0);
 }
 
 export function playtestConsoleSummary(report: PlaytestReport, reportPath: string): string {
@@ -29,6 +26,7 @@ export function playtestConsoleSummary(report: PlaytestReport, reportPath: strin
     })
     .join(', ');
   const goals = Object.entries(report.metrics.run.goals)
+    .sort(([left], [right]) => left.localeCompare(right))
     .map(([goal, values]) => `${goal}=${values.selections}/${values.blocked} blocked`)
     .slice(0, 8)
     .join(', ');

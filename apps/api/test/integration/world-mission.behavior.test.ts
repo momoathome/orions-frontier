@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import { entriesOf } from '@orions-frontier/shared';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
-import { COLONIZATION_COST, getSpacecraft } from '@orions-frontier/game-config';
+import {
+  COLONIZATION_COST,
+  calculateColonizationCost,
+  getSpacecraft,
+} from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { asteroids } from '../../src/lib/db/schema/asteroids.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
-import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
@@ -19,11 +21,15 @@ import { WORLD_CONFIG } from '../../src/lib/world-config.js';
 import { calcDistance, calcTravelHours } from '../../src/lib/travel.js';
 import { ensureSector } from '../../src/services/map/sector.js';
 import { createStation } from '../../src/services/station/station.js';
+import { lockUserWorldMissions } from '../../src/services/missions/repositories/world-missions.js';
 import {
   completeDueWorldMissions,
+  getFrontierTargets,
   startColonization,
   startExpedition,
 } from '../../src/services/missions/world-mission.js';
+
+import { deleteTestData, grantResearch } from '../helpers/fixtures.js';
 
 const userId = randomUUID();
 const secondUserId = randomUUID();
@@ -59,6 +65,8 @@ before(async () => {
       role: 'bot',
     },
   ]);
+  const expansion = { long_range_survey: 1, colony_logistics: 3, frontier_charter: 2 };
+  await Promise.all([userId, secondUserId, botUserId].map((id) => grantResearch(id, expansion)));
   const settlement = await db.transaction((tx) => ensureSector(tx, 100, 100, 'settlement'));
   sectorIds.push(settlement.id);
   const station = await createStation(userId, {
@@ -82,32 +90,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  const ownedStations = await db
-    .select({ id: stations.id })
-    .from(stations)
-    .where(inArray(stations.userId, [userId, secondUserId, botUserId]));
-  const stationIds = ownedStations.map((station) => station.id);
-  await db
-    .delete(worldMissions)
-    .where(inArray(worldMissions.userId, [userId, secondUserId, botUserId]));
-  if (stationIds.length > 0) {
-    await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
-    await db.delete(stationResources).where(inArray(stationResources.stationId, stationIds));
-    await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds));
-    await db
-      .update(spawnSlots)
-      .set({ stationId: null })
-      .where(inArray(spawnSlots.stationId, stationIds));
-    await db.delete(stations).where(inArray(stations.id, stationIds));
-  }
-  const ids = [...new Set(sectorIds)];
-  if (ids.length > 0) {
-    await db.delete(asteroids).where(inArray(asteroids.sectorId, ids));
-    await db.delete(spawnSlots).where(inArray(spawnSlots.sectorId, ids));
-    await db.delete(sectors).where(inArray(sectors.id, ids));
-  }
-  await db.delete(users).where(inArray(users.id, [userId, secondUserId, botUserId]));
+  await deleteTestData({ userIds: [userId, secondUserId, botUserId], sectorIds });
   await closeDb();
 });
 
@@ -144,7 +127,7 @@ test('simultaneous expeditions discover their shared target sector once', async 
     completeDueWorldMissions(now),
   ]);
   assert.equal(
-    completed.reduce((sum, count) => sum + count, 0),
+    completed.reduce((sum, result) => sum + result.completed, 0),
     2
   );
 
@@ -166,9 +149,11 @@ test('simultaneous expeditions discover their shared target sector once', async 
     );
   assert.ok(returning.every((mission) => mission.status === 'returning'));
   assert.equal(
-    await completeDueWorldMissions(
-      new Date(Math.max(...returning.map((mission) => mission.arrivesAt.getTime())) + 1)
-    ),
+    (
+      await completeDueWorldMissions(
+        new Date(Math.max(...returning.map((mission) => mission.arrivesAt.getTime())) + 1)
+      )
+    ).completed,
     2
   );
 });
@@ -258,6 +243,42 @@ test('active colonization missions reserve their target position', async () => {
   }
 });
 
+test('a colony in flight raises the price of the next one', async () => {
+  const db = getDb();
+  for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
+    await db
+      .update(stationResources)
+      .set({ amount })
+      .where(
+        and(
+          eq(stationResources.stationId, originStationId),
+          eq(stationResources.resourceKey, resourceKey)
+        )
+      );
+  }
+  const before = await getFrontierTargets(userId, originStationId);
+  const mission = await startColonization({
+    userId,
+    stationId: originStationId,
+    sectorX: 100,
+    sectorY: 101,
+    name: 'Priced Colony',
+  });
+  try {
+    const after = await getFrontierTargets(userId, originStationId);
+    assert.deepEqual(
+      after.colonization.cost,
+      calculateColonizationCost(before.colonization.stations + 1)
+    );
+  } finally {
+    await db.delete(worldMissions).where(eq(worldMissions.id, mission.id));
+    await db
+      .update(stationSpacecrafts)
+      .set({ lockedAmount: 0 })
+      .where(eq(stationSpacecrafts.stationId, originStationId));
+  }
+});
+
 test('expedition returns and colonization transfers a miner to the second station', async () => {
   const db = getDb();
   const expedition = await startExpedition({
@@ -268,7 +289,8 @@ test('expedition returns and colonization transfers a miner to the second statio
   });
   assert.equal(expedition.missionType, 'expedition');
   assert.equal(
-    await completeDueWorldMissions(new Date(new Date(expedition.arrivesAt).getTime() + 1)),
+    (await completeDueWorldMissions(new Date(new Date(expedition.arrivesAt).getTime() + 1)))
+      .completed,
     1
   );
 
@@ -278,7 +300,8 @@ test('expedition returns and colonization transfers a miner to the second statio
     .where(eq(worldMissions.id, expedition.id));
   assert.equal(returningExpedition?.status, 'returning');
   assert.equal(
-    await completeDueWorldMissions(new Date(returningExpedition.arrivesAt.getTime() + 1)),
+    (await completeDueWorldMissions(new Date(returningExpedition.arrivesAt.getTime() + 1)))
+      .completed,
     1
   );
 
@@ -308,7 +331,8 @@ test('expedition returns and colonization transfers a miner to the second statio
     name: 'Second Station',
   });
   assert.equal(
-    await completeDueWorldMissions(new Date(new Date(colonization.arrivesAt).getTime() + 1)),
+    (await completeDueWorldMissions(new Date(new Date(colonization.arrivesAt).getTime() + 1)))
+      .completed,
     1
   );
 
@@ -413,4 +437,99 @@ test('bot expedition and colonization use the same travel and resource rules', a
 
   await completeDueWorldMissions(new Date(Date.parse(colonization.arrivesAt) + 1));
   assert.equal((await db.select().from(stations).where(eq(stations.userId, botUserId))).length, 2);
+});
+
+test('a broken world mission is counted as failed without blocking the others', async () => {
+  const db = getDb();
+  const [ship] = await db
+    .select({ id: stationSpacecrafts.id })
+    .from(stationSpacecrafts)
+    .where(eq(stationSpacecrafts.stationId, secondStationId));
+  const arrivesAt = new Date(Date.now() - 1_000);
+  const base = {
+    userId: secondUserId,
+    originStationId: secondStationId,
+    stationSpacecraftId: ship!.id,
+    spacecraftKey: 'mole',
+    targetSectorX: 100,
+    targetSectorY: 100,
+    departedAt: new Date(arrivesAt.getTime() - 60_000),
+    arrivesAt,
+  };
+  const [broken, healthy] = await db
+    .insert(worldMissions)
+    .values([
+      { ...base, missionType: 'colonization', colonyName: null },
+      { ...base, missionType: 'expedition', status: 'returning' },
+    ])
+    .returning();
+
+  const now = new Date();
+  const result = await completeDueWorldMissions(now);
+  assert.equal(result.failed, 1);
+  const [returned] = await db.select().from(worldMissions).where(eq(worldMissions.id, healthy!.id));
+  assert.equal(returned?.status, 'arrived');
+
+  // The broken mission waits 2 s, then 4 s, instead of failing on every tick.
+  const failedAt = async (ms: number) =>
+    (await completeDueWorldMissions(new Date(now.getTime() + ms))).failed;
+  assert.equal(await failedAt(1_000), 0);
+  assert.equal(await failedAt(2_000), 1);
+  assert.equal(await failedAt(5_000), 0);
+  assert.equal(await failedAt(6_000), 1);
+  const [retried] = await db.select().from(worldMissions).where(eq(worldMissions.id, broken!.id));
+  assert.equal(retried?.settleFailures, 3);
+  await db.delete(worldMissions).where(eq(worldMissions.id, broken!.id));
+});
+
+test('colonization arrival waits for a start holding the user lock', async () => {
+  const db = getDb();
+  const frontier = await db.transaction((tx) => ensureSector(tx, 103, 100, 'frontier'));
+  sectorIds.push(frontier.id);
+  for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
+    await db
+      .update(stationResources)
+      .set({ amount })
+      .where(
+        and(
+          eq(stationResources.stationId, secondStationId),
+          eq(stationResources.resourceKey, resourceKey)
+        )
+      );
+  }
+  const start = { userId: secondUserId, stationId: secondStationId, sectorX: 103, sectorY: 100 };
+  const colonization = await startColonization({ ...start, name: 'Raced Colony' });
+  const colonyStations = () =>
+    db
+      .select({ id: stations.id })
+      .from(stations)
+      .where(and(eq(stations.userId, secondUserId), eq(stations.sectorId, frontier.id)));
+
+  let release!: () => void;
+  let locked!: () => void;
+  const lockTaken = new Promise<void>((resolve) => (locked = resolve));
+  const holder = db.transaction(async (tx) => {
+    await lockUserWorldMissions(tx, secondUserId);
+    locked();
+    await new Promise<void>((resolve) => (release = resolve));
+  });
+  await lockTaken;
+  const arrival = completeDueWorldMissions(new Date(Date.parse(colonization.arrivesAt) + 1));
+  try {
+    await sleep(200);
+    const [waiting] = await db
+      .select({ status: worldMissions.status })
+      .from(worldMissions)
+      .where(eq(worldMissions.id, colonization.id));
+    assert.equal(waiting?.status, 'traveling');
+    assert.equal((await colonyStations()).length, 0);
+  } finally {
+    release();
+  }
+  await holder;
+  await arrival;
+  assert.equal((await colonyStations()).length, 1);
+  await assert.rejects(startColonization({ ...start, name: 'Second Raced Colony' }), {
+    message: 'You already have a station there',
+  });
 });

@@ -17,31 +17,31 @@ import {
   insertDebrisField,
   insertSalvageMission,
   listDebrisFieldsInChunks,
-  listSalvageMissionsByUser,
   updateDebrisFieldResources,
   updateSalvageMission,
   type SalvageMissionRow,
-} from '../../repositories/debris-fields.js';
-import { insertTrip, updateTripCargo, type TripRow } from '../../repositories/spacecraft-trips.js';
-import {
-  findStationSpacecraft,
-  findStationSpacecraftByKey,
-  releaseSpacecraft,
-  reserveSpacecraft,
-} from '../../repositories/station-spacecrafts.js';
-import { findOwnedStation, findStation } from '../../repositories/stations.js';
+} from './repositories/debris-fields.js';
+import { insertTrip, updateTripCargo, type TripRow } from '../fleet/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
 import { getSpacecraft, requireSpacecraft } from '@orions-frontier/game-config';
 import {
-  getUserScannerCoverages,
   isPointVisible,
   type ScannerCoverage,
   type VisibilityProjectionStats,
   visibleChunkBounds,
 } from '../map/index.js';
-import { creditStationResources } from '../station/index.js';
-import { applyVectorNavigation, effectiveCargoCapacity } from '../research/index.js';
+import {
+  creditStationResources,
+  findStationSpacecraft,
+  findStationSpacecraftByKey,
+  releaseSpacecraft,
+  reserveSpacecraft,
+  findOwnedStation,
+  findStation,
+  getUserScannerCoverages,
+} from '../station/index.js';
+import { applySpeed, applyTravelSpeed, getStationResearchModifiers } from '../research/index.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -65,17 +65,19 @@ const toMission = (row: SalvageMissionRow): SalvageMission => ({
   resolvedAt: row.resolvedAt?.toISOString() ?? null,
 });
 
+/** A field whose resources are all taken stays only until its last salvager returns. */
+const hasResources = (resources: ResourceMap) =>
+  Object.values(resources).some((amount) => amount > 0);
+
 export async function createDebrisFromLosses(
   tx: Tx,
-  stationId: string,
+  /** The locked station row of the fight. */
+  station: { sectorId: string; x: number; y: number },
   losses: Map<string, number>,
   context: GameExecutionContext,
   /** Further remains, e.g. the storage and investment of a destroyed station. */
   extra: ResourceMap = {}
 ): Promise<{ id: string; resources: ResourceMap } | null> {
-  const station = await findStation(tx, stationId);
-  if (!station) throw new Error('Combat station no longer exists');
-
   const resources: ResourceMap = { ...extra };
   for (const [spacecraftKey, amount] of losses) {
     for (const cost of getSpacecraft(spacecraftKey)?.costs ?? []) {
@@ -87,6 +89,8 @@ export async function createDebrisFromLosses(
   }
   if (Object.keys(resources).length === 0) return null;
 
+  // ponytail: every fight adds its own field at the same point; merging would lock the existing
+  // field after the fleet rows and deadlock against startSalvage (debris, then fleet).
   const x = station.x + 90;
   const y = station.y + 70;
   const id = context.nextId('debris');
@@ -121,7 +125,7 @@ export async function getVisibleDebris(
   const rows = await listDebrisFieldsInChunks(getDb(), bounds);
   if (stats) stats.debrisCandidates = rows.length;
   return rows.flatMap((row) =>
-    scannerBypass || isPointVisible(coverages, row)
+    hasResources(row.resources) && (scannerBypass || isPointVisible(coverages, row))
       ? [
           {
             id: row.id,
@@ -141,7 +145,7 @@ export async function getDebrisById(id: string, userId: string): Promise<DebrisF
     findDebrisField(getDb(), id),
     getUserScannerCoverages(userId),
   ]);
-  return row && isPointVisible(coverages, row)
+  return row && hasResources(row.resources) && isPointVisible(coverages, row)
     ? {
         id: row.id,
         x: row.x,
@@ -151,11 +155,6 @@ export async function getDebrisById(id: string, userId: string): Promise<DebrisF
         resources: row.resources,
       }
     : null;
-}
-
-export async function getUserSalvageMissions(userId: string): Promise<SalvageMission[]> {
-  const rows = await listSalvageMissionsByUser(getDb(), userId);
-  return rows.map(toMission);
 }
 
 export async function startSalvage(
@@ -175,8 +174,11 @@ export async function startSalvage(
     const station = await findOwnedStation(tx, params.stationId, params.userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
 
-    const debris = await findDebrisField(tx, params.debrisFieldId);
-    if (!debris) throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
+    // Locked so the last returning salvager cannot delete it while this mission starts.
+    const debris = await findDebrisFieldForUpdate(tx, params.debrisFieldId);
+    if (!debris || !hasResources(debris.resources)) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
+    }
     const coverages = await getUserScannerCoverages(params.userId, tx);
     if (!isPointVisible(coverages, debris)) {
       throw new AppError(ErrorCode.NOT_FOUND, 'Debris field not found');
@@ -204,7 +206,7 @@ export async function startSalvage(
       toX: debris.x,
       toY: debris.y,
       departedAt,
-      arrivesAt: await applyVectorNavigation(
+      arrivesAt: await applyTravelSpeed(
         tx,
         station.id,
         calcArrivesAt(departedAt, calcDistance(station, debris), spacecraft.speed),
@@ -243,20 +245,23 @@ async function resolveSalvageOutbound(
   const debris = mission.debrisFieldId
     ? await findDebrisFieldForUpdate(tx, mission.debrisFieldId)
     : undefined;
-  if (!debris) throw new Error('Salvage debris no longer exists');
-  const effectiveCargo = await effectiveCargoCapacity(tx, mission.stationId, spacecraft.cargo);
+  const modifiers = await getStationResearchModifiers(tx, mission.stationId);
   const cargo: ResourceMap = {};
-  let capacity = Math.floor(effectiveCargo * mission.amount);
-  const remaining = { ...debris.resources };
-  for (const key of resourceKeys) {
-    const amount = Math.min(capacity, remaining[key] ?? 0);
-    if (amount <= 0) continue;
-    cargo[key] = amount;
-    remaining[key] = (remaining[key] ?? 0) - amount;
-    capacity -= amount;
-    if (capacity === 0) break;
+  // A field that is gone on arrival sends the fleet home empty instead of stranding it.
+  if (debris) {
+    let capacity = Math.floor(spacecraft.cargo * modifiers.cargo * mission.amount);
+    const remaining = { ...debris.resources };
+    for (const key of resourceKeys) {
+      const amount = Math.min(capacity, remaining[key] ?? 0);
+      if (amount <= 0) continue;
+      cargo[key] = amount;
+      remaining[key] = (remaining[key] ?? 0) - amount;
+      capacity -= amount;
+      if (capacity === 0) break;
+    }
+    await updateDebrisFieldResources(tx, debris.id, remaining);
   }
-  await updateDebrisFieldResources(tx, debris.id, remaining);
+  const origin = { x: trip.toX, y: trip.toY };
 
   const departedAt = trip.arrivesAt;
   const returnTripId = await insertTrip(tx, {
@@ -264,19 +269,18 @@ async function resolveSalvageOutbound(
     stationSpacecraftId: mission.stationSpacecraftId,
     groupSize: mission.amount,
     fromType: 'debris',
-    fromId: mission.debrisFieldId ?? trip.toId,
-    fromX: debris.x,
-    fromY: debris.y,
+    fromId: trip.toId,
+    fromX: origin.x,
+    fromY: origin.y,
     toType: 'station',
     toId: mission.stationId,
     toX: station.x,
     toY: station.y,
     departedAt,
-    arrivesAt: await applyVectorNavigation(
-      tx,
-      mission.stationId,
-      calcArrivesAt(departedAt, calcDistance(debris, station), spacecraft.speed),
-      departedAt
+    arrivesAt: applySpeed(
+      calcArrivesAt(departedAt, calcDistance(origin, station), spacecraft.speed),
+      departedAt,
+      modifiers.speed
     ),
     purpose: 'salvage_return',
     cargoManifest: cargo,
@@ -288,12 +292,15 @@ async function resolveSalvageOutbound(
 async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<PlaytestCompletionEvent[]> {
   const mission = await findReturningSalvageMissionForUpdate(tx, trip.id);
   if (!mission) return [];
+  // Debris before the fleet row, like startSalvage, so the two never deadlock. Locked so a
+  // salvage starting now either sees the field deleted or keeps it alive.
+  const debrisFieldId = mission.debrisFieldId;
+  const debris = debrisFieldId ? await findDebrisFieldForUpdate(tx, debrisFieldId) : undefined;
 
   const requested = { ...(mission.cargo ?? {}) };
   const credited = await creditStationResources(tx, mission.stationId, requested);
   await updateTripCargo(tx, trip.id, credited);
   await releaseSpacecraft(tx, mission.stationSpacecraftId, mission.amount);
-  const debrisFieldId = mission.debrisFieldId;
   await updateSalvageMission(tx, mission.id, {
     debrisFieldId: null,
     status: 'resolved',
@@ -302,8 +309,7 @@ async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<PlaytestComplet
 
   if (debrisFieldId) {
     const active = await hasUnresolvedSalvageOnDebris(tx, debrisFieldId);
-    const debris = await findDebrisField(tx, debrisFieldId);
-    if (!active && debris && Object.values(debris.resources).every((amount) => amount <= 0)) {
+    if (!active && debris && !hasResources(debris.resources)) {
       await deleteDebrisField(tx, debrisFieldId);
     }
   }

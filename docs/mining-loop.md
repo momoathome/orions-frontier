@@ -1,8 +1,10 @@
 # Endlicher Mining-Rundlauf
 
 Der Spieler wählt Asteroid und Minerzahl. Automatisiert ist nur die wiederkehrende Ausführung des
-Auftrags: Flug, Abbau, Rückkehr und Lieferung. Die Station wählt weder Ressourcen noch Asteroiden und
-baut nichts selbstständig.
+Auftrags: Flug, Abbau, Rückkehr und Lieferung. Ohne Forschung wählt die Station weder Ressourcen noch
+Asteroiden und baut nichts selbstständig. Autonomous Rerouting leitet Miner eines erschöpften
+Asteroiden zum nächsten mit derselben Ressource um; die Autonomous Mining Fleet weist neu gebaute
+und freie Miner selbst zu (`docs/research.md`).
 
 ## Ablauf
 

@@ -5,7 +5,7 @@ import type {
   DefenseUpgradeEffect,
   DefenseUpgradeKey,
 } from '@orions-frontier/shared';
-import type { ResourceKey } from '@orions-frontier/shared';
+import { scaledUpgradeCosts, type UpgradeCostConfig } from './upgrade-cost.js';
 
 export interface DefenseUpgradeSeedDefinition extends DefenseUpgradeDefinition {
   startingLevel: number;
@@ -20,6 +20,7 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
     baseBuildTime: 75,
     maxLevel: 15,
     startingLevel: 0,
+    requirements: {},
   },
   {
     key: 'guardian_cannon',
@@ -29,6 +30,7 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
     baseBuildTime: 120,
     maxLevel: 12,
     startingLevel: 0,
+    requirements: { research: { weapons: 4, shields: 2 }, buildings: { core: 5 } },
   },
   {
     key: 'defense_drones',
@@ -38,6 +40,7 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
     baseBuildTime: 90,
     maxLevel: 15,
     startingLevel: 0,
+    requirements: { research: { weapons: 1 }, buildings: { core: 2 } },
   },
   {
     key: 'minefield',
@@ -47,6 +50,7 @@ export const defenseUpgrades: DefenseUpgradeSeedDefinition[] = [
     baseBuildTime: 105,
     maxLevel: 12,
     startingLevel: 0,
+    requirements: { research: { weapons: 2, sensor_arrays: 1 }, buildings: { core: 3 } },
   },
 ];
 
@@ -55,17 +59,6 @@ export const getDefenseUpgrade = (key: DefenseUpgradeKey) =>
     defenseUpgrades.find((upgrade) => upgrade.key === key),
     `defense upgrade ${key}`
   );
-
-interface ResourceCostEntry {
-  resourceKey: ResourceKey;
-  baseAmount: number;
-  unlocksAtLevel?: number;
-}
-
-interface UpgradeCostConfig {
-  resourceCosts: ResourceCostEntry[];
-  factor: number;
-}
 
 const UPGRADE_COST_CONFIG: Record<DefenseUpgradeKey, UpgradeCostConfig> = {
   armor_plating: {
@@ -108,15 +101,7 @@ export function calculateDefenseUpgradeCost(
   upgradeKey: DefenseUpgradeKey,
   targetLevel: number
 ): DefenseUpgradeCost[] {
-  const config = UPGRADE_COST_CONFIG[upgradeKey];
-  const multiplier = Math.pow(config.factor, targetLevel - 1);
-
-  return config.resourceCosts
-    .filter((entry) => entry.unlocksAtLevel === undefined || targetLevel >= entry.unlocksAtLevel)
-    .map((entry) => ({
-      resourceKey: entry.resourceKey,
-      amount: Math.max(10, Math.round((entry.baseAmount * multiplier) / 10) * 10),
-    }));
+  return scaledUpgradeCosts(UPGRADE_COST_CONFIG[upgradeKey], targetLevel);
 }
 
 export function calculateDefenseUpgradeBuildTime(

@@ -1,17 +1,19 @@
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import {
   required,
   entriesOf,
   isOneOf,
   defenseUpgradeKeys,
+  type ResearchLevels,
   type ResourceMap,
 } from '@orions-frontier/shared';
 import {
-  calculateBuildingEffect,
   calculateInfluence,
+  calculateStorageCapacity as warehouseCapacity,
+  isResearchKey,
   type InfluenceInput,
 } from '@orions-frontier/game-config';
-import { getDb } from '../../lib/db/index.js';
+import { getDb, type QueryDb } from '../../lib/db/index.js';
 import { asteroids, asteroidVeins } from '../../lib/db/schema/asteroids.js';
 import { botControllers, type BotProfile } from '../../lib/db/schema/bot-controllers.js';
 import { combatMissions } from '../../lib/db/schema/combat-missions.js';
@@ -20,7 +22,7 @@ import { sectors } from '../../lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../lib/db/schema/spacecraft-build-orders.js';
 import { spacecraftTrips } from '../../lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../lib/db/schema/station-buildings.js';
-import { stationResearch } from '../../lib/db/schema/station-research.js';
+import { userResearch } from '../../lib/db/schema/user-research.js';
 import { stationResources } from '../../lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../lib/db/schema/stations.js';
@@ -40,10 +42,8 @@ interface StationAccumulator {
   spacecraftByKey: Record<string, number>;
   spacecraftUnits: number;
   lockedSpacecraftUnits: number;
-  completedResearch: number;
   activeBuildingUpgrades: number;
   activeBuildOrders: number;
-  activeResearch: number;
   activeTrips: number;
   activeWorldMissions: number;
   activeCombatMissions: number;
@@ -99,10 +99,8 @@ function emptyStation(): StationAccumulator {
     spacecraftByKey: {},
     spacecraftUnits: 0,
     lockedSpacecraftUnits: 0,
-    completedResearch: 0,
     activeBuildingUpgrades: 0,
     activeBuildOrders: 0,
-    activeResearch: 0,
     activeTrips: 0,
     activeWorldMissions: 0,
     activeCombatMissions: 0,
@@ -110,11 +108,7 @@ function emptyStation(): StationAccumulator {
   };
 }
 
-const warehouseCapacity = (level: number): number =>
-  calculateBuildingEffect('warehouse', level).find((effect) => effect.type === 'storage_capacity')
-    ?.value ?? 0;
-
-function emptyWorld(): PlaytestWorldSnapshot {
+export function emptyWorld(): PlaytestWorldSnapshot {
   return {
     sectorsByRole: {},
     populationByKind: {},
@@ -137,16 +131,8 @@ function incrementStation(
   if (station) station[field] += amount;
 }
 
-export async function loadPlaytestSnapshot(
-  now: Date,
-  aliases: PlaytestAliasRegistry
-): Promise<PlaytestStateSnapshot> {
-  const db = getDb();
-  const controlledUserIds = aliases.userIds();
-  if (controlledUserIds.length === 0) {
-    return { capturedAt: now.toISOString(), bots: [], stations: [], world: emptyWorld() };
-  }
-  const stationRows = await db
+function loadStationRows(db: QueryDb, controlledUserIds: string[]) {
+  return db
     .select({
       id: stations.id,
       userId: stations.userId,
@@ -159,21 +145,10 @@ export async function loadPlaytestSnapshot(
     .from(stations)
     .innerJoin(users, eq(users.id, stations.userId))
     .innerJoin(botControllers, eq(botControllers.userId, stations.userId))
-    .where(inArray(stations.userId, controlledUserIds));
-  const userIds = [...new Set(stationRows.map((station) => station.userId))];
-  const stationIds = stationRows.map((station) => station.id);
-  if (stationIds.length === 0) {
-    return { capturedAt: now.toISOString(), bots: [], stations: [], world: emptyWorld() };
-  }
+    .where(and(inArray(stations.userId, controlledUserIds), isNull(stations.destroyedAt)));
+}
 
-  const orderedStations = [...stationRows].sort(
-    (left, right) =>
-      aliases.user(left.userId).localeCompare(aliases.user(right.userId)) ||
-      left.createdAt.getTime() - right.createdAt.getTime() ||
-      left.id.localeCompare(right.id)
-  );
-  for (const station of orderedStations) aliases.registerStation(station.userId, station.id);
-
+async function loadSnapshotRows(db: QueryDb, stationIds: string[], userIds: string[]) {
   const [
     resourceRows,
     buildingRows,
@@ -217,12 +192,13 @@ export async function loadPlaytestSnapshot(
       .where(inArray(stationSpacecrafts.stationId, stationIds)),
     db
       .select({
-        stationId: stationResearch.stationId,
-        technologyKey: stationResearch.technologyKey,
-        status: stationResearch.status,
+        userId: userResearch.userId,
+        technologyKey: userResearch.technologyKey,
+        level: userResearch.level,
+        completesAt: userResearch.completesAt,
       })
-      .from(stationResearch)
-      .where(inArray(stationResearch.stationId, stationIds)),
+      .from(userResearch)
+      .where(inArray(userResearch.userId, userIds)),
     db
       .select({ stationId: spacecraftBuildOrders.stationId })
       .from(spacecraftBuildOrders)
@@ -240,7 +216,12 @@ export async function loadPlaytestSnapshot(
     db
       .select({ stationId: worldMissions.originStationId })
       .from(worldMissions)
-      .where(and(inArray(worldMissions.userId, userIds), ne(worldMissions.status, 'arrived'))),
+      .where(
+        and(
+          inArray(worldMissions.userId, userIds),
+          inArray(worldMissions.status, ['traveling', 'returning'])
+        )
+      ),
     db
       .select({ stationId: combatMissions.attackerStationId })
       .from(combatMissions)
@@ -260,7 +241,48 @@ export async function loadPlaytestSnapshot(
       .leftJoin(asteroidVeins, eq(asteroidVeins.asteroidId, asteroids.id)),
     db.select({ id: debrisFields.id, resources: debrisFields.resources }).from(debrisFields),
   ]);
+  return {
+    resourceRows,
+    buildingRows,
+    spacecraftRows,
+    researchRows,
+    buildOrderRows,
+    tripRows,
+    worldMissionRows,
+    combatRows,
+    salvageRows,
+    sectorRows,
+    asteroidRows,
+    debrisRows,
+  };
+}
 
+type SnapshotRows = Awaited<ReturnType<typeof loadSnapshotRows>>;
+type StationRow = Awaited<ReturnType<typeof loadStationRows>>[number];
+interface ResearchSummary {
+  levels: ResearchLevels;
+  completed: number;
+  active: number;
+}
+
+function accumulateStations(
+  {
+    resourceRows,
+    buildingRows,
+    spacecraftRows,
+    researchRows,
+    buildOrderRows,
+    tripRows,
+    worldMissionRows,
+    combatRows,
+    salvageRows,
+  }: SnapshotRows,
+  stationIds: string[]
+): {
+  byStation: Map<string, StationAccumulator>;
+  influenceInputs: Map<string, InfluenceInput>;
+  researchByUser: Map<string, ResearchSummary>;
+} {
   const byStation = new Map(stationIds.map((stationId) => [stationId, emptyStation()]));
   for (const resource of resourceRows) {
     const station = required(
@@ -304,7 +326,7 @@ export async function loadPlaytestSnapshot(
     );
   }
   const influenceInputs = new Map<string, InfluenceInput>(
-    stationIds.map((id) => [id, { levels: [], completedResearch: [], spacecrafts: [] }])
+    stationIds.map((id) => [id, { levels: [], research: {}, spacecrafts: [] }])
   );
   for (const building of buildingRows) {
     influenceInputs
@@ -316,15 +338,15 @@ export async function loadPlaytestSnapshot(
       .get(spacecraft.stationId)
       ?.spacecrafts.push({ key: spacecraft.spacecraftKey, amount: spacecraft.amount });
   }
+  // Research is account-wide, so it counts per bot, not per station.
+  const researchByUser = new Map<string, ResearchSummary>();
   for (const research of researchRows) {
-    if (research.status === 'completed') {
-      influenceInputs.get(research.stationId)?.completedResearch.push(research.technologyKey);
-    }
-    incrementStation(
-      byStation,
-      research.stationId,
-      research.status === 'completed' ? 'completedResearch' : 'activeResearch'
-    );
+    const entry = researchByUser.get(research.userId) ?? { levels: {}, completed: 0, active: 0 };
+    if (isResearchKey(research.technologyKey))
+      entry.levels[research.technologyKey] = research.level;
+    entry.completed += research.level;
+    if (research.completesAt) entry.active += 1;
+    researchByUser.set(research.userId, entry);
   }
   for (const order of buildOrderRows) {
     incrementStation(byStation, order.stationId, 'activeBuildOrders');
@@ -339,8 +361,15 @@ export async function loadPlaytestSnapshot(
   for (const mission of salvageRows) {
     incrementStation(byStation, mission.stationId, 'activeSalvageMissions');
   }
+  return { byStation, influenceInputs, researchByUser };
+}
 
-  const stationSnapshots = orderedStations.map((station): PlaytestStationSnapshot => {
+function toStationSnapshots(
+  orderedStations: StationRow[],
+  byStation: Map<string, StationAccumulator>,
+  aliases: PlaytestAliasRegistry
+): PlaytestStationSnapshot[] {
+  return orderedStations.map((station): PlaytestStationSnapshot => {
     const values = required(byStation.get(station.id), 'byStation.get(station.id)');
     const normalizedResources: ResourceMap = {};
     for (const [key, amount] of entriesOf(values.resources).sort(([left], [right]) =>
@@ -362,31 +391,39 @@ export async function loadPlaytestSnapshot(
       progressFingerprint: progressFingerprint(reportValues),
     };
   });
+}
 
-  const stationRowsByUser = new Map<string, typeof stationRows>();
+function toBotSnapshots(
+  stationRows: StationRow[],
+  stationSnapshots: PlaytestStationSnapshot[],
+  influenceInputs: Map<string, InfluenceInput>,
+  researchByUser: Map<string, ResearchSummary>,
+  aliases: PlaytestAliasRegistry
+): PlaytestBotSnapshot[] {
+  const stationRowsByUser = new Map<string, StationRow[]>();
   for (const station of stationRows) {
     const rows = stationRowsByUser.get(station.userId) ?? [];
     rows.push(station);
     stationRowsByUser.set(station.userId, rows);
   }
-  const bots = [...stationRowsByUser.entries()]
+  return [...stationRowsByUser.entries()]
     .map(([userId, ownedStations]): PlaytestBotSnapshot => {
       const primary = required(ownedStations[0], `stations of ${userId}`);
       const owned = stationSnapshots.filter(
         (station) => station.ownerAlias === aliases.user(userId)
       );
-      const activeWork = owned.reduce(
-        (sum, station) =>
-          sum +
-          station.activeBuildingUpgrades +
-          station.activeBuildOrders +
-          station.activeResearch +
-          station.activeTrips +
-          station.activeWorldMissions +
-          station.activeCombatMissions +
-          station.activeSalvageMissions,
-        0
-      );
+      const activeWork =
+        owned.reduce(
+          (sum, station) =>
+            sum +
+            station.activeBuildingUpgrades +
+            station.activeBuildOrders +
+            station.activeTrips +
+            station.activeWorldMissions +
+            station.activeCombatMissions +
+            station.activeSalvageMissions,
+          0
+        ) + (researchByUser.get(userId)?.active ?? 0);
       const values = {
         stationCount: owned.length,
         resourceUnits: owned.reduce((sum, station) => sum + station.resourceUnits, 0),
@@ -395,12 +432,10 @@ export async function loadPlaytestSnapshot(
           (sum, station) => sum + station.lockedSpacecraftUnits,
           0
         ),
-        completedResearch: owned.reduce((sum, station) => sum + station.completedResearch, 0),
+        completedResearch: researchByUser.get(userId)?.completed ?? 0,
         influence: calculateInfluence({
           levels: ownedStations.flatMap((station) => influenceInputs.get(station.id)?.levels ?? []),
-          completedResearch: ownedStations.flatMap(
-            (station) => influenceInputs.get(station.id)?.completedResearch ?? []
-          ),
+          research: researchByUser.get(userId)?.levels ?? {},
           spacecrafts: ownedStations.flatMap(
             (station) => influenceInputs.get(station.id)?.spacecrafts ?? []
           ),
@@ -421,7 +456,13 @@ export async function loadPlaytestSnapshot(
       };
     })
     .sort((left, right) => left.botAlias.localeCompare(right.botAlias));
+}
 
+function summarizeWorld(
+  { sectorRows, asteroidRows, debrisRows }: SnapshotRows,
+  bots: PlaytestBotSnapshot[],
+  stationCount: number
+): PlaytestWorldSnapshot {
   const sectorsByRole: Record<string, number> = {};
   for (const sector of sectorRows) {
     sectorsByRole[sector.role] = (sectorsByRole[sector.role] ?? 0) + 1;
@@ -447,26 +488,56 @@ export async function loadPlaytestSnapshot(
     populationByKind[bot.populationKind] = (populationByKind[bot.populationKind] ?? 0) + 1;
     populationByProfile[bot.profile] = (populationByProfile[bot.profile] ?? 0) + 1;
   }
+  return {
+    sectorsByRole,
+    populationByKind,
+    populationByProfile,
+    stations: stationCount,
+    asteroids: asteroidIds.size,
+    asteroidResources,
+    debrisFields: debrisRows.length,
+    debrisResources,
+  };
+}
 
+export async function loadPlaytestSnapshot(
+  now: Date,
+  aliases: PlaytestAliasRegistry
+): Promise<PlaytestStateSnapshot> {
+  const db = getDb();
+  const controlledUserIds = aliases.userIds();
+  if (controlledUserIds.length === 0) {
+    return { capturedAt: now.toISOString(), bots: [], stations: [], world: emptyWorld() };
+  }
+  const stationRows = await loadStationRows(db, controlledUserIds);
+  const userIds = [...new Set(stationRows.map((station) => station.userId))];
+  const stationIds = stationRows.map((station) => station.id);
+  if (stationIds.length === 0) {
+    return { capturedAt: now.toISOString(), bots: [], stations: [], world: emptyWorld() };
+  }
+
+  const orderedStations = [...stationRows].sort(
+    (left, right) =>
+      aliases.user(left.userId).localeCompare(aliases.user(right.userId)) ||
+      left.createdAt.getTime() - right.createdAt.getTime() ||
+      left.id.localeCompare(right.id)
+  );
+  for (const station of orderedStations) aliases.registerStation(station.userId, station.id);
+
+  const rows = await loadSnapshotRows(db, stationIds, userIds);
+  const { byStation, influenceInputs, researchByUser } = accumulateStations(rows, stationIds);
+  const stationSnapshots = toStationSnapshots(orderedStations, byStation, aliases);
+  const bots = toBotSnapshots(
+    stationRows,
+    stationSnapshots,
+    influenceInputs,
+    researchByUser,
+    aliases
+  );
   return {
     capturedAt: now.toISOString(),
     bots,
     stations: stationSnapshots,
-    world: {
-      sectorsByRole: Object.fromEntries(
-        Object.entries(sectorsByRole).sort(([left], [right]) => left.localeCompare(right))
-      ),
-      populationByKind: Object.fromEntries(
-        Object.entries(populationByKind).sort(([left], [right]) => left.localeCompare(right))
-      ),
-      populationByProfile: Object.fromEntries(
-        Object.entries(populationByProfile).sort(([left], [right]) => left.localeCompare(right))
-      ),
-      stations: stationRows.length,
-      asteroids: asteroidIds.size,
-      asteroidResources,
-      debrisFields: debrisRows.length,
-      debrisResources,
-    },
+    world: summarizeWorld(rows, bots, stationRows.length),
   };
 }

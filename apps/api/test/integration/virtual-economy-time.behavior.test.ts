@@ -6,31 +6,33 @@ import {
   calculateBuildingBuildTime,
   calculateBuildingEffect,
   calculateDefenseUpgradeBuildTime,
+  calculateResearchDuration,
   defenseUpgrades,
-  getResearchDefinition,
   getSpacecraft,
 } from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { asteroids } from '../../src/lib/db/schema/asteroids.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResearch } from '../../src/lib/db/schema/station-research.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
+import { userResearch } from '../../src/lib/db/schema/user-research.js';
 import { createSeededExecutionContext } from '../../src/lib/game-execution-context.js';
 import { getStationBuildings, startBuildingUpgrade } from '../../src/services/station/buildings.js';
 import {
   getStationDefenseUpgrades,
   startDefenseUpgrade,
 } from '../../src/services/station/defense.js';
-import { startResearch } from '../../src/services/research/research.js';
+import { startResearch } from '../../src/services/station/research-queue.js';
 import { buildSpacecrafts } from '../../src/services/station/spacecraft.js';
-import { setTestResources, createTestSector, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestUser,
+  deleteTestData,
+  grantResearch,
+  setTestResources,
+} from '../helpers/fixtures.js';
 import { createStation } from '../../src/services/station/station.js';
 
 const virtualStart = new Date('2035-04-12T08:30:00.000Z');
@@ -77,18 +79,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
-  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.update(spawnSlots).set({ stationId: null }).where(eq(spawnSlots.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(asteroids).where(eq(asteroids.sectorId, sectorId));
-  await db.delete(spawnSlots).where(eq(spawnSlots.sectorId, sectorId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(eq(users.id, userId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -141,9 +132,11 @@ test('all economic work starts from one virtual time with deterministic work IDs
     worldSeed: 'virtual-world',
   });
 
+  // Two construction jobs at once need a second build slot.
+  await grantResearch(userId, { parallel_construction: 1 });
   await startBuildingUpgrade(stationId, 'warehouse', userId, actionContext);
-  await startDefenseUpgrade(stationId, 'guardian_cannon', userId, actionContext);
-  await startResearch(stationId, userId, 'extraction_algorithms', actionContext);
+  await startDefenseUpgrade(stationId, 'armor_plating', userId, actionContext);
+  await startResearch(userId, stationId, 'extraction_algorithms', actionContext);
   await buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }], actionContext);
 
   const progress = await getDb()
@@ -174,34 +167,38 @@ test('all economic work starts from one virtual time with deterministic work IDs
     .where(
       and(
         eq(stationBuildings.stationId, stationId),
-        eq(stationBuildings.buildingKey, 'guardian_cannon')
+        eq(stationBuildings.buildingKey, 'armor_plating')
       )
     );
   assert.equal(
     defense?.upgradeEndsAt?.toISOString(),
     new Date(
-      actionContext.now.getTime() + calculateDefenseUpgradeBuildTime('guardian_cannon', 1) * 1000
+      actionContext.now.getTime() + calculateDefenseUpgradeBuildTime('armor_plating', 1) * 1000
     ).toISOString()
   );
   assert.equal(
-    (await getStationDefenseUpgrades(stationId, actionContext)).find(
-      (upgrade) => upgrade.definition.key === 'guardian_cannon'
+    (await getStationDefenseUpgrades(stationId, userId, actionContext)).find(
+      (upgrade) => upgrade.definition.key === 'armor_plating'
     )?.isUpgrading,
     true
   );
 
   const [research] = await getDb()
     .select()
-    .from(stationResearch)
-    .where(eq(stationResearch.stationId, stationId));
-  const researchDefinition = getResearchDefinition('extraction_algorithms')!;
-  // startDefenseUpgrade attempts the backwards-compatible insert before locking the existing row.
-  expected.nextId('station-defense');
-  assert.equal(research?.id, expected.nextId('station-research'));
-  assert.equal(research.createdAt.toISOString(), actionContext.now.toISOString());
+    .from(userResearch)
+    .where(
+      and(eq(userResearch.userId, userId), eq(userResearch.technologyKey, 'extraction_algorithms'))
+    );
+  // Building, defense and research each pass through the queue; research keeps its job id.
+  expected.nextId('queued-job');
+  expected.nextId('queued-job');
+  assert.equal(research?.id, expected.nextId('queued-job'));
+  assert.equal(research.startedAt?.toISOString(), actionContext.now.toISOString());
   assert.equal(
-    research.completesAt.toISOString(),
-    new Date(actionContext.now.getTime() + researchDefinition.duration * 1000).toISOString()
+    research.completesAt?.toISOString(),
+    new Date(
+      actionContext.now.getTime() + calculateResearchDuration('extraction_algorithms', 1, 1) * 1000
+    ).toISOString()
   );
 
   const [order] = await getDb()

@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { LogbookEntry } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
 import { recordLogbookEvents } from '../../src/services/logbook/logbook.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+} from '../helpers/fixtures.js';
 import { authHeaders, buildTestApp } from '../helpers/test-app.js';
 
 const app = await buildTestApp();
@@ -31,13 +31,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(inArray(users.id, userIds));
+  await deleteTestData({ userIds, sectorIds: [sectorId] });
   await app.close();
   await closeDb();
 });
@@ -47,13 +41,13 @@ test('a completed upgrade is logged once and only for its owner', async () => {
   const completedAt = new Date(Date.now() - 1_000);
   await getDb()
     .update(stationBuildings)
-    .set({ upgradeEndsAt: completedAt })
+    .set({ upgradeEndsAt: completedAt, upgradePaidCost: [] })
     .where(
       and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'warehouse'))
     );
 
-  const drained = await runSimulationTick(new Date());
-  await runSimulationTick(new Date());
+  const drained = await runWorldTick(new Date());
+  await runWorldTick(new Date());
   await recordLogbookEvents(drained.events);
 
   const response = await app.inject({

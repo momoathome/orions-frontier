@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields, salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+} from '../helpers/fixtures.js';
 import { authHeaders, buildTestApp } from '../helpers/test-app.js';
 
 const app = await buildTestApp();
@@ -60,24 +60,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  const stationIds = [attackerStationId, defenderStationId];
-  const fleets = await db
-    .select({ id: stationSpacecrafts.id })
-    .from(stationSpacecrafts)
-    .where(inArray(stationSpacecrafts.stationId, stationIds));
-  await db.delete(salvageMissions).where(inArray(salvageMissions.stationId, stationIds));
-  await db.delete(combatMissions).where(inArray(combatMissions.attackerStationId, stationIds));
-  for (const fleet of fleets) {
-    await db.delete(spacecraftTrips).where(eq(spacecraftTrips.stationSpacecraftId, fleet.id));
-  }
-  await db.delete(debrisFields).where(eq(debrisFields.sectorId, sectorId));
-  await db.delete(stationResources).where(inArray(stationResources.stationId, stationIds));
-  await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
-  await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds));
-  await db.delete(stations).where(inArray(stations.id, stationIds));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(inArray(users.id, [attackerUserId, defenderUserId]));
+  await deleteTestData({ userIds: [attackerUserId, defenderUserId], sectorIds: [sectorId] });
   await app.close();
   await closeDb();
 });
@@ -90,6 +73,16 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
     payload: { targetStationId: defenderStationId, fleet: { merlin: 0 } },
   });
   assert.equal(invalid.statusCode, 400);
+
+  // Above int4 must be a 400 at the boundary, not a Postgres 22003 surfacing as 500.
+  const oversizedAttack = await app.inject({
+    method: 'POST',
+    url: `/api/stations/${attackerStationId}/attacks`,
+    headers,
+    payload: { targetStationId: defenderStationId, fleet: { merlin: 3_000_000_000 } },
+  });
+  assert.equal(oversizedAttack.statusCode, 400);
+  assert.equal(oversizedAttack.json().error.code, 'VALIDATION_ERROR');
 
   const attack = await app.inject({
     method: 'POST',
@@ -123,6 +116,15 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
     spacecraftKey: 'collector',
     amount: 1,
   });
+  const oversizedSalvage = await app.inject({
+    method: 'POST',
+    url: `/api/debris/${field!.id}/salvage`,
+    headers,
+    payload: { stationId: attackerStationId, spacecraftKey: 'collector', amount: 3_000_000_000 },
+  });
+  assert.equal(oversizedSalvage.statusCode, 400);
+  assert.equal(oversizedSalvage.json().error.code, 'VALIDATION_ERROR');
+
   const salvage = await app.inject({
     method: 'POST',
     url: `/api/debris/${field!.id}/salvage`,
@@ -164,5 +166,5 @@ async function settleSalvage(missionId: string): Promise<void> {
 
 async function settleTrip(tripId: string): Promise<void> {
   const [trip] = await getDb().select().from(spacecraftTrips).where(eq(spacecraftTrips.id, tripId));
-  assert.equal(await settleTripArrival(trip!), true);
+  assert.equal((await settleTripArrival(trip!)).settled, true);
 }

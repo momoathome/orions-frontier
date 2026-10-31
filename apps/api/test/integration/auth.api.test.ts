@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -32,6 +32,19 @@ test('auth endpoints reject invalid and unauthenticated requests', async () => {
   assert.equal(invalidRegistration.statusCode, 400);
   assert.equal(invalidRegistration.json().error.code, 'VALIDATION_ERROR');
 
+  // users.email is varchar(255); a longer address must stop at validation, not as a DB 500.
+  const longEmail = `${'a'.repeat(250)}@example.com`;
+  const longEmailRegistration = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    // Own address, so this does not spend the shared register rate-limit bucket.
+    remoteAddress: '10.0.0.42',
+    payload: { username: `long-${randomUUID()}`, email: longEmail, password: 'correct-password' },
+  });
+  assert.equal(longEmailRegistration.statusCode, 400);
+  assert.equal(longEmailRegistration.json().error.code, 'VALIDATION_ERROR');
+  assert.equal((await getDb().select().from(users).where(eq(users.email, longEmail))).length, 0);
+
   const unauthenticated = await app.inject({ method: 'GET', url: '/api/auth/me' });
   assert.equal(unauthenticated.statusCode, 401);
   assert.equal(unauthenticated.json().error.code, 'UNAUTHORIZED');
@@ -61,6 +74,56 @@ test('a user can register, login and load their authenticated profile', async ()
     payload: credentials,
   });
   assert.equal(duplicate.statusCode, 409);
+  // Case does not make a second account, and parallel signups never end in a 500.
+  const otherCase = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: {
+      ...credentials,
+      username: `other-${suffix}`,
+      email: credentials.email.toUpperCase(),
+    },
+  });
+  assert.equal(otherCase.statusCode, 409);
+  const sameNameOtherCase = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: {
+      ...credentials,
+      username: ` ${credentials.username.toUpperCase()} `,
+      email: `case-${suffix}@example.test`,
+    },
+  });
+  assert.equal(sameNameOtherCase.statusCode, 409);
+  // Bot names and emails stay reserved; taking one would claim that bot's station slot.
+  for (const reserved of [
+    { username: `Orion-Bot-${suffix.slice(0, 8)}`, email: `bot-${suffix}@example.test` },
+    { username: `bot-${suffix.slice(0, 8)}`, email: `bot-${suffix}@system.invalid` },
+  ]) {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { ...credentials, ...reserved },
+    });
+    assert.equal(response.statusCode, 400);
+  }
+  const racers = await Promise.all(
+    [1, 2].map(() =>
+      app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        payload: {
+          ...credentials,
+          username: `race-${suffix}`,
+          email: `race-${suffix}@example.test`,
+        },
+      })
+    )
+  );
+  assert.deepEqual(racers.map((response) => response.statusCode).sort(), [201, 409]);
+  for (const response of racers) {
+    if (response.statusCode === 201) createdUserIds.push(response.json().user.id);
+  }
 
   const wrongPassword = await app.inject({
     method: 'POST',
@@ -73,7 +136,7 @@ test('a user can register, login and load their authenticated profile', async ()
   const login = await app.inject({
     method: 'POST',
     url: '/api/auth/login',
-    payload: { email: credentials.email, password: credentials.password },
+    payload: { email: credentials.email.toUpperCase(), password: credentials.password },
   });
   assert.equal(login.statusCode, 200);
   const loggedIn = login.json();
@@ -86,4 +149,37 @@ test('a user can register, login and load their authenticated profile', async ()
   });
   assert.equal(profile.statusCode, 200);
   assert.equal(profile.json().id, registered.user.id);
+});
+
+test('a valid token stops working once the account is no longer active', async () => {
+  const suffix = randomUUID();
+  const registration = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: {
+      username: `ban-${suffix}`,
+      email: `ban-${suffix}@example.test`,
+      password: 'correct-password',
+    },
+  });
+  const { token, user } = registration.json();
+  createdUserIds.push(user.id);
+  const headers = { authorization: `Bearer ${token}` };
+
+  assert.equal((await app.inject({ method: 'GET', url: '/api/auth/me', headers })).statusCode, 200);
+  await getDb().update(users).set({ status: 'banned' }).where(eq(users.id, user.id));
+  assert.equal((await app.inject({ method: 'GET', url: '/api/auth/me', headers })).statusCode, 401);
+});
+
+test('login attempts from one address are rate limited', async () => {
+  const statuses: number[] = [];
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'nobody@example.test', password: 'wrong-password' },
+    });
+    statuses.push(response.statusCode);
+  }
+  assert.ok(statuses.includes(429), `expected a 429, got ${statuses.join(', ')}`);
 });

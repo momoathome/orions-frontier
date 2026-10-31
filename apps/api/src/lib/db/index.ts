@@ -36,6 +36,30 @@ export const closeDb = async (): Promise<void> => {
   db = null;
 };
 
+/**
+ * Runs `fn` only while this process holds the named session lock; undefined if another holds it.
+ * A reserved connection, because a session lock belongs to the connection that took it.
+ */
+export const withExclusiveLock = async <T>(
+  name: string,
+  fn: () => Promise<T>
+): Promise<T | undefined> => {
+  if (!client) throw new Error('Database not initialized. Call initDb() first.');
+  const connection = await client.reserve();
+  try {
+    const [row] = await connection<{ locked: boolean }[]>`
+      select pg_try_advisory_lock(hashtext(${name})) as locked`;
+    if (!row?.locked) return undefined;
+    try {
+      return await fn();
+    } finally {
+      await connection`select pg_advisory_unlock(hashtext(${name}))`;
+    }
+  } finally {
+    connection.release();
+  }
+};
+
 export type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 /** A transaction or the pooled connection; for reads that work inside and outside a transaction. */
 export type QueryDb = Tx | ReturnType<typeof getDb>;

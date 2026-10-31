@@ -15,7 +15,7 @@ export default defineRoute(async (app) => {
       const { stationId } = request.params;
       const ownedStationId = await ownStation(request.user.userId, stationId);
 
-      const assignments = await getStationMiningAssignments(ownedStationId);
+      const assignments = await getStationMiningAssignments(ownedStationId, request.user.userId);
 
       return { assignments };
     }

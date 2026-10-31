@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
-import { ownStation, startBuildingUpgrade } from '../../../services/station/index.js';
+import { startBuildingUpgrade } from '../../../services/station/index.js';
 import { buildingKeys } from '@orions-frontier/shared';
 import { defineRoute, stationParams } from '../../../lib/route.js';
 
 /**
  * POST /api/stations/:stationId/buildings/:buildingKey/upgrade
- * Starts upgrading a building if the station has sufficient resources.
+ * Pays the next level and starts it, or queues it while the build slots are busy.
  */
 export default defineRoute(async (app) => {
   app.post(
@@ -18,12 +18,12 @@ export default defineRoute(async (app) => {
     async (request) => {
       const { stationId, buildingKey } = request.params;
 
-      const ownedStationId = await ownStation(request.user.userId, stationId);
-
       const updatedBuilding = await startBuildingUpgrade(
-        ownedStationId,
+        stationId,
         buildingKey,
-        request.user.userId
+        request.user.userId,
+        undefined,
+        true
       );
 
       return updatedBuilding;

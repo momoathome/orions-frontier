@@ -55,6 +55,9 @@ export const spacecraftTrips = pgTable(
     purpose: tripPurposeEnum('purpose').notNull(),
     cargoManifest: jsonb('cargo_manifest').$type<CargoManifest>(),
     status: tripStatusEnum('status').notNull().default('traveling'),
+    /** Failed settle attempts; each one pushes `retryAt` further out. */
+    settleFailures: integer('settle_failures').notNull().default(0),
+    retryAt: timestamp('retry_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => [

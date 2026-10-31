@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
+import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
+import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
@@ -18,7 +19,13 @@ import {
 } from '../../src/tools/playtest/invariants.js';
 import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
 import type { WorldTickResult } from '../../src/services/simulation/simulation.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+  setTestResources,
+} from '../helpers/fixtures.js';
 
 let userId = '';
 let stationId = '';
@@ -46,14 +53,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(botControllers).where(eq(botControllers.userId, userId));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(users).where(eq(users.id, userId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -97,19 +97,9 @@ test('auditor aborts on a negative resource, invalid fleet lock and overdue work
   const auditor = new PlaytestInvariantAuditor(aliases());
   await auditor.auditTick(tick());
 
-  await db
-    .update(stationResources)
-    .set({ amount: -1 })
-    .where(
-      and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
-    );
+  await setTestResources(stationId, { carbon: -1 });
   await rejectsWith(auditor.auditTick(tick()), 'negative_resource');
-  await db
-    .update(stationResources)
-    .set({ amount: 250 })
-    .where(
-      and(eq(stationResources.stationId, stationId), eq(stationResources.resourceKey, 'carbon'))
-    );
+  await setTestResources(stationId, { carbon: 250 });
 
   await db
     .update(stationSpacecrafts)
@@ -123,7 +113,7 @@ test('auditor aborts on a negative resource, invalid fleet lock and overdue work
 
   await db
     .update(stationBuildings)
-    .set({ upgradeEndsAt: now })
+    .set({ upgradeEndsAt: now, upgradePaidCost: [] })
     .where(
       and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'warehouse'))
     );
@@ -132,6 +122,109 @@ test('auditor aborts on a negative resource, invalid fleet lock and overdue work
     .update(stationBuildings)
     .set({ upgradeEndsAt: null })
     .where(eq(stationBuildings.stationId, stationId));
+});
+
+test('auditor aborts on overfull storage, a negative build order and work without a fleet', async () => {
+  const db = getDb();
+  const auditor = new PlaytestInvariantAuditor(aliases());
+  await auditor.auditTick(tick());
+
+  await setTestResources(stationId, { carbon: 1_000_000_000 });
+  await rejectsWith(auditor.auditTick(tick()), 'storage_capacity_exceeded');
+  await setTestResources(stationId, { carbon: 250 });
+
+  const [order] = await db
+    .insert(spacecraftBuildOrders)
+    .values({
+      stationId,
+      spacecraftKey: 'miner',
+      amount: -1,
+      orderedAmount: 1,
+      unitCost: [],
+      nextAt: new Date(now.getTime() + 60_000),
+      endsAt: new Date(now.getTime() + 60_000),
+    })
+    .returning();
+  await rejectsWith(auditor.auditTick(tick()), 'negative_build_order');
+  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.id, order!.id));
+
+  const [fleet] = await db
+    .select()
+    .from(stationSpacecrafts)
+    .where(eq(stationSpacecrafts.stationId, stationId))
+    .limit(1);
+  const [trip] = await db
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId: fleet!.id,
+      groupSize: 1,
+      fromType: 'station',
+      fromId: stationId,
+      toType: 'asteroid',
+      toId: randomUUID(),
+      departedAt: now,
+      arrivesAt: new Date(now.getTime() + 60_000),
+      purpose: 'mine',
+    })
+    .returning();
+  await db
+    .update(stationSpacecrafts)
+    .set({ amount: 0, lockedAmount: 0 })
+    .where(eq(stationSpacecrafts.id, fleet!.id));
+  try {
+    await rejectsWith(auditor.auditTick(tick()), 'active_work_without_fleet');
+  } finally {
+    await db.delete(spacecraftTrips).where(eq(spacecraftTrips.id, trip!.id));
+    await db
+      .update(stationSpacecrafts)
+      .set({ amount: fleet!.amount, lockedAmount: fleet!.lockedAmount })
+      .where(eq(stationSpacecrafts.id, fleet!.id));
+  }
+});
+
+test('auditor flags fleet locks that no mission, assignment or trip holds', async () => {
+  const db = getDb();
+  const auditor = new PlaytestInvariantAuditor(aliases());
+  await auditor.auditTick(tick());
+
+  const [fleet] = await db
+    .select()
+    .from(stationSpacecrafts)
+    .where(eq(stationSpacecrafts.stationId, stationId))
+    .limit(1);
+  const [trip] = await db
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId: fleet!.id,
+      groupSize: 1,
+      fromType: 'station',
+      fromId: stationId,
+      toType: 'station',
+      toId: stationId,
+      departedAt: now,
+      arrivesAt: new Date(now.getTime() + 60_000),
+      purpose: 'relocate',
+    })
+    .returning();
+  try {
+    await db
+      .update(stationSpacecrafts)
+      .set({ amount: 2, lockedAmount: 1 })
+      .where(eq(stationSpacecrafts.id, fleet!.id));
+    await auditor.auditTick(tick());
+
+    await db
+      .update(stationSpacecrafts)
+      .set({ lockedAmount: 2 })
+      .where(eq(stationSpacecrafts.id, fleet!.id));
+    await rejectsWith(auditor.auditTick(tick()), 'fleet_lock_mismatch');
+  } finally {
+    await db.delete(spacecraftTrips).where(eq(spacecraftTrips.id, trip!.id));
+    await db
+      .update(stationSpacecrafts)
+      .set({ amount: fleet!.amount, lockedAmount: fleet!.lockedAmount })
+      .where(eq(stationSpacecrafts.id, fleet!.id));
+  }
 });
 
 test('auditor rejects duplicate completions, repeated successful actions and missing visibility proof', async () => {

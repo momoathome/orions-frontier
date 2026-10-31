@@ -4,25 +4,22 @@ import { and, eq } from 'drizzle-orm';
 import { defenseUpgradeKeys, isOneOf } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
-import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
+import { getUserScannerCoverages } from '../../src/services/station/scanner-coverage.js';
 import { getStationBuildings, startBuildingUpgrade } from '../../src/services/station/buildings.js';
 import {
   getStationDefenseUpgrades,
   startDefenseUpgrade,
 } from '../../src/services/station/defense.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
 import { getStationStorageCapacity } from '../../src/services/station/resources.js';
 import {
   createTestSector,
   createTestStation,
   createTestUser,
+  deleteTestData,
+  grantResearch,
   setTestResources,
 } from '../helpers/fixtures.js';
 
@@ -52,13 +49,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  const db = getDb();
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(eq(users.id, userId));
+  await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
 });
 
 after(closeDb);
@@ -68,7 +59,7 @@ test('a completed hangar upgrade increases the effective hangar capacity', async
 
   await completeUpgrade('hangar');
 
-  assert.deepEqual(await getStationHangar(stationId), { capacity: 30, used: 6 });
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 31, used: 6 });
 });
 
 test('a completed warehouse upgrade increases per-resource storage capacity', async () => {
@@ -76,7 +67,7 @@ test('a completed warehouse upgrade increases per-resource storage capacity', as
 
   await completeUpgrade('warehouse');
 
-  assert.equal(await getStationStorageCapacity(stationId), 6_500);
+  assert.equal(await getStationStorageCapacity(stationId), 7_300);
 });
 
 test('a completed scanner upgrade increases the station scanner range', async () => {
@@ -95,16 +86,25 @@ test('defense upgrades are managed outside station buildings', async () => {
     false
   );
 
-  const before = (await getStationDefenseUpgrades(stationId)).find(
+  // Guardian Cannon unlocks with Weapons 4, Shields 2 and Core 5.
+  await grantResearch(userId, { weapons: 4, shields: 2 });
+  await getDb()
+    .update(stationBuildings)
+    .set({ level: 5 })
+    .where(
+      and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'core'))
+    );
+  const before = (await getStationDefenseUpgrades(stationId, userId)).find(
     (upgrade) => upgrade.definition.key === 'guardian_cannon'
   );
   assert.equal(before?.level, 0);
   assert.deepEqual(before.effects, [{ type: 'defense_score', value: 0 }]);
-  assert.equal(before.upgradeDurationSeconds, 120);
+  // 120 s base, shortened by the Core 5 build speed like a real start.
+  assert.equal(before.upgradeDurationSeconds, 110);
 
   await completeDefenseUpgrade('guardian_cannon');
 
-  const after = (await getStationDefenseUpgrades(stationId)).find(
+  const after = (await getStationDefenseUpgrades(stationId, userId)).find(
     (upgrade) => upgrade.definition.key === 'guardian_cannon'
   );
   assert.equal(after?.level, 1);
@@ -125,7 +125,7 @@ async function completeProgressRow(key: string): Promise<void> {
   const completedAt = new Date();
   await getDb()
     .update(stationBuildings)
-    .set({ upgradeEndsAt: completedAt })
+    .set({ upgradeEndsAt: completedAt, upgradePaidCost: [] })
     .where(and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, key)));
-  await runSimulationTick(completedAt);
+  await runWorldTick(completedAt);
 }

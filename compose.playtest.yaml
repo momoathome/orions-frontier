@@ -26,8 +26,6 @@ services:
       - apps/api/src/tools/playtest/main.ts
     environment:
       PLAYTEST_MODE: '1'
-      PLAYTEST_EXPECTED_HOST: playtest-postgres
-      PLAYTEST_EXPECTED_DATABASE: orions_frontier_playtest
       PLAYTEST_INJECT_INVARIANT: ${PLAYTEST_INJECT_INVARIANT:-}
       PLAYTEST_INJECT_WARNING: ${PLAYTEST_INJECT_WARNING:-}
       DATABASE_URL: postgresql://playtest_runner:playtest_only@playtest-postgres:5432/orions_frontier_playtest

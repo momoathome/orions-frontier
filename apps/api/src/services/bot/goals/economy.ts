@@ -1,26 +1,23 @@
 import type { BotProfile } from '../../../lib/db/schema/bot-controllers.js';
 import {
   getSpacecraft,
+  requireSpacecraft,
+  requirementBlockers,
   calculateDefenseUpgradeCost,
-  getResearchDefinition,
-  researchDefinitions,
 } from '@orions-frontier/game-config';
 import { buildingKeys, isOneOf, type BuildingKey } from '@orions-frontier/shared';
 import type { GoalBotState, StationSnapshot, GoalResult } from '../goal-state.js';
 import type { GoalCandidate } from '../goal-driven-v1.js';
 import { GOAL_CATEGORY } from '../goal-driven-v1.js';
 import { bestDefenseUpgrade, unlockedFighters } from './military.js';
-import { RESEARCH_LAB_CAPACITY_PER_LEVEL, generateResearchCandidates } from './research.js';
+import { generateResearchCandidates } from './research.js';
 import {
-  assignMinerTowardCosts,
   buildingCanUpgrade,
   buildingUpgradeCost,
   canAcquireCosts,
   canAfford,
   freeCrewCapacity,
   getHangarLevel,
-  getLaboratoryLevel,
-  getShipyardLevel,
   hasActiveMining,
   hasInBuild,
   hasMinerInBuild,
@@ -35,9 +32,10 @@ import {
   prioritizeStationsForStabilization,
   seeksMoreForeignContact,
   selectBestAsteroid,
+  stationBuildingLevels,
+  stepTowardBuildingLevel,
+  stepTowardSpacecraft,
   storageFillRatio,
-  titanCost,
-  waitForCosts,
 } from './shared.js';
 
 // ---------------------------------------------------------------------------
@@ -90,6 +88,16 @@ export function generateIncreaseIncomeCandidate(
 
   // If both milestones reached, no need for increase_income
   if (totalMoles >= 3 && hasTitan) return null;
+  // Only the Titan is left and only research gates it: the research goal unlocks it first.
+  // A missing Shipyard level stays this goal's step, the research goal waits for it.
+  const titanBlockers = requirementBlockers(
+    requireSpacecraft('titan').requirements,
+    station.research,
+    stationBuildingLevels(station)
+  );
+  const onlyResearchMissing =
+    titanBlockers.length > 0 && titanBlockers.every((blocker) => blocker.type === 'research');
+  if (totalMoles >= 3 && onlyResearchMissing) return null;
   const nextCosts = nextIncomeCosts(station);
   if (!canAfford(station, nextCosts) && !canAcquireCosts(state, station, nextCosts)) return null;
 
@@ -118,25 +126,12 @@ export function generateIncreaseCapacityCandidate(
 ): GoalCandidate | null {
   // Find the bottleneck: which building is worth upgrading?
   const hangar = getHangarLevel(station);
-  const lab = getLaboratoryLevel(station);
 
   const candidates: { key: BuildingKey; need: number }[] = [];
 
   const storagePressure = storageFillRatio(station);
   const storageTight = hasActiveMining(station) && storagePressure >= 0.85;
   const crewBlocked = freeCrewCapacity(station) <= 0;
-  const researchPointsUsed = station.research.reduce(
-    (sum, research) => sum + (getResearchDefinition(research.technologyKey)?.points ?? 0),
-    0
-  );
-  const researchCapacityBlocked =
-    researchDefinitions.some(
-      (definition) =>
-        !station.research.some((research) => research.technologyKey === definition.key)
-    ) &&
-    researchPointsUsed + Math.min(...researchDefinitions.map((definition) => definition.points)) >
-      lab * RESEARCH_LAB_CAPACITY_PER_LEVEL;
-
   // Capacity goals only exist for an observed bottleneck.
   if (storageTight && buildingCanUpgrade(station, 'warehouse')) {
     candidates.push({
@@ -146,12 +141,6 @@ export function generateIncreaseCapacityCandidate(
   }
   if (crewBlocked && buildingCanUpgrade(station, 'hangar')) {
     candidates.push({ key: 'hangar', need: Math.max(45, 70 - hangar * 5) });
-  }
-  if (researchCapacityBlocked && buildingCanUpgrade(station, 'laboratory')) {
-    candidates.push({
-      key: 'laboratory',
-      need: Math.max(35, 60 - lab * 5),
-    });
   }
 
   const contactSearch = seeksMoreForeignContact(state, profile);
@@ -242,7 +231,7 @@ export function generateEconomicCandidates(
     if (cap) candidates.push(cap);
 
     // Research candidates per station
-    const researchCands = generateResearchCandidates(state, station);
+    const researchCands = generateResearchCandidates(state, station, profile);
     candidates.push(...researchCands);
   }
 
@@ -253,16 +242,16 @@ export function generateEconomicCandidates(
 // Step executors — determine next action toward an economic goal
 // ---------------------------------------------------------------------------
 
-/**
- * Execute the next step for stabilize_station.
- * Returns a GoalResult describing what happened.
- */
+/** Execute the next step for stabilize_station. */
 export async function stepStabilizeStation(
-  _state: GoalBotState,
+  state: GoalBotState,
   station: StationSnapshot,
   _profile: BotProfile
 ): Promise<GoalResult> {
-  if (hasActiveMining(station) && hasStorageHeadroom(_state, station)) {
+  if (!hasStorageHeadroom(state, station)) {
+    return stepTowardBuildingLevel(state, station, 'warehouse', 'mining deliveries');
+  }
+  if (hasActiveMining(station)) {
     return {
       type: 'complete',
       goalType: 'stabilize_station',
@@ -271,335 +260,58 @@ export async function stepStabilizeStation(
     };
   }
 
-  if (hasActiveMining(station) && !hasStorageHeadroom(_state, station)) {
-    if (isUpgrading(station, 'warehouse')) {
-      return {
-        type: 'waiting',
-        detail: 'warehouse_upgrading',
-        reason: `Waiting for Warehouse capacity at ${station.name}`,
-      };
-    }
-    const costs = buildingUpgradeCost(station, 'warehouse');
-    if (canAfford(station, costs)) {
-      return {
-        type: 'success',
-        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'warehouse' },
-        reason: `Expanding Warehouse at ${station.name} for mining deliveries`,
-      };
-    }
-    return waitForCosts(
-      _state,
-      station,
-      costs,
-      'warehouse',
-      `Saving for Warehouse capacity at ${station.name}`,
-      `Warehouse resources are not reachable at ${station.name}`
-    );
-  }
-
-  // 1. Free miner → assign
   const availableMinerKey = pickAvailableMinerKey(station);
   if (availableMinerKey) {
-    const asteroid = selectBestAsteroid(_state, station, availableMinerKey);
-    if (asteroid) {
-      return {
-        type: 'success',
-        intent: {
-          type: 'assign_miner',
-          stationId: station.id,
-          asteroidId: asteroid.id,
-          spacecraftKey: availableMinerKey,
-          amount: 1,
-        },
-        reason: `Assigning free ${availableMinerKey} miner at ${station.name} to asteroid ${asteroid.id}`,
-      };
-    }
-    if (isUpgrading(station, 'scanner')) {
-      return {
-        type: 'waiting',
-        detail: 'scanner_upgrading',
-        reason: `Waiting for Scanner range at ${station.name}`,
-      };
-    }
-    const costs = buildingUpgradeCost(station, 'scanner');
-    if (canAfford(station, costs)) {
-      return {
-        type: 'success',
-        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'scanner' },
-        reason: `Expanding Scanner at ${station.name} to find a mineable asteroid`,
-      };
-    }
-    return waitForCosts(
-      _state,
-      station,
-      costs,
-      'scanner',
-      `Saving for Scanner range at ${station.name}`,
-      `Scanner resources are not reachable at ${station.name}`
-    );
+    const asteroid = selectBestAsteroid(state, station, availableMinerKey);
+    if (!asteroid) return stepTowardBuildingLevel(state, station, 'scanner', 'a mineable asteroid');
+    return {
+      type: 'success',
+      intent: {
+        type: 'assign_miner',
+        stationId: station.id,
+        asteroidId: asteroid.id,
+        spacecraftKey: availableMinerKey,
+        amount: 1,
+      },
+      reason: `Assigning free ${availableMinerKey} miner at ${station.name} to asteroid ${asteroid.id}`,
+    };
   }
 
-  // 2. No mole → build one
   if (minerCount(station) === 0) {
     if (hasMinerInBuild(station)) {
-      return {
-        type: 'waiting',
-        detail: 'miner_building',
-        reason: `Waiting for first miner at ${station.name}`,
-      };
+      return { type: 'waiting', reason: `Waiting for first miner at ${station.name}` };
     }
-    if (canAfford(station, moleCost())) {
-      return {
-        type: 'success',
-        intent: {
-          type: 'build_spacecraft',
-          stationId: station.id,
-          spacecraftKey: 'mole',
-          amount: 1,
-        },
-        reason: `Building first Mole at ${station.name} to enable mining`,
-      };
-    }
-    // Check prerequisites
-    if (getShipyardLevel(station) < 1) {
-      if (canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
-        return {
-          type: 'success',
-          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
-          reason: `Upgrading Shipyard at ${station.name} for Mole construction`,
-        };
-      }
-      return {
-        type: 'blocked',
-        detail: 'no_shipyard',
-        reason: `Shipyard required at ${station.name}`,
-      };
-    }
-    return waitForCosts(
-      _state,
-      station,
-      moleCost(),
-      'mole',
-      `Saving resources for first Mole at ${station.name}`,
-      `First Mole resources are not reachable at ${station.name}`
-    );
+    return stepTowardSpacecraft(state, station, 'mole', 'mining');
   }
 
   if (
-    !hasActiveMining(station) &&
     station.fleets.some(
       (fleet) => getSpacecraft(fleet.spacecraftKey)?.role === 'miner' && fleet.lockedAmount > 0
     ) &&
-    (station.trips.some((trip) => trip.status === 'traveling') ||
-      station.missions.some((mission) => mission.status === 'traveling'))
+    (station.trips.some((trip) => trip.status === 'traveling') || station.missions.length > 0)
   ) {
-    return {
-      type: 'waiting',
-      detail: 'miner_returning',
-      reason: `Waiting for a Mole to return to ${station.name}`,
-    };
+    return { type: 'waiting', reason: `Waiting for a Mole to return to ${station.name}` };
   }
 
-  // 3. Check warehouse/scanner bottleneck
-  if (!hasStorageHeadroom(_state, station) && !isUpgrading(station, 'warehouse')) {
-    const costs = buildingUpgradeCost(station, 'warehouse');
-    if (canAfford(station, costs)) {
-      return {
-        type: 'success',
-        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'warehouse' },
-        reason: `Expanding Warehouse at ${station.name} for delivery capacity`,
-      };
-    }
-    return waitForCosts(
-      _state,
-      station,
-      costs,
-      'warehouse',
-      `Saving for Warehouse upgrade at ${station.name}`,
-      `Warehouse upgrade resources are not reachable at ${station.name}`
-    );
-  }
-
-  return { type: 'blocked', detail: 'unknown', reason: `Cannot stabilize ${station.name}` };
+  return { type: 'blocked', reason: `Cannot stabilize ${station.name}` };
 }
 
-/**
- * Execute the next step for increase_income.
- */
-function prepareCrewCapacity(
-  state: GoalBotState,
-  station: StationSnapshot,
-  requiredCrew: number,
-  purpose: string
-): GoalResult | null {
-  if (freeCrewCapacity(station) >= requiredCrew) return null;
-  if (isUpgrading(station, 'hangar')) {
-    return {
-      type: 'waiting',
-      detail: 'hangar_upgrading',
-      reason: `Waiting for Hangar capacity for ${purpose} at ${station.name}`,
-    };
-  }
-  if (!buildingCanUpgrade(station, 'hangar')) {
-    return {
-      type: 'blocked',
-      detail: 'hangar_maximum',
-      reason: `Hangar at ${station.name} cannot provide capacity for ${purpose}`,
-    };
-  }
-  const costs = buildingUpgradeCost(station, 'hangar');
-  if (canAfford(station, costs)) {
-    return {
-      type: 'success',
-      intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'hangar' },
-      reason: `Expanding Hangar at ${station.name} for ${purpose}`,
-    };
-  }
-  const supply = assignMinerTowardCosts(state, station, costs, `Hangar capacity for ${purpose}`);
-  if (supply) return supply;
-  return waitForCosts(
-    state,
-    station,
-    costs,
-    'hangar',
-    `Saving for Hangar capacity for ${purpose} at ${station.name}`,
-    `Hangar resources for ${purpose} are not reachable at ${station.name}`
-  );
-}
-
+/** Execute the next step for increase_income: three Moles, then a Titan. */
 export async function stepIncreaseIncome(
   state: GoalBotState,
   station: StationSnapshot,
   _profile: BotProfile
 ): Promise<GoalResult> {
-  const moleCnt = station.fleets.find((f) => f.spacecraftKey === 'mole')?.amount ?? 0;
-  const moleInBld = Number(hasInBuild(station, 'mole'));
-  const totalMls = moleCnt + moleInBld;
-  const hasTtn =
+  const moles =
+    (station.fleets.find((fleet) => fleet.spacecraftKey === 'mole')?.amount ?? 0) +
+    Number(hasInBuild(station, 'mole'));
+  if (moles < 3) return stepTowardSpacecraft(state, station, 'mole', `income (${moles + 1}/3)`);
+
+  const hasTitan =
     (station.fleets.find((fleet) => fleet.spacecraftKey === 'titan')?.amount ?? 0) > 0 ||
     hasInBuild(station, 'titan');
+  if (!hasTitan) return stepTowardSpacecraft(state, station, 'titan', 'income');
 
-  // Milestone 1: 3 Moles
-  if (totalMls < 3) {
-    if (hasInBuild(station, 'mole')) {
-      return {
-        type: 'waiting',
-        detail: 'mole_building',
-        reason: `Waiting for Mole construction at ${station.name}`,
-      };
-    }
-    if (getShipyardLevel(station) < 1) {
-      const costs = buildingUpgradeCost(station, 'shipyard');
-      if (canAfford(station, costs)) {
-        return {
-          type: 'success',
-          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
-          reason: `Upgrading Shipyard at ${station.name} for Mole`,
-        };
-      }
-      const supply = assignMinerTowardCosts(state, station, costs, 'the first Mole Shipyard');
-      if (supply) return supply;
-      return waitForCosts(
-        state,
-        station,
-        costs,
-        'no_shipyard',
-        `Saving for Shipyard required at ${station.name}`,
-        `Shipyard resources are not reachable at ${station.name}`
-      );
-    }
-    const moleCrewPreparation = prepareCrewCapacity(
-      state,
-      station,
-      getSpacecraft('mole')?.crew ?? 0,
-      'another Mole'
-    );
-    if (moleCrewPreparation) return moleCrewPreparation;
-    if (canAfford(station, moleCost())) {
-      return {
-        type: 'success',
-        intent: {
-          type: 'build_spacecraft',
-          stationId: station.id,
-          spacecraftKey: 'mole',
-          amount: 1,
-        },
-        reason: `Building Mole ${totalMls + 1}/3 at ${station.name}`,
-      };
-    }
-    const moleSupply = assignMinerTowardCosts(state, station, moleCost(), 'another Mole');
-    if (moleSupply) return moleSupply;
-    return waitForCosts(
-      state,
-      station,
-      moleCost(),
-      'mole',
-      `Saving for Mole at ${station.name}`,
-      `Mole resources are not reachable at ${station.name}`
-    );
-  }
-
-  // Milestone 2: 1 Titan
-  if (!hasTtn) {
-    if (hasInBuild(station, 'titan')) {
-      return {
-        type: 'waiting',
-        detail: 'titan_building',
-        reason: `Waiting for Titan construction at ${station.name}`,
-      };
-    }
-    if (getShipyardLevel(station) < 5) {
-      const costs = buildingUpgradeCost(station, 'shipyard');
-      if (canAfford(station, costs)) {
-        return {
-          type: 'success',
-          intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
-          reason: `Upgrading Shipyard to level ${getShipyardLevel(station) + 1} at ${station.name} for Titan`,
-        };
-      }
-      const supply = assignMinerTowardCosts(state, station, costs, 'the Titan Shipyard');
-      if (supply) return supply;
-      return waitForCosts(
-        state,
-        station,
-        costs,
-        'shipyard',
-        `Saving for Shipyard upgrade at ${station.name}`,
-        `Shipyard resources for Titan are not reachable at ${station.name}`
-      );
-    }
-    const titanCrewPreparation = prepareCrewCapacity(
-      state,
-      station,
-      getSpacecraft('titan')?.crew ?? 0,
-      'a Titan'
-    );
-    if (titanCrewPreparation) return titanCrewPreparation;
-    if (canAfford(station, titanCost())) {
-      return {
-        type: 'success',
-        intent: {
-          type: 'build_spacecraft',
-          stationId: station.id,
-          spacecraftKey: 'titan',
-          amount: 1,
-        },
-        reason: `Building first Titan at ${station.name}`,
-      };
-    }
-    const titanSupply = assignMinerTowardCosts(state, station, titanCost(), 'a Titan');
-    if (titanSupply) return titanSupply;
-    return waitForCosts(
-      state,
-      station,
-      titanCost(),
-      'titan',
-      `Saving for Titan at ${station.name}`,
-      `Titan resources are not reachable at ${station.name}`
-    );
-  }
-
-  // Both milestones reached → goal complete
   return {
     type: 'complete',
     goalType: 'increase_income',
@@ -631,7 +343,6 @@ export async function stepIncreaseCapacity(
   if (!isOneOf(buildingKeys, buildingKey)) {
     return {
       type: 'blocked',
-      detail: 'invalid_building',
       reason: `Unknown capacity building: ${buildingKey}`,
     };
   }
@@ -639,7 +350,6 @@ export async function stepIncreaseCapacity(
   if (isUpgrading(station, buildingKey)) {
     return {
       type: 'waiting',
-      detail: `${buildingKey}_upgrading`,
       reason: `Waiting for ${buildingKey} upgrade at ${station.name}`,
     };
   }
@@ -654,28 +364,5 @@ export async function stepIncreaseCapacity(
     };
   }
 
-  const validBuildingKey = buildingKey;
-  const costs = buildingUpgradeCost(station, validBuildingKey);
-  if (canAfford(station, costs)) {
-    return {
-      type: 'success',
-      intent: {
-        type: 'upgrade_building',
-        stationId: station.id,
-        buildingKey: validBuildingKey,
-      },
-      reason: `Upgrading ${buildingKey} at ${station.name} for capacity`,
-    };
-  }
-
-  const supply = assignMinerTowardCosts(_state, station, costs, `${buildingKey} capacity`);
-  if (supply) return supply;
-  return waitForCosts(
-    _state,
-    station,
-    costs,
-    buildingKey,
-    `Saving for ${buildingKey} upgrade at ${station.name}`,
-    `${buildingKey} upgrade resources are not reachable at ${station.name}`
-  );
+  return stepTowardBuildingLevel(_state, station, buildingKey, 'capacity');
 }

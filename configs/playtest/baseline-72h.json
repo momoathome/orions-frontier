@@ -13,7 +13,7 @@
   },
   "snapshotIntervalMinutes": 60,
   "outputDirectory": "artifacts/playtests",
-  "diagnosticWindowSize": 2000,
+  "diagnosticWindowSize": 10000,
   "softlockThresholds": {
     "blockedGoalHours": 6,
     "noProgressHours": 6,

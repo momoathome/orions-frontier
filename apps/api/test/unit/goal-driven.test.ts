@@ -231,7 +231,6 @@ test('returns null when no candidate has positive score', () => {
 test('returns null for empty candidate list', () => {
   const result = selectGoal([], 'industrialist', null);
   assert.equal(result.selected, null);
-  assert.equal(result.scored, null);
   assert.ok(result.reason.includes('No candidates'));
 });
 
@@ -263,24 +262,6 @@ test('identical input produces identical result', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Score breakdown is present in result
-// ---------------------------------------------------------------------------
-
-test('scored candidate includes breakdown', () => {
-  const c = cand({ goalType: 'stabilize_station', targetRef: 'station:x' });
-  const scored = scoreCandidate(c, 'pioneer');
-  assert.ok('score' in scored);
-  assert.ok('scoreBreakdown' in scored);
-  assert.ok(typeof scored.scoreBreakdown.baseNeedWeighted === 'number');
-  assert.ok(typeof scored.scoreBreakdown.opportunity === 'number');
-  assert.ok(typeof scored.scoreBreakdown.longTermValueWeighted === 'number');
-  assert.ok(typeof scored.scoreBreakdown.commitment === 'number');
-  assert.ok(typeof scored.scoreBreakdown.cost === 'number');
-  assert.ok(typeof scored.scoreBreakdown.riskWeighted === 'number');
-  assert.ok(typeof scored.scoreBreakdown.blockers === 'number');
-});
-
-// ---------------------------------------------------------------------------
 // Research generation: different states produce distinct candidates
 // ---------------------------------------------------------------------------
 
@@ -294,7 +275,8 @@ import {
   stepIncreaseIncome,
   stepStabilizeStation,
 } from '../../src/services/bot/goals/economy.js';
-import { stepEstablishColony } from '../../src/services/bot/goals/expansion.js';
+import { expansionOrigin, stepEstablishColony } from '../../src/services/bot/goals/expansion.js';
+import { generateBuildStrikeForceCandidate } from '../../src/services/bot/goals/military.js';
 import {
   generateResearchCandidates,
   stepResearchTechnology,
@@ -333,7 +315,7 @@ const baseStation = (overrides: Partial<StationSnapshot> = {}): StationSnapshot 
   defense: [],
   fleets: [],
   builds: [],
-  research: [],
+  research: {},
   miningAssignments: [],
   trips: [],
   missions: [],
@@ -363,6 +345,7 @@ const baseState = (
   visibleDebris: [],
   combatReports: [],
   conflictDiagnostics: { protectedOwnerIds: [] },
+  research: { levels: station.research, active: [], slots: 1 },
   ...overrides,
 });
 
@@ -393,34 +376,6 @@ test('station stabilization uses real assignments and storage headroom', async (
 test('capacity goals exist only for a demonstrated local bottleneck', () => {
   const ordinary = baseStation();
   assert.equal(generateIncreaseCapacityCandidate(baseState(ordinary), ordinary), null);
-
-  const labBlocked = baseStation({
-    fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 0 }],
-    research: [
-      {
-        technologyKey: 'automated_shipyard',
-        status: 'completed',
-        completesAt: new Date(0),
-      },
-    ],
-  });
-  assert.equal(
-    generateIncreaseCapacityCandidate(
-      baseState(labBlocked, {
-        visibleAsteroids: [
-          {
-            id: 'asteroid-1',
-            x: 100,
-            y: 0,
-            remainingByResource: { carbon: 1_000, kyber_crystal: 1_000 },
-            remainingAmount: 2_000,
-          },
-        ],
-      }),
-      labBlocked
-    )?.targetRef,
-    'station:station-1:laboratory'
-  );
 });
 
 test('storage pressure keeps warehouse expansion urgent at higher levels', () => {
@@ -553,12 +508,42 @@ test('income expansion prepares enough hangar crew for a Titan', async () => {
       { spacecraftKey: 'mole', amount: 3, lockedAmount: 3 },
       { spacecraftKey: 'merlin', amount: 14, lockedAmount: 0 },
     ],
+    research: { extraction_algorithms: 4, cargo_compression: 3 },
   });
   const result = await stepIncreaseIncome(baseState(station), station, 'warlord');
 
   assert.equal(result.type, 'success');
   assert.equal(result.intent.type, 'upgrade_building');
   assert.equal(result.intent.buildingKey, 'hangar');
+});
+
+test('income goal hands a Titan that only lacks research to the research goal', () => {
+  const fleets = [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 0 }];
+  const resources = { carbon: 10_000, titanium: 10_000, hydrogenium: 10_000, kyber_crystal: 1_000 };
+  const shipyard = (level: number) =>
+    baseStation().buildings.map((building) =>
+      building.buildingKey === 'shipyard' ? { ...building, level } : building
+    );
+  const income = (station: ReturnType<typeof baseStation>) =>
+    generateIncreaseIncomeCandidate(baseState(station), station)?.goalType;
+
+  // The Shipyard upgrade stays this goal's step.
+  assert.equal(
+    income(baseStation({ resources, fleets, buildings: shipyard(1) })),
+    'increase_income'
+  );
+  assert.equal(income(baseStation({ resources, fleets, buildings: shipyard(5) })), undefined);
+  assert.equal(
+    income(
+      baseStation({
+        resources,
+        fleets,
+        buildings: shipyard(5),
+        research: { extraction_algorithms: 4, cargo_compression: 3 },
+      })
+    ),
+    'increase_income'
+  );
 });
 
 test('saving goals send an idle miner toward their missing resource', async () => {
@@ -568,6 +553,7 @@ test('saving goals send an idle miner toward their missing resource', async () =
       building.buildingKey === 'shipyard' ? { ...building, level: 5 } : building
     ),
     fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 2 }],
+    research: { extraction_algorithms: 4, cargo_compression: 3 },
     miningAssignments: [
       {
         id: 'assignment-1',
@@ -666,6 +652,19 @@ test('colonization prepares a free miner instead of blocking on locked mining sh
   assert.equal(result.intent.spacecraftKey, 'mole');
 });
 
+test('expedition without a free ship starts where a support ship can be prepared', () => {
+  const home = baseStation();
+  const colony = baseStation({
+    id: 'station-2',
+    sectorX: 5,
+    sectorY: 5,
+    resources: { carbon: 0, titanium: 0, hydrogenium: 0 },
+  });
+  const state = baseState(home, { ownStations: [home, colony] });
+
+  assert.equal(expansionOrigin(state, 'sector:6:6', 'explore_sector')?.id, 'station-1');
+});
+
 test('active expansion keeps its last free support miner out of urgent mining', async () => {
   const onlySupportMiner = baseStation({
     fleets: [{ spacecraftKey: 'mole', amount: 1, lockedAmount: 0 }],
@@ -675,7 +674,7 @@ test('active expansion keeps its last free support miner out of urgent mining', 
     targetRef: 'sector:1:0',
   };
   assert.equal(
-    await checkUrgentMaintenance(baseState(onlySupportMiner), 'pioneer', {}, activeGoal),
+    await checkUrgentMaintenance(baseState(onlySupportMiner), 'pioneer', activeGoal),
     null
   );
 
@@ -688,7 +687,6 @@ test('active expansion keeps its last free support miner out of urgent mining', 
   const otherAssignment = await checkUrgentMaintenance(
     baseState(onlySupportMiner, { ownStations: [onlySupportMiner, otherStation] }),
     'pioneer',
-    {},
     activeGoal
   );
   assert.equal(
@@ -710,7 +708,7 @@ test('active expansion keeps its last free support miner out of urgent mining', 
       },
     ],
   });
-  const result = await checkUrgentMaintenance(baseState(station), 'pioneer', {}, activeGoal);
+  const result = await checkUrgentMaintenance(baseState(station), 'pioneer', activeGoal);
 
   assert.equal(result, null);
 
@@ -721,7 +719,6 @@ test('active expansion keeps its last free support miner out of urgent mining', 
   const assignment = await checkUrgentMaintenance(
     baseState(stationWithSpareMiner),
     'pioneer',
-    {},
     activeGoal
   );
   assert.equal(assignment?.type, 'success');
@@ -735,7 +732,7 @@ test('research does not claim to save when the station has no income', async () 
   const result = await stepResearchTechnology(
     baseState(station),
     station,
-    'tech:station-1:extraction_algorithms',
+    'tech:station-1:extraction_algorithms:1',
     'technocrat'
   );
   assert.equal(result.type, 'blocked');
@@ -744,13 +741,7 @@ test('research does not claim to save when the station has no income', async () 
 test('research candidates require a reachable resource and laboratory path', () => {
   const noIncome = baseStation({
     resources: { carbon: 1, titanium: 1, hydrogenium: 1 },
-    research: [
-      {
-        technologyKey: 'extraction_algorithms',
-        status: 'completed',
-        completesAt: new Date(0),
-      },
-    ],
+    research: { extraction_algorithms: 1 },
   });
   assert.deepEqual(generateResearchCandidates(baseState(noIncome), noIncome), []);
 
@@ -777,7 +768,7 @@ test('research candidates require a reachable resource and laboratory path', () 
             remainingByResource: {
               carbon: 1_000,
               titanium: 1_000,
-              kyber_crystal: 1_000,
+              hydrogenium: 1_000,
             },
             remainingAmount: 3_000,
           },
@@ -820,8 +811,7 @@ test('urgent miner maintenance acts on an unstable colony first', async () => {
   });
   const result = await checkUrgentMaintenance(
     baseState(initial, { ownStations: [initial, colony] }),
-    'industrialist',
-    {}
+    'industrialist'
   );
 
   assert.equal(result?.type, 'success');
@@ -830,77 +820,71 @@ test('urgent miner maintenance acts on an unstable colony first', async () => {
   assert.equal(result.intent.spacecraftKey, 'titan');
 });
 
-test('research with active miners gives extraction_algorithms a high score', () => {
-  const station = baseStation({
-    fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 1 }],
-    miningAssignments: [
-      {
-        id: 'assignment-1',
-        asteroidId: 'asteroid-1',
-        spacecraftKey: 'mole',
-        assignedAmount: 1,
-        status: 'traveling_to_asteroid',
-      },
-    ],
-  });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
-  assert.ok(extraction, 'extraction_algorithms should be a candidate');
-  assert.ok(
-    extraction.baseNeed > 30,
-    'extraction_algorithms should have high baseNeed with active miners'
+const shipyardAt = (level: number, laboratory = 1) =>
+  baseStation().buildings.map((building) =>
+    building.buildingKey === 'shipyard'
+      ? { ...building, level }
+      : building.buildingKey === 'laboratory'
+        ? { ...building, level: laboratory }
+        : building
   );
-});
 
-test('research with many ships gives modular_cargo_frames a high score', () => {
+test('a warlord without Weapons researches Weapons before it builds Merlins', async () => {
   const station = baseStation({
-    fleets: [
-      { spacecraftKey: 'mole', amount: 5, lockedAmount: 0 },
-      { spacecraftKey: 'collector', amount: 2, lockedAmount: 0 },
-    ],
+    buildings: shipyardAt(2),
+    resources: { carbon: 1_000, titanium: 1_000, hydrogenium: 1_000 },
   });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const cargo = candidates.find((c) => c.targetRef.includes('modular_cargo_frames'));
-  assert.ok(cargo, 'modular_cargo_frames should be a candidate');
-  assert.ok(
-    cargo.baseNeed > 30,
-    'modular_cargo_frames should have high baseNeed with many cargo ships'
+  const state = baseState(station);
+  assert.equal(generateBuildStrikeForceCandidate(state, station), null);
+  const [best] = generateResearchCandidates(state, station, 'warlord').sort(
+    (a, b) => b.baseNeed - a.baseNeed
   );
+  assert.equal(best?.targetRef, 'tech:station-1:weapons:1');
 });
 
-test('research with active trips gives vector_navigation a high score', () => {
+test('a needed research behind the laboratory cap upgrades the laboratory first', async () => {
   const station = baseStation({
-    trips: [
-      {
-        id: 'trip-1',
-        purpose: 'mine',
-        status: 'traveling',
-        arrivesAt: new Date(),
-        toId: 'asteroid-1',
-      },
-      {
-        id: 'trip-2',
-        purpose: 'salvage',
-        status: 'traveling',
-        arrivesAt: new Date(),
-        toId: 'debris-1',
-      },
-    ],
+    buildings: shipyardAt(5, 3),
+    resources: { carbon: 5_000, titanium: 5_000, hydrogenium: 5_000, kyber_crystal: 500 },
+    fleets: [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 0 }],
+    research: { extraction_algorithms: 3, cargo_compression: 3 },
   });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const vector = candidates.find((c) => c.targetRef.includes('vector_navigation'));
-  assert.ok(vector, 'vector_navigation should be a candidate');
-  assert.ok(vector.baseNeed > 30, 'vector_navigation should have high baseNeed with active trips');
+  const state = baseState(station);
+  const titanStep = await stepIncreaseIncome(state, station, 'industrialist');
+  assert.equal(titanStep.type, 'blocked');
+
+  const extraction = generateResearchCandidates(state, station).find((candidate) =>
+    candidate.targetRef.endsWith(':extraction_algorithms:4')
+  );
+  assert.ok(extraction, 'the Titan unlock should stay a candidate despite the lab cap');
+  const step = await stepResearchTechnology(state, station, extraction.targetRef, 'technocrat');
+  assert.equal(step.type, 'success');
+  assert.deepEqual(step.intent, {
+    type: 'upgrade_building',
+    stationId: 'station-1',
+    buildingKey: 'laboratory',
+  });
 });
 
-test('research with fighters gives combat_analytics a non-zero score', () => {
-  const station = baseStation({
-    fleets: [{ spacecraftKey: 'javelin', amount: 2, lockedAmount: 0 }],
+test('a laboratory cap is raised at the station with the highest laboratory', async () => {
+  const resources = { carbon: 5_000, titanium: 5_000, hydrogenium: 5_000, kyber_crystal: 500 };
+  const research = { extraction_algorithms: 3 };
+  const high = baseStation({
+    id: 'station-high',
+    buildings: shipyardAt(1, 3),
+    resources,
+    research,
   });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const combat = candidates.find((c) => c.targetRef.includes('combat_analytics'));
-  assert.ok(combat, 'combat_analytics should be a candidate');
-  assert.ok(combat.baseNeed > 10, 'combat_analytics should have non-zero baseNeed with fighters');
+  const low = baseStation({ id: 'station-low', buildings: shipyardAt(1, 1), resources, research });
+  const state = baseState(low, { ownStations: [low, high] });
+  const step = await stepResearchTechnology(
+    state,
+    low,
+    'tech:station-low:extraction_algorithms:4',
+    'technocrat'
+  );
+  assert.equal(step.type === 'success' && step.intent.type, 'upgrade_building');
+  assert.equal(step.type === 'success' && step.intent.stationId, 'station-high');
 });
 
 test('raid sends the smallest sufficient fighter group with every docked bomber', async () => {
@@ -1035,11 +1019,28 @@ test('salvage must beat mining and chooses the best local station deterministica
   assert.equal(generateSalvageCandidates(unprofitable, 'industrialist').length, 0);
 });
 
+test('salvage that needs a collector waits for its research', () => {
+  const station = baseStation({ resources: { carbon: 0, titanium: 0, hydrogenium: 0 } });
+  const debris = [{ id: 'debris-rich', x: 100, y: 0, resources: { astatine: 1_000 } }];
+  assert.equal(
+    generateSalvageCandidates(baseState(station, { visibleDebris: debris }), 'industrialist')
+      .length,
+    0
+  );
+  const researched = { ...station, research: { cargo_compression: 2 } };
+  assert.equal(
+    generateSalvageCandidates(baseState(researched, { visibleDebris: debris }), 'industrialist')
+      .length,
+    1
+  );
+});
+
 test('collector construction requires one-trip salvage payback', async () => {
   const station = baseStation({
     buildings: baseStation().buildings.map((building) =>
       building.buildingKey === 'shipyard' ? { ...building, level: 2 } : building
     ),
+    research: { cargo_compression: 2 },
   });
   const poorState = baseState(station, {
     visibleDebris: [{ id: 'debris-poor', x: 100, y: 0, resources: { carbon: 1 } }],
@@ -1058,30 +1059,12 @@ test('collector construction requires one-trip salvage payback', async () => {
   assert.equal(result.intent.spacecraftKey, 'collector');
 });
 
-test('research with upgrades in progress gives station_grid_optimization a boost', () => {
-  const station = baseStation({
-    buildings: [
-      { buildingKey: 'shipyard', level: 1, upgradeEndsAt: new Date(Date.now() + 3600000) },
-      { buildingKey: 'warehouse', level: 1, upgradeEndsAt: null },
-      { buildingKey: 'hangar', level: 1, upgradeEndsAt: null },
-      { buildingKey: 'laboratory', level: 1, upgradeEndsAt: null },
-      { buildingKey: 'scanner', level: 1, upgradeEndsAt: null },
-      { buildingKey: 'core', level: 1, upgradeEndsAt: null },
-    ],
-  });
-  const candidates = generateResearchCandidates(baseState(station), station);
-  const grid = candidates.find((c) => c.targetRef.includes('station_grid_optimization'));
-  assert.ok(grid, 'station_grid_optimization should be a candidate');
-  assert.ok(grid.baseNeed > 15, 'station_grid_optimization should benefit from active upgrades');
-});
-
 test('started research is excluded from candidates', () => {
-  const station = baseStation({
-    research: [
-      { technologyKey: 'extraction_algorithms', status: 'researching', completesAt: new Date() },
-    ],
-  });
-  const candidates = generateResearchCandidates(baseState(station), station);
+  const station = baseStation();
+  const candidates = generateResearchCandidates(
+    baseState(station, { research: { levels: {}, active: ['extraction_algorithms'], slots: 2 } }),
+    station
+  );
   const extraction = candidates.find((c) => c.targetRef.includes('extraction_algorithms'));
   assert.equal(extraction, undefined, 'started research should be excluded');
 });
@@ -1135,4 +1118,329 @@ test('outcomes shift weights and they revert toward the profile start weights', 
   for (let i = 0; i < 200; i += 1) drifted = adaptCategoryWeights(drifted, 'pioneer', []);
   assert.ok(Math.abs(drifted.research - base.research) < 0.05);
   assert.deepEqual(categoryWeightsFor('pioneer', { research: Number.NaN }), base);
+});
+
+// ---------------------------------------------------------------------------
+// Goal outcome and switching
+// ---------------------------------------------------------------------------
+
+import { activeRaidBlocks, chooseGoalStep, goalOutcome } from '../../src/services/bot/bot.js';
+import { determineNextStep } from '../../src/services/bot/goal-lifecycle.js';
+import {
+  generateRaidCandidates,
+  generateRetaliateCandidates,
+  stepRetaliate,
+} from '../../src/services/bot/goals/conflict.js';
+import { stepBuildStrikeForce, stepFortifyStation } from '../../src/services/bot/goals/military.js';
+import { getBuilding } from '@orions-frontier/game-config';
+import type { CombatReport } from '@orions-frontier/shared';
+
+const foreignStation = (id: string, ownerId: string) => ({
+  id,
+  name: 'Target',
+  x: 100,
+  y: 0,
+  chunkX: 0,
+  chunkY: 0,
+  ownerType: 'player' as const,
+  ownerId,
+  isOwn: false,
+  scanned: true,
+  integrity: null,
+  visualProfile: {
+    scaleTier: 1 as const,
+    modules: {
+      core: 0 as const,
+      shipyard: 0 as const,
+      warehouse: 0 as const,
+      scanner: 0 as const,
+      hangar: 0 as const,
+      laboratory: 0 as const,
+    },
+    defense: {
+      armor_plating: 0 as const,
+      guardian_cannon: 0 as const,
+      defense_drones: 0 as const,
+      minefield: 0 as const,
+    },
+    traffic: { civilian: 0 as const, military: 0 as const },
+  },
+});
+
+const combatReport = (
+  attackerUserId: string,
+  defenderUserId: string,
+  createdAt: Date
+): CombatReport => ({
+  id: `report-${attackerUserId}`,
+  attackerStationId: 'attacker-station',
+  defenderStationId: 'defender-station',
+  attackerUserId,
+  defenderUserId,
+  attackerFleet: null,
+  attackerAmount: null,
+  attackerLosses: 0,
+  defenderLosses: 0,
+  winner: 'attacker',
+  loot: {},
+  integrityDamage: 0,
+  defenderIntegrity: null,
+  stationDestroyed: false,
+  status: 'resolved',
+  arrivesAt: createdAt.toISOString(),
+  createdAt: createdAt.toISOString(),
+  resolvedAt: createdAt.toISOString(),
+});
+
+test('a goal is released after five blocked intervals and a protected target is remembered', () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  const goal = { goalType: 'raid' as const, targetRef: 'station:target-1' };
+  const blocked = { type: 'blocked' as const, action: 'blocked', reason: 'No source' };
+  const controller = {
+    activeGoalType: goal.goalType,
+    activeGoalTarget: goal.targetRef,
+    blockedCount: 3,
+    goalStartedAt: new Date(0),
+    raidBlockedOwners: {},
+  };
+
+  const fourth = goalOutcome(controller, goal, blocked, now);
+  assert.equal(fourth.update.blockedCount, 4);
+  assert.equal(fourth.update.activeGoalType, 'raid');
+  assert.deepEqual(fourth.update.goalStartedAt, new Date(0));
+
+  const fifth = goalOutcome({ ...controller, blockedCount: 4 }, goal, blocked, now);
+  assert.equal(fifth.update.activeGoalType, null);
+  assert.equal(fifth.update.blockedCount, 0);
+  assert.equal(fifth.result.action, 'blocked');
+  assert.match(fifth.result.reason, /released after 5 blocked intervals/);
+
+  // A blocked first step of another goal starts its own count.
+  const other = goalOutcome(
+    { ...controller, blockedCount: 4 },
+    { ...goal, targetRef: 'station:x' },
+    blocked,
+    now
+  );
+  assert.equal(other.update.blockedCount, 1);
+  assert.deepEqual(other.update.goalStartedAt, now);
+
+  const protectedTarget = goalOutcome(
+    controller,
+    { ...goal, ownerId: 'owner-1' },
+    { type: 'blocked', action: 'blocked', reason: 'Target protected', retryAfterMs: 60_000 },
+    now
+  );
+  assert.equal(protectedTarget.update.activeGoalType, null);
+  assert.deepEqual(protectedTarget.update.raidBlockedOwners, {
+    'owner-1': new Date(now.getTime() + 60_000).toISOString(),
+  });
+});
+
+test('two rejected raids block both owners', () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  const rejected = {
+    type: 'waiting' as const,
+    action: 'waiting',
+    reason: 'Target account is protected from attacks',
+    retryAfterMs: 60_000,
+  };
+  const controller = {
+    activeGoalType: null,
+    activeGoalTarget: null,
+    blockedCount: 0,
+    goalStartedAt: null,
+    raidBlockedOwners: { 'owner-old': new Date(now.getTime() - 1).toISOString() },
+  };
+  const first = goalOutcome(
+    controller,
+    { goalType: 'raid', targetRef: 'station:station-a', ownerId: 'owner-a' },
+    rejected,
+    now
+  );
+  const second = goalOutcome(
+    { ...controller, raidBlockedOwners: first.update.raidBlockedOwners! },
+    { goalType: 'retaliate', targetRef: 'user:owner-b', ownerId: 'owner-b' },
+    rejected,
+    now
+  );
+  const blocks = second.update.raidBlockedOwners!;
+  assert.deepEqual(Object.keys(blocks).sort(), ['owner-a', 'owner-b']);
+
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 0 }],
+  });
+  const state = baseState(station, {
+    visibleStations: [
+      foreignStation('station-a', 'owner-a'),
+      foreignStation('station-b', 'owner-b'),
+    ],
+    combatReports: [
+      combatReport('owner-a', 'bot-1', new Date(now.getTime() - 3_600_000)),
+      combatReport('owner-b', 'bot-1', new Date(now.getTime() - 3_600_000)),
+    ],
+  });
+  assert.equal(generateRaidCandidates(state, 'warlord').length, 2);
+  assert.equal(generateRetaliateCandidates(state, 'warlord').length, 2);
+
+  const blocked = {
+    ...state,
+    blockedRaidOwners: new Set(Object.keys(activeRaidBlocks(blocks, now))),
+  };
+  assert.equal(generateRaidCandidates(blocked, 'warlord').length, 0);
+  assert.equal(generateRetaliateCandidates(blocked, 'warlord').length, 0);
+  // Both blocks lapse once their hour is over.
+  assert.deepEqual(activeRaidBlocks(blocks, new Date(now.getTime() + 60_000)), {});
+});
+
+test('a waiting goal gives way to another goal only once its commitment has faded', async () => {
+  // The only defense upgrades already, so fortify waits and is no longer a candidate.
+  const station = baseStation({
+    defense: [{ upgradeKey: 'armor_plating', level: 1, upgradeEndsAt: new Date('2026-01-02') }],
+  });
+  const state = baseState(station);
+  const fortify = {
+    activeGoalType: 'fortify_station' as const,
+    activeGoalTarget: 'station:station-1',
+  };
+  const weights = categoryWeightsFor('industrialist', null);
+
+  const committed = await chooseGoalStep(
+    state,
+    'industrialist',
+    { ...fortify, goalStartedAt: state.now, lastProgressAt: null },
+    weights,
+    state.now
+  );
+  assert.ok(committed.goal);
+  assert.equal(committed.goal.goalType, 'fortify_station');
+  assert.equal(committed.step.type, 'waiting');
+
+  const faded = await chooseGoalStep(
+    state,
+    'industrialist',
+    { ...fortify, goalStartedAt: new Date(0), lastProgressAt: null },
+    weights,
+    state.now
+  );
+  assert.ok(faded.goal);
+  assert.notEqual(faded.goal.goalType, 'fortify_station');
+});
+
+test('fortify waits while any defense upgrade runs', async () => {
+  const station = baseStation({
+    defense: [
+      { upgradeKey: 'armor_plating', level: 1, upgradeEndsAt: new Date('2026-01-02') },
+      { upgradeKey: 'guardian_cannon', level: 0, upgradeEndsAt: null },
+    ],
+  });
+  const result = await stepFortifyStation(
+    baseState(station),
+    station,
+    'station:station-1',
+    'warlord'
+  );
+  assert.equal(result.type, 'waiting');
+});
+
+test('a full Hangar at its maximum level neither offers nor loops a strike force', async () => {
+  const station = baseStation({
+    buildings: baseStation().buildings.map((building) =>
+      building.buildingKey === 'shipyard'
+        ? { ...building, level: 2 }
+        : building.buildingKey === 'hangar'
+          ? { ...building, level: getBuilding('hangar').maxLevel }
+          : building
+    ),
+    research: { weapons: 1 },
+    fleets: [{ spacecraftKey: 'mole', amount: 100_000, lockedAmount: 0 }],
+  });
+  const state = baseState(station);
+  assert.equal(generateBuildStrikeForceCandidate(state, station), null);
+  const result = await stepBuildStrikeForce(state, station, 'station:station-1', 'warlord');
+  assert.equal(result.type, 'blocked');
+});
+
+test('a Collector in the shipyard counts as owned for salvage', async () => {
+  const station = baseStation({
+    buildings: shipyardAt(2),
+    research: { cargo_compression: 2 },
+    builds: [{ spacecraftKey: 'collector', amount: 1 }],
+  });
+  const state = baseState(station, {
+    visibleDebris: [{ id: 'debris-rich', x: 100, y: 0, resources: { astatine: 1_000 } }],
+  });
+  const [candidate] = generateSalvageCandidates(state, 'industrialist');
+  assert.equal(candidate?.cost, 10);
+  const result = await stepSalvage(state, station, 'debris:debris-rich', 'industrialist');
+  assert.equal(result.type, 'waiting');
+});
+
+test('retaliation waits for its launched attack and skips a protected attacker', async () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  const report = combatReport('opponent-1', 'bot-1', new Date(now.getTime() - 2 * 3_600_000));
+  const launched = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 3 }],
+    combatMissions: [
+      { id: 'mission-1', defenderStationId: 'target-1', status: 'traveling', createdAt: now },
+    ],
+  });
+  const state = baseState(launched, {
+    visibleStations: [foreignStation('target-1', 'opponent-1')],
+    combatReports: [report],
+  });
+  const result = await determineNextStep(state, 'warlord', 'retaliate', 'user:opponent-1');
+  assert.equal(result.type, 'waiting');
+
+  const docked = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 0 }],
+  });
+  const dockedState = baseState(docked, {
+    visibleStations: [foreignStation('target-1', 'opponent-1')],
+    combatReports: [report],
+  });
+  assert.equal(generateRetaliateCandidates(dockedState, 'warlord').length, 1);
+  assert.equal(
+    generateRetaliateCandidates(
+      { ...dockedState, blockedRaidOwners: new Set(['opponent-1']) },
+      'warlord'
+    ).length,
+    0
+  );
+  assert.equal(
+    (await stepRetaliate(dockedState, docked, 'user:opponent-1', 'warlord')).type,
+    'success'
+  );
+});
+
+test('a raid completes only after the bot attacked, not after being attacked', async () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 0 }],
+  });
+  const recent = new Date(now.getTime() - 10 * 60_000);
+  const attacked = baseState(station, {
+    visibleStations: [foreignStation('target-1', 'opponent-1')],
+    combatReports: [combatReport('opponent-1', 'bot-1', recent)],
+  });
+  assert.equal((await stepRaid(attacked, station, 'station:target-1', 'warlord')).type, 'waiting');
+
+  const attackedByBot = {
+    ...attacked,
+    combatReports: [combatReport('bot-1', 'opponent-1', recent)],
+  };
+  assert.equal(
+    (await stepRaid(attackedByBot, station, 'station:target-1', 'warlord')).type,
+    'complete'
+  );
+
+  // Another own station still attacking the target keeps the raid waiting.
+  const attacking = baseStation({
+    id: 'station-2',
+    combatMissions: [
+      { id: 'mission-1', defenderStationId: 'target-1', status: 'traveling', createdAt: now },
+    ],
+  });
+  const busy = { ...attacked, combatReports: [], ownStations: [station, attacking] };
+  assert.equal((await stepRaid(busy, station, 'station:target-1', 'warlord')).type, 'waiting');
 });

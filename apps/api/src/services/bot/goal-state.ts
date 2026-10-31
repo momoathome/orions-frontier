@@ -1,6 +1,8 @@
 import type {
   BuildingKey,
   DefenseUpgradeKey,
+  ResearchKey,
+  ResearchLevels,
   ResourceMap,
   VisibleStation,
 } from '@orions-frontier/shared';
@@ -23,7 +25,8 @@ export interface StationSnapshot {
   defense: { upgradeKey: DefenseUpgradeKey; level: number; upgradeEndsAt: Date | null }[];
   fleets: { spacecraftKey: string; amount: number; lockedAmount: number }[];
   builds: { spacecraftKey: string; amount: number }[];
-  research: { technologyKey: string; status: string; completesAt: Date | null }[];
+  /** Account-wide research levels, copied onto every station for the station-level helpers. */
+  research: ResearchLevels;
   miningAssignments: {
     id: string;
     asteroidId: string;
@@ -38,6 +41,7 @@ export interface StationSnapshot {
     arrivesAt: Date;
     toId: string;
   }[];
+  /** Moving world missions only (traveling or returning). */
   missions: {
     missionType: string;
     status: string;
@@ -45,6 +49,7 @@ export interface StationSnapshot {
     targetSectorX: number;
     targetSectorY: number;
   }[];
+  /** Unresolved attacks only. */
   combatMissions: {
     id: string;
     defenderStationId: string;
@@ -64,6 +69,7 @@ export interface GoalBotState {
   userId: string;
   now: Date;
   completedExpeditions: number;
+  research: { levels: ResearchLevels; active: ResearchKey[]; slots: number };
   ownStations: StationSnapshot[];
   visibleAsteroids: {
     id: string;
@@ -80,6 +86,8 @@ export interface GoalBotState {
     resources: ResourceMap;
   }[];
   combatReports: CombatReport[];
+  /** Owners the bot learned are protected; raid and retaliation skip them for a while. */
+  blockedRaidOwners?: ReadonlySet<string>;
   /** Authoritative diagnostic inputs which never participate in candidate selection. */
   conflictDiagnostics: {
     protectedOwnerIds: string[];
@@ -88,7 +96,5 @@ export interface GoalBotState {
 
 export type GoalResult =
   | { type: 'success'; intent: BotIntent; reason: string }
-  | { type: 'waiting'; detail: string; reason: string }
-  | { type: 'saving'; detail: string; reason: string }
-  | { type: 'blocked'; detail: string; reason: string }
+  | { type: 'waiting' | 'saving' | 'blocked'; reason: string }
   | { type: 'complete'; goalType: string; targetRef: string; reason: string };

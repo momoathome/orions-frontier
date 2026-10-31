@@ -63,7 +63,8 @@ nicht.
 Die Kamera erzeugt keine Welt. Neue Frontier entsteht ausschließlich durch eine Spieleraktion:
 
 1. Ein unbekannter angrenzender Sektor wird als Ziel angeboten.
-2. Ein verfügbares Schiff startet eine persistierte Expedition.
+2. Ein verfügbares Schiff startet eine persistierte Expedition. Das setzt Long-Range Survey voraus;
+   gleichzeitig laufen höchstens 1 + Frontier Charter Expeditionen pro Account.
 3. Bei Ankunft wird der Zielsektor idempotent erzeugt und gemeinsam entdeckt.
 4. Das Schiff kehrt mit derselben Reiseberechnung zurück und wird erst danach wieder verfügbar.
 
@@ -73,7 +74,8 @@ mehrfach anlegen.
 ## Kolonisation
 
 Eine erzeugte Frontier kann mit einer weiteren Station besiedelt werden. Die Aktion prüft Eigentum,
-Mindestabstand, Kosten und einen verfügbaren Miner; Scannerreichweite ist keine Sektorgrenze. Der
+Mindestabstand, Kosten, das Stationslimit aus der Forschung (Kolonisierungen im Flug zählen mit) und
+einen verfügbaren Miner; Scannerreichweite ist keine Sektorgrenze. Der
 Miner wird bei erfolgreicher Gründung aus der Ursprungsflotte in die Kolonie übertragen.
 
 Eine Kolonie erhält keine Startertasche, kostenlosen Ressourcen oder zusätzlichen Schiffe. Sie

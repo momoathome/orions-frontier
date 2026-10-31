@@ -2,17 +2,20 @@ import assert from 'node:assert/strict';
 import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
-import { calculateBuildingUpgradeCost, spacecrafts } from '@orions-frontier/game-config';
-import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
+import { and, eq } from 'drizzle-orm';
+import {
+  calculateBuildingEffect,
+  calculateBuildingUpgradeCost,
+  spacecrafts,
+} from '@orions-frontier/game-config';
+import { closeDb, getDb, initDb, withExclusiveLock } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { asteroids } from '../../src/lib/db/schema/asteroids.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationResearch } from '../../src/lib/db/schema/station-research.js';
+import { userResearch } from '../../src/lib/db/schema/user-research.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
@@ -29,31 +32,40 @@ import {
 } from '../../src/services/station/spacecraft.js';
 import { createStation } from '../../src/services/station/station.js';
 import {
+  creditStationResources,
   getDeliveredResourceRates,
   getStationResources,
   seedStationResources,
 } from '../../src/services/station/resources.js';
-import { getUserScannerCoverages } from '../../src/services/map/scanner-visibility.js';
+import { getUserScannerCoverages } from '../../src/services/station/scanner-coverage.js';
 import {
+  cancelResearch,
   completeDueResearch,
   getResearchState,
   startResearch,
-} from '../../src/services/research/research.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+} from '../../src/services/station/research-queue.js';
 import {
-  applyGridOptimization,
-  applyVectorNavigation,
-  effectiveAttackPower,
-  effectiveCargoCapacity,
-  effectiveMiningRate,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+  grantResearch,
+  setTestResources,
+} from '../helpers/fixtures.js';
+import { startAttack } from '../../src/services/combat/combat.js';
+import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
+import { findStationForUpdate } from '../../src/services/station/repositories/stations.js';
+import { runExclusiveWorldTick, runWorldTick } from '../../src/services/simulation/simulation.js';
+import {
+  applyConstructionSpeed,
+  applyTravelSpeed,
+  getStationResearchModifiers,
 } from '../../src/services/research/effects.js';
+import { payStationCosts } from '../../src/services/station/repositories/station-resources.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
 const sectorId = randomUUID();
-const createdStationIds: string[] = [];
 const createdUserIds: string[] = [];
-const testSlotIds: string[] = [];
 
 before(async () => {
   await runMigrations();
@@ -84,26 +96,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  const allStationIds = [stationId, ...createdStationIds];
-  await db.delete(stationResearch).where(inArray(stationResearch.stationId, allStationIds));
-  await db
-    .delete(spacecraftBuildOrders)
-    .where(inArray(spacecraftBuildOrders.stationId, allStationIds));
-  await db.delete(stationResources).where(inArray(stationResources.stationId, allStationIds));
-  await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, allStationIds));
-  await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, allStationIds));
-  if (createdStationIds.length) {
-    await db
-      .update(spawnSlots)
-      .set({ stationId: null })
-      .where(inArray(spawnSlots.stationId, createdStationIds));
-  }
-  await db.delete(stations).where(inArray(stations.id, allStationIds));
-  await db.delete(asteroids).where(eq(asteroids.sectorId, sectorId));
-  if (testSlotIds.length) await db.delete(spawnSlots).where(inArray(spawnSlots.id, testSlotIds));
-  await db.delete(users).where(inArray(users.id, [userId, ...createdUserIds]));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId, ...createdUserIds], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -194,7 +187,34 @@ test('parallel building upgrades deduct resources and start work once', async ()
   assert.ok(resources.every((resource) => resource.amount === 0));
 });
 
+test('concurrent payments never overdraw a resource and leave nothing paid on failure', async () => {
+  await setResources({ carbon: 1_000, titanium: 100 });
+  const costs = { carbon: 600, titanium: 100 };
+  const results = await Promise.allSettled(
+    [0, 1].map(() =>
+      getDb().transaction(async (tx) => {
+        const short = await payStationCosts(tx, stationId, costs);
+        if (short) throw new Error(`Insufficient ${short.resourceKey}`);
+      })
+    )
+  );
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.deepEqual(
+    Object.fromEntries(
+      (
+        await getDb()
+          .select()
+          .from(stationResources)
+          .where(eq(stationResources.stationId, stationId))
+      ).map((row) => [row.resourceKey, row.amount])
+    ),
+    { carbon: 400, titanium: 0 }
+  );
+});
+
 test('Warehouse is a playable upgrade with active protection', async () => {
+  // The parallel upgrade test above still holds the base build slot.
+  await grantResearch(userId, { parallel_construction: 1 });
   const costs = calculateBuildingUpgradeCost('warehouse', 2);
   await setResources(Object.fromEntries(costs.map((cost) => [cost.resourceKey, cost.amount])));
   const building = await startBuildingUpgrade(stationId, 'warehouse', userId);
@@ -226,7 +246,7 @@ test('parallel spacecraft orders cannot spend the same resources twice', async (
   assert.equal(orders.length, 1);
 });
 
-test('shipyard unlocks expose buildable spacecraft without an existing fleet row', async () => {
+test('shipyard unlocks list research-locked spacecraft with their blockers', async () => {
   const db = getDb();
   await db
     .update(stationBuildings)
@@ -235,33 +255,67 @@ test('shipyard unlocks expose buildable spacecraft without an existing fleet row
       and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'shipyard'))
     );
 
-  const fleet = await getStationSpacecrafts(stationId);
-  const titan = fleet.find((entry) => entry.definition.key === 'titan');
+  const titanOf = async () =>
+    (await getStationSpacecrafts(stationId)).find((entry) => entry.definition.key === 'titan');
+  const locked = await titanOf();
   assert.deepEqual(
-    { amount: titan?.amount, lockedAmount: titan?.lockedAmount },
+    { amount: locked?.amount, lockedAmount: locked?.lockedAmount },
     { amount: 0, lockedAmount: 0 }
   );
-  assert.ok(fleet.some((entry) => entry.definition.key === 'merlin'));
-  assert.ok(fleet.some((entry) => entry.definition.key === 'collector'));
+  assert.ok(locked?.blockers.some((blocker) => blocker.type === 'research'));
+
+  await grantResearch(userId, { extraction_algorithms: 4, cargo_compression: 3 });
+  assert.deepEqual((await titanOf())?.blockers, []);
+  await db.delete(userResearch).where(eq(userResearch.userId, userId));
 });
 
-test('Laboratory research spends normal resources and accelerates ship construction', async () => {
+test('Laboratory research spends resources, fills one slot and refunds on cancel', async () => {
+  const db = getDb();
+  const stock = { carbon: 1_000, titanium: 1_000, hydrogenium: 1_000 };
+  await setResources(stock);
+  const resources = async () =>
+    Object.fromEntries(
+      (
+        await db.select().from(stationResources).where(eq(stationResources.stationId, stationId))
+      ).map((row) => [row.resourceKey, row.amount])
+    );
+
+  await startResearch(userId, stationId, 'extraction_algorithms');
+  await assert.rejects(
+    startResearch(userId, stationId, 'extraction_algorithms'),
+    /already running/
+  );
+  await assert.rejects(
+    startResearch(userId, stationId, 'cargo_compression'),
+    /No free research slot/
+  );
+  assert.notDeepEqual(await resources(), stock);
+
+  await cancelResearch(userId, 'extraction_algorithms', creditStationResources);
+  assert.deepEqual(await resources(), stock);
+  await assert.rejects(
+    cancelResearch(userId, 'extraction_algorithms', creditStationResources),
+    /not running/
+  );
+
+  await startResearch(userId, stationId, 'extraction_algorithms');
+  const [project] = await db.select().from(userResearch).where(eq(userResearch.userId, userId));
+  await completeDueResearch(new Date(project!.completesAt!.getTime() + 1), {
+    credit: creditStationResources,
+  });
+  const state = await getResearchState(userId);
+  assert.equal(
+    state.technologies.find((tech) => tech.definition.key === 'extraction_algorithms')?.level,
+    1
+  );
+  await db.delete(userResearch).where(eq(userResearch.userId, userId));
+});
+
+test('Fabrication Lines shortens ship construction on top of the shipyard bonus', async () => {
   const db = getDb();
   await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
   await setResources({ carbon: 1_000, titanium: 1_000, hydrogenium: 1_000 });
-
-  await startResearch(stationId, userId, 'automated_shipyard');
-  await assert.rejects(
-    startResearch(stationId, userId, 'automated_shipyard'),
-    /Research already started/
-  );
-  const [project] = await db
-    .select()
-    .from(stationResearch)
-    .where(eq(stationResearch.stationId, stationId));
-  assert.equal((await getResearchState(stationId, userId)).used, 5);
-  await completeDueResearch(new Date(project!.completesAt.getTime() + 1));
-  assert.equal((await getResearchState(stationId, userId)).technologies[0]?.status, 'completed');
+  await grantResearch(userId, { fabrication_lines: 2 });
 
   const startedAt = Date.now();
   await buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }]);
@@ -269,49 +323,50 @@ test('Laboratory research spends normal resources and accelerates ship construct
     .select()
     .from(spacecraftBuildOrders)
     .where(eq(spacecraftBuildOrders.stationId, stationId));
+  const shipyardBonus =
+    calculateBuildingEffect('shipyard', 5).find(
+      (effect) => effect.type === 'spacecraft_production_bonus'
+    )?.value ?? 0;
+  const expected = Math.ceil(60 * (1 - (shipyardBonus + 6) / 100)) * 1000;
   assert.ok(order);
-  assert.ok(order.endsAt.getTime() - startedAt <= 53_500);
+  assert.ok(Math.abs(order.endsAt.getTime() - startedAt - expected) < 1_500);
+  await db.delete(spacecraftBuildOrders).where(eq(spacecraftBuildOrders.stationId, stationId));
+  await db.delete(userResearch).where(eq(userResearch.userId, userId));
 });
 
-test('all six research foundations expose their canonical server-side multipliers', async () => {
+test('research levels expose their canonical server-side multipliers', async () => {
   const db = getDb();
-  await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
-  const now = new Date();
-  await db.insert(stationResearch).values(
-    [
-      'automated_shipyard',
-      'extraction_algorithms',
-      'modular_cargo_frames',
-      'vector_navigation',
-      'combat_analytics',
-      'station_grid_optimization',
-    ].map((technologyKey) => ({
-      stationId,
-      technologyKey,
-      status: 'completed' as const,
-      completesAt: now,
-      completedAt: now,
-    }))
+  await grantResearch(userId, {
+    extraction_algorithms: 2,
+    cargo_compression: 2,
+    ion_propulsion: 2,
+  });
+
+  const modifiers = await getStationResearchModifiers(db, stationId);
+  assert.ok(Math.abs(100 * modifiers.miningRate - 110) < 1e-9);
+  assert.ok(Math.abs(100 * modifiers.cargo - 110) < 1e-9);
+
+  const arrival = await applyTravelSpeed(db, stationId, new Date(100_000), new Date(0));
+  assert.equal(arrival.getTime(), Math.round(100_000 / 1.1));
+
+  const startedAt = Date.now();
+  const construction = applyConstructionSpeed(
+    10,
+    1,
+    new Date(startedAt + 100_000),
+    new Date(startedAt)
   );
-
-  assert.ok(Math.abs((await effectiveMiningRate(db, stationId, 100)) - 110) < 1e-9);
-  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100)) - 110) < 1e-9);
-  assert.ok(Math.abs((await effectiveCargoCapacity(db, stationId, 100)) - 110) < 1e-9);
-  assert.ok(Math.abs((await effectiveAttackPower(db, stationId, 100)) - 110) < 1e-9);
-
-  const departedAt = new Date(0);
-  const vectorArrival = await applyVectorNavigation(db, stationId, new Date(100_000), departedAt);
-  assert.equal(vectorArrival.getTime(), 90_000);
-
-  const gridStartedAt = Date.now();
-  const gridArrival = applyGridOptimization(
-    true,
-    new Date(gridStartedAt + 100_000),
-    new Date(gridStartedAt)
+  assert.equal(construction.getTime() - startedAt, 90_000);
+  // Core level 20 adds 38% on top of the research's 10%.
+  const coreArrival = applyConstructionSpeed(
+    10,
+    20,
+    new Date(startedAt + 100_000),
+    new Date(startedAt)
   );
-  assert.equal(gridArrival.getTime() - gridStartedAt, 90_000);
+  assert.equal(coreArrival.getTime() - startedAt, 52_000);
 
-  await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
+  await db.delete(userResearch).where(eq(userResearch.userId, userId));
 });
 
 test('scanner visibility uses the authenticated users station building effect', async () => {
@@ -339,12 +394,12 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
     stationId,
     spacecraftKey: 'collector',
     amount: 2,
+    orderedAmount: 2,
+    unitCost: [],
+    nextAt: new Date(Date.now() + 60_000),
     endsAt: new Date(Date.now() + 60_000),
   });
-  await db
-    .update(stationResources)
-    .set({ amount: 100_000 })
-    .where(eq(stationResources.stationId, stationId));
+  await setTestResources(stationId, 100_000);
 
   assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 18 });
 
@@ -358,9 +413,9 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
   const completedAt = new Date();
   await db
     .update(spacecraftBuildOrders)
-    .set({ endsAt: completedAt })
+    .set({ nextAt: completedAt, endsAt: completedAt })
     .where(eq(spacecraftBuildOrders.stationId, stationId));
-  await runSimulationTick(completedAt);
+  await runWorldTick(completedAt);
   assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 20 });
 });
 
@@ -378,19 +433,72 @@ test('parallel station creation claims different spawn slots atomically', async 
     }))
   );
   const slotIndex = 1_000_000 + Math.floor(Math.random() * 100_000);
-  const slots = await db
-    .insert(spawnSlots)
-    .values([
-      { sectorId, slotIndex, x: slotIndex, y: 0 },
-      { sectorId, slotIndex: slotIndex + 1, x: slotIndex + 1, y: 0 },
-    ])
-    .returning({ id: spawnSlots.id });
-  testSlotIds.push(...slots.map((slot) => slot.id));
+  await db.insert(spawnSlots).values([
+    { sectorId, slotIndex, x: slotIndex, y: 0 },
+    { sectorId, slotIndex: slotIndex + 1, x: slotIndex + 1, y: 0 },
+  ]);
 
   const created = await Promise.all([
     createStation(usersToCreate[0]!, { name: 'One', sectorId }),
     createStation(usersToCreate[1]!, { name: 'Two', sectorId }),
   ]);
-  createdStationIds.push(...created.map((station) => station.id));
   assert.equal(new Set(created.map((station) => `${station.x}:${station.y}`)).size, 2);
+});
+
+test('a second API process skips the world tick while another one runs it', async () => {
+  let skipped: unknown = 'not run';
+  await withExclusiveLock('world-tick', async () => {
+    skipped = await runExclusiveWorldTick();
+  });
+  assert.equal(skipped, undefined);
+  assert.ok(await runExclusiveWorldTick());
+});
+
+test('an attack starts while the tick holds the target station', async () => {
+  const db = getDb();
+  const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1_000);
+  const [attacker, defender] = await Promise.all([
+    createTestUser({ createdAt: oldDate }),
+    createTestUser({ createdAt: oldDate }),
+  ]);
+  createdUserIds.push(attacker.id, defender.id);
+  const [attackerStation, defenderStation] = await Promise.all([
+    createTestStation({ userId: attacker.id, sectorId, name: 'Lock Attacker', x: 9_000 }),
+    createTestStation({ userId: defender.id, sectorId, name: 'Lock Defender', x: 9_001 }),
+  ]);
+  await db
+    .insert(stationSpacecrafts)
+    .values({ stationId: attackerStation.id, spacecraftKey: 'merlin', amount: 1 });
+
+  let locked!: () => void;
+  let release!: () => void;
+  const isLocked = new Promise<void>((resolve) => (locked = resolve));
+  const released = new Promise<void>((resolve) => (release = resolve));
+  // Stands in for the tick resolving a wave against the defender station.
+  const tick = db.transaction(async (tx) => {
+    await findStationForUpdate(tx, defenderStation.id);
+    locked();
+    await released;
+  });
+  await isLocked;
+
+  try {
+    const attack = startAttack({
+      userId: attacker.id,
+      stationId: attackerStation.id,
+      targetStationId: defenderStation.id,
+      fleet: { merlin: 1 },
+    });
+    const timeout = new Promise<'timeout'>((resolve) => setTimeout(resolve, 2_000, 'timeout'));
+    const outcome = await Promise.race([attack, timeout]);
+    assert.notEqual(outcome, 'timeout', 'the combat mission insert waited on the station lock');
+  } finally {
+    release();
+    await tick;
+  }
+  const missions = await db
+    .select()
+    .from(combatMissions)
+    .where(eq(combatMissions.defenderStationId, defenderStation.id));
+  assert.equal(missions.length, 1);
 });

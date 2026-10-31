@@ -10,18 +10,7 @@ export const EVEN_PROFILE_WEIGHTS: BotProfileWeights = {
   warlord: 1,
 };
 
-export function validateProfileWeights(weights: BotProfileWeights): void {
-  let total = 0;
-  for (const profile of botProfiles) {
-    const weight = weights[profile];
-    if (!Number.isFinite(weight) || weight < 0) {
-      throw new Error(`Profile weight for ${profile} must be a finite non-negative number`);
-    }
-    total += weight;
-  }
-  if (total <= 0) throw new Error('At least one bot profile weight must be positive');
-}
-
+// Weights are validated once, by the playtest config schema.
 export function selectWeightedProfile(
   seed: string,
   playerIndex: number,
@@ -30,8 +19,6 @@ export function selectWeightedProfile(
   if (!Number.isInteger(playerIndex) || playerIndex < 0) {
     throw new Error('Synthetic player index must be a non-negative integer');
   }
-  validateProfileWeights(weights);
-
   const total = botProfiles.reduce((sum, profile) => sum + weights[profile], 0);
   let draw = new SeededRng(`${seed}:synthetic-profile:${playerIndex}`).next() * total;
   let selected: BotProfile = botProfiles[0];

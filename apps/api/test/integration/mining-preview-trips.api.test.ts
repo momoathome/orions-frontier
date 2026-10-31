@@ -1,22 +1,16 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { eq, inArray } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
+import { asteroids, asteroidVeins } from '../../src/lib/db/schema/asteroids.js';
 import {
-  asteroidAssignments,
-  asteroids,
-  asteroidVeins,
-} from '../../src/lib/db/schema/asteroids.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
-import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+  grantResearch,
+} from '../helpers/fixtures.js';
 import { authHeaders, buildTestApp } from '../helpers/test-app.js';
 
 const app = await buildTestApp();
@@ -26,6 +20,7 @@ let sectorId = '';
 let stationId = '';
 const nearAsteroidId = randomUUID();
 const farAsteroidId = randomUUID();
+const hiddenOreAsteroidId = randomUUID();
 
 const addAsteroid = async (id: string, x: number) => {
   await getDb()
@@ -45,27 +40,35 @@ before(async () => {
   stationId = (await createTestStation({ userId, sectorId })).id;
   await addAsteroid(nearAsteroidId, 10);
   await addAsteroid(farAsteroidId, 900_000);
+  await getDb().insert(asteroids).values({
+    id: hiddenOreAsteroidId,
+    x: 20,
+    y: 0,
+    chunkX: 0,
+    chunkY: 0,
+    size: 'small',
+    sectorId,
+  });
+  await getDb()
+    .insert(asteroidVeins)
+    .values([
+      {
+        asteroidId: hiddenOreAsteroidId,
+        veinType: 'primary',
+        resourceKey: 'titanium',
+        remainingAmount: 0,
+      },
+      {
+        asteroidId: hiddenOreAsteroidId,
+        veinType: 'secondary',
+        resourceKey: 'kyber_crystal',
+        remainingAmount: 80,
+      },
+    ]);
 });
 
 after(async () => {
-  const db = getDb();
-  const ssIds = (
-    await db
-      .select({ id: stationSpacecrafts.id })
-      .from(stationSpacecrafts)
-      .where(eq(stationSpacecrafts.stationId, stationId))
-  ).map((row) => row.id);
-  if (ssIds.length) {
-    await db.delete(spacecraftTrips).where(inArray(spacecraftTrips.stationSpacecraftId, ssIds));
-  }
-  await db.delete(asteroidAssignments).where(eq(asteroidAssignments.stationId, stationId));
-  await db.delete(asteroids).where(inArray(asteroids.id, [nearAsteroidId, farAsteroidId]));
-  await db.delete(stationResources).where(eq(stationResources.stationId, stationId));
-  await db.delete(stationBuildings).where(eq(stationBuildings.stationId, stationId));
-  await db.delete(stationSpacecrafts).where(eq(stationSpacecrafts.stationId, stationId));
-  await db.delete(stations).where(eq(stations.id, stationId));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(inArray(users.id, [userId, otherUserId]));
+  await deleteTestData({ userIds: [userId, otherUserId], sectorIds: [sectorId] });
   await app.close();
   await closeDb();
 });
@@ -103,6 +106,28 @@ test('mining preview rejects foreign stations, unknown ships and too many miners
   const tooMany = await preview(nearAsteroidId, 'spacecraftKey=mole&minerCount=99');
   assert.equal(tooMany.statusCode, 400);
   assert.match(tooMany.json<{ message: string }>().message, /^Only \d+ miners available$/);
+});
+
+test('preview of an asteroid with only hidden ore left is 404', async () => {
+  const detail = await app.inject({
+    method: 'GET',
+    url: `/api/asteroids/${hiddenOreAsteroidId}`,
+    headers: authHeaders(app, userId),
+  });
+  assert.equal(detail.statusCode, 404);
+
+  // Same answer as for an asteroid that does not exist, so the hidden kyber vein stays hidden.
+  const hidden = await preview(hiddenOreAsteroidId, 'spacecraftKey=mole');
+  const missing = await preview(randomUUID(), 'spacecraftKey=mole');
+  assert.equal(hidden.statusCode, 404);
+  assert.deepEqual(hidden.json(), missing.json());
+
+  await grantResearch(userId, { spectral_analysis: 1 });
+  try {
+    assert.equal((await preview(hiddenOreAsteroidId, 'spacecraftKey=mole')).statusCode, 200);
+  } finally {
+    await grantResearch(userId, { spectral_analysis: 0 });
+  }
 });
 
 test('active trips list the traveling ships of the user only', async () => {

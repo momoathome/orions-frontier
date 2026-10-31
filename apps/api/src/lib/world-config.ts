@@ -1,6 +1,7 @@
 export const WORLD_CONFIG = {
   CHUNK_SIZE: 1000,
-  WORLD_SEED: 'orions-frontier-v7',
+  // Public default for development; production sets its own so maps cannot be precomputed.
+  WORLD_SEED: process.env['WORLD_SEED'] ?? 'orions-frontier-v7',
   INITIAL_SECTOR_RADIUS: 1,
 
   SECTOR: {

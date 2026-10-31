@@ -136,25 +136,12 @@ export interface GoalCandidate {
 
 export interface ScoredCandidate extends GoalCandidate {
   score: number;
-  scoreBreakdown: {
-    baseNeedWeighted: number;
-    opportunity: number;
-    longTermValueWeighted: number;
-    commitment: number;
-    cost: number;
-    riskWeighted: number;
-    blockers: number;
-  };
 }
 
 export interface GoalSelection {
   selected: GoalCandidate | null;
-  /** The scored candidate that won, if any. */
-  scored: ScoredCandidate | null;
   /** Human-readable internal reason for the decision. */
   reason: string;
-  /** All scored candidates for traceability. */
-  allScored: ScoredCandidate[];
 }
 
 // ---------------------------------------------------------------------------
@@ -164,10 +151,7 @@ export interface GoalSelection {
 /** Hysteresis threshold: a new candidate must score at least this fraction higher than the current goal to replace it. */
 const HYSTERESIS_THRESHOLD = 1.25;
 
-/**
- * Score a single candidate for the given profile.
- * Returns the score and its breakdown.
- */
+/** Score a single candidate for the given profile. */
 export function scoreCandidate(
   candidate: GoalCandidate,
   profile: BotProfile,
@@ -189,19 +173,7 @@ export function scoreCandidate(
     riskWeighted -
     candidate.blockers;
 
-  return {
-    ...candidate,
-    score,
-    scoreBreakdown: {
-      baseNeedWeighted,
-      opportunity: candidate.opportunity,
-      longTermValueWeighted,
-      commitment: candidate.commitment,
-      cost: candidate.cost,
-      riskWeighted,
-      blockers: candidate.blockers,
-    },
-  };
+  return { ...candidate, score };
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +198,7 @@ function compareCandidates(a: GoalCandidate, b: GoalCandidate): number {
  * @param profile      The bot's playstyle profile.
  * @param activeGoal   The currently active goal, if any (for hysteresis).
  * @param weights      Learned category weights; defaults to the profile start weights.
- * @returns            The selection result with breakdown.
+ * @returns            The selected goal and why.
  */
 export function selectGoal(
   candidates: GoalCandidate[],
@@ -237,9 +209,7 @@ export function selectGoal(
   if (candidates.length === 0) {
     return {
       selected: null,
-      scored: null,
       reason: 'No candidates available',
-      allScored: [],
     };
   }
 
@@ -267,9 +237,7 @@ export function selectGoal(
         // Current goal is still the best
         return {
           selected: activeScored,
-          scored: activeScored,
           reason: `Continuing current goal: ${activeGoal.goalType} (score ${activeScored.score.toFixed(1)})`,
-          allScored: scored,
         };
       }
 
@@ -277,18 +245,14 @@ export function selectGoal(
       if (best.score > activeScored.score * HYSTERESIS_THRESHOLD) {
         return {
           selected: best,
-          scored: best,
           reason: `Switching from ${activeGoal.goalType} (${activeScored.score.toFixed(1)}) to ${best.goalType} (${best.score.toFixed(1)}) — exceeds 25% threshold`,
-          allScored: scored,
         };
       }
 
       // Not enough difference — keep current goal
       return {
         selected: activeScored,
-        scored: activeScored,
         reason: `Keeping current goal: ${activeGoal.goalType} (score ${activeScored.score.toFixed(1)}, best alternative ${best.goalType} ${best.score.toFixed(1)})`,
-        allScored: scored,
       };
     }
 
@@ -300,17 +264,13 @@ export function selectGoal(
   if (best.score > 0) {
     return {
       selected: best,
-      scored: best,
       reason: `Selected ${best.goalType} target=${best.targetRef} (score ${best.score.toFixed(1)})`,
-      allScored: scored,
     };
   }
 
   // No candidate has a positive score
   return {
     selected: null,
-    scored: null,
     reason: `All candidates have non-positive scores (best: ${best.goalType} ${best.score.toFixed(1)})`,
-    allScored: scored,
   };
 }

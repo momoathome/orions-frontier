@@ -1,19 +1,15 @@
 import { getSpacecraft } from '@orions-frontier/game-config';
 import { getDb } from '../../lib/db/index.js';
-import { sumAsteroidRemainingAmount } from '../../repositories/asteroids.js';
-import { findMiningRoute } from '../../repositories/stations.js';
+import { findMiningRoute, getUserScannerCoverages } from '../station/index.js';
 import { calculateMiningCycle } from '../../lib/mining-cycle.js';
 import { calcDistance } from '../../lib/travel.js';
 import {
+  findVisibleAsteroid,
   getUserRevealedAsteroidIds,
-  getUserScannerCoverages,
   isPointVisible,
+  sumAsteroidRemainingAmount,
 } from '../map/index.js';
-import {
-  effectiveCargoCapacity,
-  effectiveMiningRate,
-  hasCompletedResearch,
-} from '../research/index.js';
+import { getStationResearchModifiers } from '../research/index.js';
 
 export interface MiningPreviewInput {
   userId: string;
@@ -34,13 +30,16 @@ export async function getMiningPreview({
   const db = getDb();
   const spacecraft = getSpacecraft(spacecraftKey);
   if (!spacecraft) return { ok: false, status: 404, message: 'Spacecraft not found' } as const;
-  const [row, coverages, revealedIds] = await Promise.all([
+  const modifiers = await getStationResearchModifiers(db, stationId);
+  const [row, visibleAsteroid, coverages, revealedIds] = await Promise.all([
     findMiningRoute(db, { stationId, userId, spacecraftKey, asteroidId }),
+    // Same rule as the asteroid detail: without visible ore left the asteroid does not exist.
+    findVisibleAsteroid(db, asteroidId, modifiers.visibleResources),
     getUserScannerCoverages(userId),
     getUserRevealedAsteroidIds(userId),
   ]);
 
-  if (!row) {
+  if (!row || !visibleAsteroid) {
     return { ok: false, status: 404, message: 'Station, miner or asteroid not found' } as const;
   }
   if (spacecraft.speed <= 0 || spacecraft.miningRate <= 0 || spacecraft.cargo <= 0) {
@@ -54,7 +53,11 @@ export async function getMiningPreview({
     return { ok: false, status: 400, message: `Only ${row.available} miners available` } as const;
   }
 
-  const remainingAmount = await sumAsteroidRemainingAmount(db, asteroidId);
+  const remainingAmount = await sumAsteroidRemainingAmount(
+    db,
+    asteroidId,
+    modifiers.visibleResources
+  );
   const scanned =
     revealedIds.has(asteroidId) ||
     isPointVisible(coverages, { x: row.asteroidX, y: row.asteroidY });
@@ -62,12 +65,11 @@ export async function getMiningPreview({
     { x: row.stationX, y: row.stationY },
     { x: row.asteroidX, y: row.asteroidY }
   );
-  const effectiveRate = await effectiveMiningRate(db, stationId, spacecraft.miningRate);
-  const effectiveCargo = await effectiveCargoCapacity(db, stationId, spacecraft.cargo);
-  const hasVectorNav = await hasCompletedResearch(db, stationId, 'vector_navigation');
-  const effectiveSpeed = hasVectorNav ? spacecraft.speed / 0.9 : spacecraft.speed;
+  const effectiveRate = spacecraft.miningRate * modifiers.miningRate;
+  const effectiveCargo = spacecraft.cargo * modifiers.cargo;
+  const effectiveSpeed = spacecraft.speed * modifiers.speed;
 
-  const cycle = calculateMiningCycle({
+  const mined = calculateMiningCycle({
     distance,
     speed: effectiveSpeed,
     miningRate: effectiveRate,
@@ -75,12 +77,18 @@ export async function getMiningPreview({
     minerCount,
     remainingAmount,
   });
+  // Deep Core Drilling raises what arrives, not what the asteroid loses.
+  const cycle = {
+    ...mined,
+    deliveryPerHourPerMiner: mined.deliveryPerHourPerMiner * modifiers.yield,
+    totalDeliveryPerHour: mined.totalDeliveryPerHour * modifiers.yield,
+  };
 
   // Blind mining: timing is known, the reserve is not.
   const preview = scanned
     ? {
         distance,
-        speed: spacecraft.speed,
+        speed: effectiveSpeed,
         miningRate: effectiveRate,
         cargoCapacity: effectiveCargo,
         remainingAmount,
@@ -88,7 +96,7 @@ export async function getMiningPreview({
       }
     : {
         distance,
-        speed: spacecraft.speed,
+        speed: effectiveSpeed,
         miningRate: effectiveRate,
         cargoCapacity: effectiveCargo,
         ...cycle,

@@ -23,32 +23,26 @@
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run lint && npm run check:boundaries && npm run format:check",
     "test:unit": "npm run build:packages && npm run test:unit --workspaces --if-present",
-    "test:integration": "docker compose run --build --rm --remove-orphans api npm run test:integration --workspaces --if-present",
-    "test:behavior": "npm run test:integration",
-    "test:playtest-bootstrap": "node scripts/test-playtest-bootstrap.mjs",
-    "test:playtest-population": "npm run playtest -- --population-smoke --seed population-smoke --start 2030-01-01T00:00:00.000Z",
-    "test:playtest-runner": "node scripts/test-playtest-runner.mjs",
+    "test:integration": "docker compose -f compose.test.yaml -p orions-frontier-test run --build --rm test-runner; status=$?; docker compose -f compose.test.yaml -p orions-frontier-test down; exit $status",
     "test:playtest-e2e": "node scripts/test-playtest-e2e.mjs",
-    "verify": "npm run check && npm run build && npm run test:unit && npm run test:integration && npm run test:playtest-e2e",
+    "audit": "npm audit --omit=dev --audit-level=high",
+    "verify": "npm run check && npm run audit && npm run build && npm run test:unit && npm run test:integration && npm run test:playtest-e2e",
     "clean": "npm run clean --workspaces --if-present",
     "db:migrate": "npm run db:migrate --workspace @orions-frontier/api",
-    "scanner:report": "npm run scanner:report --workspace @orions-frontier/api",
     "world:report": "npm run world:report --workspace @orions-frontier/api",
     "playtest": "node scripts/run-playtest.mjs",
-    "playtest:smoke": "npm run playtest -- --seed smoke --duration-hours 2 --step-seconds 60 --join-interval-minutes 60 --population-limit 2 --snapshot-interval-minutes 30",
+    "playtest:smoke": "npm run playtest -- --config configs/playtest/smoke.json",
     "playtest:baseline": "node scripts/run-playtest-baseline.mjs",
     "docker:rebuild": "docker compose up -d --build",
-    "check:boundaries": "depcruise apps/api/src --config .dependency-cruiser.cjs"
+    "check:boundaries": "depcruise apps/api/src --config .dependency-cruiser.cjs && depcruise apps/frontend/src --config .dependency-cruiser.frontend.cjs"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.9.0",
     "dependency-cruiser": "^17.4.3",
     "eslint": "^10.13.0",
     "eslint-plugin-vue": "^10.11.1",
     "prettier": "^3.9.10",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.0"
+    "typescript": "^6.0.3"
   }
 }

@@ -3,12 +3,15 @@ import {
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
-import { insertBotControllerIfAbsent } from '../../repositories/bot-controllers.js';
-import { findSettlementSector, listBotSettlementSectorIds } from '../../repositories/sectors.js';
-import { hasHumanStationInSector, listBotUserIdsInSector } from '../../repositories/stations.js';
-import { findUserByEmail, insertUserIfAbsent } from '../../repositories/users.js';
+import { insertBotControllerIfAbsent } from './repositories/bot-controllers.js';
+import { findSettlementSector, listBotSettlementSectorIds } from '../map/index.js';
+import { findUserByEmail, insertUser } from '../auth/index.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
-import { createStation } from '../station/index.js';
+import {
+  createStation,
+  hasHumanStationInSector,
+  listBotUserIdsInSector,
+} from '../station/index.js';
 import { GOAL_BOT_STRATEGY, GOAL_BOT_STRATEGY_VERSION, profileForKey } from './profiles.js';
 
 const coordinateKey = (value: number) => (value < 0 ? `m${-value}` : `p${value}`);
@@ -51,7 +54,7 @@ export async function seedBotsForSector(
     const key = `${coordinateKey(sector.sectorX)}-${coordinateKey(sector.sectorY)}-${index}`;
     const username = `orion-bot-${key}`;
     const email = `${username}@system.invalid`;
-    const createdUser = await insertUserIfAbsent(db, {
+    const createdUser = await insertUser(db, {
       id: context.nextId('user'),
       username,
       email,
@@ -61,7 +64,10 @@ export async function seedBotsForSector(
       updatedAt: context.now,
     });
     const user = createdUser ?? (await findUserByEmail(db, email));
-    if (!user) continue;
+    // A player who registered this name or email is not a bot and gets no bot station.
+    if (user?.role !== 'bot') continue;
+    // A destroyed bot station stays destroyed; only a bot that never had one here gets one.
+    if (existingBots.some((bot) => bot.userId === user.id)) continue;
 
     await insertBotControllerIfAbsent(db, {
       userId: user.id,

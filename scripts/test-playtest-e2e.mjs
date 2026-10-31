@@ -88,6 +88,11 @@ assert.doesNotMatch(compose, /apps\/api\/src\/index|npm run dev|fastify/i);
 
 const smoke = run('e2e-smoke', 6).report;
 assert.equal(smoke.status, 'success');
+assert.equal(smoke.virtualEnd, '2030-01-01T06:00:00.000Z');
+assert.equal(smoke.operations.ticks, 6 * 60 + 1);
+assert.equal(smoke.operations.snapshots, 13);
+assert.equal(smoke.operations.maximumControlledPopulation, 4);
+assert.ok(smoke.collector.botDecisions > 2);
 assert.equal(
   smoke.population.filter((member) => member.populationKind === 'synthetic_player').length,
   2
@@ -124,19 +129,29 @@ const scenarios = [
     profile: 'industrialist',
     events: ['building_completed', 'spacecraft_completed'],
     milestone: 'stableInitialStation',
+    // Shipyard upgrades are priced for a slower ramp, so the first new ship lands after 6 hours.
+    hours: 12,
   },
   {
     name: 'exploration',
     profile: 'pioneer',
     events: ['world_mission_completed'],
     milestone: 'firstExpedition',
+    // Expeditions need Long-Range Survey (Laboratory 3), so the first lands after about 6-10 hours.
+    hours: 12,
   },
 ].map((scenario) => {
   const weights = profiles.flatMap((profile) => [
     `--profile-${profile}`,
     profile === scenario.profile ? '1' : '0',
   ]);
-  const report = run(`e2e-scenario-${scenario.name}`, 6, {}, true, weights).report;
+  const report = run(
+    `e2e-scenario-${scenario.name}`,
+    scenario.hours ?? 6,
+    {},
+    true,
+    weights
+  ).report;
   assert.equal(report.status, 'success');
   for (const event of scenario.events) {
     assert.ok(

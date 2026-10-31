@@ -1,9 +1,7 @@
+import type { ResourceKey } from '@orions-frontier/shared';
 import type { Tx } from '../../lib/db/index.js';
 import type { CargoManifest } from '../../lib/db/schema/spacecraft-trips.js';
-import {
-  listAsteroidVeinsForUpdate,
-  updateAsteroidVeinRemaining,
-} from '../../repositories/asteroids.js';
+import { listAsteroidVeinsForUpdate, updateAsteroidVeinRemaining } from '../map/index.js';
 
 export interface MiningClaim {
   cargoManifest: CargoManifest;
@@ -11,17 +9,21 @@ export interface MiningClaim {
   remainingAmount: number;
 }
 
-/** Claim at most one group load. The caller persists the mining cycle in the same transaction. */
+/**
+ * Claim at most one group load from the veins the miner's owner can see. The caller persists the
+ * mining cycle in the same transaction.
+ */
 export async function claimMiningCargo(
   tx: Tx,
   asteroidId: string,
-  maxAmount: number
+  maxAmount: number,
+  resourceKeys: readonly ResourceKey[]
 ): Promise<MiningClaim> {
   if (!Number.isInteger(maxAmount) || maxAmount <= 0) {
     throw new RangeError('maxAmount must be an integer greater than 0');
   }
 
-  const veins = await listAsteroidVeinsForUpdate(tx, asteroidId);
+  const veins = await listAsteroidVeinsForUpdate(tx, asteroidId, resourceKeys);
 
   const totalAvailable = veins.reduce((sum, vein) => sum + vein.remainingAmount, 0);
   const totalToClaim = Math.min(totalAvailable, maxAmount);

@@ -45,6 +45,7 @@ export * from './building.js';
 export * from './defense.js';
 export * from './asteroid.js';
 export * from './mining-trip.js';
+export * from './mining-income.js';
 export * from './world.js';
 export * from './world-mission.js';
 export * from './combat.js';

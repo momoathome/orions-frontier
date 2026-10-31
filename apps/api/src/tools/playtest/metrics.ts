@@ -1,9 +1,10 @@
 import { entriesOf, type ResourceMap } from '@orions-frontier/shared';
 import type { Milestones } from './milestones.js';
-import type {
-  PlaytestStateSnapshot,
-  PlaytestStationSnapshot,
-  PlaytestWorldSnapshot,
+import {
+  emptyWorld,
+  type PlaytestStateSnapshot,
+  type PlaytestStationSnapshot,
+  type PlaytestWorldSnapshot,
 } from './snapshot-loader.js';
 
 export interface GoalMetrics {
@@ -38,14 +39,13 @@ export interface DevelopmentMetrics {
   influence: number;
   spacecraftUnits: number;
   spacecraftBuilt: Record<string, number>;
-  queueActiveSamples: number;
+  shipyardActiveSamples: number;
   snapshotSamples: number;
-  queueUtilization: number;
+  shipyardUtilization: number;
 }
 
 export interface ExpansionMetrics {
   expeditions: number;
-  discoveredSectors: number;
   colonies: number;
   colonyStabilizationDurationMs: number | null;
   coloniesByStation: Record<string, { foundedAt: string; stabilizationDurationMs: number | null }>;
@@ -84,6 +84,8 @@ export interface BotMetrics {
   profile: string;
   populationKind: string;
   joinedAt: string;
+  /** First snapshot without any station of this bot; null while it still owns one. */
+  eliminatedAt: string | null;
   goals: Record<string, GoalMetrics>;
   milestones: Milestones;
   economy: EconomyMetrics;
@@ -154,16 +156,15 @@ export function emptyDevelopmentMetrics(): DevelopmentMetrics {
     influence: 0,
     spacecraftUnits: 0,
     spacecraftBuilt: {},
-    queueActiveSamples: 0,
+    shipyardActiveSamples: 0,
     snapshotSamples: 0,
-    queueUtilization: 0,
+    shipyardUtilization: 0,
   };
 }
 
 export function emptyExpansionMetrics(): ExpansionMetrics {
   return {
     expeditions: 0,
-    discoveredSectors: 0,
     colonies: 0,
     colonyStabilizationDurationMs: null,
     coloniesByStation: {},
@@ -208,10 +209,8 @@ export function addResources(target: ResourceMap, source: ResourceMap): void {
   }
 }
 
-export function sortedResources(resources: ResourceMap): ResourceMap {
-  return Object.fromEntries(
-    Object.entries(resources).sort(([left], [right]) => left.localeCompare(right))
-  );
+export function resourceTotal(resources: Record<string, number | undefined>): number {
+  return Object.values(resources).reduce<number>((sum, amount) => sum + (amount ?? 0), 0);
 }
 
 export function safeRatio(numerator: number, denominator: number): number {
@@ -221,16 +220,5 @@ export function safeRatio(numerator: number, denominator: number): number {
 }
 
 export function snapshotWorld(snapshot: PlaytestStateSnapshot | null): PlaytestWorldSnapshot {
-  return (
-    snapshot?.world ?? {
-      sectorsByRole: {},
-      populationByKind: {},
-      populationByProfile: {},
-      stations: 0,
-      asteroids: 0,
-      asteroidResources: {},
-      debrisFields: 0,
-      debrisResources: {},
-    }
-  );
+  return snapshot?.world ?? emptyWorld();
 }

@@ -43,7 +43,8 @@ export interface VisibleAsteroid {
 
 export interface AsteroidDetailAssignment {
   id: string;
-  stationId: string;
+  /** Null for other players' miners: their station stays as hidden as the scanner says. */
+  stationId: string | null;
   spacecraftKey: string;
   spacecraftName: string;
   spacecraftMiningRate: number;

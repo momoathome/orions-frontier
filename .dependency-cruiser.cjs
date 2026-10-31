@@ -5,9 +5,10 @@
  * Parameter oder Rückgabewerte, nicht über Importe.
  */
 const LAYERS = [
-  ['auth', 'research', 'map', 'logbook', 'ranking'],
+  ['auth', 'research', 'map', 'logbook', 'fleet'],
   ['station'],
-  ['world', 'mining', 'combat', 'missions'],
+  ['missions'],
+  ['world', 'mining', 'combat', 'ranking'],
   ['transport'],
   ['bot'],
   ['simulation'],
@@ -53,25 +54,47 @@ module.exports = {
       comment: 'lib ist die Basis und kennt weder Services, Routen noch Werkzeuge.',
       from: { path: '^apps/api/src/lib/' },
       to: {
-        path: '^apps/api/src/(repositories|services|routes|tools|middleware|plugins)/|^apps/api/src/[^/]+\\.ts$',
+        path: '^apps/api/src/(services|routes|tools|middleware|plugins)/|^apps/api/src/[^/]+\\.ts$',
       },
     },
     {
       name: 'repositories-only-data-access',
       severity: 'error',
       comment:
-        'Repositories kapseln Datenbank-Abfragen und kennen weder Services, Routen noch Werkzeuge.',
-      from: { path: '^apps/api/src/repositories/' },
+        'Repositories kapseln Datenbank-Abfragen und kennen nur lib und Repositories des eigenen Moduls.',
+      from: { path: '^apps/api/src/services/([^/]+)/repositories/' },
       to: {
         path: '^apps/api/src/(services|routes|tools|middleware|plugins)/|^apps/api/src/[^/]+\\.ts$',
+        pathNot: '^apps/api/src/services/$1/repositories/',
       },
+    },
+    {
+      name: 'own-repositories-only',
+      severity: 'error',
+      comment:
+        'Jede Tabelle gehört einem Modul. Andere Module bekommen ihre Daten über dessen index.ts, nie über seine Repositories.',
+      from: { path: '^apps/api/src/services/([^/]+)/' },
+      to: {
+        path: '^apps/api/src/services/[^/]+/repositories/',
+        pathNot: '^apps/api/src/services/$1/repositories/',
+      },
+    },
+    {
+      name: 'repositories-not-from-outside',
+      severity: 'error',
+      comment: 'Routen, Werkzeuge, lib und App-Start greifen nie auf Repositories zu.',
+      from: { pathNot: '^apps/api/src/services/' },
+      to: { path: '^apps/api/src/services/[^/]+/repositories/' },
     },
     {
       name: 'services-query-via-repositories',
       severity: 'error',
       comment:
-        'Services fragen die Datenbank nur über Repositories ab; Schema und drizzle-orm nur als Typ.',
-      from: { path: '^apps/api/src/services/' },
+        'Services fragen die Datenbank nur über die eigenen Repositories ab; Schema und drizzle-orm nur als Typ.',
+      from: {
+        path: '^apps/api/src/services/',
+        pathNot: '^apps/api/src/services/[^/]+/repositories/',
+      },
       to: {
         path: '^apps/api/src/lib/db/schema/|^node_modules/drizzle-orm/',
         dependencyTypesNot: ['type-only'],
@@ -90,7 +113,7 @@ module.exports = {
       comment:
         'Routen fragen die Datenbank nicht selbst ab; das tun Services (Health-Check ausgenommen).',
       from: { path: '^apps/api/src/routes/', pathNot: '^apps/api/src/routes/health/' },
-      to: { path: '^apps/api/src/(lib/db|repositories)/|^node_modules/drizzle-orm/' },
+      to: { path: '^apps/api/src/lib/db/|^node_modules/drizzle-orm/' },
     },
     ...layerRules(),
     {

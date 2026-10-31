@@ -5,7 +5,7 @@ import { seedBotsForSector } from '../../services/bot/index.js';
 import { defineRoute } from '../../lib/route.js';
 
 const CreateStationSchema = z.object({
-  name: z.string().min(1).max(128),
+  name: z.string().trim().min(1).max(128),
 });
 
 /**

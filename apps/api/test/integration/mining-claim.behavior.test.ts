@@ -6,6 +6,7 @@ import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { asteroids, asteroidVeins } from '../../src/lib/db/schema/asteroids.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
+import { resourceKeys } from '@orions-frontier/shared';
 import { claimMiningCargo } from '../../src/services/mining/claim.js';
 
 const asteroidId = randomUUID();
@@ -53,9 +54,9 @@ after(async () => {
 test('concurrent arrivals never claim more than the finite asteroid reserve', async () => {
   const db = getDb();
   const claims = await Promise.all([
-    db.transaction((tx) => claimMiningCargo(tx, asteroidId, 200)),
-    db.transaction((tx) => claimMiningCargo(tx, asteroidId, 200)),
-    db.transaction((tx) => claimMiningCargo(tx, asteroidId, 200)),
+    db.transaction((tx) => claimMiningCargo(tx, asteroidId, 200, resourceKeys)),
+    db.transaction((tx) => claimMiningCargo(tx, asteroidId, 200, resourceKeys)),
+    db.transaction((tx) => claimMiningCargo(tx, asteroidId, 200, resourceKeys)),
   ]);
 
   assert.deepEqual(

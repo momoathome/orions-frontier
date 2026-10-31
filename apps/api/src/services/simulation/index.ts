@@ -1,1 +1,6 @@
-export { runWorldTick, startSimulationScheduler, type WorldTickResult } from './simulation.js';
+export {
+  runExclusiveWorldTick,
+  runWorldTick,
+  startSimulationScheduler,
+  type WorldTickResult,
+} from './simulation.js';

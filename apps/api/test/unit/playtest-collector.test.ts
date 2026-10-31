@@ -4,23 +4,12 @@ import type { BotDecisionOutcome } from '../../src/services/bot/bot.js';
 import { PlaytestAliasRegistry } from '../../src/tools/playtest/aliases.js';
 import { PlaytestCollector } from '../../src/tools/playtest/collector.js';
 import type { PlaytestCompletionEvent } from '../../src/lib/completion-events.js';
-import type { PlaytestPopulationMember } from '../../src/tools/playtest/population.js';
+import { testPopulationMember } from '../helpers/playtest.js';
 
 const userId = '10000000-0000-4000-8000-000000000001';
 const stationId = '20000000-0000-4000-8000-000000000001';
 const sourceId = '30000000-0000-4000-8000-000000000001';
 const occurredAt = new Date('2030-01-01T01:00:00.000Z');
-
-function populationMember(): PlaytestPopulationMember {
-  return {
-    alias: 'player-001',
-    userId,
-    initialStationId: stationId,
-    profile: 'technocrat',
-    joinedAt: new Date('2030-01-01T00:00:00.000Z'),
-    populationKind: 'synthetic_player',
-  };
-}
 
 function completionEvents(): PlaytestCompletionEvent[] {
   const base = { occurredAt, userId, stationId };
@@ -64,7 +53,8 @@ function completionEvents(): PlaytestCompletionEvent[] {
       type: 'research_completed',
       eventId: `research:${sourceId}`,
       researchId: sourceId,
-      technologyKey: 'grid_optimization',
+      technologyKey: 'construction_robotics',
+      newLevel: 1,
     },
     {
       ...base,
@@ -143,7 +133,7 @@ function completionEvents(): PlaytestCompletionEvent[] {
 }
 
 test('collector deduplicates completions, removes UUIDs and bounds per-bot diagnostics', () => {
-  const aliases = new PlaytestAliasRegistry([populationMember()]);
+  const aliases = new PlaytestAliasRegistry([testPopulationMember()]);
   const collector = new PlaytestCollector(aliases, 3);
   const events = completionEvents();
   for (const event of events) assert.ok(collector.consumeCompletion(event));

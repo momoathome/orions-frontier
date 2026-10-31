@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Ranking } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
-import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { stations } from '../../src/lib/db/schema/stations.js';
-import { users } from '../../src/lib/db/schema/users.js';
-import { createTestSector, createTestStation, createTestUser } from '../helpers/fixtures.js';
+import {
+  createTestSector,
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+} from '../helpers/fixtures.js';
 import { authHeaders, buildTestApp } from '../helpers/test-app.js';
 
 const app = await buildTestApp();
@@ -53,13 +54,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db.delete(stationResources).where(inArray(stationResources.stationId, stationIds));
-  await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
-  await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds));
-  await db.delete(stations).where(inArray(stations.id, stationIds));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
-  await db.delete(users).where(inArray(users.id, userIds));
+  await deleteTestData({ userIds, sectorIds: [sectorId] });
   await app.close();
   await closeDb();
 });
@@ -80,29 +75,31 @@ test('players are ranked server-wide by the Influence of all their stations and 
   const leaderView = await fetchRanking(leader);
   const runnerUpView = await fetchRanking(runnerUp);
   assert.ok(leaderView.me && runnerUpView.me);
-  // Core upgrades 950 + 380 resources, 6 Moles at half of 190 each.
-  assert.deepEqual(leaderView.me.influence, {
-    buildings: 13,
+  // Core upgrades 2080 + 800 resources, 6 Moles at half of 190 each.
+  assert.deepEqual(leaderView.me.breakdown, {
+    buildings: 29,
     research: 0,
     defense: 0,
     fleet: 6,
-    total: 19,
+    total: 35,
   });
   assert.equal(leaderView.me.stationCount, 2);
   assert.equal(leaderView.me.ownerType, 'player');
-  assert.equal(runnerUpView.me.influence.total, 13);
+  assert.equal(runnerUpView.me.influence, 24);
   assert.ok(leaderView.me.rank < runnerUpView.me.rank);
 
   // Lost ships only reduce the fleet share.
   await setMoles(stationIds[2] ?? '', 1);
   const afterLosses = (await fetchRanking(runnerUp)).me;
   assert.ok(afterLosses);
-  assert.equal(afterLosses.influence.buildings, 10);
-  assert.equal(afterLosses.influence.fleet, 1);
-  assert.equal(afterLosses.influence.total, 11);
+  assert.equal(afterLosses.breakdown.buildings, 21);
+  assert.equal(afterLosses.breakdown.fleet, 1);
+  assert.equal(afterLosses.influence, 22);
 
   // The list is ordered and the own row matches the player's place in it.
-  const scores = leaderView.top.map((entry) => entry.influence.total);
+  const scores = leaderView.top.map((entry) => entry.influence);
+  // Other players' breakdowns stay private.
+  assert.ok(leaderView.top.every((entry) => !('breakdown' in entry)));
   assert.deepEqual(
     scores,
     [...scores].sort((a, b) => b - a)

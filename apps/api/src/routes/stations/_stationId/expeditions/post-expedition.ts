@@ -3,7 +3,9 @@ import { authenticate } from '../../../../middleware/auth.js';
 import { startExpedition } from '../../../../services/missions/index.js';
 import { defineRoute, stationParams } from '../../../../lib/route.js';
 
-const BodySchema = z.object({ sectorX: z.number().int(), sectorY: z.number().int() });
+// Far beyond any world; larger values would overflow the integer sector columns.
+const sectorCoord = z.number().int().min(-1_000_000).max(1_000_000);
+const BodySchema = z.object({ sectorX: sectorCoord, sectorY: sectorCoord });
 
 export default defineRoute(async (app) => {
   app.post(

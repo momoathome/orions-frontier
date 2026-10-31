@@ -10,7 +10,8 @@ import {
 
 test('hangar capacity and spacecraft crew requirements match the balancing contract', () => {
   assert.equal(calculateHangarCapacity(1), 20);
-  assert.equal(calculateHangarCapacity(12), 130);
+  assert.equal(calculateHangarCapacity(10), 191);
+  assert.equal(calculateHangarCapacity(20), 571);
   assert.deepEqual(Object.fromEntries(spacecrafts.map(({ key, crew }) => [key, crew])), {
     merlin: 1,
     comet: 2,
@@ -22,7 +23,7 @@ test('hangar capacity and spacecraft crew requirements match the balancing contr
     horus: 60,
     reaper: 120,
     mole: 2,
-    titan: 10,
+    titan: 6,
     collector: 2,
     reclaimer: 8,
   });

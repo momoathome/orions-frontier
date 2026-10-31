@@ -1,27 +1,20 @@
-import { publishUserEvent } from '../../lib/realtime.js';
 import { getDb } from '../../lib/db/index.js';
 import {
-  findStationBuildingByKeyForUpdate,
   insertStationBuildingsIfMissing,
   listStationBuildings,
-  updateStationBuilding,
-} from '../../repositories/station-buildings.js';
+} from './repositories/station-buildings.js';
 import {
-  deductStationResource,
-  listStationResources,
-} from '../../repositories/station-resources.js';
-import { findOwnedStationForUpdate } from '../../repositories/stations.js';
-import {
-  calculateBuildingUpgradeCost,
-  calculateBuildingBuildTime,
   calculateBuildingEffect,
   buildings,
+  discountedBuildingUpgradeCost,
   getBuilding,
-  SHIPYARD_UNLOCKS,
+  unlocksByBuildingLevel,
 } from '@orions-frontier/game-config';
 import type { StationBuildingWithDefinition, BuildingKey } from '@orions-frontier/shared';
-import { isOneOf, AppError, ErrorCode, buildingKeys } from '@orions-frontier/shared';
-import { applyGridOptimization, hasCompletedResearch } from '../research/index.js';
+import { isOneOf, buildingKeys, required } from '@orions-frontier/shared';
+import { getStationResearchModifiers } from '../research/index.js';
+import { cancelStationUpgrade, plannedLevels, queueStationUpgrade } from './construction.js';
+import { listStationQueue } from './repositories/queued-jobs.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -57,7 +50,12 @@ export const getStationBuildings = async (
 ): Promise<StationBuildingWithDefinition[]> => {
   const db = getDb();
 
-  const rows = await listStationBuildings(db, stationId);
+  const [rows, modifiers, queue] = await Promise.all([
+    listStationBuildings(db, stationId),
+    getStationResearchModifiers(db, stationId),
+    listStationQueue(db, stationId),
+  ]);
+  const planned = plannedLevels(rows, queue);
 
   const now = context.now;
 
@@ -70,6 +68,7 @@ export const getStationBuildings = async (
       const upgradeEndsAt = building.upgradeEndsAt;
       const isUpgrading = upgradeEndsAt !== null && upgradeEndsAt > now;
       const isAtMax = level >= definition.maxLevel;
+      const queuedLevel = planned.get(key) ?? level;
 
       return {
         definition,
@@ -78,8 +77,12 @@ export const getStationBuildings = async (
         isUpgrading,
         effects: calculateBuildingEffect(key, level),
         nextLevelEffects: isAtMax ? null : calculateBuildingEffect(key, level + 1),
-        upgradeCosts: isAtMax ? [] : calculateBuildingUpgradeCost(key, level + 1),
-        unlockMilestones: key === 'shipyard' ? SHIPYARD_UNLOCKS : {},
+        queuedLevel,
+        upgradeCosts:
+          queuedLevel >= definition.maxLevel
+            ? []
+            : discountedBuildingUpgradeCost(key, queuedLevel + 1, modifiers.buildingCost),
+        unlockMilestones: unlocksByBuildingLevel(key),
       };
     })
     .sort((a, b) => a.definition.key.localeCompare(b.definition.key));
@@ -87,75 +90,25 @@ export const getStationBuildings = async (
 
 // Start building upgrade
 
+/** Starts the next level now, or with `queue` adds it to the station queue. */
 export const startBuildingUpgrade = async (
   stationId: string,
   buildingKey: BuildingKey,
   userId: string,
-  context: GameExecutionContext = createRealtimeExecutionContext()
+  context: GameExecutionContext = createRealtimeExecutionContext(),
+  queue = false
 ): Promise<StationBuildingWithDefinition> => {
-  const db = getDb();
-
-  const def = getBuilding(buildingKey);
-
-  const resourceMap = await db.transaction(async (tx) => {
-    const station = await findOwnedStationForUpdate(tx, stationId, userId);
-    if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-
-    const stationBuilding = await findStationBuildingByKeyForUpdate(tx, stationId, buildingKey);
-
-    if (!stationBuilding) {
-      throw new AppError(ErrorCode.NOT_FOUND, 'Station building not found');
-    }
-    if (stationBuilding.upgradeEndsAt) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Building is already upgrading');
-    }
-    if (stationBuilding.level >= def.maxLevel) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, 'Building is already at max level');
-    }
-
-    const targetLevel = stationBuilding.level + 1;
-    const costs = calculateBuildingUpgradeCost(buildingKey, targetLevel);
-    const resourceRows = await listStationResources(tx, stationId);
-    const currentResources = new Map(resourceRows.map((row) => [row.resourceKey, row.amount]));
-
-    for (const cost of costs) {
-      const current = currentResources.get(cost.resourceKey) ?? 0;
-      if (current < cost.amount) {
-        throw new AppError(
-          ErrorCode.VALIDATION_ERROR,
-          `Insufficient ${cost.resourceKey}: need ${cost.amount}, have ${current}`
-        );
-      }
-    }
-
-    const buildTimeSeconds = calculateBuildingBuildTime(buildingKey, targetLevel);
-    const baseUpgradeEndsAt = new Date(context.now.getTime() + buildTimeSeconds * 1000);
-    const hasGridOpt = await hasCompletedResearch(tx, stationId, 'station_grid_optimization');
-    const upgradeEndsAt = applyGridOptimization(hasGridOpt, baseUpgradeEndsAt, context.now);
-    for (const cost of costs) {
-      await deductStationResource(tx, stationId, cost.resourceKey, cost.amount);
-      currentResources.set(
-        cost.resourceKey,
-        (currentResources.get(cost.resourceKey) ?? 0) - cost.amount
-      );
-    }
-
-    await updateStationBuilding(tx, stationBuilding.id, { upgradeEndsAt, updatedAt: context.now });
-
-    return currentResources;
-  });
-
-  publishUserEvent(userId, 'resources_updated', {
-    stationId,
-    resources: Object.fromEntries(resourceMap),
-  });
-
-  const allBuildings = await getStationBuildings(stationId, context);
-  const result = allBuildings.find((b) => b.definition.key === buildingKey);
-
-  if (!result) {
-    throw new AppError(ErrorCode.NOT_FOUND, 'Failed to retrieve updated building');
-  }
-
-  return result;
+  await queueStationUpgrade(stationId, userId, 'building', buildingKey, context, queue);
+  return required(
+    (await getStationBuildings(stationId, context)).find((b) => b.definition.key === buildingKey),
+    `building ${buildingKey}`
+  );
 };
+
+/** Cancels a running building upgrade and refunds what it cost. */
+export const cancelBuildingUpgrade = async (
+  stationId: string,
+  buildingKey: BuildingKey,
+  userId: string,
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<void> => cancelStationUpgrade(stationId, userId, buildingKey, context);

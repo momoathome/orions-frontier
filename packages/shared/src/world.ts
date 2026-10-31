@@ -1,5 +1,6 @@
 import type { BuildingKey } from './building.js';
 import type { DefenseUpgradeKey } from './defense.js';
+import type { ResourceMap } from './resource.js';
 import type { SpacecraftRole } from './station-spacecraft.js';
 
 export type StationVisualTier = 0 | 1 | 2 | 3;
@@ -47,13 +48,14 @@ export interface RankingEntry {
   username: string;
   ownerType: 'player' | 'bot';
   stationCount: number;
-  influence: InfluenceBreakdown;
+  /** Total Influence; how others split it across categories stays private. */
+  influence: number;
 }
 
 export interface Ranking {
   top: RankingEntry[];
-  /** The requesting player's own row; null until they found a station. */
-  me: RankingEntry | null;
+  /** The requesting player's own row with its breakdown; null until they found a station. */
+  me: (RankingEntry & { breakdown: InfluenceBreakdown }) | null;
   totalPlayers: number;
 }
 
@@ -67,6 +69,29 @@ export type WorldTripPurpose =
   | 'salvage'
   | 'salvage_return'
   | 'relocate';
+
+export type TripEndpointType = 'station' | 'asteroid' | 'debris';
+
+/** Row of GET /me/trips: a traveling trip of one of the player's own stations. */
+export interface UserTrip {
+  id: string;
+  groupSize: number;
+  fromType: TripEndpointType;
+  fromId: string;
+  toType: TripEndpointType;
+  toId: string;
+  departedAt: string;
+  arrivesAt: string;
+  purpose: WorldTripPurpose;
+  cargoManifest: ResourceMap | null;
+  spacecraft: {
+    role: SpacecraftRole;
+    speed: number;
+    cargo: number;
+    name: string;
+    image: string;
+  } | null;
+}
 
 export interface OwnWorldTrip {
   kind: 'own_trip';

@@ -12,7 +12,8 @@ import {
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResearch } from '../../src/lib/db/schema/station-research.js';
+import { userResearch } from '../../src/lib/db/schema/user-research.js';
+import { deleteTestData, grantResearch } from '../helpers/fixtures.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
@@ -22,7 +23,7 @@ import {
   requestAsteroidAssignmentRecall,
 } from '../../src/services/mining/assignment.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
-import { getAsteroidById } from '../../src/services/map/asteroid.js';
+import { getAsteroidById } from '../../src/services/world/asteroid.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 
 const userId = randomUUID();
@@ -113,31 +114,7 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
-  await db
-    .delete(spacecraftTrips)
-    .where(
-      inArray(spacecraftTrips.stationSpacecraftId, [stationSpacecraftId, secondStationSpacecraftId])
-    );
-  await db
-    .delete(stationResources)
-    .where(inArray(stationResources.stationId, [stationId, secondStationId]));
-  await db
-    .delete(stationBuildings)
-    .where(inArray(stationBuildings.stationId, [stationId, secondStationId]));
-  await db
-    .delete(stationResearch)
-    .where(inArray(stationResearch.stationId, [stationId, secondStationId]));
-  if (assignmentId) {
-    await db.delete(asteroidAssignments).where(eq(asteroidAssignments.id, assignmentId));
-  }
-  await db.delete(asteroids).where(eq(asteroids.id, asteroidId));
-  await db
-    .delete(stationSpacecrafts)
-    .where(inArray(stationSpacecrafts.id, [stationSpacecraftId, secondStationSpacecraftId]));
-  await db.delete(stations).where(inArray(stations.id, [stationId, secondStationId]));
-  await db.delete(users).where(inArray(users.id, [userId, secondUserId]));
-  await db.delete(sectors).where(eq(sectors.id, sectorId));
+  await deleteTestData({ userIds: [userId, secondUserId], sectorIds: [sectorId] });
   await closeDb();
 });
 
@@ -186,39 +163,35 @@ async function resetMiningState() {
 
 test('rejects zero, negative and fractional miner amounts', async () => {
   for (const assignedAmount of [0, -1, 1.5]) {
-    const result = await createAsteroidAssignment({
-      userId,
-      asteroidId,
-      stationId,
-      spacecraftKey,
-      assignedAmount,
-    });
-    assert.equal('code' in result ? result.code : undefined, 'INVALID_AMOUNT');
+    await assert.rejects(
+      createAsteroidAssignment({ userId, asteroidId, stationId, spacecraftKey, assignedAmount }),
+      /assignedAmount must be a positive integer/
+    );
   }
 });
 
 test('rejects a mining assignment for a station owned by another user', async () => {
-  const result = await createAsteroidAssignment({
-    userId: randomUUID(),
-    asteroidId,
-    stationId,
-    spacecraftKey,
-    assignedAmount: 1,
-  });
-
-  assert.deepEqual(result, { code: 'STATION_NOT_FOUND', message: 'Station not found' });
+  await assert.rejects(
+    createAsteroidAssignment({
+      userId: randomUUID(),
+      asteroidId,
+      stationId,
+      spacecraftKey,
+      assignedAmount: 1,
+    }),
+    /Station not found/
+  );
 });
 
 test('hides mining groups from players without their own presence at the asteroid', async () => {
   await resetMiningState();
-  const created = await createAsteroidAssignment({
+  await createAsteroidAssignment({
     userId,
     asteroidId,
     stationId,
     spacecraftKey,
     assignedAmount: 1,
   });
-  assert.ok(!('code' in created));
 
   const ownerView = await getAsteroidById(asteroidId, userId);
   const foreignView = await getAsteroidById(asteroidId, secondUserId);
@@ -228,6 +201,30 @@ test('hides mining groups from players without their own presence at the asteroi
   assert.equal(foreignView?.operationsVisible, false);
   assert.equal(foreignView.assignments.length, 0);
   assert.deepEqual(foreignView.inTransit, {});
+
+  // Mining there too shows the other group, but not which station it belongs to.
+  await createAsteroidAssignment({
+    userId: secondUserId,
+    asteroidId,
+    stationId: secondStationId,
+    spacecraftKey,
+    assignedAmount: 1,
+  });
+  const coMinerView = await getAsteroidById(asteroidId, secondUserId);
+  assert.deepEqual(coMinerView?.assignments.map((assignment) => assignment.stationId).sort(), [
+    secondStationId,
+    null,
+  ]);
+
+  // Co-miners see each other's cargo only in resources they researched themselves.
+  await getDb()
+    .update(spacecraftTrips)
+    .set({ cargoManifest: { carbon: 10, kyber_crystal: 5 } })
+    .where(eq(spacecraftTrips.stationSpacecraftId, stationSpacecraftId));
+  const cargoView = await getAsteroidById(asteroidId, secondUserId);
+  const foreignTrip = cargoView?.assignments.find((assignment) => assignment.stationId === null);
+  assert.deepEqual(foreignTrip?.activeTrip?.cargoManifest, { carbon: 10 });
+  assert.equal(cargoView?.inTransit['kyber_crystal'], undefined);
 
   await resetMiningState();
 });
@@ -241,7 +238,6 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
     spacecraftKey,
     assignedAmount: 1,
   });
-  assert.ok(!('code' in created));
   assignmentId = created.id;
 
   const [firstOutbound] = await db
@@ -257,7 +253,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
   assert.ok(firstOutbound);
   const firstArrival = firstOutbound.arrivesAt;
 
-  assert.equal(await settleTripArrival(firstOutbound), true);
+  assert.equal((await settleTripArrival(firstOutbound)).settled, true);
 
   const [firstReturn] = await db
     .select()
@@ -275,7 +271,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
   const miningView = await getAsteroidById(asteroidId, userId);
   assert.equal(miningView?.assignments[0]?.activeTrip?.purpose, 'mining_return');
   assert.deepEqual(miningView.assignments[0].activeTrip.cargoManifest, { carbon: 100 });
-  assert.equal(await settleTripArrival(firstReturn), true);
+  assert.equal((await settleTripArrival(firstReturn)).settled, true);
 
   const [secondOutbound] = await db
     .select()
@@ -288,7 +284,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
       )
     );
   assert.ok(secondOutbound);
-  assert.equal(await settleTripArrival(secondOutbound), true);
+  assert.equal((await settleTripArrival(secondOutbound)).settled, true);
 
   const pendingReturns = await db
     .select()
@@ -305,7 +301,7 @@ test('miner repeats partial round trips until the asteroid is exhausted', async 
   assert.deepEqual(secondReturn.cargoManifest, { carbon: 50 });
   assert.equal(secondReturn.departedAt.getTime() - secondOutbound.arrivesAt.getTime(), 5 * 60_000);
 
-  assert.equal(await settleTripArrival(secondReturn), true);
+  assert.equal((await settleTripArrival(secondReturn)).settled, true);
 
   const [resource] = await db
     .select({ amount: stationResources.amount })
@@ -343,7 +339,6 @@ test('recall finishes the claimed load and stops the group at its station', asyn
     spacecraftKey,
     assignedAmount: 1,
   });
-  assert.ok(!('code' in created));
   assignmentId = created.id;
   assert.equal(
     await requestAsteroidAssignmentRecall({
@@ -365,7 +360,7 @@ test('recall finishes the claimed load and stops the group at its station', asyn
       )
     );
   assert.ok(outbound);
-  assert.equal(await settleTripArrival(outbound), true);
+  assert.equal((await settleTripArrival(outbound)).settled, true);
   assert.equal(await requestAsteroidAssignmentRecall({ assignmentId, asteroidId, userId }), true);
 
   const [returnTrip] = await db
@@ -379,7 +374,7 @@ test('recall finishes the claimed load and stops the group at its station', asyn
       )
     );
   assert.ok(returnTrip);
-  assert.equal(await settleTripArrival(returnTrip), true);
+  assert.equal((await settleTripArrival(returnTrip)).settled, true);
 
   const [resource] = await db
     .select({ amount: stationResources.amount })
@@ -428,7 +423,6 @@ test('recall during outbound flight returns without claiming a new load', async 
     spacecraftKey,
     assignedAmount: 1,
   });
-  assert.ok(!('code' in created));
   assignmentId = created.id;
   assert.equal(await requestAsteroidAssignmentRecall({ assignmentId, asteroidId, userId }), true);
 
@@ -443,7 +437,7 @@ test('recall during outbound flight returns without claiming a new load', async 
       )
     );
   assert.ok(outbound);
-  assert.equal(await settleTripArrival(outbound), true);
+  assert.equal((await settleTripArrival(outbound)).settled, true);
 
   const [returnTrip] = await db
     .select()
@@ -458,7 +452,7 @@ test('recall during outbound flight returns without claiming a new load', async 
   assert.ok(returnTrip);
   assert.equal(returnTrip.cargoManifest, null);
   assert.equal(returnTrip.departedAt.getTime(), outbound.arrivesAt.getTime());
-  assert.equal(await settleTripArrival(returnTrip), true);
+  assert.equal((await settleTripArrival(returnTrip)).settled, true);
 
   const [reserve] = await db
     .select({ amount: asteroidVeins.remainingAmount })
@@ -495,7 +489,6 @@ test('a miner group launches together and a recall stops a single miner', async 
     { userId, asteroidId, stationId, spacecraftKey, assignedAmount: 3 },
     createRealtimeExecutionContext(now)
   );
-  assert.ok(!('code' in created));
   assignmentId = created.id;
   const createdId = created.id;
 
@@ -523,13 +516,13 @@ test('a miner group launches together and a recall stops a single miner', async 
     await requestAsteroidAssignmentRecall({ assignmentId, asteroidId, userId, amount: 1 }),
     true
   );
-  for (const trip of outbound) assert.equal(await settleTripArrival(trip), true);
+  for (const trip of outbound) assert.equal((await settleTripArrival(trip)).settled, true);
   const returns = await tripsOf('mining_return');
   assert.deepEqual(
     returns.map((trip) => [trip.groupSize, trip.cargoManifest]),
     [[3, { carbon: 200 }]]
   );
-  for (const trip of returns) assert.equal(await settleTripArrival(trip), true);
+  for (const trip of returns) assert.equal((await settleTripArrival(trip)).settled, true);
 
   const [assignment] = await db
     .select({
@@ -556,21 +549,14 @@ test('a miner group launches together and a recall stops a single miner', async 
   assert.equal(fleet?.lockedAmount, 2);
 });
 
-test('modular cargo frames claims whole resource units for a Mole', async () => {
+test('cargo compression claims whole units and deep core drilling delivers more than it mines', async () => {
   const db = getDb();
   await resetMiningState();
   await db
     .update(asteroidVeins)
     .set({ remainingAmount: 1_000 })
     .where(eq(asteroidVeins.asteroidId, asteroidId));
-  const completedAt = new Date();
-  await db.insert(stationResearch).values({
-    stationId,
-    technologyKey: 'modular_cargo_frames',
-    status: 'completed',
-    completesAt: completedAt,
-    completedAt,
-  });
+  await grantResearch(userId, { cargo_compression: 2, deep_core_drilling: 1 });
 
   try {
     const created = await createAsteroidAssignment({
@@ -580,7 +566,6 @@ test('modular cargo frames claims whole resource units for a Mole', async () => 
       spacecraftKey,
       assignedAmount: 1,
     });
-    assert.ok(!('code' in created));
 
     const [outbound] = await db
       .select()
@@ -593,7 +578,7 @@ test('modular cargo frames claims whole resource units for a Mole', async () => 
         )
       );
     assert.ok(outbound);
-    assert.equal(await settleTripArrival(outbound), true);
+    assert.equal((await settleTripArrival(outbound)).settled, true);
 
     const [returnTrip] = await db
       .select()
@@ -606,10 +591,16 @@ test('modular cargo frames claims whole resource units for a Mole', async () => 
         )
       );
     assert.ok(returnTrip);
-    assert.deepEqual(returnTrip.cargoManifest, { carbon: 110 });
+    // 110 units leave the asteroid; Deep Core Drilling 1 delivers floor(110 × 1.06).
+    assert.deepEqual(returnTrip.cargoManifest, { carbon: 116 });
+    const [vein] = await db
+      .select({ remainingAmount: asteroidVeins.remainingAmount })
+      .from(asteroidVeins)
+      .where(eq(asteroidVeins.asteroidId, asteroidId));
+    assert.equal(vein?.remainingAmount, 890);
   } finally {
     await resetMiningState();
-    await db.delete(stationResearch).where(eq(stationResearch.stationId, stationId));
+    await db.delete(userResearch).where(eq(userResearch.userId, userId));
   }
 });
 
@@ -635,8 +626,6 @@ test('the exhausted asteroid remains until the last mining group returns', async
     spacecraftKey,
     assignedAmount: 1,
   });
-  assert.ok(!('code' in first));
-  assert.ok(!('code' in second));
 
   const outbounds = await db
     .select()
@@ -648,7 +637,7 @@ test('the exhausted asteroid remains until the last mining group returns', async
       )
     );
   assert.equal(outbounds.length, 2);
-  for (const outbound of outbounds) assert.equal(await settleTripArrival(outbound), true);
+  for (const outbound of outbounds) assert.equal((await settleTripArrival(outbound)).settled, true);
 
   const returns = await db
     .select()
@@ -660,14 +649,14 @@ test('the exhausted asteroid remains until the last mining group returns', async
       )
     );
   assert.equal(returns.length, 2);
-  assert.equal(await settleTripArrival(returns[0]!), true);
+  assert.equal((await settleTripArrival(returns[0]!)).settled, true);
   assert.equal(
     (await db.select({ id: asteroids.id }).from(asteroids).where(eq(asteroids.id, asteroidId)))
       .length,
     1
   );
 
-  assert.equal(await settleTripArrival(returns[1]!), true);
+  assert.equal((await settleTripArrival(returns[1]!)).settled, true);
   assert.equal(
     (await db.select({ id: asteroids.id }).from(asteroids).where(eq(asteroids.id, asteroidId)))
       .length,
@@ -700,5 +689,5 @@ test('parallel players may both travel to the same finite asteroid', async () =>
     }),
   ]);
 
-  assert.equal(results.filter((result) => !('code' in result)).length, 2);
+  assert.equal(results.length, 2);
 });

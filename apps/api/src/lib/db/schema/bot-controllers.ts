@@ -36,6 +36,11 @@ export const botControllers = pgTable(
     goalStartedAt: timestamp('goal_started_at'),
     lastProgressAt: timestamp('last_progress_at'),
     blockedCount: integer('blocked_count').notNull().default(0),
+    /** Owners whose stations turned out to be protected: owner id to ISO time until skipped. */
+    raidBlockedOwners: jsonb('raid_blocked_owners')
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
     /** Learned goal-category weights; null means the profile's start weights. */
     categoryWeights: jsonb('category_weights').$type<Record<string, number>>(),
     nextDecisionAt: timestamp('next_decision_at').notNull().defaultNow(),
