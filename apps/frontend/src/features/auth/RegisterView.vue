@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive } from 'vue';
 import { useRouter } from 'vue-router';
+import AuthShell from './AuthShell.vue';
 import { useAuthStore } from './store';
 
 const router = useRouter();
@@ -20,14 +21,21 @@ async function submit() {
 </script>
 
 <template>
-  <main class="flex min-h-screen items-center justify-center bg-ui-bg p-4 text-ui-text">
-    <form class="ui-card w-full max-w-sm gap-4 p-6" @submit.prevent="submit">
-      <h1 class="text-lg font-semibold tracking-widest text-ui-cyan">Create pilot account</h1>
+  <AuthShell
+    title="Start your station"
+    lead="Pick a pilot name. New players start with 24 h of protection from attacks."
+  >
+    <template #switch>
+      <router-link to="/login" class="text-sm text-ui-soft transition-colors hover:text-ui-bright">
+        Log in
+      </router-link>
+    </template>
+    <form class="flex flex-col gap-5" @submit.prevent="submit">
       <label class="flex flex-col gap-1.5">
-        <span class="ui-label">Pilot name</span>
+        <span class="text-[13px] text-ui-soft">Pilot name</span>
         <input
           v-model.trim="form.username"
-          class="ui-input"
+          class="ui-input h-11"
           required
           minlength="3"
           maxlength="50"
@@ -35,21 +43,21 @@ async function submit() {
         />
       </label>
       <label class="flex flex-col gap-1.5">
-        <span class="ui-label">Email</span>
+        <span class="text-[13px] text-ui-soft">Email</span>
         <input
           v-model.trim="form.email"
           type="email"
-          class="ui-input"
+          class="ui-input h-11"
           required
           autocomplete="email"
         />
       </label>
       <label class="flex flex-col gap-1.5">
-        <span class="ui-label">Password</span>
+        <span class="text-[13px] text-ui-soft">Password</span>
         <input
           v-model="form.password"
           type="password"
-          class="ui-input"
+          class="ui-input h-11"
           required
           minlength="12"
           maxlength="128"
@@ -58,12 +66,19 @@ async function submit() {
         />
       </label>
       <p v-if="authStore.error" class="ui-error">{{ authStore.error }}</p>
-      <button type="submit" class="ui-btn ui-btn-primary" :disabled="authStore.isLoading">
-        {{ authStore.isLoading ? 'Creating…' : 'Register' }}
+      <button
+        type="submit"
+        class="ui-btn ui-btn-primary mt-1 h-11 w-full text-[15px]"
+        :disabled="authStore.isLoading"
+      >
+        {{ authStore.isLoading ? 'Creating…' : 'Create account' }}
       </button>
-      <router-link to="/login" class="text-center text-sm text-ui-muted hover:text-ui-text">
-        Back to login
-      </router-link>
+      <p class="text-sm text-ui-muted">
+        Already playing?
+        <router-link to="/login" class="text-ui-soft underline hover:text-ui-bright"
+          >Log in</router-link
+        >
+      </p>
     </form>
-  </main>
+  </AuthShell>
 </template>
