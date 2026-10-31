@@ -82,7 +82,7 @@ const fastestAvailable = <T extends { spacecraftKey: string }>(rows: T[], role?:
 /** Research limits for expeditions and colonies; shared by the frontier view and the starts. */
 async function worldMissionLimits(db: QueryDb, userId: string) {
   const [modifiers, expeditions, stationCount, colonizations] = await Promise.all([
-    getResearchModifiers(db, userId),
+    getResearchModifiers(userId, db),
     countMovingWorldMissionsByUser(db, userId, 'expedition'),
     countActiveStationsByUser(db, userId),
     countMovingWorldMissionsByUser(db, userId, 'colonization'),

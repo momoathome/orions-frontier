@@ -4,7 +4,6 @@ import type { CombatReport, StationVisualProfile } from '@orions-frontier/shared
 import type { BotProfile } from '../../src/lib/db/schema/bot-controllers.js';
 import {
   calculateHostility,
-  hostilityLabel,
   estimateDefenseScore,
   estimateLootValue,
   calculateReserve,
@@ -54,28 +53,6 @@ const makeProfile = (overrides?: Partial<StationVisualProfile>): StationVisualPr
   },
   traffic: { civilian: 0, military: 0 },
   ...overrides,
-});
-
-// ---------------------------------------------------------------------------
-// Hostility: threshold levels
-// ---------------------------------------------------------------------------
-
-test('hostilityLabel returns neutral below 30', () => {
-  assert.equal(hostilityLabel(0), 'neutral');
-  assert.equal(hostilityLabel(15), 'neutral');
-  assert.equal(hostilityLabel(29), 'neutral');
-});
-
-test('hostilityLabel returns rival at 30–59', () => {
-  assert.equal(hostilityLabel(30), 'rival');
-  assert.equal(hostilityLabel(45), 'rival');
-  assert.equal(hostilityLabel(59), 'rival');
-});
-
-test('hostilityLabel returns hostile at 60+', () => {
-  assert.equal(hostilityLabel(60), 'hostile');
-  assert.equal(hostilityLabel(85), 'hostile');
-  assert.equal(hostilityLabel(100), 'hostile');
 });
 
 // ---------------------------------------------------------------------------
@@ -273,24 +250,18 @@ test('availableOffensivePower subtracts reserve from total', () => {
 test('scoreConflictTarget produces deterministic scores', () => {
   const profile = makeProfile({ scaleTier: 2 });
   const result1 = scoreConflictTarget({
-    targetStationId: 'target-1',
-    ownerId: 'owner-1',
     distance: 10_000,
     visualProfile: profile,
     hostilityScore: 45,
     profile: 'warlord',
     ownAttackPower: 200,
-    botUserId,
   });
   const result2 = scoreConflictTarget({
-    targetStationId: 'target-1',
-    ownerId: 'owner-1',
     distance: 10_000,
     visualProfile: profile,
     hostilityScore: 45,
     profile: 'warlord',
     ownAttackPower: 200,
-    botUserId,
   });
   assert.equal(result1.score, result2.score);
 });
@@ -298,42 +269,20 @@ test('scoreConflictTarget produces deterministic scores', () => {
 test('scoreConflictTarget prefers rival over neutral', () => {
   const profile = makeProfile({ scaleTier: 1 });
   const rival = scoreConflictTarget({
-    targetStationId: 't1',
-    ownerId: 'o1',
     distance: 10_000,
     visualProfile: profile,
     hostilityScore: 45,
     profile: 'warlord',
     ownAttackPower: 100,
-    botUserId,
   });
   const neutral = scoreConflictTarget({
-    targetStationId: 't2',
-    ownerId: 'o2',
     distance: 10_000,
     visualProfile: profile,
     hostilityScore: 0,
     profile: 'warlord',
     ownAttackPower: 100,
-    botUserId,
   });
   assert.ok(rival.score > neutral.score, 'rival should score higher than neutral');
-});
-
-test('scoreConflictTarget includes affinity tie-breaker', () => {
-  const profile = makeProfile({ scaleTier: 1 });
-  const result = scoreConflictTarget({
-    targetStationId: 't1',
-    ownerId: 'o1',
-    distance: 10_000,
-    visualProfile: profile,
-    hostilityScore: 45,
-    profile: 'warlord',
-    ownAttackPower: 100,
-    botUserId,
-  });
-  assert.ok(typeof result.score === 'number');
-  assert.ok(result.score >= 0);
 });
 
 test('industrialist has highest reserve, warlord lowest', () => {

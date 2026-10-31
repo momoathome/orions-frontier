@@ -14,7 +14,7 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { userResearch } from '../../src/lib/db/schema/user-research.js';
 import { createRealtimeExecutionContext } from '../../src/lib/game-execution-context.js';
 import { getAsteroidById, getVisibleChunkAsteroids } from '../../src/services/world/asteroid.js';
-import { getUserResearchModifiers } from '../../src/services/research/effects.js';
+import { getResearchModifiers } from '../../src/services/research/effects.js';
 import { getUserScannerCoverages } from '../../src/services/station/scanner-coverage.js';
 import { createAsteroidAssignment } from '../../src/services/mining/assignment.js';
 import { assignIdleMiners } from '../../src/services/mining/autonomy.js';
@@ -182,7 +182,7 @@ test('Nanite Assembly lowers the paid upgrade cost and cancel refunds what was p
 
 test('Kyber asteroids stay hidden until Spectral Analysis', async () => {
   const listed = async () => {
-    const modifiers = await getUserResearchModifiers(userId);
+    const modifiers = await getResearchModifiers(userId);
     const chunk = { x: Math.floor(stationX / 1_000), y: Math.floor(stationY / 1_000) };
     return (
       await getVisibleChunkAsteroids(

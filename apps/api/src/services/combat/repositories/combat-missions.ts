@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, ne, or } from 'drizzle-orm';
+import { and, desc, eq, gte, ne, or, sql } from 'drizzle-orm';
 import { required } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { combatMissions } from '../../../lib/db/schema/combat-missions.js';
@@ -18,24 +18,31 @@ export function listCombatMissionsByUser(
   userId: string,
   { since, limit, offset }: { since?: Date; limit: number; offset: number }
 ) {
-  return db
-    .select({
-      mission: combatMissions,
-      defenderUserId: stations.userId,
-      arrivesAt: spacecraftTrips.arrivesAt,
-    })
-    .from(combatMissions)
-    .innerJoin(stations, eq(combatMissions.defenderStationId, stations.id))
-    .innerJoin(spacecraftTrips, eq(combatMissions.outboundTripId, spacecraftTrips.id))
-    .where(
-      and(
-        or(eq(combatMissions.userId, userId), eq(stations.userId, userId)),
-        since ? gte(combatMissions.createdAt, since) : undefined
+  return (
+    db
+      .select({
+        mission: combatMissions,
+        defenderUserId: stations.userId,
+        arrivesAt: spacecraftTrips.arrivesAt,
+      })
+      .from(combatMissions)
+      .innerJoin(stations, eq(combatMissions.defenderStationId, stations.id))
+      .innerJoin(spacecraftTrips, eq(combatMissions.outboundTripId, spacecraftTrips.id))
+      .where(
+        and(
+          or(eq(combatMissions.userId, userId), eq(stations.userId, userId)),
+          since ? gte(combatMissions.createdAt, since) : undefined
+        )
       )
-    )
-    .orderBy(desc(combatMissions.createdAt), desc(combatMissions.id))
-    .limit(limit)
-    .offset(offset);
+      // Traveling missions first, so an incoming attack is never pushed off the first page.
+      .orderBy(
+        desc(sql`${combatMissions.status} = 'traveling'`),
+        desc(combatMissions.createdAt),
+        desc(combatMissions.id)
+      )
+      .limit(limit)
+      .offset(offset)
+  );
 }
 
 /** Locks the mission whose outbound trip this is, while it is still traveling. */

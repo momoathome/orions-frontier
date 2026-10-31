@@ -13,7 +13,11 @@ import { insertTrip, updateTripCargo, type TripRow } from '../fleet/index.js';
 import { assignIdleMiners, claimMiningCargo, largestResource } from '../mining/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
-import { creditStationResources, releaseSpacecraftClamped, findStation } from '../station/index.js';
+import {
+  creditStationResources,
+  findStationForUpdate,
+  releaseSpacecraftClamped,
+} from '../station/index.js';
 import { applySpeed, getStationResearchModifiers } from '../research/index.js';
 import type { GameExecutionContext } from '../../lib/game-execution-context.js';
 import {
@@ -108,11 +112,13 @@ export async function handleMiningReturnArrival(
 ): Promise<PlaytestCompletionEvent[]> {
   let delivery: MiningDeliveryCompletedEvent | null = null;
   const events: PlaytestCompletionEvent[] = [];
+  // Station first, like every station write: the reroute below locks a new asteroid and the
+  // fleet row, which a player's assignment locks after this station too.
+  const station = await findStationForUpdate(tx, trip.toId);
   if (trip.cargoManifest) {
     const requested = { ...trip.cargoManifest };
     const credited = await creditStationResources(tx, trip.toId, requested);
     await updateTripCargo(tx, trip.id, credited);
-    const station = await findStation(tx, trip.toId);
     if (station) {
       delivery = {
         type: 'mining_delivery_completed',

@@ -12,6 +12,7 @@ import {
   findStationSpacecraftByKey,
   reserveSpacecraft,
   findOwnedStation,
+  findOwnedStationForUpdate,
 } from '../station/index.js';
 import { AppError, ErrorCode, type AsteroidSize } from '@orions-frontier/shared';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
@@ -81,6 +82,10 @@ export const createAsteroidAssignment = async (
 
   const departedAt = context.now;
   const assignmentId = await db.transaction(async (tx) => {
+    // Station first, like the tick's mining return, which reroutes miners of this station.
+    if (!(await findOwnedStationForUpdate(tx, stationId, userId))) {
+      throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+    }
     if (!(await findAsteroidForUpdate(tx, asteroidId))) {
       throw new AppError(ErrorCode.NOT_FOUND, 'Asteroid not found');
     }

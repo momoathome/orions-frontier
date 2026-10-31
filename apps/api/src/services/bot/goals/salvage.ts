@@ -1,5 +1,5 @@
 import type { BotProfile } from '../../../lib/db/schema/bot-controllers.js';
-import { getSpacecraft } from '@orions-frontier/game-config';
+import { getSpacecraft, requirementBlockers } from '@orions-frontier/game-config';
 import {
   entriesOf,
   resourceKeys,
@@ -28,6 +28,8 @@ import {
 
 const COLLECTOR_KEY = 'collector';
 const COLLECTOR_COST = getSpacecraft(COLLECTOR_KEY)?.costs ?? [];
+// Only the research part: stepSalvage upgrades the Shipyard itself.
+const COLLECTOR_RESEARCH = { research: getSpacecraft(COLLECTOR_KEY)?.requirements.research };
 const PAYBACK_THRESHOLD = 1.25;
 
 /** Resource preference weights for valuing salvage cargo. */
@@ -167,6 +169,10 @@ export function generateSalvageCandidates(
     const collector = station.fleets.find((f) => f.spacecraftKey === COLLECTOR_KEY);
     const availableCollectors = collector ? collector.amount - collector.lockedAmount : 0;
     const needsBuild = availableCollectors <= 0;
+    // The server rejects the build, so the goal would only block and be picked again.
+    if (needsBuild && requirementBlockers(COLLECTOR_RESEARCH, station.research, {}).length > 0) {
+      continue;
+    }
     const hasCapacity = needsBuild ? canAfford(station, COLLECTOR_COST) : true;
 
     const baseNeed = needsBuild ? 40 : 60;

@@ -328,7 +328,7 @@ export const researchDefinitions: ResearchDefinition[] = [
 export const getResearchDefinition = (key: string): ResearchDefinition | undefined =>
   researchDefinitions.find((definition) => definition.key === key);
 
-export const requireResearchDefinition = (key: ResearchKey): ResearchDefinition =>
+const requireResearchDefinition = (key: ResearchKey): ResearchDefinition =>
   required(getResearchDefinition(key), `research ${key}`);
 
 export const isResearchKey = (key: string): key is ResearchKey => isOneOf(researchKeys, key);

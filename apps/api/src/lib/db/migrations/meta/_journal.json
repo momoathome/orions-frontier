@@ -152,8 +152,8 @@
     {
       "idx": 21,
       "version": "6",
-      "when": 1784973600000,
-      "tag": "0021_lowercase_emails",
+      "when": 1784977200000,
+      "tag": "0021_username_case_unique",
       "breakpoints": true
     }
   ]

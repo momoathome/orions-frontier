@@ -7,15 +7,6 @@ export { goalTypes } from '../../../lib/db/schema/bot-controllers.js';
 export type BotControllerRow = typeof botControllers.$inferSelect;
 export type BotControllerUpdate = Partial<typeof botControllers.$inferInsert>;
 
-export async function findBotController(db: QueryDb, userId: string) {
-  const [row] = await db
-    .select()
-    .from(botControllers)
-    .where(eq(botControllers.userId, userId))
-    .limit(1);
-  return row;
-}
-
 /** Keeps an existing controller untouched. */
 export async function insertBotControllerIfAbsent(
   db: QueryDb,
@@ -71,12 +62,6 @@ export async function claimBotDecision(
     .update(botControllers)
     .set({ nextDecisionAt, updatedAt: now })
     .where(and(eq(botControllers.userId, userId), lte(botControllers.nextDecisionAt, now)))
-    .returning({
-      strategy: botControllers.strategy,
-      profile: botControllers.profile,
-      activeGoalType: botControllers.activeGoalType,
-      activeGoalTarget: botControllers.activeGoalTarget,
-      categoryWeights: botControllers.categoryWeights,
-    });
+    .returning();
   return claimed;
 }

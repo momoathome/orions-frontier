@@ -7,8 +7,7 @@ import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { salvageMissions } from '../../src/lib/db/schema/debris-fields.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
-import { runBotDecisionTick } from '../../src/services/bot/bot.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
 import {
   createTestSector,
   createTestStation,
@@ -58,8 +57,7 @@ test('scenario: a warlord bot raids a neighbour and a bot salvages the debris', 
   // Bots and due work advance together in five-minute steps for up to two virtual days.
   for (let step = 0; step < 576 && !salvaged; step += 1) {
     const now = new Date(start.getTime() + step * 5 * 60_000);
-    await runBotDecisionTick(now);
-    await runSimulationTick(now);
+    await runWorldTick(now);
     const [combat] = await db
       .select({ status: combatMissions.status })
       .from(combatMissions)

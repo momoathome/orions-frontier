@@ -173,7 +173,7 @@ const MISSION_TITLES: Partial<Record<WorldTripPurpose, string>> = {
   colonization: 'Colony ship en route',
   salvage: 'Salvage fleet en route',
   salvage_return: 'Salvage fleet returning',
-  relocate: 'Station relocating',
+  relocate: 'Fleet relocating',
 };
 
 const operations = computed<Operation[]>(() => {
@@ -244,6 +244,6 @@ const operations = computed<Operation[]>(() => {
   return list.filter((op) => op.endsAt > now).sort((a, b) => a.endsAt - b.endsAt);
 });
 
-const overviewStore = reactive({ state, alerts, operations, start, refreshAll, refreshTrips });
+const overviewStore = reactive({ state, alerts, operations, start, refreshTrips });
 
 export const useOverviewStore = () => overviewStore;

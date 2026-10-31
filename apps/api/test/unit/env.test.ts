@@ -7,7 +7,12 @@ const production = {
   DATABASE_URL: 'postgresql://user:pass@db:5432/app',
   CORS_ORIGIN: 'https://game.example',
   JWT_SECRET: 'a'.repeat(32),
+  WORLD_SEED: 'b'.repeat(16),
 };
+
+test('production needs its own world seed', () => {
+  assert.throws(() => parseEnv({ ...production, WORLD_SEED: undefined }), /WORLD_SEED/);
+});
 
 test('production refuses placeholder and short JWT secrets', () => {
   assert.doesNotThrow(() => parseEnv(production));

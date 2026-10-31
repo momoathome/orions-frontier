@@ -12,9 +12,9 @@ import { calculateResearchCost } from './research.js';
 import { getSpacecraft } from './spacecrafts.js';
 
 /** Resource units per Influence point. */
-export const INFLUENCE_RESOURCES_PER_POINT = 100;
+const INFLUENCE_RESOURCES_PER_POINT = 100;
 /** Ships can be lost in a single fight, so the fleet counts at half its build cost. */
-export const INFLUENCE_FLEET_SHARE = 0.5;
+const INFLUENCE_FLEET_SHARE = 0.5;
 /** Buildings are seeded at level 1 for free; only upgrades beyond it are investments. */
 const BUILDING_STARTING_LEVEL = 1;
 

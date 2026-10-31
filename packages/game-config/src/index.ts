@@ -5,12 +5,7 @@ export {
   calculateColonizationCost,
   resources,
 } from './resources.js';
-export {
-  currentIntegrity,
-  integrityWaveDamage,
-  coarseIntegrity,
-  MAX_STATION_INTEGRITY,
-} from './integrity.js';
+export { currentIntegrity, integrityWaveDamage, coarseIntegrity } from './integrity.js';
 export {
   calculateCrewUsage,
   getSpacecraft,
@@ -48,7 +43,6 @@ export {
   getResearchDefinition,
   isResearchKey,
   LAB_SPEED_PER_LEVEL,
-  requireResearchDefinition,
   requirementBlockers,
   researchBlockers,
   researchDefinitions,
@@ -62,9 +56,5 @@ export {
   researchModifiers,
 } from './research-effects.js';
 export type { ResearchModifiers } from './research-effects.js';
-export {
-  calculateInfluence,
-  INFLUENCE_FLEET_SHARE,
-  INFLUENCE_RESOURCES_PER_POINT,
-} from './influence.js';
+export { calculateInfluence } from './influence.js';
 export type { InfluenceInput } from './influence.js';

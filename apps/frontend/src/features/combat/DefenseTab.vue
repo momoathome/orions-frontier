@@ -18,7 +18,7 @@ const error = ref<string | null>(null);
 const combat = useCombatStore();
 const research = useResearchStore();
 
-// The overview store keeps combat reports current, including the reload at each arrival.
+// The overview store keeps combat reports current; it refreshes them on transport ticks.
 const relevantReports = computed(() =>
   combat.state.combats.filter(
     (report) => report.attackerStationId === stationId || report.defenderStationId === stationId
@@ -43,6 +43,7 @@ function incomingComposition(report: CombatReport): string {
 }
 
 function reportSummary(report: CombatReport): string {
+  if (report.status === 'traveling') return `En route, arrives in ${arrivesIn(report)}`;
   if (report.winner === null) return 'Target already destroyed, fleet turned back';
   const sent = report.attackerAmount === null ? '' : `${report.attackerAmount} sent, `;
   const integrity = report.stationDestroyed

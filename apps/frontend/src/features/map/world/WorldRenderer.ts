@@ -305,6 +305,9 @@ export class WorldRenderer {
 
   setScannerStations(stations: StationInfo[]): void {
     this.scannerStations = stations;
+    // Keeps the range label current after a scanner upgrade.
+    const current = this.stationInfo && stations.find((s) => s.id === this.stationInfo?.id);
+    if (current) this.stationInfo = current;
     this.stationRingsDirty = true;
     this.tripLayer.setScannerCircles(
       this.scannerBypass ? [] : stations.map((entry) => ({ ...entry, range: entry.scannerRange }))

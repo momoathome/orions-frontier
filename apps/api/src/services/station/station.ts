@@ -103,7 +103,7 @@ export const createStation = async (
   return db.transaction(async (tx) => {
     // A new station starts with a level 1 scanner; Sensor Arrays is account-wide.
     const scannerRange = async () =>
-      calculateScannerRange(1) * (await getResearchModifiers(tx, userId)).scannerRange;
+      calculateScannerRange(1) * (await getResearchModifiers(userId, tx)).scannerRange;
     await lockStationCreation(tx);
     if (slotType === 'player') {
       const owned = await listStationDestroyedAtByUser(tx, userId);

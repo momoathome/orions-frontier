@@ -337,10 +337,7 @@ function analyzeBot(
     warnings.push(colonyWarning);
   }
 
-  const resourceSpan = spanForReason(
-    decisions,
-    /insufficient|saving resources|cannot afford|no mineable|resource/i
-  );
+  const resourceSpan = spanForReason(decisions, /not reachable/i);
   if (
     bot.economy.unreachableResourceNeeds > 0 &&
     bot.expansion.expeditions === 0 &&

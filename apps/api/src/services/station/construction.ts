@@ -50,17 +50,14 @@ import {
   getResearchLevels,
   getStationResearchModifiers,
 } from '../research/index.js';
-import { describeBlockers, toQueuedJob, toResourceMap } from './research-queue.js';
+import {
+  describeBlockers,
+  toBuildingLevels,
+  toQueuedJob,
+  toResourceMap,
+} from './research-queue.js';
 import { recordLogbookEvents } from '../logbook/index.js';
 import { creditStationResources } from './resources.js';
-
-export const toBuildingLevels = (rows: { buildingKey: string; level: number }[]) => {
-  const levels: BuildingLevels = {};
-  for (const row of rows) {
-    if (isOneOf(buildingKeys, row.buildingKey)) levels[row.buildingKey] = row.level;
-  }
-  return levels;
-};
 
 /** Upgrade cost after the Nanite Assembly discount. */
 export const upgradeCost = (
@@ -302,9 +299,6 @@ export async function queueStationUpgrade(
       }
       await assertFreeBuildSlot(tx, stationId, modifiers, context.now);
     }
-    if (jobs.length >= QUEUE_LIMIT) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, `Queue is full (${QUEUE_LIMIT} jobs)`);
-    }
     // A queued job may rely on earlier jobs of this queue; a direct start only on what is built.
     const planned = plannedLevels(rows, queue ? jobs : []);
     const targetLevel = (planned.get(key) ?? rules.startingLevel) + 1;
@@ -344,6 +338,10 @@ export async function queueStationUpgrade(
     const { started, dropped } = await advanceStationQueue(tx, station, context.now);
     if (!queue && !started.includes(jobId)) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'No free build slot');
+    }
+    // Only waiting jobs fill the queue; one that starts at once always fits.
+    if (!started.includes(jobId) && jobs.length >= QUEUE_LIMIT) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Queue is full (${QUEUE_LIMIT} jobs)`);
     }
     return afterCommit(tx, userId, stationId, dropped);
   });

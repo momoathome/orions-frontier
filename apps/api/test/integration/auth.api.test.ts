@@ -72,6 +72,28 @@ test('a user can register, login and load their authenticated profile', async ()
     },
   });
   assert.equal(otherCase.statusCode, 409);
+  const sameNameOtherCase = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: {
+      ...credentials,
+      username: ` ${credentials.username.toUpperCase()} `,
+      email: `case-${suffix}@example.test`,
+    },
+  });
+  assert.equal(sameNameOtherCase.statusCode, 409);
+  // Bot names and emails stay reserved; taking one would claim that bot's station slot.
+  for (const reserved of [
+    { username: `Orion-Bot-${suffix.slice(0, 8)}`, email: `bot-${suffix}@example.test` },
+    { username: `bot-${suffix.slice(0, 8)}`, email: `bot-${suffix}@system.invalid` },
+  ]) {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { ...credentials, ...reserved },
+    });
+    assert.equal(response.statusCode, 400);
+  }
   const racers = await Promise.all(
     [1, 2].map(() =>
       app.inject({

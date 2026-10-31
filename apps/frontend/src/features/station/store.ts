@@ -13,7 +13,7 @@ import {
   type StationSpacecraftsResponse,
   type UserResourceSummary,
 } from '@orions-frontier/shared';
-import { apiClient } from '../../shared/api/api-client.js';
+import { ApiError, apiClient } from '../../shared/api/api-client.js';
 import { wsClient } from '../../shared/api/ws-client.js';
 import { guarded, live } from '../../shared/lib/live.js';
 import { useResearchStore } from '../research/index.js';
@@ -57,10 +57,17 @@ async function loadStationIncome(
     `/stations/${id}/mining-assignments`
   );
   const asteroidIds = [...new Set(assignments.map((assignment) => assignment.asteroidId))];
+  // A depleted asteroid answers 404 while its miners are still out; it yields nothing.
   const asteroids = await Promise.all(
-    asteroidIds.map((asteroidId) => apiClient.get<AsteroidDetail>(`/asteroids/${asteroidId}`))
+    asteroidIds.map((asteroidId) =>
+      apiClient.get<AsteroidDetail>(`/asteroids/${asteroidId}`).catch((cause: unknown) => {
+        if (cause instanceof ApiError && cause.status === 404) return null;
+        throw cause;
+      })
+    )
   );
-  return { income: summarizeStationIncome(id, asteroids, research.modifiers.yield), assignments };
+  const found = asteroids.filter((asteroid) => asteroid !== null);
+  return { income: summarizeStationIncome(id, found, research.modifiers.yield), assignments };
 }
 
 // Overlapping refreshes of one station: only the latest request may write its detail.

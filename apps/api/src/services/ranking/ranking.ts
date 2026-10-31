@@ -70,15 +70,17 @@ export async function getRanking(userId: string, limit: number): Promise<Ranking
   // Equal Influence shares a rank (1, 2, 2, 4).
   let rank = 0;
   let previousTotal = Number.NaN;
-  const ranked = sorted.map((entry, index): RankingEntry => {
-    if (entry.influence.total !== previousTotal) rank = index + 1;
-    previousTotal = entry.influence.total;
-    return { rank, ...entry };
+  const ranked = sorted.map(({ influence, ...entry }, index) => {
+    if (influence.total !== previousTotal) rank = index + 1;
+    previousTotal = influence.total;
+    return { rank, ...entry, influence: influence.total, breakdown: influence };
   });
+  const own = ranked.find((entry) => entry.userId === userId);
 
   return {
-    top: ranked.slice(0, limit),
-    me: ranked.find((entry) => entry.userId === userId) ?? null,
+    // Other players see only the total, never how it splits into buildings, defense and fleet.
+    top: ranked.slice(0, limit).map(({ breakdown: _, ...entry }): RankingEntry => entry),
+    me: own ?? null,
     totalPlayers: ranked.length,
   };
 }

@@ -9,7 +9,7 @@ import { WORLD_CONFIG } from '../../lib/world-config.js';
 import {
   findStationSpacecraftByKey,
   reserveSpacecraft,
-  findActiveStation,
+  findStationForUpdate,
   getUserScannerCoverages,
 } from '../station/index.js';
 import {
@@ -97,8 +97,9 @@ export async function assignIdleMiners(
   const reroute = params.resourceKey !== null && modifiers.autoReroute;
   if (!reroute && !modifiers.autonomousFleet) return null;
 
-  const station = await findActiveStation(tx, params.stationId);
-  if (!station) return null;
+  // Station first, like every station write, before the asteroid and fleet locks below.
+  const station = await findStationForUpdate(tx, params.stationId);
+  if (!station || station.destroyedAt) return null;
   const coverages = await getUserScannerCoverages(station.userId, tx);
   const bounds = scannerChunkBounds(coverages, WORLD_CONFIG.CHUNK_SIZE);
   if (bounds.length === 0) return null;

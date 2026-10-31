@@ -230,7 +230,7 @@ export async function getUserCombatReports(
   const db = getDb();
   const [rows, modifiers] = await Promise.all([
     listCombatMissionsByUser(db, userId, { since, limit, offset }),
-    getResearchModifiers(db, userId),
+    getResearchModifiers(userId, db),
   ]);
   return rows.map(({ mission, defenderUserId, arrivesAt }) =>
     toReport(mission, defenderUserId, arrivesAt, userId, modifiers.signatureAnalysis)

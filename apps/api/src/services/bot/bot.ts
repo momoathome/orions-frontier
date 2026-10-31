@@ -1,11 +1,11 @@
 import { getDb } from '../../lib/db/index.js';
 import {
   claimBotDecision,
-  findBotController,
   goalTypes,
   listDueBotControllerUserIds,
   updateBotController,
   updateBotControllerReturningGoal,
+  type BotControllerRow,
   type BotControllerUpdate,
 } from './repositories/bot-controllers.js';
 import { logger as rootLogger } from '../../lib/logger.js';
@@ -110,6 +110,7 @@ function botOffsetMs(userId: string): number {
 
 async function handleGoalV1(
   userId: string,
+  controller: BotControllerRow,
   context: GameExecutionContext,
   observeConflictOpportunity?: (snapshot: ConflictOpportunitySnapshot) => void
 ): Promise<BotActionResult> {
@@ -125,16 +126,6 @@ async function handleGoalV1(
   }
 
   const db = getDb();
-  const controller = await findBotController(db, userId);
-  if (!controller) {
-    return {
-      action: 'wait',
-      reason: 'No controller',
-      hasProgress: false,
-      completedGoalType: null,
-    };
-  }
-
   if (
     controller.raidBlockedTarget &&
     controller.raidBlockedUntil &&
@@ -413,7 +404,7 @@ export async function runBotDecisionTick(
     let errorMessage: string | null = null;
     try {
       if (claimed.strategy === 'goal_v1') {
-        const r = await handleGoalV1(bot.userId, context, (snapshot) => {
+        const r = await handleGoalV1(bot.userId, claimed, context, (snapshot) => {
           conflictOpportunity = snapshot;
         });
         action = r.action;

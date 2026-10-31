@@ -76,7 +76,7 @@ test('players are ranked server-wide by the Influence of all their stations and 
   const runnerUpView = await fetchRanking(runnerUp);
   assert.ok(leaderView.me && runnerUpView.me);
   // Core upgrades 2080 + 800 resources, 6 Moles at half of 190 each.
-  assert.deepEqual(leaderView.me.influence, {
+  assert.deepEqual(leaderView.me.breakdown, {
     buildings: 29,
     research: 0,
     defense: 0,
@@ -85,19 +85,21 @@ test('players are ranked server-wide by the Influence of all their stations and 
   });
   assert.equal(leaderView.me.stationCount, 2);
   assert.equal(leaderView.me.ownerType, 'player');
-  assert.equal(runnerUpView.me.influence.total, 24);
+  assert.equal(runnerUpView.me.influence, 24);
   assert.ok(leaderView.me.rank < runnerUpView.me.rank);
 
   // Lost ships only reduce the fleet share.
   await setMoles(stationIds[2] ?? '', 1);
   const afterLosses = (await fetchRanking(runnerUp)).me;
   assert.ok(afterLosses);
-  assert.equal(afterLosses.influence.buildings, 21);
-  assert.equal(afterLosses.influence.fleet, 1);
-  assert.equal(afterLosses.influence.total, 22);
+  assert.equal(afterLosses.breakdown.buildings, 21);
+  assert.equal(afterLosses.breakdown.fleet, 1);
+  assert.equal(afterLosses.influence, 22);
 
   // The list is ordered and the own row matches the player's place in it.
-  const scores = leaderView.top.map((entry) => entry.influence.total);
+  const scores = leaderView.top.map((entry) => entry.influence);
+  // Other players' breakdowns stay private.
+  assert.ok(leaderView.top.every((entry) => !('breakdown' in entry)));
   assert.deepEqual(
     scores,
     [...scores].sort((a, b) => b - a)

@@ -45,10 +45,7 @@ import {
   startResearch,
 } from '../../src/services/station/research-queue.js';
 import { deleteTestData, grantResearch, setTestResources } from '../helpers/fixtures.js';
-import {
-  runExclusiveWorldTick,
-  runSimulationTick,
-} from '../../src/services/simulation/simulation.js';
+import { runExclusiveWorldTick, runWorldTick } from '../../src/services/simulation/simulation.js';
 import {
   applyConstructionSpeed,
   applyTravelSpeed,
@@ -409,7 +406,7 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
     .update(spacecraftBuildOrders)
     .set({ nextAt: completedAt, endsAt: completedAt })
     .where(eq(spacecraftBuildOrders.stationId, stationId));
-  await runSimulationTick(completedAt);
+  await runWorldTick(completedAt);
   assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 20 });
 });
 

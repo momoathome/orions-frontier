@@ -21,12 +21,9 @@ export async function getResearchLevels(db: QueryDb, userId: string): Promise<Re
   return toResearchLevels(await listUserResearch(db, userId));
 }
 
-export async function getResearchModifiers(db: QueryDb, userId: string) {
+export async function getResearchModifiers(userId: string, db: QueryDb = getDb()) {
   return researchModifiers(await getResearchLevels(db, userId));
 }
-
-export const getUserResearchModifiers = (userId: string, db: QueryDb = getDb()) =>
-  getResearchModifiers(db, userId);
 
 /** Modifiers of the station's owner; research is account-wide. */
 export async function getStationResearchModifiers(

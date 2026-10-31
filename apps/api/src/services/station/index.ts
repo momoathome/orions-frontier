@@ -24,12 +24,10 @@ export {
 export {
   cancelResearch,
   completeDueResearch,
-  describeBlockers,
   getResearchState,
   recheckResearchQueue,
   removeQueuedResearch,
   startResearch,
-  toQueuedJob,
   toResourceMap,
 } from './research-queue.js';
 export type { ResearchQueueHooks } from './research-queue.js';

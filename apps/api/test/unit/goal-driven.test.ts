@@ -295,10 +295,7 @@ import {
   stepStabilizeStation,
 } from '../../src/services/bot/goals/economy.js';
 import { stepEstablishColony } from '../../src/services/bot/goals/expansion.js';
-import {
-  generateBuildStrikeForceCandidate,
-  stepBuildStrikeForce,
-} from '../../src/services/bot/goals/military.js';
+import { generateBuildStrikeForceCandidate } from '../../src/services/bot/goals/military.js';
 import {
   generateResearchCandidates,
   stepResearchTechnology,
@@ -848,8 +845,6 @@ test('a warlord without Weapons researches Weapons before it builds Merlins', as
   });
   const state = baseState(station);
   assert.equal(generateBuildStrikeForceCandidate(state, station), null);
-  const strike = await stepBuildStrikeForce(state, station, `station:${station.id}`, 'warlord');
-  assert.equal(strike.type === 'blocked' && strike.detail, 'research_locked');
   const [best] = generateResearchCandidates(state, station, 'warlord').sort(
     (a, b) => b.baseNeed - a.baseNeed
   );
@@ -878,6 +873,27 @@ test('a needed research behind the laboratory cap upgrades the laboratory first'
     stationId: 'station-1',
     buildingKey: 'laboratory',
   });
+});
+
+test('a laboratory cap is raised at the station with the highest laboratory', async () => {
+  const resources = { carbon: 5_000, titanium: 5_000, hydrogenium: 5_000, kyber_crystal: 500 };
+  const research = { extraction_algorithms: 3 };
+  const high = baseStation({
+    id: 'station-high',
+    buildings: shipyardAt(1, 3),
+    resources,
+    research,
+  });
+  const low = baseStation({ id: 'station-low', buildings: shipyardAt(1, 1), resources, research });
+  const state = baseState(low, { ownStations: [low, high] });
+  const step = await stepResearchTechnology(
+    state,
+    low,
+    'tech:station-low:extraction_algorithms:4',
+    'technocrat'
+  );
+  assert.equal(step.type === 'success' && step.intent.type, 'upgrade_building');
+  assert.equal(step.type === 'success' && step.intent.stationId, 'station-high');
 });
 
 test('raid sends the smallest sufficient fighter group with every docked bomber', async () => {
@@ -1012,11 +1028,28 @@ test('salvage must beat mining and chooses the best local station deterministica
   assert.equal(generateSalvageCandidates(unprofitable, 'industrialist').length, 0);
 });
 
+test('salvage that needs a collector waits for its research', () => {
+  const station = baseStation({ resources: { carbon: 0, titanium: 0, hydrogenium: 0 } });
+  const debris = [{ id: 'debris-rich', x: 100, y: 0, resources: { astatine: 1_000 } }];
+  assert.equal(
+    generateSalvageCandidates(baseState(station, { visibleDebris: debris }), 'industrialist')
+      .length,
+    0
+  );
+  const researched = { ...station, research: { cargo_compression: 2 } };
+  assert.equal(
+    generateSalvageCandidates(baseState(researched, { visibleDebris: debris }), 'industrialist')
+      .length,
+    1
+  );
+});
+
 test('collector construction requires one-trip salvage payback', async () => {
   const station = baseStation({
     buildings: baseStation().buildings.map((building) =>
       building.buildingKey === 'shipyard' ? { ...building, level: 2 } : building
     ),
+    research: { cargo_compression: 2 },
   });
   const poorState = baseState(station, {
     visibleDebris: [{ id: 'debris-poor', x: 100, y: 0, resources: { carbon: 1 } }],

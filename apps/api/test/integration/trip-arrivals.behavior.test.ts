@@ -15,7 +15,7 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import { assertKnownSpacecraftKeys } from '../../src/services/station/index.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
 import {
   listDueTripsWithOwner,
   recordTripSettleFailure,
@@ -200,7 +200,7 @@ test('simulation tick catches up a trip that became due while the API was offlin
     .returning();
   assert.ok(trip);
 
-  await runSimulationTick(new Date(trip.arrivesAt.getTime() + 1));
+  await runWorldTick(new Date(trip.arrivesAt.getTime() + 1));
 
   const [settled] = await db
     .select({ status: spacecraftTrips.status })
@@ -244,7 +244,7 @@ test('a failing due trip does not block later simulation work', async () => {
     .returning();
   assert.ok(poisonTrip && validTrip);
 
-  await runSimulationTick(now);
+  await runWorldTick(now);
 
   const statuses = await db
     .select({ id: spacecraftTrips.id, status: spacecraftTrips.status })
@@ -298,7 +298,7 @@ test('simulation tick completes due building and spacecraft work exactly once', 
     .returning({ id: spacecraftBuildOrders.id });
   assert.ok(building && order);
 
-  await Promise.all([runSimulationTick(now), runSimulationTick(now)]);
+  await Promise.all([runWorldTick(now), runWorldTick(now)]);
 
   const [completedBuilding] = await db
     .select({ level: stationBuildings.level, upgradeEndsAt: stationBuildings.upgradeEndsAt })

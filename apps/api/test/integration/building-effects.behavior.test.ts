@@ -11,7 +11,7 @@ import {
   getStationDefenseUpgrades,
   startDefenseUpgrade,
 } from '../../src/services/station/defense.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
 import { getStationStorageCapacity } from '../../src/services/station/resources.js';
 import {
@@ -127,5 +127,5 @@ async function completeProgressRow(key: string): Promise<void> {
     .update(stationBuildings)
     .set({ upgradeEndsAt: completedAt, upgradePaidCost: [] })
     .where(and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, key)));
-  await runSimulationTick(completedAt);
+  await runWorldTick(completedAt);
 }

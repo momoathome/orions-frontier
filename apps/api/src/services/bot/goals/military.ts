@@ -17,7 +17,6 @@ import {
   canAcquireCosts,
   canAfford,
   freeCrewCapacity,
-  getShipyardLevel,
   hasActiveMining,
   stationBuildingLevels,
   stationModifiers,
@@ -152,11 +151,6 @@ export function bestDefenseUpgrade(
   return best
     ? { upgradeKey: best.upgradeKey, targetLevel: best.targetLevel, gain: best.gain }
     : null;
-}
-
-/** Check if station has a shipyard at least at the given level. */
-function hasShipyardLevel(station: StationSnapshot, level: number): boolean {
-  return getShipyardLevel(station) >= level;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,43 +312,7 @@ export async function stepBuildStrikeForce(
     };
   }
 
-  // Missing research ends the goal so the research goal can pick up the unlock.
-  if (unlockedFighters(station).length === 0 && hasShipyardLevel(station, 2)) {
-    return { type: 'blocked', detail: 'research_locked', reason: 'Fighters need research' };
-  }
-  // Need shipyard level 2 for first fighter
-  if (!hasShipyardLevel(station, 2)) {
-    // Check if shipyard can be upgraded
-    const shipyard = station.buildings.find((b) => b.buildingKey === 'shipyard');
-    if (shipyard?.upgradeEndsAt === null) {
-      if (!canAfford(station, buildingUpgradeCost(station, 'shipyard'))) {
-        return {
-          type: 'saving',
-          detail: 'shipyard_cost',
-          reason: `Saving for Shipyard level ${shipyard.level + 1}`,
-        };
-      }
-      return {
-        type: 'success',
-        intent: { type: 'upgrade_building', stationId: station.id, buildingKey: 'shipyard' },
-        reason: `Building Shipyard to level ${shipyard.level + 1} for fighter unlock`,
-      };
-    }
-    if (shipyard) {
-      return {
-        type: 'waiting',
-        detail: 'shipyard_upgrading',
-        reason: `Shipyard upgrading for fighter unlock`,
-      };
-    }
-    return {
-      type: 'blocked',
-      detail: 'no_shipyard',
-      reason: `Shipyard level too low for fighters`,
-    };
-  }
-
-  // If shipyard already at level 2+, check hangar capacity
+  // The candidate requires an unlocked fighter (Shipyard included), and neither unlock can drop.
   const crewCapacity = freeCrewCapacity(station);
   if (crewCapacity <= 0) {
     // Try upgrading hangar

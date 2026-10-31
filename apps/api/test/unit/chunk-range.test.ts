@@ -14,6 +14,8 @@ test('chunk ranges must be integer, ordered, and bounded', () => {
     { minChunkX: '0.5', maxChunkX: '1', minChunkY: '0', maxChunkY: '1' },
     { minChunkX: '2', maxChunkX: '1', minChunkY: '0', maxChunkY: '1' },
     { minChunkX: '0', maxChunkX: '4', minChunkY: '0', maxChunkY: '1' },
+    // Within the span but far outside any world, where Postgres integers would overflow.
+    { minChunkX: '1e10', maxChunkX: '1e10', minChunkY: '0', maxChunkY: '1' },
   ]) {
     assert.throws(() => parseChunkRange(query, 3), AppError);
   }

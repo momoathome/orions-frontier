@@ -176,14 +176,11 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
       const dist = Math.hypot(target.x - station.x, target.y - station.y);
       const hostility = calculateHostility(state.userId, state.combatReports, now, target.ownerId);
       const scored = scoreConflictTarget({
-        targetStationId: target.id,
-        ownerId: target.ownerId,
         distance: dist,
         visualProfile: target.visualProfile,
         hostilityScore: hostility,
         profile: _profile,
         ownAttackPower: offensive,
-        botUserId: state.userId,
       });
       if (scored.score <= 0) continue;
 
@@ -333,14 +330,11 @@ export function generateRetaliateCandidates(
       const dist = Math.hypot(target.x - station.x, target.y - station.y);
       const hostility = calculateHostility(state.userId, state.combatReports, now, ownerId);
       const scored = scoreConflictTarget({
-        targetStationId: target.id,
-        ownerId: target.ownerId,
         distance: dist,
         visualProfile: target.visualProfile,
         hostilityScore: hostility,
         profile: _profile,
         ownAttackPower: offensive,
-        botUserId: state.userId,
       });
 
       const candidate: GoalCandidate = {

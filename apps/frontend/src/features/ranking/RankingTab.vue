@@ -14,6 +14,7 @@ const meOutsideTop = computed(() => {
   return value.top.some((entry) => entry.userId === value.me?.userId) ? null : value.me;
 });
 
+// Only the own row has a breakdown; the server keeps other players' split private.
 const breakdownTitle = (influence: InfluenceBreakdown): string =>
   `Buildings ${influence.buildings}, Research ${influence.research}, Defense ${influence.defense}, Fleet ${influence.fleet}`;
 </script>
@@ -57,8 +58,15 @@ const breakdownTitle = (influence: InfluenceBreakdown): string =>
               >
             </td>
             <td class="py-2 text-right tabular-nums">{{ entry.stationCount }}</td>
-            <td class="py-2 text-right tabular-nums" :title="breakdownTitle(entry.influence)">
-              {{ entry.influence.total }}
+            <td
+              class="py-2 text-right tabular-nums"
+              :title="
+                entry.userId === ranking.me?.userId
+                  ? breakdownTitle(ranking.me.breakdown)
+                  : undefined
+              "
+            >
+              {{ entry.influence }}
             </td>
           </tr>
         </tbody>

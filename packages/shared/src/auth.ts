@@ -27,9 +27,18 @@ export interface AuthenticatedUser {
 // Request schemas
 
 export const RegisterRequestSchema = z.object({
-  username: z.string().min(3).max(50),
+  // Bot accounts own these names; a player taking one would get its bot station.
+  username: z
+    .string()
+    .trim()
+    .min(3)
+    .max(50)
+    .refine((name) => !name.toLowerCase().startsWith('orion-bot-'), 'Username is reserved'),
   // Lowercased, so Bob@x.com and bob@x.com are one account.
-  email: z.email().toLowerCase(),
+  email: z
+    .email()
+    .toLowerCase()
+    .refine((email) => !email.endsWith('@system.invalid'), 'Email domain is reserved'),
   password: z.string().min(12).max(128),
 });
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;

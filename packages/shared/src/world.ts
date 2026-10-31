@@ -48,13 +48,14 @@ export interface RankingEntry {
   username: string;
   ownerType: 'player' | 'bot';
   stationCount: number;
-  influence: InfluenceBreakdown;
+  /** Total Influence; how others split it across categories stays private. */
+  influence: number;
 }
 
 export interface Ranking {
   top: RankingEntry[];
-  /** The requesting player's own row; null until they found a station. */
-  me: RankingEntry | null;
+  /** The requesting player's own row with its breakdown; null until they found a station. */
+  me: (RankingEntry & { breakdown: InfluenceBreakdown }) | null;
   totalPlayers: number;
 }
 

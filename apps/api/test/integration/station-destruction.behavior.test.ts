@@ -6,6 +6,7 @@ import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
 import { debrisFields } from '../../src/lib/db/schema/debris-fields.js';
+import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftTrips } from '../../src/lib/db/schema/spacecraft-trips.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
@@ -15,6 +16,7 @@ import { worldMissions } from '../../src/lib/db/schema/world-missions.js';
 import { getUserCombatReports, startAttack } from '../../src/services/combat/combat.js';
 import { getRanking } from '../../src/services/ranking/ranking.js';
 import { createStation, getUserStations } from '../../src/services/station/station.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import {
   createTestSector,
@@ -246,6 +248,63 @@ test('a moving world mission re-homes to the nearest surviving station', async (
     .where(eq(stationSpacecrafts.id, moved.stationSpacecraftId));
   assert.equal(home?.stationId, refuge.id);
   assert.equal(home.lockedAmount, 1);
+});
+
+test('a colony due before the attack that destroys the last station is founded in one tick', async () => {
+  const db = getDb();
+  await db
+    .update(stations)
+    .set({ integrity: 20, integrityUpdatedAt: new Date() })
+    .where(eq(stations.id, defenderStationId));
+  const [mole] = await db
+    .update(stationSpacecrafts)
+    .set({ amount: 1, lockedAmount: 1 })
+    .where(
+      and(
+        eq(stationSpacecrafts.stationId, defenderStationId),
+        eq(stationSpacecrafts.spacecraftKey, 'mole')
+      )
+    )
+    .returning();
+  const [sector] = await db.select().from(sectors).where(eq(sectors.id, sectorId));
+  const wave = await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: defenderStationId,
+    fleet: { merlin: 3, hammer: 1 },
+  });
+  const outbound = await outboundTrip(wave.id);
+  const [colonization] = await db
+    .insert(worldMissions)
+    .values({
+      userId: defenderUserId,
+      originStationId: defenderStationId,
+      stationSpacecraftId: mole!.id,
+      spacecraftKey: 'mole',
+      missionType: 'colonization',
+      targetSectorX: sector!.sectorX,
+      targetSectorY: sector!.sectorY,
+      targetX: 3_000,
+      targetY: 0,
+      colonyName: 'Lifeboat',
+      departedAt: new Date(outbound.arrivesAt.getTime() - 60_000),
+      arrivesAt: new Date(outbound.arrivesAt.getTime() - 1_000),
+    })
+    .returning();
+
+  // Both are due in the same tick; the colony landed first, so it is not cancelled.
+  await runWorldTick(new Date(outbound.arrivesAt.getTime() + 1));
+
+  const [mission] = await db
+    .select()
+    .from(worldMissions)
+    .where(eq(worldMissions.id, colonization!.id));
+  assert.equal(mission?.status, 'arrived');
+  const alive = await getUserStations(defenderUserId);
+  assert.deepEqual(
+    alive.map((station) => station.name),
+    ['Lifeboat']
+  );
 });
 
 test('a player who lost every station restarts with fresh attack protection', async () => {

@@ -39,7 +39,7 @@ import { required, AppError, ErrorCode, QUEUE_LIMIT } from '@orions-frontier/sha
 import type { QueryDb } from '../../lib/db/index.js';
 import { listStationOwnerResearch, toResearchLevels } from '../research/index.js';
 import { describeBlockers } from './research-queue.js';
-import { toBuildingLevels } from './construction.js';
+import { toBuildingLevels } from './research-queue.js';
 import { creditStationResources } from './resources.js';
 import {
   createRealtimeExecutionContext,

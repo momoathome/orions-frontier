@@ -189,7 +189,7 @@ test('every softlock detector has a positive evidence-backed path', () => {
       candidate: bot({
         economy: { ...bot().economy, unreachableResourceNeeds: 1 },
       }),
-      diagnostics: [decision(0, { normalizedReason: 'Cannot afford resource' })],
+      diagnostics: [decision(0, { normalizedReason: 'Titan resources are not reachable' })],
     },
     {
       code: 'storage_capacity_bottleneck',

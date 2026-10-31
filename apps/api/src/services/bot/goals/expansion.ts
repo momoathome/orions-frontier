@@ -174,17 +174,12 @@ export async function generateExploreSectorCandidate(
     ).length;
   if (!modifiers.canExplore || expeditions >= modifiers.expeditionLimit) return null;
 
-  // Get frontier targets for this station
-  const frontiers = (await getFrontierTargets(state.userId, station.id)).targets.map((target) => ({
-    sectorX: target.sectorX,
-    sectorY: target.sectorY,
-    distance: target.distance,
-  }));
-  const nearest = frontiers[0];
-  if (!nearest) return null;
-
+  // Snapshot checks first: the frontier lookup costs database round trips per station.
   const hasShip = hasAvailableMissionShip(station);
   if (!hasShip && !canPrepareMobileSupportShip(state, station)) return null;
+
+  const nearest = (await getFrontierTargets(state.userId, station.id)).targets[0];
+  if (!nearest) return null;
 
   // Base need depends on distance — closer is better
   const maxDist = 100_000;
@@ -235,19 +230,6 @@ export async function generateEstablishColonyCandidate(
     return null;
   }
 
-  // Get known sectors and check which are frontier without own station
-  const known = (await getKnownSectors(state.userId, station.id))
-    .filter((sector) => sector.role === 'frontier' && !sector.hasOwnStation)
-    .map((sector) => ({
-      sectorX: sector.sectorX,
-      sectorY: sector.sectorY,
-      distance: sector.distance,
-      role: sector.role,
-      hasOwnStation: sector.hasOwnStation,
-    }));
-  const nearest = known[0];
-  if (!nearest) return null;
-
   // Check if we can afford colonization
   const colonyCost = colonizationCost(state);
   const canAffordColony = entriesOf(colonyCost).every(
@@ -272,6 +254,12 @@ export async function generateEstablishColonyCandidate(
     return sc?.role === 'miner' && f.amount - f.lockedAmount > 0;
   });
   if (!hasMiner && !canPrepareMobileSupportShip(state, station, true)) return null;
+
+  // Snapshot checks first: the sector lookup costs database round trips per station.
+  const nearest = (await getKnownSectors(state.userId, station.id)).find(
+    (sector) => sector.role === 'frontier' && !sector.hasOwnStation
+  );
+  if (!nearest) return null;
 
   const maxDist = 100_000;
   const contactSearch = seeksMoreForeignContact(state, profile);

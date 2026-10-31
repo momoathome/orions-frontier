@@ -1,12 +1,12 @@
 import { required } from '@orions-frontier/shared';
 import { LAB_SPEED_PER_LEVEL } from './research.js';
+import { scaledUpgradeCosts, type UpgradeCostConfig } from './upgrade-cost.js';
 import type {
   BuildingKey,
   BuildingEffectType,
   BuildingUpgradeCost,
   BuildingEffect,
 } from '@orions-frontier/shared';
-import type { ResourceKey } from '@orions-frontier/shared';
 
 // Seed Definition
 
@@ -89,18 +89,6 @@ export const getBuilding = (key: BuildingKey) =>
 
 // Upgrade Cost Config
 
-interface ResourceCostEntry {
-  resourceKey: ResourceKey;
-  baseAmount: number;
-  unlocksAtLevel?: number; // resource is added to cost starting at this level
-}
-
-interface UpgradeCostConfig {
-  resourceCosts: ResourceCostEntry[];
-  /** Exponential scale factor applied per level (cost = base * factor^(targetLevel-1)) */
-  factor: number;
-}
-
 const UPGRADE_COST_CONFIG: Record<BuildingKey, UpgradeCostConfig> = {
   core: {
     factor: 1.6,
@@ -167,20 +155,7 @@ export function calculateBuildingUpgradeCost(
   buildingKey: BuildingKey,
   targetLevel: number
 ): BuildingUpgradeCost[] {
-  const config = UPGRADE_COST_CONFIG[buildingKey];
-  const multiplier = Math.pow(config.factor, targetLevel - 1);
-
-  const costs: BuildingUpgradeCost[] = [];
-
-  for (const entry of config.resourceCosts) {
-    if (entry.unlocksAtLevel !== undefined && targetLevel < entry.unlocksAtLevel) {
-      continue;
-    }
-    const amount = Math.max(10, Math.round((entry.baseAmount * multiplier) / 10) * 10);
-    costs.push({ resourceKey: entry.resourceKey, amount });
-  }
-
-  return costs;
+  return scaledUpgradeCosts(UPGRADE_COST_CONFIG[buildingKey], targetLevel);
 }
 
 // Build Time Calculation

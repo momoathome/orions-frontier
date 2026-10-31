@@ -71,7 +71,7 @@ heute schon und ist das Vorbild für alle anderen Ansichten.
 - **Frontier:** eine Zeile „Explorer nötig → Shipyard“ statt „no ship available“ in jeder Zeile (R5).
 - **Logbook:** Feed mit Icons, gruppiert nach „seit deinem letzten Besuch“, Einträge springen zum
   Objekt (R9).
-- **Ranking:** eigener Rang groß, Nachbarn ±3, Zusammensetzung der Influence. Spieler brauchen einen
+- **Ranking:** eigener Rang groß, Nachbarn ±3, Zusammensetzung der eigenen Influence. Spieler brauchen einen
   Anzeigenamen; heute erscheinen generierte `user-<uuid>`-Namen.
 - **Research:** Graph mit Detailpanel; Blocker als Chips, die zum fehlenden Gebäude springen (R3, R4).
 

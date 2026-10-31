@@ -23,7 +23,7 @@ import {
   listAsteroidSummariesInChunks,
   listAsteroidVeins,
 } from '../map/index.js';
-import { getUserResearchModifiers } from '../research/index.js';
+import { getResearchModifiers } from '../research/index.js';
 import { getUserScannerCoverages } from '../station/index.js';
 
 export interface ChunkQueryParams {
@@ -91,7 +91,7 @@ export const getAsteroidById = async (
     findAsteroid(db, id),
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
     scannerBypass ? Promise.resolve(new Set<string>()) : getUserRevealedAsteroidIds(userId),
-    getUserResearchModifiers(userId, db),
+    getResearchModifiers(userId, db),
   ]);
 
   if (!row) return null;

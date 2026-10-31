@@ -5,7 +5,7 @@ import type { LogbookEntry } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import { runWorldTick } from '../../src/services/simulation/simulation.js';
 import { recordLogbookEvents } from '../../src/services/logbook/logbook.js';
 import {
   createTestSector,
@@ -46,8 +46,8 @@ test('a completed upgrade is logged once and only for its owner', async () => {
       and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'warehouse'))
     );
 
-  const drained = await runSimulationTick(new Date());
-  await runSimulationTick(new Date());
+  const drained = await runWorldTick(new Date());
+  await runWorldTick(new Date());
   await recordLogbookEvents(drained.events);
 
   const response = await app.inject({

@@ -5,7 +5,7 @@ import type {
   DefenseUpgradeEffect,
   DefenseUpgradeKey,
 } from '@orions-frontier/shared';
-import type { ResourceKey } from '@orions-frontier/shared';
+import { scaledUpgradeCosts, type UpgradeCostConfig } from './upgrade-cost.js';
 
 export interface DefenseUpgradeSeedDefinition extends DefenseUpgradeDefinition {
   startingLevel: number;
@@ -60,17 +60,6 @@ export const getDefenseUpgrade = (key: DefenseUpgradeKey) =>
     `defense upgrade ${key}`
   );
 
-interface ResourceCostEntry {
-  resourceKey: ResourceKey;
-  baseAmount: number;
-  unlocksAtLevel?: number;
-}
-
-interface UpgradeCostConfig {
-  resourceCosts: ResourceCostEntry[];
-  factor: number;
-}
-
 const UPGRADE_COST_CONFIG: Record<DefenseUpgradeKey, UpgradeCostConfig> = {
   armor_plating: {
     factor: 1.36,
@@ -112,15 +101,7 @@ export function calculateDefenseUpgradeCost(
   upgradeKey: DefenseUpgradeKey,
   targetLevel: number
 ): DefenseUpgradeCost[] {
-  const config = UPGRADE_COST_CONFIG[upgradeKey];
-  const multiplier = Math.pow(config.factor, targetLevel - 1);
-
-  return config.resourceCosts
-    .filter((entry) => entry.unlocksAtLevel === undefined || targetLevel >= entry.unlocksAtLevel)
-    .map((entry) => ({
-      resourceKey: entry.resourceKey,
-      amount: Math.max(10, Math.round((entry.baseAmount * multiplier) / 10) * 10),
-    }));
+  return scaledUpgradeCosts(UPGRADE_COST_CONFIG[upgradeKey], targetLevel);
 }
 
 export function calculateDefenseUpgradeBuildTime(

@@ -3,7 +3,7 @@ import {
   getUserRevealedAsteroidIds,
   type VisibilityProjectionStats,
 } from '../../../services/map/index.js';
-import { getUserResearchModifiers } from '../../../services/research/index.js';
+import { getResearchModifiers } from '../../../services/research/index.js';
 import { getUserScannerCoverages } from '../../../services/station/index.js';
 import {
   getVisibleChunkAsteroids,
@@ -39,7 +39,7 @@ export default defineRoute(async (app) => {
       const [coverages, revealedIds, modifiers] = await Promise.all([
         scannerBypass ? [] : getUserScannerCoverages(request.user.userId),
         scannerBypass ? new Set<string>() : getUserRevealedAsteroidIds(request.user.userId),
-        getUserResearchModifiers(request.user.userId),
+        getResearchModifiers(request.user.userId),
       ]);
       const stats: VisibilityProjectionStats = {};
       const [asteroids, stations, debris] = await Promise.all([

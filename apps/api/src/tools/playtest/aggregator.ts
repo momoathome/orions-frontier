@@ -145,7 +145,6 @@ function addGoal(target: GoalMetrics, source: GoalMetrics): void {
 function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
   const aggregate = emptyAggregate();
   aggregate.bots = bots.length;
-  let minimumInitialized = false;
   for (const bot of bots) {
     for (const [goalType, source] of Object.entries(bot.goals)) {
       addGoal((aggregate.goals[goalType] ??= emptyGoalMetrics()), source);
@@ -160,12 +159,13 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
     addResources(aggregate.economy.discardedResources, bot.economy.discardedResources);
     aggregate.economy.weightedDeliveredUnits += bot.economy.weightedDeliveredUnits;
     for (const resourceKey of resourceKeys) {
-      const current = bot.economy.minimumResources[resourceKey] ?? 0;
-      aggregate.economy.minimumResources[resourceKey] = minimumInitialized
-        ? Math.min(aggregate.economy.minimumResources[resourceKey] ?? current, current)
-        : current;
+      // A bot without a station snapshot has no minimum; it must not pull the aggregate to 0.
+      const current = bot.economy.minimumResources[resourceKey];
+      if (current === undefined) continue;
+      const known = aggregate.economy.minimumResources[resourceKey];
+      aggregate.economy.minimumResources[resourceKey] =
+        known === undefined ? current : Math.min(known, current);
     }
-    minimumInitialized = true;
     aggregate.economy.fullStorageDurationMs += bot.economy.fullStorageDurationMs;
     sumRecord(
       aggregate.economy.fullStorageDurationByStationMs,
@@ -319,9 +319,7 @@ export class PlaytestAggregator {
     }
     if (
       (decision.resultKind === 'blocked' || decision.resultKind === 'saving') &&
-      /insufficient|saving resources|cannot afford|no mineable|resource/i.test(
-        decision.normalizedReason
-      )
+      /not reachable/i.test(decision.normalizedReason)
     ) {
       state.metrics.economy.unreachableResourceNeeds += 1;
     }
@@ -339,7 +337,11 @@ export class PlaytestAggregator {
       state.metrics.conflict.opportunityStages[opportunity.lastExclusionStage] =
         (state.metrics.conflict.opportunityStages[opportunity.lastExclusionStage] ?? 0) + 1;
     }
-    if (decision.resultKind === 'success' && (before === 'retaliate' || after === 'retaliate')) {
+    if (
+      decision.resultKind === 'success' &&
+      decision.action === 'start_attack' &&
+      (before === 'retaliate' || after === 'retaliate')
+    ) {
       state.metrics.conflict.retaliations += 1;
       recordMilestone(state.metrics.milestones, 'firstRetaliation', decision.decidedAt);
     }

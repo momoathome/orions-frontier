@@ -352,6 +352,46 @@ test('aggregator covers goals, milestones and every metric family with traceable
   assert.doesNotMatch(JSON.stringify(metrics), /NaN|Infinity|10000000-0000|20000000-0000/);
 });
 
+test('only real attacks count as retaliations and only unreachable costs as resource needs', () => {
+  const idle = testPopulationMember({
+    alias: 'player-002',
+    userId: '10000000-0000-4000-8000-000000000002',
+    initialStationId: '20000000-0000-4000-8000-000000000003',
+  });
+  const aliases = new PlaytestAliasRegistry([testPopulationMember(), idle]);
+  const aggregator = new PlaytestAggregator(aliases);
+  aggregator.registerPopulationMember(testPopulationMember());
+  aggregator.registerPopulationMember(idle);
+  aggregator.consumeSnapshot(snapshot(start, [station('player-001/station-001')]));
+  aggregator.consumeDecision(
+    decision(start, {
+      activeGoalAfter: 'retaliate',
+      action: 'upgrade_building',
+      resultKind: 'success',
+      hasProgress: true,
+    })
+  );
+  aggregator.consumeDecision(
+    decision(hour, {
+      resultKind: 'saving',
+      normalizedReason: 'Saving resources for Weapons',
+    })
+  );
+  aggregator.consumeDecision(
+    decision(end, {
+      resultKind: 'blocked',
+      normalizedReason: 'Resources for Weapons are not reachable',
+    })
+  );
+
+  const metrics = aggregator.finalize(end);
+  const bot = metrics.bots.find((entry) => entry.botAlias === 'player-001')!;
+  assert.equal(bot.conflict.retaliations, 0);
+  assert.equal(bot.economy.unreachableResourceNeeds, 1);
+  // The idle bot never had a station snapshot and leaves the run minimum alone.
+  assert.equal(metrics.run.economy.minimumResources.carbon, 100);
+});
+
 test('colony stabilization duration records the first stable snapshot', () => {
   const aliases = new PlaytestAliasRegistry([testPopulationMember()]);
   const aggregator = new PlaytestAggregator(aliases);

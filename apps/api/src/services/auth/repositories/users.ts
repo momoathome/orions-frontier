@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { users } from '../../../lib/db/schema/users.js';
 
@@ -28,7 +28,7 @@ export async function hasUserWithUsername(db: QueryDb, username: string) {
   const rows = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.username, username))
+    .where(sql`lower(${users.username}) = lower(${username})`)
     .limit(1);
   return rows.length > 0;
 }
@@ -41,14 +41,4 @@ export async function insertUser(db: QueryDb, values: typeof users.$inferInsert)
 
 export async function updateUser(tx: Tx, id: string, values: Partial<typeof users.$inferInsert>) {
   await tx.update(users).set(values).where(eq(users.id, id));
-}
-
-/** Returns the new user's id, or undefined if the username or email is already taken. */
-export async function insertUserIfAbsent(db: QueryDb, values: typeof users.$inferInsert) {
-  const [row] = await db
-    .insert(users)
-    .values(values)
-    .onConflictDoNothing()
-    .returning({ id: users.id });
-  return row;
 }

@@ -154,9 +154,14 @@ test('a station queue holds at most ten waiting jobs', async () => {
     kyber_crystal: plenty,
     astatine: plenty,
   });
+  await grantResearch(userId, { parallel_construction: 1 });
   for (let i = 0; i <= QUEUE_LIMIT; i += 1) await queueCore();
   assert.equal((await queue()).length, QUEUE_LIMIT);
   await assert.rejects(queueCore(), /Queue is full/);
+  // The second slot is still free: a job that starts at once never waits in the full queue.
+  await startBuildingUpgrade(stationId, 'laboratory', userId, undefined, true);
+  const lab = (await getStationBuildings(stationId)).find((b) => b.definition.key === 'laboratory');
+  assert.equal(lab?.isUpgrading, true);
 });
 
 test('two queue requests for one payment: only one is paid and queued', async () => {

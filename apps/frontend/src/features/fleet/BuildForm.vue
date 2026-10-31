@@ -28,9 +28,9 @@ const playerResources = computed(
   () => stationStore.state.details[stationId]?.resources?.resources ?? null
 );
 
-// Reset state when selected ship changes
+// Reset state when the selected ship changes; refreshes pass a new object for the same ship.
 watch(
-  () => ship,
+  () => ship.definition.key,
   () => {
     buildError.value = null;
     buildSuccess.value = false;

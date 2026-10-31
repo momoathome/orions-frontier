@@ -26,8 +26,8 @@ import {
   cancelStationUpgrade,
   plannedLevels,
   queueStationUpgrade,
-  toBuildingLevels,
 } from './construction.js';
+import { toBuildingLevels } from './research-queue.js';
 import { listStationQueue } from './repositories/queued-jobs.js';
 import {
   createRealtimeExecutionContext,

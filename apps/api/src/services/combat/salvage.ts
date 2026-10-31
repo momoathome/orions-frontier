@@ -286,12 +286,15 @@ async function resolveSalvageOutbound(
 async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<PlaytestCompletionEvent[]> {
   const mission = await findReturningSalvageMissionForUpdate(tx, trip.id);
   if (!mission) return [];
+  // Debris before the fleet row, like startSalvage, so the two never deadlock. Locked so a
+  // salvage starting now either sees the field deleted or keeps it alive.
+  const debrisFieldId = mission.debrisFieldId;
+  const debris = debrisFieldId ? await findDebrisFieldForUpdate(tx, debrisFieldId) : undefined;
 
   const requested = { ...(mission.cargo ?? {}) };
   const credited = await creditStationResources(tx, mission.stationId, requested);
   await updateTripCargo(tx, trip.id, credited);
   await releaseSpacecraft(tx, mission.stationSpacecraftId, mission.amount);
-  const debrisFieldId = mission.debrisFieldId;
   await updateSalvageMission(tx, mission.id, {
     debrisFieldId: null,
     status: 'resolved',
@@ -299,8 +302,6 @@ async function resolveSalvageReturn(tx: Tx, trip: Trip): Promise<PlaytestComplet
   });
 
   if (debrisFieldId) {
-    // Lock first: a salvage starting now either sees the field deleted or keeps it alive.
-    const debris = await findDebrisFieldForUpdate(tx, debrisFieldId);
     const active = await hasUnresolvedSalvageOnDebris(tx, debrisFieldId);
     if (!active && debris && Object.values(debris.resources).every((amount) => amount <= 0)) {
       await deleteDebrisField(tx, debrisFieldId);

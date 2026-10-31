@@ -58,13 +58,16 @@ import {
   startResearchLevel,
 } from '../research/index.js';
 
-async function highestBuildingLevels(db: QueryDb, userId: string): Promise<BuildingLevels> {
+export const toBuildingLevels = (rows: { buildingKey: string; level: number }[]) => {
   const levels: BuildingLevels = {};
-  for (const row of await listHighestBuildingLevelsByUser(db, userId)) {
+  for (const row of rows) {
     if (isOneOf(buildingKeys, row.buildingKey)) levels[row.buildingKey] = row.level;
   }
   return levels;
-}
+};
+
+const highestBuildingLevels = async (db: QueryDb, userId: string) =>
+  toBuildingLevels(await listHighestBuildingLevelsByUser(db, userId));
 
 /** "Requires Laboratory 5 and Weapons 3", for API errors. */
 export function describeBlockers(blockers: RequirementBlocker[]): string {
@@ -332,9 +335,6 @@ export async function startResearch(
         throw new AppError(ErrorCode.VALIDATION_ERROR, 'No free research slot');
       }
     }
-    if (jobs.length >= QUEUE_LIMIT) {
-      throw new AppError(ErrorCode.VALIDATION_ERROR, `Queue is full (${QUEUE_LIMIT} jobs)`);
-    }
     // A queued level may rely on earlier jobs of this queue, never on queued buildings; a direct
     // start only on what is researched.
     const planned = plannedResearch(rows, queue ? jobs : []);
@@ -367,6 +367,10 @@ export async function startResearch(
     const started = await startQueuedResearch(tx, userId, context.now);
     if (!queue && !started.includes(jobId)) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Research is already running');
+    }
+    // Only waiting jobs fill the queue; one that starts at once always fits.
+    if (!started.includes(jobId) && jobs.length >= QUEUE_LIMIT) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, `Queue is full (${QUEUE_LIMIT} jobs)`);
     }
     return listStationResources(tx, stationId);
   });

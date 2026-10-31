@@ -4,6 +4,6 @@ export { findUserById, loginUser, registerUser, toAuthenticatedUser } from './au
 export {
   findUserByEmail,
   findUserForUpdate,
-  insertUserIfAbsent,
+  insertUser,
   updateUser,
 } from './repositories/users.js';

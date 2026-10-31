@@ -55,7 +55,8 @@ interface SimulationPhasePassResult extends SimulationPhaseResult {
 }
 
 async function completeDueTransports(
-  context: GameExecutionContext
+  context: GameExecutionContext,
+  earlyMissions: SimulationPhasePassResult
 ): Promise<SimulationPhasePassResult> {
   const db = getDb();
   const dueTrips = await listDueTripsWithOwner(db, context.now);
@@ -67,6 +68,13 @@ async function completeDueTransports(
   const notify = (id: string) => settledByUser.set(id, (settledByUser.get(id) ?? 0) + 1);
 
   for (const { trip, userId } of dueTrips) {
+    if (trip.purpose === 'combat' && trip.toType === 'station') {
+      // Missions due before the attack land first: it may destroy the station they belong to.
+      const missions = await completeDueWorldMissions(context.at(trip.arrivesAt));
+      earlyMissions.completed += missions.completed;
+      earlyMissions.failed += missions.failed;
+      earlyMissions.events.push(...missions.events);
+    }
     try {
       const arrival = await settleTripArrival(trip, context);
       if (arrival.settled) {
@@ -124,11 +132,16 @@ const researchQueueHooks: ResearchQueueHooks = {
 };
 
 async function runCompletionPass(
-  context: GameExecutionContext,
-  includeWorldMissions: boolean
+  context: GameExecutionContext
 ): Promise<SimulationPhasePassResult[]> {
-  const results: SimulationPhasePassResult[] = [
-    await completeDueTransports(context),
+  const missions: SimulationPhasePassResult = {
+    phase: 'world_missions',
+    completed: 0,
+    failed: 0,
+    events: [],
+  };
+  return [
+    await completeDueTransports(context, missions),
     { phase: 'buildings', ...(await completeDueBuildings(context.now)) },
     {
       phase: 'spacecraft',
@@ -149,39 +162,32 @@ async function runCompletionPass(
         )
       )),
     },
+    { phase: 'research', ...(await completeDueResearch(context.now, researchQueueHooks)) },
+    await completeDueWorldMissions(context).then((due) => ({
+      ...missions,
+      completed: missions.completed + due.completed,
+      failed: missions.failed + due.failed,
+      events: [...missions.events, ...due.events],
+    })),
   ];
-  results.push({
-    phase: 'research',
-    ...(await completeDueResearch(context.now, researchQueueHooks)),
-  });
-  if (includeWorldMissions) {
-    results.push({ phase: 'world_missions', ...(await completeDueWorldMissions(context)) });
-  }
-  return results;
 }
 
-function emptyPhaseTotals(includeWorldMissions: boolean): SimulationPhaseResult[] {
-  const phases: SimulationPhase[] = [
-    'transports',
-    'buildings',
-    'spacecraft',
-    'research',
-    ...(includeWorldMissions ? (['world_missions'] as const) : []),
-  ];
-  return phases.map((phase) => ({ phase, completed: 0, failed: 0 }));
-}
+const PHASES: SimulationPhase[] = [
+  'transports',
+  'buildings',
+  'spacecraft',
+  'research',
+  'world_missions',
+];
 
-async function drainDueWork(
-  context: GameExecutionContext,
-  includeWorldMissions: boolean
-): Promise<SimulationDrainResult> {
-  const totals = emptyPhaseTotals(includeWorldMissions);
+async function drainDueWork(context: GameExecutionContext): Promise<SimulationDrainResult> {
+  const totals = PHASES.map((phase) => ({ phase, completed: 0, failed: 0 }));
   const events: PlaytestCompletionEvent[] = [];
   let productivePasses = 0;
   let lastCompletedPhase: SimulationPhase | null = null;
 
   for (let pass = 1; pass <= MAX_DRAIN_PASSES; pass += 1) {
-    const results = await runCompletionPass(context, includeWorldMissions);
+    const results = await runCompletionPass(context);
     await recordLogbookEvents(results.flatMap((result) => result.events));
     let passCompleted = 0;
     for (const result of results) {
@@ -207,17 +213,11 @@ async function drainDueWork(
   );
 }
 
-export async function runSimulationTick(
-  contextOrNow?: GameExecutionContext | Date
-): Promise<SimulationDrainResult> {
-  return drainDueWork(resolveGameExecutionContext(contextOrNow), false);
-}
-
 export async function runWorldTick(
   contextOrNow?: GameExecutionContext | Date
 ): Promise<WorldTickResult> {
   const context = resolveGameExecutionContext(contextOrNow);
-  const drained = await drainDueWork(context, true);
+  const drained = await drainDueWork(context);
   const botDecisions = await runBotDecisionTick(context);
   return {
     now: context.now,

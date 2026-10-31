@@ -15,8 +15,6 @@ import { PROFILE_PARAMS } from './profiles.js';
 // Hostility
 // ---------------------------------------------------------------------------
 
-export type HostilityLabel = 'neutral' | 'rival' | 'hostile';
-
 /** Thresholds from GB-16. */
 const HOSTILITY_RIVAL = 30;
 const HOSTILITY_HOSTILE = 60;
@@ -78,13 +76,6 @@ export function calculateHostility(
   }
 
   return Math.max(0, Math.min(100, score));
-}
-
-/** Map a numeric hostility score to a label. */
-export function hostilityLabel(score: number): HostilityLabel {
-  if (score >= HOSTILITY_HOSTILE) return 'hostile';
-  if (score >= HOSTILITY_RIVAL) return 'rival';
-  return 'neutral';
 }
 
 // ---------------------------------------------------------------------------
@@ -186,23 +177,12 @@ export function calculateReserve(
 // ---------------------------------------------------------------------------
 
 export interface ScoredConflictTarget {
-  targetStationId: string;
-  ownerId: string;
-  distance: number;
-  hostilityScore: number;
-  hostilityLabel: HostilityLabel;
-  estimatedDefense: number;
-  estimatedLoot: number;
-  reserveAttack: number;
   /** Net score for comparison (higher = better target). */
   score: number;
   breakdown: {
     retaliationValue: number;
     lootValue: number;
-    distancePenalty: number;
     defensePenalty: number;
-    aggressionMultiplier: number;
-    affinityBonus: number;
   };
 }
 
@@ -211,37 +191,22 @@ export interface ScoredConflictTarget {
  * Higher score = more attractive target.
  */
 export function scoreConflictTarget(params: {
-  targetStationId: string;
-  ownerId: string;
   distance: number;
   visualProfile: StationVisualProfile;
   hostilityScore: number;
   profile: BotProfile;
   ownAttackPower: number;
-  botUserId: string;
 }): ScoredConflictTarget {
-  const {
-    targetStationId,
-    ownerId,
-    distance,
-    visualProfile,
-    hostilityScore,
-    profile,
-    ownAttackPower,
-    botUserId,
-  } = params;
+  const { distance, visualProfile, hostilityScore, profile, ownAttackPower } = params;
 
   const estimatedDefense = estimateDefenseScore(visualProfile);
-  const estimatedLoot = estimateLootValue(visualProfile);
-  const label = hostilityLabel(hostilityScore);
   const profileParams = PROFILE_PARAMS[profile];
 
   // Hostility-based retaliation value
   const retaliationValue =
     hostilityScore >= HOSTILITY_HOSTILE ? 40 : hostilityScore >= HOSTILITY_RIVAL ? 20 : 0;
 
-  // Loot value
-  const lootValue = estimatedLoot;
+  const lootValue = estimateLootValue(visualProfile);
 
   // Distance penalty: closer is better
   const maxDist = 200_000;
@@ -253,12 +218,6 @@ export function scoreConflictTarget(params: {
   // Profile aggression multiplier
   const aggressionMultiplier = profileParams.aggressionFactor;
 
-  // Stable affinity to break ties — derived from XOR of both IDs
-  const affinityRaw =
-    (botUserId.charCodeAt(0) ^ ownerId.charCodeAt(0)) +
-    (botUserId.charCodeAt(botUserId.length - 1) ^ ownerId.charCodeAt(ownerId.length - 1));
-  const affinityBonus = (affinityRaw % 5) / 100; // 0–0.04 fractional tie-breaker
-
   const rawScore =
     retaliationValue +
     lootValue +
@@ -266,26 +225,9 @@ export function scoreConflictTarget(params: {
     distancePenalty -
     defensePenalty;
 
-  const score = Math.round(rawScore * aggressionMultiplier + affinityBonus);
-
   return {
-    targetStationId,
-    ownerId,
-    distance,
-    hostilityScore,
-    hostilityLabel: label,
-    estimatedDefense,
-    estimatedLoot,
-    reserveAttack: 0, // filled by caller if needed
-    score,
-    breakdown: {
-      retaliationValue,
-      lootValue,
-      distancePenalty,
-      defensePenalty,
-      aggressionMultiplier,
-      affinityBonus,
-    },
+    score: Math.round(rawScore * aggressionMultiplier),
+    breakdown: { retaliationValue, lootValue, defensePenalty },
   };
 }
 

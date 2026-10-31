@@ -55,7 +55,8 @@ export function parseChunkRange(values: ChunkRangeQuery, maxSpan: number): World
   };
 
   if (
-    !Object.values(range).every(Number.isInteger) ||
+    // Far beyond any world; larger values would overflow the integer columns they are compared to.
+    !Object.values(range).every((v) => Number.isInteger(v) && Math.abs(v) <= 1_000_000) ||
     range.minChunkX > range.maxChunkX ||
     range.minChunkY > range.maxChunkY ||
     range.maxChunkX - range.minChunkX > maxSpan ||

@@ -15,6 +15,8 @@ const envSchema = z
     API_PORT: z.coerce.number().int().positive().default(3000),
     API_HOST: z.string().min(1).default('0.0.0.0'),
     CORS_ORIGIN: z.string().min(1).optional(),
+    // Read by WORLD_CONFIG; validated here so production cannot start on the public default.
+    WORLD_SEED: z.string().min(16).optional(),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
@@ -22,6 +24,10 @@ const envSchema = z
   .refine((env) => env.NODE_ENV !== 'production' || env.CORS_ORIGIN !== undefined, {
     path: ['CORS_ORIGIN'],
     message: 'required in production, otherwise every origin may call the API',
+  })
+  .refine((env) => env.NODE_ENV !== 'production' || env.WORLD_SEED !== undefined, {
+    path: ['WORLD_SEED'],
+    message: 'required in production, otherwise anyone can compute the map from the public seed',
   })
   .refine(
     (env) =>

@@ -6,7 +6,6 @@ export {
   getResearchLevels,
   getResearchModifiers,
   getStationResearchModifiers,
-  getUserResearchModifiers,
   toResearchLevels,
 } from './effects.js';
 

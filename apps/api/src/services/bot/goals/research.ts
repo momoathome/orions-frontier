@@ -167,31 +167,37 @@ export async function stepResearchTechnology(
 
   const blockers = researchBlockers(def.key, state.research.levels, highestBuildingLevels(state));
   if (blockers.length > 0) {
-    // Only buildings are in this station's hands; missing research or a maxed level ends the goal.
+    // Only buildings are in the bot's hands; missing research or a maxed level ends the goal.
     if (!blockers.every(isBuildingBlocker)) {
       return { type: 'blocked', detail: 'research_locked', reason: `${def.name} is locked` };
     }
     const blocker = blockers[0];
     const buildingKey: BuildingKey = blocker?.type === 'building' ? blocker.key : 'laboratory';
     const name = getBuilding(buildingKey).name;
-    if (isUpgrading(station, buildingKey)) {
+    // The gate counts the highest level across stations, so raise it where it is highest.
+    const levelAt = (own: StationSnapshot) => stationBuildingLevels(own)[buildingKey] ?? 0;
+    const target = state.ownStations.reduce(
+      (best, own) => (levelAt(own) > levelAt(best) ? own : best),
+      station
+    );
+    if (isUpgrading(target, buildingKey)) {
       return {
         type: 'waiting',
         detail: `${buildingKey}_upgrading`,
         reason: `Waiting for ${name} for ${def.name}`,
       };
     }
-    const costs = buildingUpgradeCost(station, buildingKey);
-    if (canAfford(station, costs)) {
+    const costs = buildingUpgradeCost(target, buildingKey);
+    if (canAfford(target, costs)) {
       return {
         type: 'success',
-        intent: { type: 'upgrade_building', stationId: station.id, buildingKey },
+        intent: { type: 'upgrade_building', stationId: target.id, buildingKey },
         reason: `Upgrading ${name} for ${def.name}`,
       };
     }
-    const supply = assignMinerTowardCosts(state, station, costs, `${name} for ${def.name}`);
+    const supply = assignMinerTowardCosts(state, target, costs, `${name} for ${def.name}`);
     if (supply) return supply;
-    const reachable = hasActiveMining(station) && canAcquireCosts(state, station, costs);
+    const reachable = hasActiveMining(target) && canAcquireCosts(state, target, costs);
     return {
       type: reachable ? 'saving' : 'blocked',
       detail: `no_${buildingKey}`,

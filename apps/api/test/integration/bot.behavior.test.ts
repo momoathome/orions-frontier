@@ -40,7 +40,6 @@ import {
   generateFortifyCandidate,
   generateBuildStrikeForceCandidate,
   stepFortifyStation,
-  stepBuildStrikeForce,
 } from '../../src/services/bot/goals/military.js';
 import { generateSalvageCandidates, stepSalvage } from '../../src/services/bot/goals/salvage.js';
 import { executeBotIntent } from '../../src/services/bot/intent.js';
@@ -623,20 +622,6 @@ test('bot fortify and strike force goal generation', async () => {
   if (strikeCandidate) {
     assert.equal(strikeCandidate.goalType, 'build_strike_force');
   }
-
-  // Test strike force step - without shipyard level 2, should suggest shipyard upgrade
-  const strikeStep = await stepBuildStrikeForce(
-    state,
-    station,
-    `station:${stationId4}`,
-    'industrialist'
-  );
-  assert.ok(strikeStep, 'Should return strike force step');
-  // Without shipyard level 2, should suggest shipyard upgrade or be blocked/waiting
-  assert.ok(
-    ['success', 'blocked', 'waiting'].includes(strikeStep.type),
-    `Strike step should be actionable, got ${strikeStep.type}`
-  );
 
   // Verify generateGoalCandidates includes conflict goals
   const { generateGoalCandidates } = await import('../../src/services/bot/goal-lifecycle.js');
