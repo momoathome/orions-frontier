@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { authenticate } from '../../../../../middleware/auth.js';
 import { requestAsteroidAssignmentRecall } from '../../../../../services/mining/index.js';
 import { publishUserEvent } from '../../../../../lib/realtime.js';
-import { defineRoute } from '../../../../../lib/route.js';
+import { defineRoute, shipAmountQuery } from '../../../../../lib/route.js';
 
 // DELETE /api/asteroids/:id/assignments/:assignmentId
 
@@ -13,10 +13,7 @@ export default defineRoute(async (app) => {
       onRequest: [authenticate],
       schema: {
         params: z.object({ id: z.uuid(), assignmentId: z.uuid() }),
-        // Bounded to the integer column it is compared with.
-        querystring: z.object({
-          amount: z.coerce.number().int().min(1).max(2_147_483_647).default(1),
-        }),
+        querystring: z.object({ amount: shipAmountQuery.default(1) }),
       },
     },
     async (request, reply) => {

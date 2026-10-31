@@ -103,3 +103,42 @@ Logbuch-Eintrag nach der Transaktion. Der Welt-Seed im Quellcode bleibt, solange
   „300/300 salvage:blocked“ nicht reproduzierbar; Werft-Fall ist nur eine kurze Verzögerung bis zum
   fertigen Collector.
 - Unter der Schwelle: keine.
+
+### Runde 3 (2026-10-31)
+
+- Sperren: Stations- und Benutzer-Locks mit `FOR UPDATE` blockierten den FK-`KEY SHARE` jedes
+  Kind-INSERTs (Deadlock/Timeout zwischen Tick oder zweiter Aktion und Angriff, Bergung, Ausbau,
+  Forschung, Weltmissionen); Fix: `FOR NO KEY UPDATE` in `stations.ts` und `users.ts`. Deckt auch
+  die Lock-Reihenfolge Station vor Benutzer in `startAttack` ab.
+- Sichtbarkeit: abgebrochener Angriff ohne Kampf zeigte dem Verteidiger die Angreiferflotte ohne
+  Signature Analysis; Fix: `toReport` verbirgt die Flotte auch bei `winner === null`.
+- Realtime: kurzer DB-Fehler beim WebSocket-Auth schloss mit 4401 (Logout, Token gelöscht); Fix:
+  4401 nur bei bestätigt ungültiger Sitzung, sonst 1013.
+- Bots: Bot zielte für Kolonien immer wieder auf denselben vollen Frontier-Sektor; Fix: volle
+  Sektoren werden übersprungen (`world-mission.ts`, `expansion.ts`).
+- Eingaben: Schiffsmengen an den Routen ohne Integer-Obergrenze (500 statt 400 bei Angriff und
+  Bergung); Fix: gemeinsame begrenzte Menge in `route.ts` für alle Schiffsmengen-Routen.
+- Übersprungen oder nur teilweise behoben: keine. Nicht geprüft: Darstellung einer aufgelösten
+  Mission ohne Sieger und ohne Flotte im Web-UI.
+- Geprüft, kein Befund: keine.
+- Unter der Schwelle: „`startAttack` sperrt Benutzer nach Station, Deadlock mit Verteidiger-Aktionen“
+  ist dieselbe Ursache wie der Lock-Befund oben und mit `NO KEY UPDATE` behoben.
+
+### Runde 4 (2026-10-31)
+
+- Eingaben: Registrierung nahm E-Mails über der Spalte `users.email varchar(255)` an (500 statt
+  400); Fix: Längengrenze für E-Mails in den gemeinsamen Auth-Schemas (`packages/shared/src/auth.ts`).
+- Übersprungen oder nur teilweise behoben: keine.
+- Geprüft, kein Befund: `WORLD_SEED`-Produktionsprüfung aus `f0efe24` greift wegen Ladereihenfolge
+  (`world-config.ts` liest vor `.env`) nicht immer; Folge ist nur der Seed aus dem Quellcode, den
+  „Bewusst offen“ akzeptiert, solange das Repo privat ist, und im Repo gibt es keinen
+  Produktions-Startpfad, der den Fall auslöst.
+- Unter der Schwelle: keine.
+
+### Playtest nach Runde 4 (2026-10-31)
+
+- Bots: Erkundung ohne freies Missionsschiff startete an der nächstgelegenen Station (meist die
+  Kolonie ohne Rohstoffe für eine Mole), statt dort, wo der Generator ein Stützschiff vorbereiten
+  kann; blockiert, freigegeben, neu erzeugt (1474 × blocked in baseline-alpha, verstärkt durch
+  `67f3464`). Fix: `expansionOrigin` fällt auf Stationen zurück, die ein Stützschiff vorbereiten
+  können (`expansion.ts`).

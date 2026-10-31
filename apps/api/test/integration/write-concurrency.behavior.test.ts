@@ -44,7 +44,16 @@ import {
   getResearchState,
   startResearch,
 } from '../../src/services/station/research-queue.js';
-import { deleteTestData, grantResearch, setTestResources } from '../helpers/fixtures.js';
+import {
+  createTestStation,
+  createTestUser,
+  deleteTestData,
+  grantResearch,
+  setTestResources,
+} from '../helpers/fixtures.js';
+import { startAttack } from '../../src/services/combat/combat.js';
+import { combatMissions } from '../../src/lib/db/schema/combat-missions.js';
+import { findStationForUpdate } from '../../src/services/station/repositories/stations.js';
 import { runExclusiveWorldTick, runWorldTick } from '../../src/services/simulation/simulation.js';
 import {
   applyConstructionSpeed,
@@ -443,4 +452,53 @@ test('a second API process skips the world tick while another one runs it', asyn
   });
   assert.equal(skipped, undefined);
   assert.ok(await runExclusiveWorldTick());
+});
+
+test('an attack starts while the tick holds the target station', async () => {
+  const db = getDb();
+  const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1_000);
+  const [attacker, defender] = await Promise.all([
+    createTestUser({ createdAt: oldDate }),
+    createTestUser({ createdAt: oldDate }),
+  ]);
+  createdUserIds.push(attacker.id, defender.id);
+  const [attackerStation, defenderStation] = await Promise.all([
+    createTestStation({ userId: attacker.id, sectorId, name: 'Lock Attacker', x: 9_000 }),
+    createTestStation({ userId: defender.id, sectorId, name: 'Lock Defender', x: 9_001 }),
+  ]);
+  await db
+    .insert(stationSpacecrafts)
+    .values({ stationId: attackerStation.id, spacecraftKey: 'merlin', amount: 1 });
+
+  let locked!: () => void;
+  let release!: () => void;
+  const isLocked = new Promise<void>((resolve) => (locked = resolve));
+  const released = new Promise<void>((resolve) => (release = resolve));
+  // Stands in for the tick resolving a wave against the defender station.
+  const tick = db.transaction(async (tx) => {
+    await findStationForUpdate(tx, defenderStation.id);
+    locked();
+    await released;
+  });
+  await isLocked;
+
+  try {
+    const attack = startAttack({
+      userId: attacker.id,
+      stationId: attackerStation.id,
+      targetStationId: defenderStation.id,
+      fleet: { merlin: 1 },
+    });
+    const timeout = new Promise<'timeout'>((resolve) => setTimeout(resolve, 2_000, 'timeout'));
+    const outcome = await Promise.race([attack, timeout]);
+    assert.notEqual(outcome, 'timeout', 'the combat mission insert waited on the station lock');
+  } finally {
+    release();
+    await tick;
+  }
+  const missions = await db
+    .select()
+    .from(combatMissions)
+    .where(eq(combatMissions.defenderStationId, defenderStation.id));
+  assert.equal(missions.length, 1);
 });

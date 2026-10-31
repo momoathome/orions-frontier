@@ -275,7 +275,7 @@ import {
   stepIncreaseIncome,
   stepStabilizeStation,
 } from '../../src/services/bot/goals/economy.js';
-import { stepEstablishColony } from '../../src/services/bot/goals/expansion.js';
+import { expansionOrigin, stepEstablishColony } from '../../src/services/bot/goals/expansion.js';
 import { generateBuildStrikeForceCandidate } from '../../src/services/bot/goals/military.js';
 import {
   generateResearchCandidates,
@@ -650,6 +650,19 @@ test('colonization prepares a free miner instead of blocking on locked mining sh
   assert.equal(result.type, 'success');
   assert.equal(result.intent.type, 'build_spacecraft');
   assert.equal(result.intent.spacecraftKey, 'mole');
+});
+
+test('expedition without a free ship starts where a support ship can be prepared', () => {
+  const home = baseStation();
+  const colony = baseStation({
+    id: 'station-2',
+    sectorX: 5,
+    sectorY: 5,
+    resources: { carbon: 0, titanium: 0, hydrogenium: 0 },
+  });
+  const state = baseState(home, { ownStations: [home, colony] });
+
+  assert.equal(expansionOrigin(state, 'sector:6:6', 'explore_sector')?.id, 'station-1');
 });
 
 test('active expansion keeps its last free support miner out of urgent mining', async () => {

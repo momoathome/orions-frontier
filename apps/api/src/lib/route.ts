@@ -7,6 +7,10 @@ export const defineRoute = (plugin: FastifyPluginAsyncZod) => plugin;
 export const stationParams = z.object({ stationId: z.uuid() });
 export const idParams = z.object({ id: z.uuid() });
 
+/** Schiffsanzahl: begrenzt auf int4, weil sie mit Integer-Spalten verglichen wird (sonst 500 statt 400). */
+export const shipAmount = z.number().int().min(1).max(2_147_483_647);
+export const shipAmountQuery = z.coerce.number().int().min(1).max(2_147_483_647);
+
 /** Nur Admins dürfen den Scanner umgehen; die Route prüft die Rolle. */
 export const scannerBypassQuery = z.object({ scannerBypass: z.string().optional() });
 

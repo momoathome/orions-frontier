@@ -37,6 +37,7 @@ export const RegisterRequestSchema = z.object({
   // Lowercased, so Bob@x.com and bob@x.com are one account.
   email: z
     .email()
+    .max(255)
     .toLowerCase()
     .refine((email) => !email.endsWith('@system.invalid'), 'Email domain is reserved'),
   password: z.string().min(12).max(128),
@@ -44,7 +45,7 @@ export const RegisterRequestSchema = z.object({
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 
 export const LoginRequestSchema = z.object({
-  email: z.email().toLowerCase(),
+  email: z.email().max(255).toLowerCase(),
   password: z.string().min(1),
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;

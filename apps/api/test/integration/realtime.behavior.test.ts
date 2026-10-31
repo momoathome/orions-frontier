@@ -10,13 +10,16 @@ const secret = 'realtime-behavior-test-secret';
 const userId = crypto.randomUUID();
 const bannedUserId = crypto.randomUUID();
 const bannedLater = new Set<string>();
+const dbDown = new Set<string>();
 const app = Fastify();
 let url: string;
 
 before(async () => {
   await app.register(fastifyJwt, { secret });
   attachRealtimeServer(app, (id) =>
-    Promise.resolve(id === bannedUserId || bannedLater.has(id) ? null : 'player')
+    dbDown.has(id)
+      ? Promise.reject(new Error('connection refused'))
+      : Promise.resolve(id === bannedUserId || bannedLater.has(id) ? null : 'player')
   );
   const address = await app.listen({ port: 0, host: '127.0.0.1' });
   url = address.replace('http://', 'ws://');
@@ -97,4 +100,28 @@ test('a ping closes the socket once the account was banned after login', async (
   client.send(JSON.stringify({ type: 'ping' }));
   const [code] = await closed;
   assert.equal(code, 4401);
+});
+
+test('a failed account lookup closes with 1013 so the client keeps its token', async () => {
+  const downUserId = crypto.randomUUID();
+  dbDown.add(downUserId);
+  const token = app.jwt.sign({ userId: downUserId, role: 'player' });
+  const client = new WebSocket(url);
+  await once(client, 'open');
+  const closed = once(client, 'close');
+  client.send(JSON.stringify({ type: 'authenticate', payload: { token } }));
+  const [code] = await closed;
+  assert.equal(code, 1013);
+
+  dbDown.delete(downUserId);
+  const pinged = new WebSocket(url);
+  await once(pinged, 'open');
+  const authenticated = once(pinged, 'message');
+  pinged.send(JSON.stringify({ type: 'authenticate', payload: { token } }));
+  await authenticated;
+  dbDown.add(downUserId);
+  const pingClosed = once(pinged, 'close');
+  pinged.send(JSON.stringify({ type: 'ping' }));
+  const [pingCode] = await pingClosed;
+  assert.equal(pingCode, 1013);
 });

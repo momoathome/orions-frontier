@@ -63,7 +63,7 @@ export async function findOwnedStationForUpdate(tx: Tx, stationId: string, userI
     .where(
       and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
     )
-    .for('update');
+    .for('no key update');
   return row;
 }
 
@@ -99,8 +99,9 @@ export function listScannerStationsByUser(db: SelectDb, userId: string) {
     .where(eq(stations.userId, userId));
 }
 
+// NO KEY UPDATE: station ids never change and rows are never deleted, so child FK checks may pass.
 export async function findStationForUpdate(tx: Tx, id: string) {
-  const [row] = await tx.select().from(stations).where(eq(stations.id, id)).for('update');
+  const [row] = await tx.select().from(stations).where(eq(stations.id, id)).for('no key update');
   return row;
 }
 
@@ -263,7 +264,7 @@ export async function findOwnedStationWithSectorForUpdate(
     .where(
       and(eq(stations.id, stationId), eq(stations.userId, userId), isNull(stations.destroyedAt))
     )
-    .for('update');
+    .for('no key update');
   return row;
 }
 

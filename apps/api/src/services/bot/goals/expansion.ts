@@ -8,7 +8,7 @@ import { entriesOf } from '@orions-frontier/shared';
 import type { GoalBotState, StationSnapshot, GoalResult } from '../goal-state.js';
 import type { GoalCandidate } from '../goal-driven-v1.js';
 import { GOAL_CATEGORY } from '../goal-driven-v1.js';
-import { getFrontierTargets, getKnownSectors } from '../../missions/index.js';
+import { getFrontierTargets, getKnownSectors, hasColonyPosition } from '../../missions/index.js';
 import { PROFILE_PARAMS } from '../profiles.js';
 import { stepStabilizeStation } from './economy.js';
 import {
@@ -120,12 +120,18 @@ export function expansionOrigin(
   const affordableStations = colonizing
     ? availableStations.filter((station) => canAffordColony(state, station))
     : availableStations;
+  // Without a free ship anywhere, act where the generator found one can be prepared.
+  const preparingStations = state.ownStations.filter((station) =>
+    canPrepareMobileSupportShip(state, station, colonizing)
+  );
   const candidateStations =
     affordableStations.length > 0
       ? affordableStations
       : availableStations.length > 0
         ? availableStations
-        : [...state.ownStations];
+        : preparingStations.length > 0
+          ? preparingStations
+          : [...state.ownStations];
   return candidateStations.sort((a, b) => {
     const distanceA = Math.hypot(a.sectorX - sectorX, a.sectorY - sectorY);
     const distanceB = Math.hypot(b.sectorX - sectorX, b.sectorY - sectorY);
@@ -223,9 +229,15 @@ export async function generateEstablishColonyCandidate(
   if (!hasMiner && !canPrepareMobileSupportShip(state, station, true)) return null;
 
   // Snapshot checks first: the sector lookup costs database round trips per station.
-  const nearest = (await getKnownSectors(state.userId, station.id)).find(
-    (sector) => sector.role === 'frontier' && !sector.hasOwnStation
-  );
+  let nearest = null;
+  for (const sector of await getKnownSectors(state.userId, station.id)) {
+    if (sector.role !== 'frontier' || sector.hasOwnStation) continue;
+    // A full sector stays full for this user (seeded positions), so retrying it never helps.
+    if (await hasColonyPosition(state.userId, sector.sectorX, sector.sectorY)) {
+      nearest = sector;
+      break;
+    }
+  }
   if (!nearest) return null;
 
   const maxDist = 100_000;

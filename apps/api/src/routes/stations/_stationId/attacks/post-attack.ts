@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import { authenticate } from '../../../../middleware/auth.js';
 import { startAttack } from '../../../../services/combat/index.js';
-import { defineRoute, stationParams } from '../../../../lib/route.js';
+import { defineRoute, shipAmount, stationParams } from '../../../../lib/route.js';
 
 const BodySchema = z.object({
   targetStationId: z.uuid(),
-  fleet: z.record(z.string().min(1), z.number().int().positive()),
+  fleet: z.record(z.string().min(1), shipAmount),
 });
 
 export default defineRoute(async (app) => {

@@ -32,6 +32,19 @@ test('auth endpoints reject invalid and unauthenticated requests', async () => {
   assert.equal(invalidRegistration.statusCode, 400);
   assert.equal(invalidRegistration.json().error.code, 'VALIDATION_ERROR');
 
+  // users.email is varchar(255); a longer address must stop at validation, not as a DB 500.
+  const longEmail = `${'a'.repeat(250)}@example.com`;
+  const longEmailRegistration = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    // Own address, so this does not spend the shared register rate-limit bucket.
+    remoteAddress: '10.0.0.42',
+    payload: { username: `long-${randomUUID()}`, email: longEmail, password: 'correct-password' },
+  });
+  assert.equal(longEmailRegistration.statusCode, 400);
+  assert.equal(longEmailRegistration.json().error.code, 'VALIDATION_ERROR');
+  assert.equal((await getDb().select().from(users).where(eq(users.email, longEmail))).length, 0);
+
   const unauthenticated = await app.inject({ method: 'GET', url: '/api/auth/me' });
   assert.equal(unauthenticated.statusCode, 401);
   assert.equal(unauthenticated.json().error.code, 'UNAUTHORIZED');

@@ -74,6 +74,16 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
   });
   assert.equal(invalid.statusCode, 400);
 
+  // Above int4 must be a 400 at the boundary, not a Postgres 22003 surfacing as 500.
+  const oversizedAttack = await app.inject({
+    method: 'POST',
+    url: `/api/stations/${attackerStationId}/attacks`,
+    headers,
+    payload: { targetStationId: defenderStationId, fleet: { merlin: 3_000_000_000 } },
+  });
+  assert.equal(oversizedAttack.statusCode, 400);
+  assert.equal(oversizedAttack.json().error.code, 'VALIDATION_ERROR');
+
   const attack = await app.inject({
     method: 'POST',
     url: `/api/stations/${attackerStationId}/attacks`,
@@ -106,6 +116,15 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
     spacecraftKey: 'collector',
     amount: 1,
   });
+  const oversizedSalvage = await app.inject({
+    method: 'POST',
+    url: `/api/debris/${field!.id}/salvage`,
+    headers,
+    payload: { stationId: attackerStationId, spacecraftKey: 'collector', amount: 3_000_000_000 },
+  });
+  assert.equal(oversizedSalvage.statusCode, 400);
+  assert.equal(oversizedSalvage.json().error.code, 'VALIDATION_ERROR');
+
   const salvage = await app.inject({
     method: 'POST',
     url: `/api/debris/${field!.id}/salvage`,

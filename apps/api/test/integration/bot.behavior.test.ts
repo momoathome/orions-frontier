@@ -43,6 +43,7 @@ import {
 } from '../../src/services/bot/goals/military.js';
 import { generateSalvageCandidates, stepSalvage } from '../../src/services/bot/goals/salvage.js';
 import { executeBotIntent } from '../../src/services/bot/intent.js';
+import { WORLD_CONFIG } from '../../src/lib/world-config.js';
 
 const userId = randomUUID();
 const stationId = randomUUID();
@@ -589,7 +590,54 @@ test('bot exploration and colonization goal generation', async () => {
   assert.ok(exploreCandidates.length > 0, 'generateGoalCandidates should include explore_sector');
   assert.ok(colonyCandidates.length > 0, 'generateGoalCandidates should include establish_colony');
 
-  await deleteTestData({ userIds: [botUserId], sectorIds: [knownSectorId, frontierSectorId] });
+  // A full nearest frontier sector is skipped: its seeded colony positions never change.
+  const isolatedUserId = (await createTestUser()).id;
+  const fillerUserId = (await createTestUser()).id;
+  const base = uniqueSectorCoordinate(randomUUID(), 240_000);
+  const { WIDTH } = WORLD_CONFIG.SECTOR;
+  const isolatedHomeId = (await createTestSector({ sectorX: base, sectorY: base })).id;
+  const fullFrontierId = (
+    await createTestSector({ sectorX: base + 1, sectorY: base, role: 'frontier' })
+  ).id;
+  const openFrontierId = (
+    await createTestSector({ sectorX: base + 2, sectorY: base, role: 'frontier' })
+  ).id;
+  const isolatedStationId = (
+    await createTestStation({
+      userId: isolatedUserId,
+      sectorId: isolatedHomeId,
+      x: base * WIDTH,
+      y: base * WIDTH,
+    })
+  ).id;
+  await setTestResources(isolatedStationId, {
+    carbon: 12_000,
+    titanium: 12_000,
+    hydrogenium: 12_000,
+  });
+  await grantResearch(isolatedUserId, { long_range_survey: 1, colony_logistics: 1 });
+  // A 1000-unit grid over the sampling area leaves no point 2 * SAFE_SPAWN_RADIUS clear.
+  for (let dx = -2_000; dx <= 2_000; dx += 1_000) {
+    for (let dy = -2_000; dy <= 2_000; dy += 1_000) {
+      await createTestStation({
+        userId: fillerUserId,
+        sectorId: fullFrontierId,
+        x: (base + 1) * WIDTH + dx,
+        y: base * WIDTH + dy,
+      });
+    }
+  }
+  const isolatedState = await loadGoalBotState(isolatedUserId);
+  assert.ok(isolatedState);
+  const isolatedStation = isolatedState.ownStations.find((s) => s.id === isolatedStationId);
+  assert.ok(isolatedStation);
+  const skippedCandidate = await generateEstablishColonyCandidate(isolatedState, isolatedStation);
+  assert.equal(skippedCandidate?.targetRef, `sector:${base + 2}:${base}`);
+
+  await deleteTestData({
+    userIds: [botUserId, isolatedUserId, fillerUserId],
+    sectorIds: [knownSectorId, frontierSectorId, isolatedHomeId, fullFrontierId, openFrontierId],
+  });
 });
 
 test('bot fortify and strike force goal generation', async () => {

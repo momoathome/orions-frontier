@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import { authenticate } from '../../../../middleware/auth.js';
 import { getMiningPreview } from '../../../../services/mining/index.js';
-import { defineRoute, idParams } from '../../../../lib/route.js';
+import { defineRoute, idParams, shipAmountQuery } from '../../../../lib/route.js';
 
 const QuerySchema = z.object({
   stationId: z.uuid(),
   spacecraftKey: z.string().min(1),
-  minerCount: z.coerce.number().int().min(1).default(1),
+  minerCount: shipAmountQuery.default(1),
 });
 
 export default defineRoute(async (app) => {

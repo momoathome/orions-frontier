@@ -74,8 +74,8 @@ const toReport = (
   viewerUserId: string,
   signatureAnalysis: boolean
 ): CombatReport => {
-  // The defender learns the composition of an incoming attack on arrival, or earlier with Signature Analysis.
-  const hidden = row.status === 'traveling' && viewerUserId !== row.userId && !signatureAnalysis;
+  // The defender learns the composition only from a battle (winner set), or earlier with Signature Analysis.
+  const hidden = row.winner === null && viewerUserId !== row.userId && !signatureAnalysis;
   // Outsiders learn the integrity only from a wave that hit it, and then in coarse tiers.
   const defenderIntegrity =
     row.defenderIntegrity === null || viewerUserId === defenderUserId

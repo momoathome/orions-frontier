@@ -3,6 +3,7 @@ export {
   getFrontierTargets,
   getKnownSectors,
   getUserWorldMissions,
+  hasColonyPosition,
   startColonization,
   startExpedition,
 } from './world-mission.js';

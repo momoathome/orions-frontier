@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { authenticate } from '../../../../middleware/auth.js';
 import { createAsteroidAssignment } from '../../../../services/mining/index.js';
 import { publishUserEvent } from '../../../../lib/realtime.js';
-import { defineRoute, idParams } from '../../../../lib/route.js';
+import { defineRoute, idParams, shipAmount } from '../../../../lib/route.js';
 
 // POST /api/asteroids/:id/assignments
 
@@ -16,7 +16,7 @@ export default defineRoute(async (app) => {
         body: z.object({
           stationId: z.uuid(),
           spacecraftKey: z.string().min(1),
-          assignedAmount: z.number().int().min(1).default(1),
+          assignedAmount: shipAmount.default(1),
         }),
       },
     },

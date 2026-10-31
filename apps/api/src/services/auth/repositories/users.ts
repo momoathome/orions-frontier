@@ -10,7 +10,7 @@ export async function findUser(db: QueryDb, id: string) {
 }
 
 export async function findUserForUpdate(tx: Tx, id: string) {
-  const [row] = await tx.select().from(users).where(eq(users.id, id)).for('update');
+  const [row] = await tx.select().from(users).where(eq(users.id, id)).for('no key update');
   return row;
 }
 

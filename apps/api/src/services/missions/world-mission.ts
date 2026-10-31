@@ -264,15 +264,15 @@ export async function startExpedition(
   return toWorldMission(mission);
 }
 
-async function colonyPosition(
-  tx: Tx,
+async function findColonyPosition(
+  db: QueryDb,
   sector: { id: string; seed: string; sectorX: number; sectorY: number },
   userId: string
 ) {
   const [asteroidRows, stationRows, reservedPositions] = await Promise.all([
-    listAsteroidPositionsInSector(tx, sector.id),
-    listActiveStationPositionsInSector(tx, sector.id),
-    listReservedColonyPositions(tx, sector.sectorX, sector.sectorY),
+    listAsteroidPositionsInSector(db, sector.id),
+    listActiveStationPositionsInSector(db, sector.id),
+    listReservedColonyPositions(db, sector.sectorX, sector.sectorY),
   ]);
   const occupiedPositions = [
     ...stationRows,
@@ -297,7 +297,14 @@ async function colonyPosition(
     );
     if (clearOfStations && clearOfAsteroids) return point;
   }
-  throw new AppError(ErrorCode.VALIDATION_ERROR, 'No valid colony position is available');
+  return null;
+}
+
+// Same seed and rule as startColonization, so bots skip sectors the service would refuse.
+export async function hasColonyPosition(userId: string, sectorX: number, sectorY: number) {
+  const db = getDb();
+  const sector = await findSectorByCoordinates(db, sectorX, sectorY);
+  return sector !== undefined && (await findColonyPosition(db, sector, userId)) !== null;
 }
 
 export async function startColonization(
@@ -342,7 +349,10 @@ export async function startColonization(
     if (short) throw new AppError(ErrorCode.VALIDATION_ERROR, `Insufficient ${short.resourceKey}`);
 
     const ship = await lockAvailableShip(tx, station.id, 'miner');
-    const target = await colonyPosition(tx, targetSector, params.userId);
+    const target = await findColonyPosition(tx, targetSector, params.userId);
+    if (!target) {
+      throw new AppError(ErrorCode.VALIDATION_ERROR, 'No valid colony position is available');
+    }
     const departedAt = context.now;
     const arrivesAt = await applyTravelSpeed(
       tx,

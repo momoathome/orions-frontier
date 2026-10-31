@@ -14,6 +14,7 @@ import { getUserCombatReports, startAttack } from '../../src/services/combat/com
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
 import { getDebrisById, startSalvage } from '../../src/services/combat/salvage.js';
 import { resolveSalvageMissionByTrip } from '../../src/services/combat/repositories/debris-fields.js';
+import { resolveCombatMissionByTrip } from '../../src/services/combat/repositories/combat-missions.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import { entriesOf, type CombatReport, type ResearchLevels } from '@orions-frontier/shared';
 import {
@@ -387,6 +388,31 @@ test('Signature Analysis reveals an incoming fleet before it arrives', async () 
   assert.equal(await incoming(), null);
   await grantResearch(defenderUserId, { signature_analysis: 1 });
   assert.deepEqual(await incoming(), { merlin: 3 });
+});
+
+test('an attack cancelled without a battle keeps its fleet hidden from the defender', async () => {
+  const started = await startAttack({
+    userId: attackerUserId,
+    stationId: attackerStationId,
+    targetStationId: defenderStationId,
+    fleet: { merlin: 3 },
+  });
+  const [mission] = await getDb()
+    .select()
+    .from(combatMissions)
+    .where(eq(combatMissions.id, started.id));
+  // Destroying the attacker's home mid-flight resolves the mission without a battle.
+  await getDb().transaction((tx) =>
+    resolveCombatMissionByTrip(tx, 'outbound', mission!.outboundTripId, new Date())
+  );
+  const report = async (userId: string) =>
+    (await getUserCombatReports(userId)).find((combatReport) => combatReport.id === started.id);
+
+  const seen = await report(defenderUserId);
+  assert.ok(seen);
+  assert.equal(seen.attackerFleet, null);
+  assert.equal(seen.attackerAmount, null);
+  assert.deepEqual((await report(attackerUserId))?.attackerFleet, { merlin: 3 });
 });
 
 test('Fleet Coordination raises the hangar crew capacity', async () => {

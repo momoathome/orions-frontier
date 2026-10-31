@@ -1,12 +1,10 @@
 import { z } from 'zod';
 import { authenticate } from '../../../middleware/auth.js';
 import { buildSpacecrafts } from '../../../services/station/index.js';
-import { defineRoute, stationParams } from '../../../lib/route.js';
+import { defineRoute, shipAmount, stationParams } from '../../../lib/route.js';
 
 const BodySchema = z.object({
-  orders: z
-    .array(z.object({ spacecraftKey: z.string().min(1), amount: z.number().int().positive() }))
-    .min(1),
+  orders: z.array(z.object({ spacecraftKey: z.string().min(1), amount: shipAmount })).min(1),
 });
 
 /**

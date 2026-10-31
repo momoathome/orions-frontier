@@ -39,6 +39,35 @@ export function publishUserEvent<K extends RealtimeEventType>(
   for (const socket of clients.get(userId) ?? []) send(socket, message);
 }
 
+type SessionCheck =
+  { status: 'valid'; userId: string; role: UserRole } | { status: 'invalid' | 'unavailable' };
+
+/** 'invalid' only when the token or account is confirmed bad; a failed lookup is 'unavailable'. */
+async function checkSession(
+  app: RealtimeApp,
+  activeRole: ActiveRoleLookup,
+  token: string
+): Promise<SessionCheck> {
+  let userId: string;
+  try {
+    userId = app.jwt.verify<JwtPayload>(token).userId;
+  } catch {
+    return { status: 'invalid' };
+  }
+  try {
+    const role = await activeRole(userId);
+    return role ? { status: 'valid', userId, role } : { status: 'invalid' };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+/** 4401 makes the client drop its token; 1013 (Try Again Later) makes it reconnect with it. */
+function closeFor(socket: WebSocket, status: 'invalid' | 'unavailable'): void {
+  if (status === 'invalid') socket.close(4401, 'Unauthorized');
+  else socket.close(1013, 'Session check unavailable');
+}
+
 export function attachRealtimeServer(
   app: RealtimeApp,
   activeRole: ActiveRoleLookup
@@ -50,7 +79,8 @@ export function attachRealtimeServer(
     let token = '';
     let authenticating = false;
     const authTimeout = setTimeout(() => {
-      socket.close(4401, 'Authentication timeout');
+      // Not 4401: a slow database must not cost the client its stored token.
+      socket.close(4408, 'Authentication timeout');
     }, 10_000);
 
     const handleMessage = async (raw: RawData) => {
@@ -69,14 +99,15 @@ export function attachRealtimeServer(
           }
 
           authenticating = true;
-          const user = app.jwt.verify<JwtPayload>(offered);
-          const role = await activeRole(user.userId);
+          const session = await checkSession(app, activeRole, offered);
           authenticating = false;
-          if (!role || socket.readyState !== WebSocket.OPEN) {
-            socket.close(4401, 'Unauthorized');
+          if (socket.readyState !== WebSocket.OPEN) return;
+          if (session.status !== 'valid') {
+            closeFor(socket, session.status);
             return;
           }
-          userId = user.userId;
+          const { role } = session;
+          userId = session.userId;
           token = offered;
           clearTimeout(authTimeout);
           const userClients = clients.get(userId) ?? new Set<WebSocket>();
@@ -92,15 +123,9 @@ export function attachRealtimeServer(
 
         if (message.type === 'ping') {
           // Like every HTTP request, each ping rechecks token expiry and account status.
-          let stillValid = false;
-          try {
-            app.jwt.verify<JwtPayload>(token);
-            stillValid = (await activeRole(userId)) !== null;
-          } catch {
-            stillValid = false;
-          }
-          if (!stillValid) {
-            socket.close(4401, 'Unauthorized');
+          const session = await checkSession(app, activeRole, token);
+          if (session.status !== 'valid') {
+            closeFor(socket, session.status);
             return;
           }
           send(socket, { type: 'pong', timestamp: Date.now() });
