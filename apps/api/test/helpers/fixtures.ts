@@ -136,9 +136,9 @@ export async function grantResearch(userId: string, levels: ResearchLevels): Pro
 }
 
 /**
- * Deletes test rows in foreign-key order. Also removes stations owned by the given users or placed
- * in the given sectors (e.g. colonies founded during a test). Trips, assignments, veins, queued
- * jobs, research, bot controllers and logbook entries go by cascade.
+ * Deletes test rows in foreign-key order. Also removes stations owned by the given users (e.g.
+ * colonies founded during a test), never foreign stations in the given sectors. Trips,
+ * assignments, veins, queued jobs, research, bot controllers and logbook entries go by cascade.
  */
 export async function deleteTestData({
   userIds = [],
@@ -153,13 +153,7 @@ export async function deleteTestData({
   const stationRows = await db
     .select({ id: stations.id })
     .from(stations)
-    .where(
-      or(
-        inArray(stations.id, stationIds),
-        inArray(stations.userId, userIds),
-        inArray(stations.sectorId, sectorIds)
-      )
-    );
+    .where(or(inArray(stations.id, stationIds), inArray(stations.userId, userIds)));
   const allStationIds = stationRows.map((station) => station.id);
   await db
     .delete(salvageMissions)
