@@ -4,6 +4,7 @@ import { findMiningRoute, getUserScannerCoverages } from '../station/index.js';
 import { calculateMiningCycle } from '../../lib/mining-cycle.js';
 import { calcDistance } from '../../lib/travel.js';
 import {
+  findVisibleAsteroid,
   getUserRevealedAsteroidIds,
   isPointVisible,
   sumAsteroidRemainingAmount,
@@ -29,13 +30,16 @@ export async function getMiningPreview({
   const db = getDb();
   const spacecraft = getSpacecraft(spacecraftKey);
   if (!spacecraft) return { ok: false, status: 404, message: 'Spacecraft not found' } as const;
-  const [row, coverages, revealedIds] = await Promise.all([
+  const modifiers = await getStationResearchModifiers(db, stationId);
+  const [row, visibleAsteroid, coverages, revealedIds] = await Promise.all([
     findMiningRoute(db, { stationId, userId, spacecraftKey, asteroidId }),
+    // Same rule as the asteroid detail: without visible ore left the asteroid does not exist.
+    findVisibleAsteroid(db, asteroidId, modifiers.visibleResources),
     getUserScannerCoverages(userId),
     getUserRevealedAsteroidIds(userId),
   ]);
 
-  if (!row) {
+  if (!row || !visibleAsteroid) {
     return { ok: false, status: 404, message: 'Station, miner or asteroid not found' } as const;
   }
   if (spacecraft.speed <= 0 || spacecraft.miningRate <= 0 || spacecraft.cargo <= 0) {
@@ -49,7 +53,6 @@ export async function getMiningPreview({
     return { ok: false, status: 400, message: `Only ${row.available} miners available` } as const;
   }
 
-  const modifiers = await getStationResearchModifiers(db, stationId);
   const remainingAmount = await sumAsteroidRemainingAmount(
     db,
     asteroidId,

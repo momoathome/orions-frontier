@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, lte, min, sql } from 'drizzle-orm';
 import type { BuildingUpgradeCost } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
@@ -60,6 +60,20 @@ export async function startResearchLevel(
     })
     .returning({ id: userResearch.id });
   return row !== undefined;
+}
+
+/** Earliest research completion in (after, now]; null if none. */
+export async function findNextResearchDueAt(db: QueryDb, after: Date | null, now: Date) {
+  const [row] = await db
+    .select({ at: min(userResearch.completesAt) })
+    .from(userResearch)
+    .where(
+      and(
+        lte(userResearch.completesAt, now),
+        after ? gt(userResearch.completesAt, after) : undefined
+      )
+    );
+  return row?.at ?? null;
 }
 
 /** Research due by `now`, oldest first. */

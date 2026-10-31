@@ -5,7 +5,11 @@ import {
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb, withExclusiveLock } from '../../lib/db/index.js';
-import { listDueTripsWithOwner, recordTripSettleFailure } from '../fleet/index.js';
+import {
+  findNextTripDueAt,
+  listDueTripsWithOwner,
+  recordTripSettleFailure,
+} from '../fleet/index.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
@@ -16,6 +20,8 @@ import {
   completeDueResearch,
   completeDueSpacecraft,
   creditStationResources,
+  findNextBuildingUpgradeDueAt,
+  findNextBuildOrderDueAt,
   findStation,
   findStationForUpdate,
   listActiveStationsByUser,
@@ -23,7 +29,8 @@ import {
   type ResearchQueueHooks,
 } from '../station/index.js';
 import { settleTripArrival } from '../transport/index.js';
-import { completeDueWorldMissions } from '../missions/index.js';
+import { completeDueWorldMissions, findNextWorldMissionDueAt } from '../missions/index.js';
+import { findNextResearchDueAt } from '../research/index.js';
 import { recordLogbookEvents } from '../logbook/index.js';
 import { assignIdleMiners } from '../mining/index.js';
 
@@ -31,6 +38,8 @@ const logger = rootLogger.child({ name: 'simulation' });
 const MAX_DRAIN_PASSES = 10_000;
 // Bounds one realtime tick; bots left over stay due and go first in the next tick.
 const BOT_DECISIONS_PER_TICK = 20;
+// Due work older than this means downtime or a stalled tick; only then step through it in time order.
+const CATCH_UP_STEP_AFTER_MS = 5_000;
 
 export type SimulationPhase =
   'transports' | 'buildings' | 'spacecraft' | 'research' | 'world_missions';
@@ -83,11 +92,14 @@ const addResult = (
   total.events.push(...result.events);
 };
 
-/** Buildings, spacecraft, research and world missions due by `context.now`, in phase order. */
+/**
+ * Buildings, spacecraft, research and world missions due by `context.now`, in phase order.
+ * `tickNow` is the tick's real time; failures back off from it.
+ */
 async function completeDueStationWork(
   context: GameExecutionContext,
   totals: StationWorkResults,
-  tickNow = context.now
+  tickNow: Date
 ) {
   addResult(totals.buildings, await completeDueBuildings(context.now));
   addResult(
@@ -110,13 +122,14 @@ async function completeDueStationWork(
     )
   );
   addResult(totals.research, await completeDueResearch(context.now, researchQueueHooks));
-  // A failure backs off from the tick's time, so the main pass does not retry it again.
+  // A failure backs off from the tick's time, so later steps of this tick do not retry it.
   addResult(totals.world_missions, await completeDueWorldMissions(context, tickNow));
 }
 
 async function completeDueTransports(
   context: GameExecutionContext,
-  stationWork: StationWorkResults
+  stationWork: StationWorkResults,
+  tickNow: Date
 ): Promise<SimulationPhasePassResult> {
   const db = getDb();
   const dueTrips = await listDueTripsWithOwner(db, context.now);
@@ -131,7 +144,7 @@ async function completeDueTransports(
     if (trip.purpose === 'combat' && trip.toType === 'station') {
       // Work due before the attack lands first: finished fighters defend, and the attack may
       // destroy the station the rest belongs to.
-      await completeDueStationWork(context.at(trip.arrivesAt), stationWork, context.now);
+      await completeDueStationWork(context.at(trip.arrivesAt), stationWork, tickNow);
     }
     try {
       const arrival = await settleTripArrival(trip, context);
@@ -162,7 +175,7 @@ async function completeDueTransports(
       }
     } catch (error) {
       failed += 1;
-      const failures = await recordTripSettleFailure(db, trip.id, context.now);
+      const failures = await recordTripSettleFailure(db, trip.id, tickNow);
       logger.error(
         { tripId: trip.id, failures, err: error },
         failures >= 10 ? 'Trip keeps failing to settle; needs repair' : 'Failed to settle due trip'
@@ -176,7 +189,8 @@ async function completeDueTransports(
 }
 
 async function runCompletionPass(
-  context: GameExecutionContext
+  context: GameExecutionContext,
+  tickNow: Date
 ): Promise<SimulationPhasePassResult[]> {
   const totals: StationWorkResults = {
     buildings: { phase: 'buildings', completed: 0, failed: 0, events: [] },
@@ -184,8 +198,8 @@ async function runCompletionPass(
     research: { phase: 'research', completed: 0, failed: 0, events: [] },
     world_missions: { phase: 'world_missions', completed: 0, failed: 0, events: [] },
   };
-  const transports = await completeDueTransports(context, totals);
-  await completeDueStationWork(context, totals);
+  const transports = await completeDueTransports(context, totals, tickNow);
+  await completeDueStationWork(context, totals, tickNow);
   return [transports, totals.buildings, totals.spacecraft, totals.research, totals.world_missions];
 }
 
@@ -197,31 +211,66 @@ const PHASES: SimulationPhase[] = [
   'world_missions',
 ];
 
+/** Earliest work due in (after, now] in any phase; null if none. */
+async function findNextDueAt(after: Date | null, now: Date): Promise<Date | null> {
+  const db = getDb();
+  const times = await Promise.all([
+    findNextTripDueAt(db, after, now),
+    findNextBuildingUpgradeDueAt(db, after, now),
+    findNextBuildOrderDueAt(db, after, now),
+    findNextResearchDueAt(db, after, now),
+    findNextWorldMissionDueAt(db, after, now),
+  ]);
+  return times.reduce<Date | null>((min, at) => (at && (!min || at < min) ? at : min), null);
+}
+
+/**
+ * Steps through due work in time order, so a late tick after downtime plays out like the watched
+ * timeline. Each step re-lists everything due by its time: new legs and queue starts due later get
+ * their own step, and work an earlier step left behind is retried. A last drain at `now` keeps the
+ * rest. A regular tick has no backlog and skips the steps, which cost queries per due time.
+ */
 async function drainDueWork(context: GameExecutionContext): Promise<SimulationDrainResult> {
-  const totals = PHASES.map((phase) => ({ phase, completed: 0, failed: 0 }));
-  const events: PlaytestCompletionEvent[] = [];
-  let productivePasses = 0;
+  const drained: SimulationDrainResult = {
+    passes: 0,
+    phases: PHASES.map((phase) => ({ phase, completed: 0, failed: 0 })),
+    events: [],
+  };
+  let at = await findNextDueAt(null, context.now);
+  if (at && context.now.getTime() - at.getTime() <= CATCH_UP_STEP_AFTER_MS) at = null;
+  while (at) {
+    await drainAt(context.at(at), context.now, drained);
+    at = await findNextDueAt(at, context.now);
+  }
+  await drainAt(context, context.now, drained);
+  return drained;
+}
+
+/** Repeats completion passes at `context.now` until one completes nothing. */
+async function drainAt(
+  context: GameExecutionContext,
+  tickNow: Date,
+  drained: SimulationDrainResult
+): Promise<void> {
   let lastCompletedPhase: SimulationPhase | null = null;
 
   for (let pass = 1; pass <= MAX_DRAIN_PASSES; pass += 1) {
-    const results = await runCompletionPass(context);
+    const results = await runCompletionPass(context, tickNow);
     await recordLogbookEvents(results.flatMap((result) => result.events));
     let passCompleted = 0;
     for (const result of results) {
       const total = required(
-        totals.find((candidate) => candidate.phase === result.phase),
+        drained.phases.find((candidate) => candidate.phase === result.phase),
         `phase total ${result.phase}`
       );
       total.completed += result.completed;
       total.failed += result.failed;
-      events.push(...result.events);
+      drained.events.push(...result.events);
       passCompleted += result.completed;
       if (result.completed > 0) lastCompletedPhase = result.phase;
     }
-    if (passCompleted === 0) {
-      return { passes: productivePasses, phases: totals, events };
-    }
-    productivePasses += 1;
+    if (passCompleted === 0) return;
+    drained.passes += 1;
   }
 
   throw new Error(

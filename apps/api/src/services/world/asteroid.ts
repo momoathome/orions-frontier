@@ -18,7 +18,7 @@ import {
   isPointVisible,
   type ScannerCoverage,
   type VisibilityProjectionStats,
-  findAsteroid,
+  findVisibleAsteroid,
   listAsteroidAssignmentsWithOwner,
   listAsteroidSummariesInChunks,
   listAsteroidVeins,
@@ -87,27 +87,25 @@ export const getAsteroidById = async (
 ): Promise<AsteroidDetail | null> => {
   const db = getDb();
 
-  const [row, coverages, revealedIds, modifiers] = await Promise.all([
-    findAsteroid(db, id),
+  const [coverages, revealedIds, modifiers] = await Promise.all([
     scannerBypass ? Promise.resolve([]) : getUserScannerCoverages(userId),
     scannerBypass ? Promise.resolve(new Set<string>()) : getUserRevealedAsteroidIds(userId),
     getResearchModifiers(userId, db),
   ]);
-
-  if (!row) return null;
-  const scanned = scannerBypass || revealedIds.has(id) || isPointVisible(coverages, row);
   const visibleResources: readonly ResourceKey[] = scannerBypass
     ? allResourceKeys
     : modifiers.visibleResources;
+  // Without visible ore left the asteroid does not exist for this viewer; showing a mined-out one
+  // would betray its unresearched veins.
+  const row = await findVisibleAsteroid(db, id, visibleResources);
+  if (!row) return null;
+  const scanned = scannerBypass || revealedIds.has(id) || isPointVisible(coverages, row);
 
   const [veins, assignmentRows, travelingTrips] = await Promise.all([
     listAsteroidVeins(db, id, visibleResources),
     listAsteroidAssignmentsWithOwner(db, id),
     listTravelingTripsByAsteroid(db, id),
   ]);
-  // Without visible ore left the asteroid does not exist for this viewer; showing a mined-out one
-  // would betray its unresearched veins.
-  if (!veins.some((vein) => vein.remainingAmount > 0)) return null;
 
   return {
     id: row.id,

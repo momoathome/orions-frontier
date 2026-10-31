@@ -3,6 +3,7 @@ import { researchModifiers } from '@orions-frontier/game-config';
 import type { ResearchKey, ResearchLevels, ResearchState } from '@orions-frontier/shared';
 import { apiClient } from '../../shared/api/api-client.js';
 import { wsClient } from '../../shared/api/ws-client.js';
+import { debounced } from '../../shared/lib/debounce.js';
 
 interface ResearchStoreState {
   research: ResearchState | null;
@@ -45,14 +46,20 @@ const running = computed(() =>
     .sort((a, b) => Date.parse(a.completesAt ?? '') - Date.parse(b.completesAt ?? ''))
 );
 
-/** Loads account research and keeps it current through `research_completed`; no polling. */
+// Blockers follow building levels, and a lost station drops queued research server-side.
+const scheduleRefresh = debounced(refresh, 500);
+
+/** Loads account research and keeps it current through realtime events; no polling. */
 function start(): () => void {
   void refresh();
   const unsubscribers = [
     wsClient.on('research_completed', () => void refresh()),
+    wsClient.on('building_upgrade_completed', scheduleRefresh),
+    wsClient.on('transport_tick_completed', scheduleRefresh),
     wsClient.onReconnected(() => void refresh()),
   ];
   return () => {
+    scheduleRefresh.cancel();
     for (const unsubscribe of unsubscribers) unsubscribe();
   };
 }
@@ -77,6 +84,7 @@ async function removeQueued(jobId: string): Promise<void> {
 function openView(focus: string | null = null): void {
   state.focus = focus;
   state.viewOpen = true;
+  void refresh();
 }
 
 function closeView(): void {

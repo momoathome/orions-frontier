@@ -39,11 +39,13 @@ export { getStationVisualProfiles, starterStationVisualProfile } from './visual.
 export { deleteStationQueue } from './repositories/queued-jobs.js';
 export {
   deleteBuildOrders,
+  findNextBuildOrderDueAt,
   listBuildOrdersByStations,
 } from './repositories/spacecraft-build-orders.js';
 export {
   deleteStationBuildings,
   findBuildingLevel,
+  findNextBuildingUpgradeDueAt,
   listBuildingLevels,
   listBuildingLevelsByStations,
   listStationBuildingsByStations,

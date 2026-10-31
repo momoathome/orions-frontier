@@ -3,10 +3,9 @@ import {
   addAssignmentRecallRequest,
   getUserRevealedAsteroidIds,
   isPointVisible,
-  findAsteroid,
   findAsteroidForUpdate,
+  findVisibleAsteroid,
   insertAsteroidAssignment,
-  listAsteroidVeins,
   listStationAssignmentsWithAsteroid,
 } from '../map/index.js';
 import { insertTrip } from '../fleet/index.js';
@@ -52,17 +51,12 @@ export const createAsteroidAssignment = async (
   }
 
   // Unscanned asteroids may be mined blind; the scanner only limits what the player knows.
-  const [station, asteroid] = await Promise.all([
-    findOwnedStation(db, stationId, userId),
-    findAsteroid(db, asteroidId),
-  ]);
+  const station = await findOwnedStation(db, stationId, userId);
   if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-  // Research reveals veins; an asteroid without a visible one does not exist for this player.
+  // Research reveals veins; an asteroid without visible ore left does not exist for this player.
   const { visibleResources } = await getStationResearchModifiers(db, stationId);
-  const veins = asteroid ? await listAsteroidVeins(db, asteroidId, visibleResources) : [];
-  if (!asteroid || !veins.some((vein) => vein.remainingAmount > 0)) {
-    throw new AppError(ErrorCode.NOT_FOUND, 'Asteroid not found');
-  }
+  const asteroid = await findVisibleAsteroid(db, asteroidId, visibleResources);
+  if (!asteroid) throw new AppError(ErrorCode.NOT_FOUND, 'Asteroid not found');
 
   const scraft = getSpacecraft(spacecraftKey);
   if (!scraft) throw new AppError(ErrorCode.VALIDATION_ERROR, 'Spacecraft definition not found');

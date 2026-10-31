@@ -1111,9 +1111,10 @@ test('outcomes shift weights and they revert toward the profile start weights', 
 // Goal outcome and switching
 // ---------------------------------------------------------------------------
 
-import { chooseGoalStep, goalOutcome } from '../../src/services/bot/bot.js';
+import { activeRaidBlocks, chooseGoalStep, goalOutcome } from '../../src/services/bot/bot.js';
 import { determineNextStep } from '../../src/services/bot/goal-lifecycle.js';
 import {
+  generateRaidCandidates,
   generateRetaliateCandidates,
   stepRetaliate,
 } from '../../src/services/bot/goals/conflict.js';
@@ -1187,6 +1188,7 @@ test('a goal is released after five blocked intervals and a protected target is 
     activeGoalTarget: goal.targetRef,
     blockedCount: 3,
     goalStartedAt: new Date(0),
+    raidBlockedOwners: {},
   };
 
   const fourth = goalOutcome(controller, goal, blocked, now);
@@ -1212,13 +1214,70 @@ test('a goal is released after five blocked intervals and a protected target is 
 
   const protectedTarget = goalOutcome(
     controller,
-    goal,
+    { ...goal, ownerId: 'owner-1' },
     { type: 'blocked', action: 'blocked', reason: 'Target protected', retryAfterMs: 60_000 },
     now
   );
   assert.equal(protectedTarget.update.activeGoalType, null);
-  assert.equal(protectedTarget.update.raidBlockedTarget, 'station:target-1');
-  assert.deepEqual(protectedTarget.update.raidBlockedUntil, new Date(now.getTime() + 60_000));
+  assert.deepEqual(protectedTarget.update.raidBlockedOwners, {
+    'owner-1': new Date(now.getTime() + 60_000).toISOString(),
+  });
+});
+
+test('two rejected raids block both owners', () => {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  const rejected = {
+    type: 'waiting' as const,
+    action: 'waiting',
+    reason: 'Target account is protected from attacks',
+    retryAfterMs: 60_000,
+  };
+  const controller = {
+    activeGoalType: null,
+    activeGoalTarget: null,
+    blockedCount: 0,
+    goalStartedAt: null,
+    raidBlockedOwners: { 'owner-old': new Date(now.getTime() - 1).toISOString() },
+  };
+  const first = goalOutcome(
+    controller,
+    { goalType: 'raid', targetRef: 'station:station-a', ownerId: 'owner-a' },
+    rejected,
+    now
+  );
+  const second = goalOutcome(
+    { ...controller, raidBlockedOwners: first.update.raidBlockedOwners! },
+    { goalType: 'retaliate', targetRef: 'user:owner-b', ownerId: 'owner-b' },
+    rejected,
+    now
+  );
+  const blocks = second.update.raidBlockedOwners!;
+  assert.deepEqual(Object.keys(blocks).sort(), ['owner-a', 'owner-b']);
+
+  const station = baseStation({
+    fleets: [{ spacecraftKey: 'javelin', amount: 3, lockedAmount: 0 }],
+  });
+  const state = baseState(station, {
+    visibleStations: [
+      foreignStation('station-a', 'owner-a'),
+      foreignStation('station-b', 'owner-b'),
+    ],
+    combatReports: [
+      combatReport('owner-a', 'bot-1', new Date(now.getTime() - 3_600_000)),
+      combatReport('owner-b', 'bot-1', new Date(now.getTime() - 3_600_000)),
+    ],
+  });
+  assert.equal(generateRaidCandidates(state, 'warlord').length, 2);
+  assert.equal(generateRetaliateCandidates(state, 'warlord').length, 2);
+
+  const blocked = {
+    ...state,
+    blockedRaidOwners: new Set(Object.keys(activeRaidBlocks(blocks, now))),
+  };
+  assert.equal(generateRaidCandidates(blocked, 'warlord').length, 0);
+  assert.equal(generateRetaliateCandidates(blocked, 'warlord').length, 0);
+  // Both blocks lapse once their hour is over.
+  assert.deepEqual(activeRaidBlocks(blocks, new Date(now.getTime() + 60_000)), {});
 });
 
 test('a waiting goal gives way to another goal only once its commitment has faded', async () => {
@@ -1329,8 +1388,10 @@ test('retaliation waits for its launched attack and skips a protected attacker',
   });
   assert.equal(generateRetaliateCandidates(dockedState, 'warlord').length, 1);
   assert.equal(
-    generateRetaliateCandidates({ ...dockedState, blockedRaidTarget: 'user:opponent-1' }, 'warlord')
-      .length,
+    generateRetaliateCandidates(
+      { ...dockedState, blockedRaidOwners: new Set(['opponent-1']) },
+      'warlord'
+    ).length,
     0
   );
   assert.equal(

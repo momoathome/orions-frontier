@@ -3,6 +3,7 @@ export {
   type TripRow,
   cancelTrip,
   claimTripArrival,
+  findNextTripDueAt,
   insertTrip,
   listDueTripsWithOwner,
   listMiningDeliveriesSince,

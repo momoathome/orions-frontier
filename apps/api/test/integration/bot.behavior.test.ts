@@ -758,8 +758,7 @@ test('bot raid and retaliate goal generation with visible target', async () => {
       activeGoalType: botControllers.activeGoalType,
       lastAction: botControllers.lastAction,
       nextDecisionAt: botControllers.nextDecisionAt,
-      raidBlockedTarget: botControllers.raidBlockedTarget,
-      raidBlockedUntil: botControllers.raidBlockedUntil,
+      raidBlockedOwners: botControllers.raidBlockedOwners,
     })
     .from(botControllers)
     .where(eq(botControllers.userId, botUserId));
@@ -768,14 +767,12 @@ test('bot raid and retaliate goal generation with visible target', async () => {
   assert.ok(
     protectedController.nextDecisionAt.getTime() < protectedAttemptAt.getTime() + 60 * 60_000
   );
-  assert.equal(protectedController.raidBlockedTarget, `station:${targetStationId}`);
-  assert.equal(
-    protectedController.raidBlockedUntil?.getTime(),
-    protectedAttemptAt.getTime() + 60 * 60_000
-  );
+  assert.deepEqual(protectedController.raidBlockedOwners, {
+    [targetUserId]: new Date(protectedAttemptAt.getTime() + 60 * 60_000).toISOString(),
+  });
   const blockedState = await loadGoalBotState(botUserId);
   assert.ok(blockedState);
-  blockedState.blockedRaidTarget = `station:${targetStationId}`;
+  blockedState.blockedRaidOwners = new Set([targetUserId]);
   assert.ok(
     generateRaidCandidates(blockedState, 'warlord').every(
       (candidate) => candidate.targetRef !== `station:${targetStationId}`

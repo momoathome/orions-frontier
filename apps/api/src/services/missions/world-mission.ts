@@ -419,7 +419,7 @@ export async function completeDueWorldMissions(
 
   for (const candidate of due) {
     try {
-      const completion = await completeWorldMission(candidate.id, context);
+      const completion = await completeWorldMission(candidate, context);
       if (!completion) continue;
       completed += 1;
       events.push(...completion);
@@ -540,11 +540,13 @@ function worldMissionEvents(
 
 /** Completes one due mission; null if another worker got there first. */
 async function completeWorldMission(
-  missionId: string,
+  candidate: { id: string; userId: string },
   context: GameExecutionContext
 ): Promise<PlaytestCompletionEvent[] | null> {
   const result = await getDb().transaction(async (tx) => {
-    const mission = await findDueWorldMissionForUpdate(tx, missionId, context.now);
+    // User lock before the mission row, like starts: an arrival never commits between a start's checks.
+    await lockUserWorldMissions(tx, candidate.userId);
+    const mission = await findDueWorldMissionForUpdate(tx, candidate.id, context.now);
     if (!mission) return null;
     const eventContext = context.at(mission.arrivesAt);
     let stage: WorldMissionStage;

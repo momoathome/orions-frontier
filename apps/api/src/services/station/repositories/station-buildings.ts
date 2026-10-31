@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lte, min, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../../../lib/db/index.js';
 import { stationBuildings } from '../../../lib/db/schema/station-buildings.js';
 import { stations } from '../../../lib/db/schema/stations.js';
@@ -89,6 +89,20 @@ export async function findBuildingLevel(db: QueryDb, stationId: string, building
 
 export function listStationBuildingsByStations(db: QueryDb, stationIds: string[]) {
   return db.select().from(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
+}
+
+/** Earliest upgrade end in (after, now]; null if none. */
+export async function findNextBuildingUpgradeDueAt(db: QueryDb, after: Date | null, now: Date) {
+  const [row] = await db
+    .select({ at: min(stationBuildings.upgradeEndsAt) })
+    .from(stationBuildings)
+    .where(
+      and(
+        lte(stationBuildings.upgradeEndsAt, now),
+        after ? gt(stationBuildings.upgradeEndsAt, after) : undefined
+      )
+    );
+  return row?.at ?? null;
 }
 
 /** Upgrades due by `now`, oldest first, with the station owner. */

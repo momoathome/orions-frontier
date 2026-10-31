@@ -235,7 +235,7 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
 
     for (const target of state.visibleStations) {
       if (target.isOwn) continue;
-      if (state.blockedRaidTarget === `station:${target.id}`) continue;
+      if (state.blockedRaidOwners?.has(target.ownerId)) continue;
       if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;
 
       const cooldown = hasCooldown(state, target.ownerId, now);
@@ -388,7 +388,7 @@ export function generateRetaliateCandidates(
     if (offensive <= 0) continue;
 
     for (const ownerId of attackerIds) {
-      if (state.blockedRaidTarget === `user:${ownerId}`) continue;
+      if (state.blockedRaidOwners?.has(ownerId)) continue;
       const target = state.visibleStations.find((s) => s.ownerId === ownerId && !s.isOwn);
       if (!target) continue;
       if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;

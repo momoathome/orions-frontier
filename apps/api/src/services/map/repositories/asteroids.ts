@@ -37,6 +37,14 @@ const visiblePrimaryResourceSql = (resourceKeys: VisibleResources) =>
     LIMIT 1
   )`;
 
+// Only asteroids with visible ore left exist for a viewer; a mined-out one would betray its hidden veins.
+const hasVisibleOreSql = (resourceKeys: VisibleResources) =>
+  sql`EXISTS (
+    SELECT 1 FROM asteroid_veins v
+    WHERE v.asteroid_id = ${outerAsteroidId} AND v.resource_key IN (${visibleKeysSql(resourceKeys)})
+      AND v.remaining_amount > 0
+  )`;
+
 export async function insertAsteroids(db: InsertDb, rows: (typeof asteroids.$inferInsert)[]) {
   await db.insert(asteroids).values(rows);
 }
@@ -48,8 +56,13 @@ export async function insertAsteroidVeins(
   await db.insert(asteroidVeins).values(rows);
 }
 
-export async function findAsteroid(db: QueryDb, id: string) {
-  const [row] = await db.select().from(asteroids).where(eq(asteroids.id, id)).limit(1);
+/** The asteroid if the viewer can see ore left in it; otherwise it does not exist for them. */
+export async function findVisibleAsteroid(db: QueryDb, id: string, resourceKeys: VisibleResources) {
+  const [row] = await db
+    .select()
+    .from(asteroids)
+    .where(and(eq(asteroids.id, id), hasVisibleOreSql(resourceKeys)))
+    .limit(1);
   return row;
 }
 
@@ -87,12 +100,7 @@ export function listAsteroidSummariesInChunks(
       and(
         between(asteroids.chunkX, bounds.minChunkX, bounds.maxChunkX),
         between(asteroids.chunkY, bounds.minChunkY, bounds.maxChunkY),
-        // Only asteroids with visible ore left; a mined-out one would betray its hidden veins.
-        sql`EXISTS (
-          SELECT 1 FROM asteroid_veins v
-          WHERE v.asteroid_id = ${outerAsteroidId} AND v.resource_key IN (${visibleKeysSql(resourceKeys)})
-            AND v.remaining_amount > 0
-        )`
+        hasVisibleOreSql(resourceKeys)
       )
     );
 }

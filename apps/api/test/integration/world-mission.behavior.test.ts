@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { entriesOf } from '@orions-frontier/shared';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
 import {
@@ -20,6 +21,7 @@ import { WORLD_CONFIG } from '../../src/lib/world-config.js';
 import { calcDistance, calcTravelHours } from '../../src/lib/travel.js';
 import { ensureSector } from '../../src/services/map/sector.js';
 import { createStation } from '../../src/services/station/station.js';
+import { lockUserWorldMissions } from '../../src/services/missions/repositories/world-missions.js';
 import {
   completeDueWorldMissions,
   getFrontierTargets,
@@ -478,4 +480,56 @@ test('a broken world mission is counted as failed without blocking the others', 
   const [retried] = await db.select().from(worldMissions).where(eq(worldMissions.id, broken!.id));
   assert.equal(retried?.settleFailures, 3);
   await db.delete(worldMissions).where(eq(worldMissions.id, broken!.id));
+});
+
+test('colonization arrival waits for a start holding the user lock', async () => {
+  const db = getDb();
+  const frontier = await db.transaction((tx) => ensureSector(tx, 103, 100, 'frontier'));
+  sectorIds.push(frontier.id);
+  for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
+    await db
+      .update(stationResources)
+      .set({ amount })
+      .where(
+        and(
+          eq(stationResources.stationId, secondStationId),
+          eq(stationResources.resourceKey, resourceKey)
+        )
+      );
+  }
+  const start = { userId: secondUserId, stationId: secondStationId, sectorX: 103, sectorY: 100 };
+  const colonization = await startColonization({ ...start, name: 'Raced Colony' });
+  const colonyStations = () =>
+    db
+      .select({ id: stations.id })
+      .from(stations)
+      .where(and(eq(stations.userId, secondUserId), eq(stations.sectorId, frontier.id)));
+
+  let release!: () => void;
+  let locked!: () => void;
+  const lockTaken = new Promise<void>((resolve) => (locked = resolve));
+  const holder = db.transaction(async (tx) => {
+    await lockUserWorldMissions(tx, secondUserId);
+    locked();
+    await new Promise<void>((resolve) => (release = resolve));
+  });
+  await lockTaken;
+  const arrival = completeDueWorldMissions(new Date(Date.parse(colonization.arrivesAt) + 1));
+  try {
+    await sleep(200);
+    const [waiting] = await db
+      .select({ status: worldMissions.status })
+      .from(worldMissions)
+      .where(eq(worldMissions.id, colonization.id));
+    assert.equal(waiting?.status, 'traveling');
+    assert.equal((await colonyStations()).length, 0);
+  } finally {
+    release();
+  }
+  await holder;
+  await arrival;
+  assert.equal((await colonyStations()).length, 1);
+  await assert.rejects(startColonization({ ...start, name: 'Second Raced Colony' }), {
+    message: 'You already have a station there',
+  });
 });

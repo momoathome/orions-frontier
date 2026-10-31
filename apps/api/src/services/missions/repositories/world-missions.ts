@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { required, type WorldMissionType } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { botControllers } from '../../../lib/db/schema/bot-controllers.js';
@@ -75,9 +75,9 @@ export async function updateWorldMission(
 
 export type WorldMissionRow = typeof worldMissions.$inferSelect;
 
-/** Serializes the user's mission starts for the rest of the transaction. */
+/** Serializes the user's mission starts and arrivals for the rest of the transaction. */
 export async function lockUserWorldMissions(tx: Tx, userId: string) {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'world-missions:' + userId}))`);
 }
 
 /** Serializes colonization of one sector for the rest of the transaction. */
@@ -146,7 +146,7 @@ export function listWorldMissionsByUser(
 /** Missions under way or returning that arrive by `now` and wait for no retry, oldest first. */
 export function listDueWorldMissionIds(db: QueryDb, now: Date) {
   return db
-    .select({ id: worldMissions.id })
+    .select({ id: worldMissions.id, userId: worldMissions.userId })
     .from(worldMissions)
     .where(
       and(
@@ -156,6 +156,27 @@ export function listDueWorldMissionIds(db: QueryDb, now: Date) {
       )
     )
     .orderBy(asc(worldMissions.arrivesAt), asc(worldMissions.id));
+}
+
+/** Earliest time in (after, now] a moving mission becomes due, counting its retry; null if none. */
+export async function findNextWorldMissionDueAt(db: QueryDb, after: Date | null, now: Date) {
+  const [row] = await db
+    .select({
+      // greatest() skips a null retry_at.
+      at: sql<Date | null>`min(greatest(${worldMissions.arrivesAt}, ${worldMissions.retryAt}))`.mapWith(
+        worldMissions.arrivesAt
+      ),
+    })
+    .from(worldMissions)
+    .where(
+      and(
+        inArray(worldMissions.status, ['traveling', 'returning']),
+        lte(worldMissions.arrivesAt, now),
+        or(isNull(worldMissions.retryAt), lte(worldMissions.retryAt, now)),
+        after ? or(gt(worldMissions.arrivesAt, after), gt(worldMissions.retryAt, after)) : undefined
+      )
+    );
+  return row?.at ?? null;
 }
 
 /**

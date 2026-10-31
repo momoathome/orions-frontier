@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, lte, max } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lte, max, min } from 'drizzle-orm';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { spacecraftBuildOrders } from '../../../lib/db/schema/spacecraft-build-orders.js';
 import { stations } from '../../../lib/db/schema/stations.js';
@@ -60,6 +60,20 @@ export function listBuildOrdersByStations(db: QueryDb, stationIds: string[]) {
     .select()
     .from(spacecraftBuildOrders)
     .where(inArray(spacecraftBuildOrders.stationId, stationIds));
+}
+
+/** Earliest next ship in (after, now]; null if none. */
+export async function findNextBuildOrderDueAt(db: QueryDb, after: Date | null, now: Date) {
+  const [row] = await db
+    .select({ at: min(spacecraftBuildOrders.nextAt) })
+    .from(spacecraftBuildOrders)
+    .where(
+      and(
+        lte(spacecraftBuildOrders.nextAt, now),
+        after ? gt(spacecraftBuildOrders.nextAt, after) : undefined
+      )
+    );
+  return row?.at ?? null;
 }
 
 /** Build orders with a ship due by `now`, oldest first, with the station owner. */

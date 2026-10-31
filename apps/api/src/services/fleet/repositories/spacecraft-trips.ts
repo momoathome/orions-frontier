@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { required, type ResourceMap } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { asteroidAssignments } from '../../../lib/db/schema/asteroids.js';
@@ -181,6 +181,29 @@ export function listDueTripsWithOwner(db: QueryDb, now: Date) {
       )
     )
     .orderBy(asc(spacecraftTrips.arrivesAt), asc(spacecraftTrips.id));
+}
+
+/** Earliest time in (after, now] a traveling trip becomes due, counting its retry; null if none. */
+export async function findNextTripDueAt(db: QueryDb, after: Date | null, now: Date) {
+  const [row] = await db
+    .select({
+      // greatest() skips a null retry_at.
+      at: sql<Date | null>`min(greatest(${spacecraftTrips.arrivesAt}, ${spacecraftTrips.retryAt}))`.mapWith(
+        spacecraftTrips.arrivesAt
+      ),
+    })
+    .from(spacecraftTrips)
+    .where(
+      and(
+        eq(spacecraftTrips.status, 'traveling'),
+        lte(spacecraftTrips.arrivesAt, now),
+        or(isNull(spacecraftTrips.retryAt), lte(spacecraftTrips.retryAt, now)),
+        after
+          ? or(gt(spacecraftTrips.arrivesAt, after), gt(spacecraftTrips.retryAt, after))
+          : undefined
+      )
+    );
+  return row?.at ?? null;
 }
 
 /**

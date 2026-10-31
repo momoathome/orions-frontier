@@ -155,13 +155,31 @@ async function runStep(
   }
 }
 
+/** Raid blocks that still hold at `now`; expired entries are dropped. */
+export function activeRaidBlocks(
+  blocks: Record<string, string>,
+  now: Date
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(blocks).filter(([, until]) => new Date(until).getTime() > now.getTime())
+  );
+}
+
+/** Owner of a raid (`station:<id>`) or retaliation (`user:<id>`) target the bot can see. */
+function targetOwnerId(state: GoalBotState, targetRef: string): string | undefined {
+  const [kind, id] = targetRef.split(':');
+  if (kind === 'user') return id;
+  if (kind === 'station') return state.visibleStations.find((s) => s.id === id)?.ownerId;
+  return undefined;
+}
+
 /** The controller update and logged result after one step toward a goal. */
 export function goalOutcome(
   controller: Pick<
     BotControllerRow,
-    'activeGoalType' | 'activeGoalTarget' | 'blockedCount' | 'goalStartedAt'
+    'activeGoalType' | 'activeGoalTarget' | 'blockedCount' | 'goalStartedAt' | 'raidBlockedOwners'
   >,
-  goal: { goalType: GoalType; targetRef: string },
+  goal: { goalType: GoalType; targetRef: string; ownerId?: string },
   run: StepRun,
   now: Date
 ): { update: BotControllerUpdate; result: BotActionResult } {
@@ -174,13 +192,19 @@ export function goalOutcome(
   if (run.type === 'complete') {
     return { update: CLEARED_GOAL, result: { ...result, completedGoalType: goal.goalType } };
   }
-  // A protected target only blocks this raid; the bot goes on with its economy at once.
+  // A protected owner is skipped by raid and retaliation; the bot goes on with its economy.
   if (run.retryAfterMs) {
     return {
       update: {
         ...CLEARED_GOAL,
-        raidBlockedTarget: goal.targetRef,
-        raidBlockedUntil: new Date(now.getTime() + run.retryAfterMs),
+        ...(goal.ownerId
+          ? {
+              raidBlockedOwners: {
+                ...activeRaidBlocks(controller.raidBlockedOwners, now),
+                [goal.ownerId]: new Date(now.getTime() + run.retryAfterMs).toISOString(),
+              },
+            }
+          : {}),
       },
       result: { ...result, reason: `${run.reason}; target skipped for a while` },
     };
@@ -305,13 +329,9 @@ async function handleGoalV1(
     };
   }
 
-  if (
-    controller.raidBlockedTarget &&
-    controller.raidBlockedUntil &&
-    controller.raidBlockedUntil > now
-  ) {
-    state.blockedRaidTarget = controller.raidBlockedTarget;
-  }
+  state.blockedRaidOwners = new Set(
+    Object.keys(activeRaidBlocks(controller.raidBlockedOwners, now))
+  );
 
   const profile = controller.profile;
   const weights = categoryWeightsFor(profile, controller.categoryWeights);
@@ -352,7 +372,7 @@ async function handleGoalV1(
   const run = await runStep(userId, choice.step, context);
   const { update, result } = goalOutcome(
     completedGoalType ? { ...controller, ...CLEARED_GOAL } : controller,
-    choice.goal,
+    { ...choice.goal, ownerId: targetOwnerId(state, choice.goal.targetRef) },
     run,
     now
   );

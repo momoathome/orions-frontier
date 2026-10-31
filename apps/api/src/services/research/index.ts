@@ -13,6 +13,7 @@ export {
 export {
   cancelResearchLevel,
   completeResearchLevel,
+  findNextResearchDueAt,
   listDueResearch,
   listStationOwnerResearch,
   listUserResearch,
