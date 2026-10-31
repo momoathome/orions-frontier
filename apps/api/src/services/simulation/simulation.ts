@@ -5,7 +5,7 @@ import {
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
-import { listDueTripsWithOwner } from '../fleet/index.js';
+import { listDueTripsWithOwner, recordTripSettleFailure } from '../fleet/index.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { publishUserEvent } from '../../lib/realtime.js';
 import type { PlaytestCompletionEvent } from '../../lib/completion-events.js';
@@ -77,20 +77,30 @@ async function completeDueTransports(
           const defender = await findStation(db, trip.toId);
           if (defender && defender.userId !== userId) notify(defender.userId);
           // A fallen laboratory can strand queued research; drop it with a refund instead.
+          // Own transaction: research locks come before station locks, combat holds the station.
           if (defender?.destroyedAt) {
-            events.push(
-              ...(await recheckResearchQueue(
-                defender.userId,
-                trip.arrivesAt,
-                creditStationResources
-              ))
-            );
+            try {
+              events.push(
+                ...(await recheckResearchQueue(
+                  defender.userId,
+                  trip.arrivesAt,
+                  creditStationResources
+                ))
+              );
+            } catch (error) {
+              // The trip is settled; a retry would not run this again, so only log it.
+              logger.error({ userId: defender.userId, err: error }, 'Research recheck failed');
+            }
           }
         }
       }
     } catch (error) {
       failed += 1;
-      logger.error({ tripId: trip.id, err: error }, 'Failed to settle due trip');
+      const failures = await recordTripSettleFailure(db, trip.id, context.now);
+      logger.error(
+        { tripId: trip.id, failures, err: error },
+        failures >= 10 ? 'Trip keeps failing to settle; needs repair' : 'Failed to settle due trip'
+      );
     }
   }
   for (const [userId, settled] of settledByUser) {

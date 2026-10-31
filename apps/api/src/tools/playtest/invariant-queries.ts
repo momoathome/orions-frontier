@@ -200,17 +200,13 @@ export async function queryDatabaseInvariantState(
         lockedAmount: stationSpacecrafts.lockedAmount,
       })
       .from(spacecraftTrips)
-      .leftJoin(stationSpacecrafts, eq(stationSpacecrafts.id, spacecraftTrips.stationSpacecraftId))
-      .leftJoin(stations, eq(stations.id, stationSpacecrafts.stationId))
+      .innerJoin(stationSpacecrafts, eq(stationSpacecrafts.id, spacecraftTrips.stationSpacecraftId))
+      .innerJoin(stations, eq(stations.id, stationSpacecrafts.stationId))
       .where(
         and(
           inArray(stations.userId, controlledUserIds),
           eq(spacecraftTrips.status, 'traveling'),
-          or(
-            isNull(stationSpacecrafts.id),
-            lte(stationSpacecrafts.amount, 0),
-            lte(stationSpacecrafts.lockedAmount, 0)
-          )
+          or(lte(stationSpacecrafts.amount, 0), lte(stationSpacecrafts.lockedAmount, 0))
         )
       ),
     db
@@ -222,16 +218,12 @@ export async function queryDatabaseInvariantState(
         lockedAmount: stationSpacecrafts.lockedAmount,
       })
       .from(worldMissions)
-      .leftJoin(stationSpacecrafts, eq(stationSpacecrafts.id, worldMissions.stationSpacecraftId))
+      .innerJoin(stationSpacecrafts, eq(stationSpacecrafts.id, worldMissions.stationSpacecraftId))
       .where(
         and(
           inArray(worldMissions.userId, controlledUserIds),
           ne(worldMissions.status, 'arrived'),
-          or(
-            isNull(stationSpacecrafts.id),
-            lte(stationSpacecrafts.amount, 0),
-            lte(stationSpacecrafts.lockedAmount, 0)
-          )
+          or(lte(stationSpacecrafts.amount, 0), lte(stationSpacecrafts.lockedAmount, 0))
         )
       ),
     db
@@ -270,16 +262,12 @@ export async function queryDatabaseInvariantState(
         lockedAmount: stationSpacecrafts.lockedAmount,
       })
       .from(salvageMissions)
-      .leftJoin(stationSpacecrafts, eq(stationSpacecrafts.id, salvageMissions.stationSpacecraftId))
+      .innerJoin(stationSpacecrafts, eq(stationSpacecrafts.id, salvageMissions.stationSpacecraftId))
       .where(
         and(
           inArray(salvageMissions.userId, controlledUserIds),
           ne(salvageMissions.status, 'resolved'),
-          or(
-            isNull(stationSpacecrafts.id),
-            lte(stationSpacecrafts.amount, 0),
-            lte(stationSpacecrafts.lockedAmount, 0)
-          )
+          or(lte(stationSpacecrafts.amount, 0), lte(stationSpacecrafts.lockedAmount, 0))
         )
       ),
     db
@@ -378,8 +366,8 @@ export async function queryDatabaseInvariantState(
     for (const row of rows) {
       violations.push({
         code: 'active_work_without_fleet',
-        userId: row.userId ?? undefined,
-        stationId: row.stationId ?? undefined,
+        userId: row.userId,
+        stationId: row.stationId,
         entityKind,
         entityId: row.id,
         values: { amount: row.amount ?? null, lockedAmount: row.lockedAmount ?? null },

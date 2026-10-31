@@ -41,7 +41,7 @@ test('a completed upgrade is logged once and only for its owner', async () => {
   const completedAt = new Date(Date.now() - 1_000);
   await getDb()
     .update(stationBuildings)
-    .set({ upgradeEndsAt: completedAt })
+    .set({ upgradeEndsAt: completedAt, upgradePaidCost: [] })
     .where(
       and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, 'warehouse'))
     );

@@ -222,16 +222,14 @@ export async function startAttack(params: {
   return toReport(mission.mission, mission.defenderUserId, mission.arrivesAt, params.userId, false);
 }
 
-/** Newest first; incoming attacks are always among the newest, older reports drop off. */
-const COMBAT_REPORT_LIMIT = 100;
-
+/** Newest first, one page at a time; incoming attacks are always on the first page. */
 export async function getUserCombatReports(
   userId: string,
-  options: { since?: Date } = {}
+  { since, limit = 100, offset = 0 }: { since?: Date; limit?: number; offset?: number } = {}
 ): Promise<CombatReport[]> {
   const db = getDb();
   const [rows, modifiers] = await Promise.all([
-    listCombatMissionsByUser(db, userId, COMBAT_REPORT_LIMIT, options.since),
+    listCombatMissionsByUser(db, userId, { since, limit, offset }),
     getResearchModifiers(db, userId),
   ]);
   return rows.map(({ mission, defenderUserId, arrivesAt }) =>

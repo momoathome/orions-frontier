@@ -125,7 +125,7 @@ async function completeProgressRow(key: string): Promise<void> {
   const completedAt = new Date();
   await getDb()
     .update(stationBuildings)
-    .set({ upgradeEndsAt: completedAt })
+    .set({ upgradeEndsAt: completedAt, upgradePaidCost: [] })
     .where(and(eq(stationBuildings.stationId, stationId), eq(stationBuildings.buildingKey, key)));
   await runSimulationTick(completedAt);
 }

@@ -50,7 +50,8 @@ async function restoreSession() {
   try {
     user.value = await apiClient.get<AuthenticatedUser>('/auth/me');
   } catch {
-    clearSession();
+    // A 401 already ended the session; on a network error the stored token stays for the next load.
+    token.value = null;
   } finally {
     isLoading.value = false;
   }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { LogbookEntryType } from '@orions-frontier/shared';
+import LoadMoreButton from '../../shared/ui/LoadMoreButton.vue';
 import { useStationStore } from '../station/index.js';
 import { useLogbookStore } from './store.js';
 
@@ -66,5 +67,6 @@ const timeline = computed(() =>
         </div>
       </li>
     </ol>
+    <LoadMoreButton v-if="logbook.hasOlderLogbook()" :load="logbook.loadOlderLogbook" />
   </div>
 </template>

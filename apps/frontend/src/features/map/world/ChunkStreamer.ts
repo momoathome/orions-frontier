@@ -38,6 +38,8 @@ export class ChunkStreamer {
   private pendingChunks = new Set<ChunkKey>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private scannerBypass = false;
+  /** Bumped per visibility mode, so a response from the other mode is dropped. */
+  private generation = 0;
 
   onChunkLoaded: ((key: ChunkKey, chunk: WorldChunk) => void) | null = null;
   onChunkUnloaded: ((key: ChunkKey) => void) | null = null;
@@ -67,6 +69,8 @@ export class ChunkStreamer {
   setScannerBypass(enabled: boolean, camera: Camera) {
     if (this.scannerBypass === enabled) return;
     this.scannerBypass = enabled;
+    this.generation += 1;
+    this.pendingChunks.clear();
     // Drop everything so no chunk keeps data from the other visibility mode.
     for (const key of this.loadedChunks.keys()) this.onChunkUnloaded?.(key);
     this.loadedChunks.clear();
@@ -147,6 +151,7 @@ export class ChunkStreamer {
   }
 
   private async _fetchChunks(sub: SubRange, replace = false) {
+    const generation = this.generation;
     // Mark all chunks in this sub-range as pending
     for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
       for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {
@@ -165,6 +170,7 @@ export class ChunkStreamer {
         },
       });
 
+      if (generation !== this.generation) return;
       const { asteroids, stations, debris } = response;
 
       // Build a per-chunk map covering every chunk in the sub-range
@@ -196,6 +202,7 @@ export class ChunkStreamer {
         this.onChunkLoaded?.(key, chunk);
       }
     } catch {
+      if (generation !== this.generation) return;
       // Clear pending so the chunks can be retried on the next camera update
       for (let cx = sub.minCX; cx <= sub.maxCX; cx++) {
         for (let cy = sub.minCY; cy <= sub.maxCY; cy++) {

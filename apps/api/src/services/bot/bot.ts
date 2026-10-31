@@ -426,21 +426,27 @@ export async function runBotDecisionTick(
     if (hasProgress) {
       updates.lastProgressAt = now;
     }
-    const updated = await updateBotControllerReturningGoal(db, bot.userId, updates);
     const resultKind = decisionResultKind(action, hasProgress);
-    if (claimed.strategy === 'goal_v1') {
-      await updateBotController(db, bot.userId, {
-        categoryWeights: adaptCategoryWeights(
-          categoryWeightsFor(claimed.profile, claimed.categoryWeights),
-          claimed.profile,
-          weightSignals(
-            claimed.activeGoalType,
-            updated?.activeGoalType ?? null,
-            completedGoalType,
-            resultKind
-          )
-        ),
-      });
+    // One failed bookkeeping write must not end the tick for every bot after this one.
+    let updated: Awaited<ReturnType<typeof updateBotControllerReturningGoal>> | undefined;
+    try {
+      updated = await updateBotControllerReturningGoal(db, bot.userId, updates);
+      if (claimed.strategy === 'goal_v1') {
+        await updateBotController(db, bot.userId, {
+          categoryWeights: adaptCategoryWeights(
+            categoryWeightsFor(claimed.profile, claimed.categoryWeights),
+            claimed.profile,
+            weightSignals(
+              claimed.activeGoalType,
+              updated?.activeGoalType ?? null,
+              completedGoalType,
+              resultKind
+            )
+          ),
+        });
+      }
+    } catch (error) {
+      logger.warn({ botUserId: bot.userId, error }, 'Bot controller update failed');
     }
     outcomes.push({
       botUserId: bot.userId,

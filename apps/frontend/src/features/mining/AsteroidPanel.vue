@@ -13,7 +13,7 @@ import {
   type MiningCycleEstimate,
 } from '@orions-frontier/shared';
 import AssignMinersForm from './AssignMinersForm.vue';
-import RecallMinersForm, { type AssignmentGroup } from './RecallMinersForm.vue';
+import RecallMinersForm from './RecallMinersForm.vue';
 import { resourceColor, resourceName } from '../../shared/lib/resources';
 import UiModal from '../../shared/ui/UiModal.vue';
 import CostList from '../../shared/ui/CostList.vue';
@@ -105,12 +105,13 @@ function onChanged() {
 }
 
 type Assignment = AsteroidDetail['assignments'][number];
+// Also the shape RecallMinersForm takes as AssignmentGroup.
 interface OperationGroup {
   key: string;
   stationId: string | null;
-  spacecraftKey: string;
   spacecraftName: string;
   assignments: Assignment[];
+  members: { id: string; availableAmount: number }[];
   totalAmount: number;
   activeAmount: number;
   recallRequestedAmount: number;
@@ -124,15 +125,16 @@ const operationGroups = computed<OperationGroup[]>(() => {
     const group = groups.get(key) ?? {
       key,
       stationId: assignment.stationId,
-      spacecraftKey: assignment.spacecraftKey,
       spacecraftName: assignment.spacecraftName,
       assignments: [],
+      members: [],
       totalAmount: 0,
       activeAmount: 0,
       recallRequestedAmount: 0,
       isOwn: assignment.stationId === stationId,
     };
     group.assignments.push(assignment);
+    group.members.push({ id: assignment.id, availableAmount: activeMiners(assignment) });
     group.totalAmount += assignment.assignedAmount;
     group.activeAmount += activeMiners(assignment);
     group.recallRequestedAmount += assignment.recallRequestedAmount;
@@ -141,34 +143,10 @@ const operationGroups = computed<OperationGroup[]>(() => {
   return [...groups.values()];
 });
 
-const groupedAssignments = computed<AssignmentGroup[]>(() =>
-  operationGroups.value.map((group) => ({
-    stationId: group.stationId,
-    spacecraftKey: group.spacecraftKey,
-    spacecraftName: group.spacecraftName,
-    ids: group.assignments.map((assignment) => assignment.id),
-    totalAmount: group.totalAmount,
-    isOwn: group.isOwn,
-    recallRequestedAmount: group.recallRequestedAmount,
-    members: group.assignments.map((assignment) => ({
-      id: assignment.id,
-      availableAmount: activeMiners(assignment),
-    })),
-  }))
-);
-
 const ownGroups = computed(() =>
-  groupedAssignments.value.filter(
+  operationGroups.value.filter(
     (group) => group.isOwn && group.recallRequestedAmount < group.totalAmount
   )
-);
-
-const totalMiningPowerRaw = computed(
-  () =>
-    asteroid.value?.assignments.reduce(
-      (sum, a) => sum + (a.assignedAmount - a.recallRequestedAmount) * a.spacecraftMiningRate,
-      0
-    ) ?? 0
 );
 
 const totalRemaining = computed(
@@ -479,7 +457,7 @@ const PHASES = [
               />~{{ formatRate(totalDeliveryPerHour) }}/h</span
             >
             <span class="text-xs text-ui-muted"
-              >{{ totalMiningPowerRaw.toFixed(0) }}/h extraction</span
+              >{{ formatRate(totalExtractionPerHour) }}/h extraction</span
             >
           </div>
         </div>

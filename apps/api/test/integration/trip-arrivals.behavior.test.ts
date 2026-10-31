@@ -15,6 +15,10 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import {
+  listDueTripsWithOwner,
+  recordTripSettleFailure,
+} from '../../src/services/fleet/repositories/spacecraft-trips.js';
 import { deleteTestData } from '../helpers/fixtures.js';
 
 let userId: string;
@@ -65,6 +69,38 @@ before(async () => {
 after(async () => {
   await deleteTestData({ userIds: [userId], sectorIds: [sectorId] });
   await closeDb();
+});
+
+test('a trip that fails to settle waits longer before each retry', async () => {
+  const db = getDb();
+  const now = new Date();
+  const [trip] = await db
+    .insert(spacecraftTrips)
+    .values({
+      stationSpacecraftId,
+      groupSize: 1,
+      fromType: 'station',
+      fromId: stationId,
+      toType: 'station',
+      toId: stationId,
+      departedAt: new Date(now.getTime() - 2_000),
+      arrivesAt: new Date(now.getTime() - 1_000),
+      purpose: 'relocate',
+    })
+    .returning();
+  const isDue = async (at: Date) =>
+    (await listDueTripsWithOwner(db, at)).some((due) => due.trip.id === trip!.id);
+  try {
+    assert.equal(await recordTripSettleFailure(db, trip!.id, now), 1);
+    assert.equal(await isDue(now), false);
+    assert.equal(await isDue(new Date(now.getTime() + 2_000)), true);
+
+    assert.equal(await recordTripSettleFailure(db, trip!.id, now), 2);
+    assert.equal(await isDue(new Date(now.getTime() + 2_000)), false);
+    assert.equal(await isDue(new Date(now.getTime() + 4_000)), true);
+  } finally {
+    await db.delete(spacecraftTrips).where(eq(spacecraftTrips.id, trip!.id));
+  }
 });
 
 test('a trip arrival is applied exactly once when two processors race', async () => {
@@ -231,6 +267,7 @@ test('simulation tick completes due building and spacecraft work exactly once', 
       buildingKey: 'core',
       level: 1,
       upgradeEndsAt: new Date(now.getTime() - 1_000),
+      upgradePaidCost: [],
     })
     .returning({ id: stationBuildings.id });
   const [order] = await db

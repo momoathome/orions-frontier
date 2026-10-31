@@ -5,7 +5,6 @@ import { PlaytestPopulationRegistry } from '../../src/tools/playtest/population.
 import {
   EVEN_PROFILE_WEIGHTS,
   selectWeightedProfile,
-  validateProfileWeights,
 } from '../../src/tools/playtest/profile-distribution.js';
 import { testPopulationMember } from '../helpers/playtest.js';
 
@@ -31,23 +30,6 @@ test('weighted profile selection is reproducible and honors exclusive weights', 
   assert.equal(selectWeightedProfile('stable-seed', 99, exclusive), 'technocrat');
 });
 
-test('profile weights reject negative, non-finite and empty distributions', () => {
-  assert.throws(() => {
-    validateProfileWeights({ ...EVEN_PROFILE_WEIGHTS, warlord: -1 });
-  }, /non-negative/);
-  assert.throws(() => {
-    validateProfileWeights({ ...EVEN_PROFILE_WEIGHTS, pioneer: Number.NaN });
-  }, /non-negative/);
-  assert.throws(() => {
-    validateProfileWeights({
-      industrialist: 0,
-      pioneer: 0,
-      technocrat: 0,
-      warlord: 0,
-    });
-  }, /positive/);
-});
-
 test('population registry is stable, defensive and rejects conflicting identities', () => {
   const registry = new PlaytestPopulationRegistry();
   registry.register(testPopulationMember({ alias: 'player-002', userId: 'user-2' }));
@@ -64,7 +46,6 @@ test('population registry is stable, defensive and rejects conflicting identitie
     registry.getByAlias('player-001')?.joinedAt.toISOString(),
     '2030-01-01T00:00:00.000Z'
   );
-  assert.equal(registry.getByUserId('user-2')?.alias, 'player-002');
 
   assert.throws(() => {
     registry.register(testPopulationMember({ userId: 'different-user' }));

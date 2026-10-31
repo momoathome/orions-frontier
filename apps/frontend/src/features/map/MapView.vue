@@ -18,6 +18,7 @@ import UiModal from '../../shared/ui/UiModal.vue';
 import { apiClient } from '../../shared/api/api-client';
 import { wsClient } from '../../shared/api/ws-client';
 import { debounced } from '../../shared/lib/debounce';
+import { live } from '../../shared/lib/live.js';
 import { WorldRenderer } from './world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from './world/WorldRenderer.js';
 import type { ActiveMovement } from './world/TripLayer.js';
@@ -54,6 +55,11 @@ const OPEN_SECTION_KEY = 'open_station_section';
 const isDragging = ref(false);
 const hoveringEntity = ref(false);
 const needsStation = ref(false);
+// Stations could not be loaded: not the same as having none, so never offer the founding form.
+const unreachable = ref(false);
+const reload = () => {
+  window.location.reload();
+};
 // Set by onUnmounted; every await in onMounted checks it before touching the renderer.
 let disposed = false;
 // A call, so TypeScript does not treat the flag as constant across awaits.
@@ -208,7 +214,8 @@ onMounted(async () => {
     stationStore.state.stations.find((station) => station.id === preferredId) ??
     stationStore.state.stations[0];
   if (!active) {
-    needsStation.value = true;
+    if (live.online) needsStation.value = true;
+    else unreachable.value = true;
     return;
   }
   stationId.value = active.id;
@@ -326,6 +333,10 @@ watch(canBypassScanner, (allowed) => {
     class="relative flex h-screen w-screen flex-col overflow-hidden bg-ui-bg text-left text-sm text-ui-text select-none"
   >
     <FoundStationForm v-if="needsStation" />
+    <div v-if="unreachable" class="m-auto flex flex-col items-center gap-3" role="alert">
+      <p class="ui-error">Server unreachable.</p>
+      <button type="button" class="ui-btn h-8 px-3 text-xs" @click="reload">Retry</button>
+    </div>
 
     <TopHud
       v-if="stationId"

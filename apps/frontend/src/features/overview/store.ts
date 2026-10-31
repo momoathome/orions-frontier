@@ -92,43 +92,33 @@ function scheduleNextArrival(): void {
   }
 }
 
-let subscribers = 0;
-let stopSync: (() => void) | null = null;
-
 /** Loads the account overview (stations, trips, combats, logbook, ranking) and keeps it current. */
 function start(): () => void {
-  subscribers += 1;
-  if (subscribers === 1) {
-    const stopStations = station.start();
-    void station.stationsLoaded().then(refreshRest);
-    const stopArrival = watch(() => combat.state.combats, scheduleNextArrival);
-    const clock = window.setInterval(() => (live.now = Date.now()), 1_000);
-    const unsubscribers = [
-      wsClient.on('mining_tick_completed', scheduleAll),
-      wsClient.on('transport_tick_completed', scheduleAll),
-      wsClient.on('building_upgrade_completed', scheduleProgress),
-      wsClient.on('defense_upgrade_completed', scheduleProgress),
-      wsClient.on('spacecraft_build_completed', scheduleProgress),
-      wsClient.on('world_mission_completed', scheduleAll),
-      // Research changes station modifiers, and Parallel Construction starts queued upgrades.
-      wsClient.on('research_completed', scheduleAll),
-      wsClient.on('incoming_attack', () => void combat.refreshCombats()),
-      // Events sent while the socket was down are lost; reload everything once.
-      wsClient.onReconnected(() => void refreshAll()),
-    ];
-    stopSync = () => {
-      stopStations();
-      stopArrival();
-      clearTimeout(arrivalTimer);
-      window.clearInterval(clock);
-      scheduleAll.cancel();
-      scheduleProgress.cancel();
-      for (const unsubscribe of unsubscribers) unsubscribe();
-    };
-  }
+  const stopStations = station.start();
+  void station.stationsLoaded().then(refreshRest);
+  const stopArrival = watch(() => combat.state.combats, scheduleNextArrival);
+  const clock = window.setInterval(() => (live.now = Date.now()), 1_000);
+  const unsubscribers = [
+    wsClient.on('mining_tick_completed', scheduleAll),
+    wsClient.on('transport_tick_completed', scheduleAll),
+    wsClient.on('building_upgrade_completed', scheduleProgress),
+    wsClient.on('defense_upgrade_completed', scheduleProgress),
+    wsClient.on('spacecraft_build_completed', scheduleProgress),
+    wsClient.on('world_mission_completed', scheduleAll),
+    // Research changes station modifiers, and Parallel Construction starts queued upgrades.
+    wsClient.on('research_completed', scheduleAll),
+    wsClient.on('incoming_attack', () => void combat.refreshCombats()),
+    // Events sent while the socket was down are lost; reload everything once.
+    wsClient.onReconnected(() => void refreshAll()),
+  ];
   return () => {
-    subscribers -= 1;
-    if (subscribers === 0) stopSync?.();
+    stopStations();
+    stopArrival();
+    clearTimeout(arrivalTimer);
+    window.clearInterval(clock);
+    scheduleAll.cancel();
+    scheduleProgress.cancel();
+    for (const unsubscribe of unsubscribers) unsubscribe();
   };
 }
 

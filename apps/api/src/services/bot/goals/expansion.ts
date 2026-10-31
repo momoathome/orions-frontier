@@ -143,6 +143,14 @@ function prepareMobileSupportShip(
   };
 }
 
+/** Same price the server charges: colonies still in flight count as stations. */
+export function colonizationCost(state: GoalBotState) {
+  const inFlight = state.ownStations
+    .flatMap((station) => station.missions)
+    .filter((mission) => mission.missionType === 'colonization').length;
+  return calculateColonizationCost(state.ownStations.length + inFlight);
+}
+
 export async function generateExploreSectorCandidate(
   state: GoalBotState,
   station: StationSnapshot,
@@ -241,7 +249,7 @@ export async function generateEstablishColonyCandidate(
   if (!nearest) return null;
 
   // Check if we can afford colonization
-  const colonyCost = calculateColonizationCost(state.ownStations.length);
+  const colonyCost = colonizationCost(state);
   const canAffordColony = entriesOf(colonyCost).every(
     ([key, amount]) => (station.resources[key] ?? 0) >= amount
   );
@@ -400,7 +408,7 @@ export async function stepEstablishColony(
   if (supportPreparation) return supportPreparation;
 
   // Check resources
-  const colonyCost = calculateColonizationCost(_state.ownStations.length);
+  const colonyCost = colonizationCost(_state);
   const canAffordColony = entriesOf(colonyCost).every(
     ([key, amount]) => (station.resources[key] ?? 0) >= amount
   );

@@ -69,11 +69,6 @@ export class PlaytestPopulationRegistry {
     return member ? copyMember(member) : undefined;
   }
 
-  getByUserId(userId: string): PlaytestPopulationMember | undefined {
-    const alias = this.aliasByUserId.get(userId);
-    return alias ? this.getByAlias(alias) : undefined;
-  }
-
   snapshot(): PlaytestPopulationMember[] {
     return [...this.byAlias.values()]
       .sort((left, right) => left.alias.localeCompare(right.alias))

@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { required, type ResourceMap } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { asteroidAssignments } from '../../../lib/db/schema/asteroids.js';
@@ -188,6 +188,28 @@ export function listDueTripsWithOwner(db: QueryDb, now: Date) {
     .from(spacecraftTrips)
     .innerJoin(stationSpacecrafts, eq(spacecraftTrips.stationSpacecraftId, stationSpacecrafts.id))
     .innerJoin(stations, eq(stationSpacecrafts.stationId, stations.id))
-    .where(and(eq(spacecraftTrips.status, 'traveling'), lte(spacecraftTrips.arrivesAt, now)))
+    .where(
+      and(
+        eq(spacecraftTrips.status, 'traveling'),
+        lte(spacecraftTrips.arrivesAt, now),
+        or(isNull(spacecraftTrips.retryAt), lte(spacecraftTrips.retryAt, now))
+      )
+    )
     .orderBy(asc(spacecraftTrips.arrivesAt), asc(spacecraftTrips.id));
+}
+
+/**
+ * Counts a failed settle and waits before the next try: 2, 4, 8 … seconds, at most an hour, so
+ * a broken trip stops costing every tick but still completes once its cause is fixed.
+ */
+export async function recordTripSettleFailure(db: QueryDb, id: string, now: Date) {
+  const [row] = await db
+    .update(spacecraftTrips)
+    .set({
+      settleFailures: sql`${spacecraftTrips.settleFailures} + 1`,
+      retryAt: sql`${now.toISOString()}::timestamp + least(power(2, ${spacecraftTrips.settleFailures} + 1), 3600) * interval '1 second'`,
+    })
+    .where(eq(spacecraftTrips.id, id))
+    .returning({ settleFailures: spacecraftTrips.settleFailures });
+  return row?.settleFailures ?? 0;
 }

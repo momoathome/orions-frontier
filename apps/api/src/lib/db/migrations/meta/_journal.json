@@ -120,6 +120,20 @@
       "when": 1784955600000,
       "tag": "0016_build_order_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1784959200000,
+      "tag": "0017_upgrade_paid_cost_required",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1784962800000,
+      "tag": "0018_trip_settle_retry",
+      "breakpoints": true
     }
   ]
 }

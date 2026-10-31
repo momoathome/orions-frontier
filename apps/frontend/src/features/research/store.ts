@@ -41,25 +41,15 @@ const running = computed(() =>
     .sort((a, b) => Date.parse(a.completesAt ?? '') - Date.parse(b.completesAt ?? ''))
 );
 
-let subscribers = 0;
-let stopSync: (() => void) | null = null;
-
 /** Loads account research and keeps it current through `research_completed`; no polling. */
 function start(): () => void {
-  subscribers += 1;
-  if (subscribers === 1) {
-    void refresh();
-    const unsubscribers = [
-      wsClient.on('research_completed', () => void refresh()),
-      wsClient.onReconnected(() => void refresh()),
-    ];
-    stopSync = () => {
-      for (const unsubscribe of unsubscribers) unsubscribe();
-    };
-  }
+  void refresh();
+  const unsubscribers = [
+    wsClient.on('research_completed', () => void refresh()),
+    wsClient.onReconnected(() => void refresh()),
+  ];
   return () => {
-    subscribers -= 1;
-    if (subscribers === 0) stopSync?.();
+    for (const unsubscribe of unsubscribers) unsubscribe();
   };
 }
 

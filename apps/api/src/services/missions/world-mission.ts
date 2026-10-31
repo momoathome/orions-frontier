@@ -94,7 +94,7 @@ async function worldMissionLimits(db: QueryDb, userId: string) {
       canExplore: modifiers.canExplore,
     },
     colonization: {
-      cost: calculateColonizationCost(stationCount),
+      cost: calculateColonizationCost(stationCount + colonizations),
       stations: stationCount + colonizations,
       limit: modifiers.stationLimit,
     },
@@ -387,11 +387,12 @@ const toWorldMission = (mission: WorldMissionRow): WorldMission => ({
   arrivesAt: mission.arrivesAt.toISOString(),
 });
 
-/** The frontier view lists the newest few; older missions only matter as history. */
-const WORLD_MISSION_LIST_LIMIT = 50;
-
-export async function getUserWorldMissions(userId: string): Promise<WorldMission[]> {
-  const rows = await listWorldMissionsByUser(getDb(), userId, WORLD_MISSION_LIST_LIMIT);
+/** Newest first, one page at a time. */
+export async function getUserWorldMissions(
+  userId: string,
+  page: { limit: number; offset: number }
+): Promise<WorldMission[]> {
+  const rows = await listWorldMissionsByUser(getDb(), userId, page);
   return rows.map(toWorldMission);
 }
 

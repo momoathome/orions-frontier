@@ -1,6 +1,6 @@
 import { isOneOf, required, entriesOf } from '@orions-frontier/shared';
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
-import { calculateColonizationCost, getSpacecraft } from '@orions-frontier/game-config';
+import { getSpacecraft } from '@orions-frontier/game-config';
 import type { GoalBotState, GoalResult, StationSnapshot } from './goal-state.js';
 import { selectGoal } from './goal-driven-v1.js';
 import type { CategoryWeights, GoalCandidate } from './goal-driven-v1.js';
@@ -23,6 +23,7 @@ import {
   generateEstablishColonyCandidate,
   stepExploreSector,
   stepEstablishColony,
+  colonizationCost,
 } from './goals/expansion.js';
 import {
   generateFortifyCandidate,
@@ -182,7 +183,7 @@ function findStationForGoal(
     const affordableStations =
       goalType === 'establish_colony'
         ? availableStations.filter((station) =>
-            entriesOf(calculateColonizationCost(state.ownStations.length)).every(
+            entriesOf(colonizationCost(state)).every(
               ([resourceKey, amount]) => (station.resources[resourceKey] ?? 0) >= amount
             )
           )

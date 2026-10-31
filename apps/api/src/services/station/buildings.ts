@@ -115,13 +115,4 @@ export const cancelBuildingUpgrade = async (
   buildingKey: BuildingKey,
   userId: string,
   context: GameExecutionContext = createRealtimeExecutionContext()
-): Promise<void> => {
-  const factor = (await getStationResearchModifiers(getDb(), stationId)).buildingCost;
-  await cancelStationUpgrade(
-    stationId,
-    userId,
-    buildingKey,
-    (row) => upgradeCost(buildingKey, row.level + 1, factor),
-    context
-  );
-};
+): Promise<void> => cancelStationUpgrade(stationId, userId, buildingKey, context);

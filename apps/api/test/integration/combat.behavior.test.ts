@@ -13,6 +13,7 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { getUserCombatReports, startAttack } from '../../src/services/combat/combat.js';
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
 import { startSalvage } from '../../src/services/combat/salvage.js';
+import { resolveSalvageMissionByTrip } from '../../src/services/combat/repositories/debris-fields.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
 import { entriesOf, type CombatReport, type ResearchLevels } from '@orions-frontier/shared';
 import {
@@ -297,6 +298,59 @@ for (const { name, attacker, defender, moles, armorPlating, expected } of resear
   });
 }
 
+test('a salvage mission resolved by station loss does not block deleting its debris', async () => {
+  await resolveAttack();
+  const [field] = await getDb()
+    .select()
+    .from(debrisFields)
+    .where(eq(debrisFields.sectorId, sectorId));
+  await getDb()
+    .insert(stationSpacecrafts)
+    .values([
+      { stationId: attackerStationId, spacecraftKey: 'collector', amount: 1 },
+      { stationId: defenderStationId, spacecraftKey: 'collector', amount: 1 },
+    ]);
+  // The attacker's home is destroyed while its salvager flies; destruction resolves the mission.
+  const { outbound } = await launchSalvage(field!.id);
+  await getDb().transaction((tx) =>
+    resolveSalvageMissionByTrip(tx, 'outbound', outbound.id, new Date())
+  );
+
+  await resolveSalvage(field!.id, defenderUserId, defenderStationId);
+
+  assert.equal(
+    (await getDb().select().from(debrisFields).where(eq(debrisFields.id, field!.id))).length,
+    0
+  );
+});
+
+test('a salvager whose debris is gone on arrival returns empty', async () => {
+  await resolveAttack();
+  const [field] = await getDb()
+    .select()
+    .from(debrisFields)
+    .where(eq(debrisFields.sectorId, sectorId));
+  await getDb().insert(stationSpacecrafts).values({
+    stationId: attackerStationId,
+    spacecraftKey: 'collector',
+    amount: 1,
+  });
+  const { started, outbound } = await launchSalvage(field!.id);
+  await getDb()
+    .update(salvageMissions)
+    .set({ debrisFieldId: null })
+    .where(eq(salvageMissions.id, started.id));
+  await getDb().delete(debrisFields).where(eq(debrisFields.id, field!.id));
+
+  assert.equal((await settleTripArrival(outbound)).settled, true);
+  const [mission] = await getDb()
+    .select()
+    .from(salvageMissions)
+    .where(eq(salvageMissions.id, started.id));
+  assert.equal(mission!.status, 'returning');
+  assert.deepEqual(mission!.cargo, {});
+});
+
 test('Signature Analysis reveals an incoming fleet before it arrives', async () => {
   const started = await startAttack({
     userId: attackerUserId,
@@ -538,10 +592,33 @@ async function resolveAttack() {
   return report(started.id);
 }
 
-async function resolveSalvage(debrisFieldId: string): Promise<void> {
+async function resolveSalvage(
+  debrisFieldId: string,
+  userId = attackerUserId,
+  stationId = attackerStationId
+): Promise<void> {
+  const { started, outbound } = await launchSalvage(debrisFieldId, userId, stationId);
+  assert.equal((await settleTripArrival(outbound)).settled, true);
+
+  const [returning] = await getDb()
+    .select()
+    .from(salvageMissions)
+    .where(eq(salvageMissions.id, started.id));
+  const [returnTrip] = await getDb()
+    .select()
+    .from(spacecraftTrips)
+    .where(eq(spacecraftTrips.id, returning!.returnTripId!));
+  assert.equal((await settleTripArrival(returnTrip!)).settled, true);
+}
+
+async function launchSalvage(
+  debrisFieldId: string,
+  userId = attackerUserId,
+  stationId = attackerStationId
+) {
   const started = await startSalvage({
-    userId: attackerUserId,
-    stationId: attackerStationId,
+    userId,
+    stationId,
     debrisFieldId,
     spacecraftKey: 'collector',
     amount: 1,
@@ -554,17 +631,7 @@ async function resolveSalvage(debrisFieldId: string): Promise<void> {
     .select()
     .from(spacecraftTrips)
     .where(eq(spacecraftTrips.id, mission!.outboundTripId));
-  assert.equal((await settleTripArrival(outbound!)).settled, true);
-
-  const [returning] = await getDb()
-    .select()
-    .from(salvageMissions)
-    .where(eq(salvageMissions.id, started.id));
-  const [returnTrip] = await getDb()
-    .select()
-    .from(spacecraftTrips)
-    .where(eq(spacecraftTrips.id, returning!.returnTripId!));
-  assert.equal((await settleTripArrival(returnTrip!)).settled, true);
+  return { started, outbound: outbound! };
 }
 
 async function getCarbon(stationId: string): Promise<number> {

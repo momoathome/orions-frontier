@@ -172,8 +172,11 @@ export async function recordLogbookEvents(events: readonly PlaytestCompletionEve
   await insertLogbookEntries(getDb(), rows);
 }
 
-export async function getLogbook(userId: string, limit: number): Promise<LogbookEntry[]> {
-  const rows = await listLogbookEntriesByUser(getDb(), userId, limit);
+export async function getLogbook(
+  userId: string,
+  page: { limit: number; offset: number }
+): Promise<LogbookEntry[]> {
+  const rows = await listLogbookEntriesByUser(getDb(), userId, page);
   return rows.map((row) => ({
     id: row.id,
     type: row.type,

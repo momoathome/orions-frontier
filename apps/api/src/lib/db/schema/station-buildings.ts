@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   index,
+  check,
   unique,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -33,6 +34,10 @@ export const stationBuildings = pgTable(
     index('station_buildings_upgrade_ends_at_idx')
       .on(table.upgradeEndsAt)
       .where(sql`${table.upgradeEndsAt} IS NOT NULL`),
+    check(
+      'station_buildings_running_upgrade_has_cost',
+      sql`${table.upgradeEndsAt} IS NULL OR ${table.upgradePaidCost} IS NOT NULL`
+    ),
     unique('station_buildings_station_id_building_key_unique').on(
       table.stationId,
       table.buildingKey

@@ -311,7 +311,6 @@ test('aggregator covers goals, milestones and every metric family with traceable
   assert.equal(bot.development.queueUtilization, 0.5);
 
   assert.equal(bot.expansion.expeditions, 1);
-  assert.equal(bot.expansion.discoveredSectors, 1);
   assert.equal(bot.expansion.colonies, 1);
   assert.equal(bot.expansion.stations, 2);
   assert.equal(bot.expansion.colonyStabilizationDurationMs, 3_600_000);

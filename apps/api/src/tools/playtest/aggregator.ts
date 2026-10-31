@@ -184,7 +184,6 @@ function aggregateBots(bots: readonly BotMetrics[]): AggregateMetrics {
     aggregate.development.snapshotSamples += bot.development.snapshotSamples;
 
     aggregate.expansion.expeditions += bot.expansion.expeditions;
-    aggregate.expansion.discoveredSectors += bot.expansion.discoveredSectors;
     aggregate.expansion.colonies += bot.expansion.colonies;
     aggregate.expansion.stations += bot.expansion.stations;
     Object.assign(
@@ -385,7 +384,6 @@ export class PlaytestAggregator {
       case 'world_mission_completed':
         if (event.missionType === 'expedition' && event.stage === 'target_reached') {
           metrics.expansion.expeditions += 1;
-          metrics.expansion.discoveredSectors += 1;
           recordMilestone(metrics.milestones, 'firstExpedition', event.occurredAt);
         }
         break;

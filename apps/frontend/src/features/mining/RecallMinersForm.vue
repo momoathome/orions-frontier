@@ -3,12 +3,9 @@ import { computed, ref, watch } from 'vue';
 import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
 
 export interface AssignmentGroup {
-  stationId: string | null;
-  spacecraftKey: string;
+  key: string;
   spacecraftName: string;
-  ids: string[];
   totalAmount: number;
-  isOwn: boolean;
   recallRequestedAmount: number;
   members: { id: string; availableAmount: number }[];
 }
@@ -29,7 +26,7 @@ const submitLabel = computed(() => {
 });
 
 const selectedGroup = computed(
-  () => ownGroups.find((group) => group.ids[0] === selectedAssignmentId.value) ?? null
+  () => ownGroups.find((group) => group.key === selectedAssignmentId.value) ?? null
 );
 const availableAmount = computed(() =>
   selectedGroup.value
@@ -42,8 +39,8 @@ watch(selectedAssignmentId, () => (recallAmount.value = 1));
 watch(
   () => ownGroups,
   (groups) => {
-    if (!groups.some((group) => group.ids[0] === selectedAssignmentId.value)) {
-      selectedAssignmentId.value = groups[0]?.ids[0] ?? '';
+    if (!groups.some((group) => group.key === selectedAssignmentId.value)) {
+      selectedAssignmentId.value = groups[0]?.key ?? '';
     }
   },
   { immediate: true }
@@ -87,7 +84,7 @@ async function submit() {
         <label class="flex flex-col gap-1.5">
           <span class="text-xs text-ui-muted">Miner type</span>
           <select v-model="selectedAssignmentId" class="ui-input">
-            <option v-for="group in ownGroups" :key="group.ids[0]" :value="group.ids[0]">
+            <option v-for="group in ownGroups" :key="group.key" :value="group.key">
               {{ group.spacecraftName }} ({{ group.totalAmount - group.recallRequestedAmount }}
               active)
             </option>

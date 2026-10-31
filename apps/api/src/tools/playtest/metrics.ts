@@ -46,7 +46,6 @@ export interface DevelopmentMetrics {
 
 export interface ExpansionMetrics {
   expeditions: number;
-  discoveredSectors: number;
   colonies: number;
   colonyStabilizationDurationMs: number | null;
   coloniesByStation: Record<string, { foundedAt: string; stabilizationDurationMs: number | null }>;
@@ -164,7 +163,6 @@ export function emptyDevelopmentMetrics(): DevelopmentMetrics {
 export function emptyExpansionMetrics(): ExpansionMetrics {
   return {
     expeditions: 0,
-    discoveredSectors: 0,
     colonies: 0,
     colonyStabilizationDurationMs: null,
     coloniesByStation: {},

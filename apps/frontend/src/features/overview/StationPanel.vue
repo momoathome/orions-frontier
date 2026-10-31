@@ -13,11 +13,19 @@ import {
 } from '../station/index.js';
 import { formatCountdown } from '../../shared/lib/format.js';
 import { live } from '../../shared/lib/live.js';
+import { useOverviewStore } from './store.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
 const section = defineModel<StationSection>('section', { default: 'buildings' });
 const emit = defineEmits<{ close: [] }>();
 const stationStore = useStationStore();
+const overview = useOverviewStore();
+
+// A launch takes ships and resources and starts a trip.
+function onLaunched() {
+  void stationStore.refreshStation(stationId);
+  void overview.refreshTrips();
+}
 
 const LABELS: Record<StationSection, string> = {
   buildings: 'Buildings',
@@ -104,6 +112,7 @@ const hangar = computed(() => stationStore.state.details[stationId]?.fleet?.hang
       v-if="section === 'frontier'"
       :station-id="stationId"
       class="flex-1 overflow-hidden"
+      @launched="onLaunched"
     />
     <DefenseTab
       v-if="section === 'defense'"

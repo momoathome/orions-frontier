@@ -6,6 +6,7 @@ import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
 import { wsClient } from '../../shared/api/ws-client';
 import { formatCountdown } from '../../shared/lib/format';
 import { live } from '../../shared/lib/live.js';
+import LoadMoreButton from '../../shared/ui/LoadMoreButton.vue';
 import { BuildSlots, UpgradeCard } from '../station/index.js';
 import { useResearchStore } from '../research/index.js';
 import { useCombatStore } from './store.js';
@@ -152,5 +153,6 @@ onUnmounted(() => {
       </div>
       <span class="text-[13px] text-ui-soft">{{ reportSummary(report) }}</span>
     </article>
+    <LoadMoreButton v-if="combat.hasOlderCombats()" :load="combat.loadOlderCombats" />
   </div>
 </template>

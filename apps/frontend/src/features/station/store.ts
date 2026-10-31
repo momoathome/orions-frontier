@@ -5,6 +5,7 @@ import {
   QUEUE_LIMIT,
   summarizeStationIncome,
   type AsteroidDetail,
+  type ResourceMap,
   type BuildSlots,
   type Station,
   type StationIncome,
@@ -64,6 +65,8 @@ async function loadStationIncome(
 
 // Overlapping refreshes of one station: only the latest request may write its detail.
 const stationRequests: Record<string, number> = {};
+// Resources pushed while a load was in flight; its older response must not overwrite them.
+const pushedDuringLoad: Record<string, { request: number; resources: ResourceMap }> = {};
 
 async function loadStationDetail(id: string): Promise<void> {
   const request = (stationRequests[id] = (stationRequests[id] ?? 0) + 1);
@@ -76,6 +79,9 @@ async function loadStationDetail(id: string): Promise<void> {
     loadStationIncome(id),
   ]);
   if (request !== stationRequests[id]) return;
+  const pushed = pushedDuringLoad[id];
+  if (pushed?.request === request)
+    resources.resources = { ...resources.resources, ...pushed.resources };
   state.details[id] = {
     resources,
     buildings: buildings.buildings,
@@ -89,8 +95,6 @@ const refreshStation = (id: string) => guarded(() => loadStationDetail(id));
 const refreshStations = () =>
   guarded(async () => (state.stations = await apiClient.get<Station[]>('/stations')));
 
-let subscribers = 0;
-let stopSync: (() => void) | null = null;
 let stationsLoaded: Promise<void> = Promise.resolve();
 
 /**
@@ -98,30 +102,30 @@ let stationsLoaded: Promise<void> = Promise.resolve();
  * through the overview, which also reloads everything after ticks and reconnects.
  */
 function start(): () => void {
-  subscribers += 1;
-  if (subscribers === 1) {
-    stationsLoaded = refreshStations();
-    const unsubscribers = [
-      wsClient.on('resources_updated', ({ stationId, resources }) => {
-        const detail = state.details[stationId];
-        if (detail?.resources)
-          detail.resources.resources = { ...detail.resources.resources, ...resources };
-      }),
-      // Scanner upgrades change the station list's scanner range.
-      wsClient.on('building_upgrade_completed', ({ stationId }) => {
-        void refreshStations();
-        void refreshStation(stationId);
-      }),
-      wsClient.on('defense_upgrade_completed', ({ stationId }) => void refreshStation(stationId)),
-      wsClient.on('spacecraft_build_completed', ({ stationId }) => void refreshStation(stationId)),
-    ];
-    stopSync = () => {
-      for (const unsubscribe of unsubscribers) unsubscribe();
-    };
-  }
+  stationsLoaded = refreshStations();
+  const unsubscribers = [
+    wsClient.on('resources_updated', ({ stationId, resources }) => {
+      const request = stationRequests[stationId] ?? 0;
+      const earlier = pushedDuringLoad[stationId];
+      pushedDuringLoad[stationId] = {
+        request,
+        resources:
+          earlier?.request === request ? { ...earlier.resources, ...resources } : resources,
+      };
+      const detail = state.details[stationId];
+      if (detail?.resources)
+        detail.resources.resources = { ...detail.resources.resources, ...resources };
+    }),
+    // Scanner upgrades change the station list's scanner range.
+    wsClient.on('building_upgrade_completed', ({ stationId }) => {
+      void refreshStations();
+      void refreshStation(stationId);
+    }),
+    wsClient.on('defense_upgrade_completed', ({ stationId }) => void refreshStation(stationId)),
+    wsClient.on('spacecraft_build_completed', ({ stationId }) => void refreshStation(stationId)),
+  ];
   return () => {
-    subscribers -= 1;
-    if (subscribers === 0) stopSync?.();
+    for (const unsubscribe of unsubscribers) unsubscribe();
   };
 }
 

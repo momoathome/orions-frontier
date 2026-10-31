@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { basename, join } from 'node:path';
 import process from 'node:process';
 
 const defaults = {
@@ -46,7 +47,8 @@ async function runSeed(seed) {
   if (exitCode !== 0) throw new Error(`Baseline seed ${seed} failed with exit code ${exitCode}`);
   const marker = /PLAYTEST_REPORT=(\{[^\n]+\})/.exec(output);
   if (!marker) throw new Error(`Baseline seed ${seed} did not publish a report`);
-  return JSON.parse(marker[1]).reportPath;
+  // The report is written inside the container; the same file lies in the bind-mounted folder.
+  return join('artifacts/playtests', basename(JSON.parse(marker[1]).reportPath));
 }
 
 const reports = [];

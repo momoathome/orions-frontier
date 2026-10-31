@@ -5,6 +5,7 @@ import {
   buildingKeys,
   defenseUpgradeKeys,
   isOneOf,
+  required,
   type BuildingLevels,
   type BuildingUpgradeCost,
   type BuildSlots,
@@ -381,11 +382,6 @@ export async function cancelStationUpgrade(
   stationId: string,
   userId: string,
   key: string,
-  /**
-   * For upgrades started before the paid cost was stored.
-   * ponytail: delete once every environment is past migration 0015 and no older upgrade still runs.
-   */
-  refund: (row: StationBuildingRow) => BuildingUpgradeCost[],
   context: GameExecutionContext
 ): Promise<void> {
   const publish = await getDb().transaction(async (tx) => {
@@ -400,7 +396,11 @@ export async function cancelStationUpgrade(
       upgradePaidCost: null,
       updatedAt: context.now,
     });
-    await creditStationResources(tx, stationId, toResourceMap(row.upgradePaidCost ?? refund(row)));
+    await creditStationResources(
+      tx,
+      stationId,
+      toResourceMap(required(row.upgradePaidCost, 'upgrade paid cost'))
+    );
     const { dropped } = await advanceStationQueue(tx, station, context.now);
     return afterCommit(tx, userId, stationId, dropped);
   });

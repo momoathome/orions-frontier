@@ -18,7 +18,8 @@ watch(
       return;
     }
     wsClient.disconnect();
-    if (router.currentRoute.value.meta.requiresAuth) void router.push({ name: 'Login' });
+    // A full page load, so no store keeps the previous account's stations, logbook or reports.
+    if (router.currentRoute.value.meta.requiresAuth) window.location.assign('/login');
   },
   { immediate: true }
 );

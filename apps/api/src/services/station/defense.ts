@@ -154,11 +154,4 @@ export const cancelDefenseUpgrade = (
   upgradeKey: DefenseUpgradeKey,
   userId: string,
   context: GameExecutionContext = createRealtimeExecutionContext()
-): Promise<void> =>
-  cancelStationUpgrade(
-    stationId,
-    userId,
-    upgradeKey,
-    (row) => calculateDefenseUpgradeCost(upgradeKey, row.level + 1),
-    context
-  );
+): Promise<void> => cancelStationUpgrade(stationId, userId, upgradeKey, context);

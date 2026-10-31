@@ -134,13 +134,18 @@ export async function findWorldMission(db: QueryDb, id: string) {
 }
 
 /** The user's newest missions first. */
-export function listWorldMissionsByUser(db: QueryDb, userId: string, limit: number) {
+export function listWorldMissionsByUser(
+  db: QueryDb,
+  userId: string,
+  page: { limit: number; offset: number }
+) {
   return db
     .select()
     .from(worldMissions)
     .where(eq(worldMissions.userId, userId))
-    .orderBy(desc(worldMissions.createdAt))
-    .limit(limit);
+    .orderBy(desc(worldMissions.createdAt), desc(worldMissions.id))
+    .limit(page.limit)
+    .offset(page.offset);
 }
 
 /** Missions under way or returning that arrive by `now`, oldest first. */

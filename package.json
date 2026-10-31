@@ -23,7 +23,7 @@
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run lint && npm run check:boundaries && npm run format:check",
     "test:unit": "npm run build:packages && npm run test:unit --workspaces --if-present",
-    "test:integration": "docker compose run --build --rm --remove-orphans api npm run test:integration --workspaces --if-present",
+    "test:integration": "docker compose -f compose.test.yaml -p orions-frontier-test run --build --rm test-runner; status=$?; docker compose -f compose.test.yaml -p orions-frontier-test down; exit $status",
     "test:playtest-e2e": "node scripts/test-playtest-e2e.mjs",
     "audit": "npm audit --omit=dev --audit-level=high",
     "verify": "npm run check && npm run audit && npm run build && npm run test:unit && npm run test:integration && npm run test:playtest-e2e",

@@ -83,6 +83,13 @@ test('playtest config rejects invalid time, weights, limits and excessive tick c
     /profile weight/i
   );
   assert.throws(
+    () =>
+      validatePlaytestConfig({
+        profileWeights: { industrialist: 1, pioneer: -1, technocrat: 0, warlord: Number.NaN },
+      }),
+    /too_small|>=0|expected number/
+  );
+  assert.throws(
     () => validatePlaytestConfig({ durationHours: 365 * 24, stepSeconds: 1 }),
     /31536000 ticks/
   );

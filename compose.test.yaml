@@ -1,0 +1,36 @@
+# Integration tests get their own throwaway database, so test ticks never touch the dev world.
+services:
+  test-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: test_runner
+      POSTGRES_PASSWORD: test_only
+      POSTGRES_DB: orions_frontier_test
+    tmpfs:
+      - /var/lib/postgresql/data:size=1g,mode=0700
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U test_runner -d orions_frontier_test']
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      - test
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: ['npm', 'run', 'test:integration', '--workspaces', '--if-present']
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://test_runner:test_only@test-postgres:5432/orions_frontier_test
+      JWT_SECRET: integration-test-secret
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+    networks:
+      - test
+
+networks:
+  test:
+    internal: true

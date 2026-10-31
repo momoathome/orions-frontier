@@ -3,7 +3,11 @@ import { entriesOf } from '@orions-frontier/shared';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { and, eq, inArray } from 'drizzle-orm';
-import { COLONIZATION_COST, getSpacecraft } from '@orions-frontier/game-config';
+import {
+  COLONIZATION_COST,
+  calculateColonizationCost,
+  getSpacecraft,
+} from '@orions-frontier/game-config';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
@@ -18,6 +22,7 @@ import { ensureSector } from '../../src/services/map/sector.js';
 import { createStation } from '../../src/services/station/station.js';
 import {
   completeDueWorldMissions,
+  getFrontierTargets,
   startColonization,
   startExpedition,
 } from '../../src/services/missions/world-mission.js';
@@ -229,6 +234,42 @@ test('active colonization missions reserve their target position', async () => {
         [reservation.id, secondMissionId].filter((id) => id !== undefined)
       )
     );
+    await db
+      .update(stationSpacecrafts)
+      .set({ lockedAmount: 0 })
+      .where(eq(stationSpacecrafts.stationId, originStationId));
+  }
+});
+
+test('a colony in flight raises the price of the next one', async () => {
+  const db = getDb();
+  for (const [resourceKey, amount] of entriesOf(COLONIZATION_COST)) {
+    await db
+      .update(stationResources)
+      .set({ amount })
+      .where(
+        and(
+          eq(stationResources.stationId, originStationId),
+          eq(stationResources.resourceKey, resourceKey)
+        )
+      );
+  }
+  const before = await getFrontierTargets(userId, originStationId);
+  const mission = await startColonization({
+    userId,
+    stationId: originStationId,
+    sectorX: 100,
+    sectorY: 101,
+    name: 'Priced Colony',
+  });
+  try {
+    const after = await getFrontierTargets(userId, originStationId);
+    assert.deepEqual(
+      after.colonization.cost,
+      calculateColonizationCost(before.colonization.stations + 1)
+    );
+  } finally {
+    await db.delete(worldMissions).where(eq(worldMissions.id, mission.id));
     await db
       .update(stationSpacecrafts)
       .set({ lockedAmount: 0 })

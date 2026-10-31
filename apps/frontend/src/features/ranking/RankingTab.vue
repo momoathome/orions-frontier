@@ -4,6 +4,7 @@ import type { InfluenceBreakdown } from '@orions-frontier/shared';
 import { useRankingStore } from './store.js';
 
 const rankingStore = useRankingStore();
+void rankingStore.refreshRanking(true);
 const ranking = computed(() => rankingStore.state.ranking);
 
 // The own row is pinned below the list when the player is outside the top entries.

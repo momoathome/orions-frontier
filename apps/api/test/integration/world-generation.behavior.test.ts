@@ -8,15 +8,13 @@ import { asteroids } from '../../src/lib/db/schema/asteroids.js';
 import { botControllers } from '../../src/lib/db/schema/bot-controllers.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spawnSlots } from '../../src/lib/db/schema/spawn-slots.js';
-import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
-import { stationResources } from '../../src/lib/db/schema/station-resources.js';
-import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { WORLD_CONFIG } from '../../src/lib/world-config.js';
 import { seedBotsForSector } from '../../src/services/bot/provision.js';
 import { ensureSector, openNextSettlementSector } from '../../src/services/map/sector.js';
 import { createStation } from '../../src/services/station/station.js';
+import { deleteTestData } from '../helpers/fixtures.js';
 
 const userId = randomUUID();
 let sectorId = '';
@@ -38,33 +36,16 @@ before(async () => {
 });
 
 after(async () => {
-  const db = getDb();
   const testSectorIds = [sectorId, openedSectorId].filter(Boolean);
-  const stationRows = testSectorIds.length
-    ? await db
-        .select({ id: stations.id, userId: stations.userId })
-        .from(stations)
-        .where(inArray(stations.sectorId, testSectorIds))
-    : [];
-  const stationIds = stationRows.map((station) => station.id);
-  const userIds = [...new Set([userId, ...stationRows.map((station) => station.userId)])];
-  if (stationIds.length > 0) {
-    await db.delete(stationResources).where(inArray(stationResources.stationId, stationIds));
-    await db.delete(stationBuildings).where(inArray(stationBuildings.stationId, stationIds));
-    await db.delete(stationSpacecrafts).where(inArray(stationSpacecrafts.stationId, stationIds));
-    await db
-      .update(spawnSlots)
-      .set({ stationId: null })
-      .where(inArray(spawnSlots.stationId, stationIds));
-    await db.delete(stations).where(inArray(stations.id, stationIds));
-  }
-  await db.delete(botControllers).where(inArray(botControllers.userId, userIds));
-  if (testSectorIds.length > 0) {
-    await db.delete(asteroids).where(inArray(asteroids.sectorId, testSectorIds));
-    await db.delete(spawnSlots).where(inArray(spawnSlots.sectorId, testSectorIds));
-    await db.delete(sectors).where(inArray(sectors.id, testSectorIds));
-  }
-  await db.delete(users).where(inArray(users.id, userIds));
+  // Bots seeded into the test sectors belong to this test, so their owners go too.
+  const owners = await getDb()
+    .select({ userId: stations.userId })
+    .from(stations)
+    .where(inArray(stations.sectorId, testSectorIds));
+  await deleteTestData({
+    userIds: [...new Set([userId, ...owners.map((owner) => owner.userId)])],
+    sectorIds: testSectorIds,
+  });
   await closeDb();
 });
 

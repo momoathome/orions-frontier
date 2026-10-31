@@ -17,5 +17,11 @@ export const chunkRangeQuery = scannerBypassQuery.extend({
   maxChunkY: z.string().optional(),
 });
 
+/** Eine Seite einer Liste, neueste zuerst; `offset` überspringt die schon geladenen Einträge. */
+export const pageQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).max(10_000).default(0),
+});
+
 /** Login und Registrierung pro IP: bremst Credential Stuffing und teure bcrypt-Runden. */
 export const AUTH_RATE_LIMIT = { max: 10, timeWindow: '1 minute' };

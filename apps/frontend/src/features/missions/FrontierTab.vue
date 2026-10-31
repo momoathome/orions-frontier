@@ -11,13 +11,18 @@ import {
 import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
 import { formatDuration } from '../../shared/lib/format';
 import { wsClient } from '../../shared/api/ws-client';
+import { loadOlder, mergeById } from '../../shared/lib/paging';
+import LoadMoreButton from '../../shared/ui/LoadMoreButton.vue';
 import { useResearchStore } from '../research/index.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
+const emit = defineEmits<{ launched: [] }>();
+const MISSION_PAGE = 10;
 const research = useResearchStore();
 const frontier = ref<FrontierResponse | null>(null);
 const sectors = ref<KnownSector[]>([]);
 const missions = ref<WorldMission[]>([]);
+const allMissionsLoaded = ref(false);
 const colonyName = ref('Frontier Outpost');
 const busy = ref(false);
 const error = ref<string | null>(null);
@@ -55,11 +60,17 @@ async function load() {
     apiClient.get<KnownSector[]>('/world/sectors', {
       params: { stationId },
     }),
-    apiClient.get<WorldMission[]>('/me/world-missions'),
+    apiClient.get<WorldMission[]>('/me/world-missions', { params: { limit: MISSION_PAGE } }),
   ]);
   frontier.value = frontierResponse;
   sectors.value = sectorResponse;
-  missions.value = missionResponse;
+  missions.value = mergeById(missionResponse, missions.value);
+}
+
+async function loadOlderMissions() {
+  const { list, done } = await loadOlder('/me/world-missions', missions.value, MISSION_PAGE);
+  missions.value = list;
+  allMissionsLoaded.value = done;
 }
 
 async function run(action: () => Promise<unknown>) {
@@ -67,6 +78,7 @@ async function run(action: () => Promise<unknown>) {
   error.value = null;
   try {
     await action();
+    emit('launched');
     await load();
   } catch (cause) {
     error.value = apiErrorMessage(cause, 'Mission could not be started');
@@ -101,6 +113,7 @@ reload();
 const unsubscribers = [
   wsClient.on('world_mission_completed', reload),
   wsClient.on('research_completed', reload),
+  wsClient.onReconnected(reload),
 ];
 onUnmounted(() => {
   for (const unsubscribe of unsubscribers) unsubscribe();
@@ -203,7 +216,7 @@ onUnmounted(() => {
       <p v-if="error" class="ui-error mb-2">{{ error }}</p>
       <div class="space-y-2">
         <div
-          v-for="mission in missions.slice(0, 10)"
+          v-for="mission in missions"
           :key="mission.id"
           class="rounded border border-ui-line bg-white/3 p-2"
         >
@@ -216,6 +229,10 @@ onUnmounted(() => {
           </div>
         </div>
         <p v-if="missions.length === 0" class="text-xs text-ui-dim">No missions yet.</p>
+        <LoadMoreButton
+          v-if="!allMissionsLoaded && missions.length >= MISSION_PAGE"
+          :load="loadOlderMissions"
+        />
       </div>
     </section>
   </div>

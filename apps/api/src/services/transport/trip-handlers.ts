@@ -52,6 +52,8 @@ export async function handleMineArrival(
 ): Promise<void> {
   if (!trip.assignmentId) return;
 
+  // Same lock order as the return leg (asteroid, then assignment), so the two never deadlock.
+  await findAsteroidForUpdate(tx, trip.toId);
   const assignment = await findAssignmentRouteForUpdate(tx, trip.assignmentId);
 
   if (!assignment) return;

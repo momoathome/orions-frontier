@@ -138,17 +138,17 @@ manuelle Wiederholung nötig und lädt dabei die lokale `.env`-Datei.
 `npm run world:report` erzeugt die konfigurierte Startwelt rein im Speicher und gibt Asteroidenzahl
 sowie Ressourcenmenge je Sektor aus.
 
-Die noch nicht produktive Migrationshistorie ist zu `0000_initial.sql` zusammengefasst. Nach diesem
-Wechsel muss ein vorhandenes lokales Volume einmalig mit `docker compose down -v` entfernt werden;
-beim nächsten Start legt die API die aktuelle Entwicklungswelt neu an. Ein Daten-Backfill ist für
-diesen Entwicklungsstand nicht vorgesehen.
+Migrationen liegen unter `apps/api/src/lib/db/migrations`, beginnend mit `0000_initial.sql`; die API
+spielt fehlende beim Start ein.
 
 `npm run test:unit` prüft die reine Spiellogik ohne externe Infrastruktur. Die Tests liegen unter
-`apps/api/test/unit`. `npm run test:integration` startet PostgreSQL über Docker und prüft unter
+`apps/api/test/unit`. `npm run test:integration` startet eine eigene, flüchtige PostgreSQL-Instanz
+(`compose.test.yaml`, die Dev-Welt bleibt unberührt) und prüft unter
 `apps/api/test/integration` unter anderem API-Routen, konkurrierende Ressourcenausgaben und
 Mining-Zugriffe, vollständige Mining-Rundläufe, Bots, Exploration, Kolonisation, Kampf, Bergung,
 Forschung sowie WebSocket-Authentifizierung. Mit `npm run verify` laufen statische Checks, ein Audit der Laufzeit-Abhängigkeiten
-(`npm run audit`), Build und beide Testgruppen gemeinsam.
+(`npm run audit`), Build, beide Testgruppen und der Playtest-E2E (`npm run test:playtest-e2e`)
+gemeinsam.
 
 Einzelne Workspaces lassen sich direkt ansprechen:
 
