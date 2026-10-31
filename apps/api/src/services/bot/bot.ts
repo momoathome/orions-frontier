@@ -135,6 +135,14 @@ async function handleGoalV1(
     };
   }
 
+  if (
+    controller.raidBlockedTarget &&
+    controller.raidBlockedUntil &&
+    controller.raidBlockedUntil > now
+  ) {
+    state.blockedRaidTarget = controller.raidBlockedTarget;
+  }
+
   const profile = controller.profile;
   const weights = categoryWeightsFor(profile, controller.categoryWeights);
   if (profile === 'warlord') {
@@ -191,6 +199,20 @@ async function handleGoalV1(
         };
       } catch (error) {
         if (!(error instanceof BotIntentRejected)) throw error;
+        // A protected target only blocks this raid; the bot goes on with its economy at once.
+        if (error.retryAfterMs) {
+          await clearGoal();
+          await updateBotController(db, userId, {
+            raidBlockedTarget: targetRef,
+            raidBlockedUntil: new Date(now.getTime() + error.retryAfterMs),
+          });
+          return {
+            action: error.kind,
+            reason: `${error.message}; target skipped for a while`,
+            hasProgress: false,
+            completedGoalType: null,
+          };
+        }
         const blockedCount = error.kind === 'blocked' ? currentBlockedCount + 1 : 0;
         if (blockedCount >= MAX_BLOCKED_INTERVALS) {
           await clearGoal();
@@ -201,13 +223,7 @@ async function handleGoalV1(
             completedGoalType: null,
           };
         }
-        await updateBotController(db, userId, {
-          ...baseGoalUpdate,
-          blockedCount,
-          ...(error.retryAfterMs
-            ? { nextDecisionAt: new Date(now.getTime() + error.retryAfterMs) }
-            : {}),
-        });
+        await updateBotController(db, userId, { ...baseGoalUpdate, blockedCount });
         return {
           action: error.kind,
           reason: error.message,

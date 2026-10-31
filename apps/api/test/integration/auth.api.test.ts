@@ -61,6 +61,34 @@ test('a user can register, login and load their authenticated profile', async ()
     payload: credentials,
   });
   assert.equal(duplicate.statusCode, 409);
+  // Case does not make a second account, and parallel signups never end in a 500.
+  const otherCase = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: {
+      ...credentials,
+      username: `other-${suffix}`,
+      email: credentials.email.toUpperCase(),
+    },
+  });
+  assert.equal(otherCase.statusCode, 409);
+  const racers = await Promise.all(
+    [1, 2].map(() =>
+      app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        payload: {
+          ...credentials,
+          username: `race-${suffix}`,
+          email: `race-${suffix}@example.test`,
+        },
+      })
+    )
+  );
+  assert.deepEqual(racers.map((response) => response.statusCode).sort(), [201, 409]);
+  for (const response of racers) {
+    if (response.statusCode === 201) createdUserIds.push(response.json().user.id);
+  }
 
   const wrongPassword = await app.inject({
     method: 'POST',
@@ -73,7 +101,7 @@ test('a user can register, login and load their authenticated profile', async ()
   const login = await app.inject({
     method: 'POST',
     url: '/api/auth/login',
-    payload: { email: credentials.email, password: credentials.password },
+    payload: { email: credentials.email.toUpperCase(), password: credentials.password },
   });
   assert.equal(login.statusCode, 200);
   const loggedIn = login.json();

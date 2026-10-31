@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, isNotNull, lte, sql } from 'drizzle-orm';
+import type { BuildingUpgradeCost } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { stations } from '../../../lib/db/schema/stations.js';
 import { userResearch } from '../../../lib/db/schema/user-research.js';
@@ -40,6 +41,7 @@ export async function startResearchLevel(
     startedAt: Date;
     completesAt: Date;
     paidByStationId: string;
+    paidCost: BuildingUpgradeCost[];
   }
 ): Promise<boolean> {
   const [row] = await tx
@@ -51,6 +53,7 @@ export async function startResearchLevel(
         startedAt: values.startedAt,
         completesAt: values.completesAt,
         paidByStationId: values.paidByStationId,
+        paidCost: values.paidCost,
         updatedAt: values.startedAt,
       },
       setWhere: sql`${userResearch.completesAt} is null`,
@@ -77,6 +80,7 @@ export async function completeResearchLevel(db: QueryDb, id: string, now: Date) 
       startedAt: null,
       completesAt: null,
       paidByStationId: null,
+      paidCost: null,
       updatedAt: now,
     })
     .where(and(eq(userResearch.id, id), lte(userResearch.completesAt, now)))
@@ -103,6 +107,10 @@ export async function cancelResearchLevel(
         gt(userResearch.completesAt, now)
       )
     )
-    .returning({ level: userResearch.level, paidByStationId: userResearch.paidByStationId });
+    .returning({
+      level: userResearch.level,
+      paidByStationId: userResearch.paidByStationId,
+      paidCost: userResearch.paidCost,
+    });
   return row;
 }

@@ -25,7 +25,11 @@ import {
 } from '../helpers/fixtures.js';
 import { runBotDecisionTick } from '../../src/services/bot/bot.js';
 import { loadGoalBotState } from '../../src/services/bot/goal-loader.js';
-import { generateRetaliateCandidates, stepRaid } from '../../src/services/bot/goals/conflict.js';
+import {
+  generateRaidCandidates,
+  generateRetaliateCandidates,
+  stepRaid,
+} from '../../src/services/bot/goals/conflict.js';
 import {
   generateExploreSectorCandidate,
   generateEstablishColonyCandidate,
@@ -717,7 +721,7 @@ test('bot raid and retaliate goal generation with visible target', async () => {
     assert.equal(raidStep.intent.type, 'start_attack');
   }
 
-  // A protected target keeps the raid bound but suppresses another attempt for one hour.
+  // A protected target releases the raid and is skipped for an hour; the bot keeps its cadence.
   await db
     .delete(stationSpacecrafts)
     .where(
@@ -742,14 +746,28 @@ test('bot raid and retaliate goal generation with visible target', async () => {
       activeGoalType: botControllers.activeGoalType,
       lastAction: botControllers.lastAction,
       nextDecisionAt: botControllers.nextDecisionAt,
+      raidBlockedTarget: botControllers.raidBlockedTarget,
+      raidBlockedUntil: botControllers.raidBlockedUntil,
     })
     .from(botControllers)
     .where(eq(botControllers.userId, botUserId));
-  assert.equal(protectedController?.activeGoalType, 'raid');
-  assert.equal(protectedController.lastAction, 'waiting');
+  assert.notEqual(protectedController?.activeGoalType, 'raid');
+  assert.equal(protectedController?.lastAction, 'waiting');
+  assert.ok(
+    protectedController.nextDecisionAt.getTime() < protectedAttemptAt.getTime() + 60 * 60_000
+  );
+  assert.equal(protectedController.raidBlockedTarget, `station:${targetStationId}`);
   assert.equal(
-    protectedController.nextDecisionAt.getTime(),
+    protectedController.raidBlockedUntil?.getTime(),
     protectedAttemptAt.getTime() + 60 * 60_000
+  );
+  const blockedState = await loadGoalBotState(botUserId);
+  assert.ok(blockedState);
+  blockedState.blockedRaidTarget = `station:${targetStationId}`;
+  assert.ok(
+    generateRaidCandidates(blockedState, 'warlord').every(
+      (candidate) => candidate.targetRef !== `station:${targetStationId}`
+    )
   );
 
   // Test retaliate candidate generation (no combat reports → no retaliation)

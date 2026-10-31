@@ -167,6 +167,7 @@ export function generateRaidCandidates(state: GoalBotState, _profile: BotProfile
 
     for (const target of state.visibleStations) {
       if (target.isOwn) continue;
+      if (state.blockedRaidTarget === `station:${target.id}`) continue;
       if (!isEligibleAttackSource(state, station, target.id, _profile)) continue;
 
       const cooldown = hasCooldown(state, target.ownerId, now);

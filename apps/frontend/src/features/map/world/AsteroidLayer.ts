@@ -184,6 +184,14 @@ export class AsteroidLayer {
     return this.asteroidById.get(id);
   }
 
+  /** Loaded asteroids closest to a point, nearest first. */
+  nearest(x: number, y: number, count: number): AsteroidHit[] {
+    const distance = (a: AsteroidHit) => Math.hypot(a.x - x, a.y - y);
+    return [...this.asteroidById.values()]
+      .sort((a, b) => distance(a) - distance(b))
+      .slice(0, count);
+  }
+
   /** Deterministically picks one of the 6 asteroid textures from an asteroid id. */
   private _textureFor(id: string): Texture {
     if (this.textures.length === 0) return Texture.WHITE;

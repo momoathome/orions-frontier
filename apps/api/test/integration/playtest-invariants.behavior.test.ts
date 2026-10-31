@@ -140,6 +140,7 @@ test('auditor aborts on overfull storage, a negative build order and work withou
       spacecraftKey: 'miner',
       amount: -1,
       orderedAmount: 1,
+      unitCost: [],
       nextAt: new Date(now.getTime() + 60_000),
       endsAt: new Date(now.getTime() + 60_000),
     })

@@ -8,7 +8,7 @@ import {
   calculateBuildingUpgradeCost,
   spacecrafts,
 } from '@orions-frontier/game-config';
-import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
+import { closeDb, getDb, initDb, withExclusiveLock } from '../../src/lib/db/index.js';
 import { runMigrations } from '../../src/lib/db/migrate.js';
 import { sectors } from '../../src/lib/db/schema/sectors.js';
 import { spacecraftBuildOrders } from '../../src/lib/db/schema/spacecraft-build-orders.js';
@@ -45,7 +45,10 @@ import {
   startResearch,
 } from '../../src/services/station/research-queue.js';
 import { deleteTestData, grantResearch, setTestResources } from '../helpers/fixtures.js';
-import { runSimulationTick } from '../../src/services/simulation/simulation.js';
+import {
+  runExclusiveWorldTick,
+  runSimulationTick,
+} from '../../src/services/simulation/simulation.js';
 import {
   applyConstructionSpeed,
   applyTravelSpeed,
@@ -386,6 +389,7 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
     spacecraftKey: 'collector',
     amount: 2,
     orderedAmount: 2,
+    unitCost: [],
     nextAt: new Date(Date.now() + 60_000),
     endsAt: new Date(Date.now() + 60_000),
   });
@@ -433,4 +437,13 @@ test('parallel station creation claims different spawn slots atomically', async 
     createStation(usersToCreate[1]!, { name: 'Two', sectorId }),
   ]);
   assert.equal(new Set(created.map((station) => `${station.x}:${station.y}`)).size, 2);
+});
+
+test('a second API process skips the world tick while another one runs it', async () => {
+  let skipped: unknown = 'not run';
+  await withExclusiveLock('world-tick', async () => {
+    skipped = await runExclusiveWorldTick();
+  });
+  assert.equal(skipped, undefined);
+  assert.ok(await runExclusiveWorldTick());
 });

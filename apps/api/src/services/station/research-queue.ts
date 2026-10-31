@@ -278,6 +278,7 @@ async function startQueuedResearch(tx: Tx, userId: string, at: Date): Promise<st
       startedAt: new Date(startAt),
       completesAt: new Date(startAt + duration * 1000),
       paidByStationId: job.stationId,
+      paidCost: job.paidCost,
     });
     if (!ok) continue;
     await deleteQueuedJob(tx, job.id);
@@ -396,7 +397,7 @@ export async function cancelResearch(
     const refunded = await refundToPayer(
       tx,
       cancelled.paidByStationId,
-      calculateResearchCost(definition.key, cancelled.level + 1),
+      cancelled.paidCost ?? [],
       credit
     );
     const dropped = await dropBrokenResearchJobs(tx, userId, context.now, credit);

@@ -10,6 +10,8 @@ interface ServerMessage {
 /** Local event after a dropped connection is authenticated again; events in the gap are lost. */
 const RECONNECTED = 'local:reconnected';
 const MAX_RECONNECT_DELAY_MS = 30_000;
+// A half-open socket never answers; closing it hands over to reconnect().
+const PONG_TIMEOUT_MS = 10_000;
 
 class WebSocketClient {
   private ws: WebSocket | null = null;
@@ -18,6 +20,7 @@ class WebSocketClient {
   private reconnectTimer: number | null = null;
   private messageHandlers = new Map<string, Set<(payload: object) => void>>();
   private pingInterval: number | null = null;
+  private pongTimer: number | null = null;
   private wasAuthenticated = false;
 
   constructor(private url: string) {}
@@ -44,7 +47,9 @@ class WebSocketClient {
             this.startPing();
             if (this.wasAuthenticated) this.emit(RECONNECTED);
             this.wasAuthenticated = true;
-          } else if (message.type !== 'pong') {
+          } else if (message.type === 'pong') {
+            this.clearPongTimer();
+          } else {
             this.emit(message.type, message.payload);
           }
         } catch (error) {
@@ -97,12 +102,20 @@ class WebSocketClient {
     this.stopPing();
     this.pingInterval = window.setInterval(() => {
       this.send({ type: 'ping' });
+      this.clearPongTimer();
+      this.pongTimer = window.setTimeout(() => this.ws?.close(), PONG_TIMEOUT_MS);
     }, 30_000);
   }
 
   private stopPing() {
     if (this.pingInterval !== null) clearInterval(this.pingInterval);
     this.pingInterval = null;
+    this.clearPongTimer();
+  }
+
+  private clearPongTimer() {
+    if (this.pongTimer !== null) clearTimeout(this.pongTimer);
+    this.pongTimer = null;
   }
 
   /** Retries until disconnect(): 1 s, 2 s, 4 s … capped at 30 s. */

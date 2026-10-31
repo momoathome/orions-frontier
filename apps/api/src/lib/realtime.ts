@@ -47,6 +47,7 @@ export function attachRealtimeServer(
 
   server.on('connection', (socket) => {
     let userId: string | null = null;
+    let token = '';
     let authenticating = false;
     const authTimeout = setTimeout(() => {
       socket.close(4401, 'Authentication timeout');
@@ -61,14 +62,14 @@ export function attachRealtimeServer(
         const message = clientMessageSchema.parse(JSON.parse(text));
 
         if (!userId) {
-          const token = message.payload?.token;
-          if (message.type !== 'authenticate' || typeof token !== 'string') {
+          const offered = message.payload?.token;
+          if (message.type !== 'authenticate' || typeof offered !== 'string') {
             socket.close(4401, 'Unauthorized');
             return;
           }
 
           authenticating = true;
-          const user = app.jwt.verify<JwtPayload>(token);
+          const user = app.jwt.verify<JwtPayload>(offered);
           const role = await activeRole(user.userId);
           authenticating = false;
           if (!role || socket.readyState !== WebSocket.OPEN) {
@@ -76,6 +77,7 @@ export function attachRealtimeServer(
             return;
           }
           userId = user.userId;
+          token = offered;
           clearTimeout(authTimeout);
           const userClients = clients.get(userId) ?? new Set<WebSocket>();
           userClients.add(socket);
@@ -89,6 +91,18 @@ export function attachRealtimeServer(
         }
 
         if (message.type === 'ping') {
+          // Like every HTTP request, each ping rechecks token expiry and account status.
+          let stillValid = false;
+          try {
+            app.jwt.verify<JwtPayload>(token);
+            stillValid = (await activeRole(userId)) !== null;
+          } catch {
+            stillValid = false;
+          }
+          if (!stillValid) {
+            socket.close(4401, 'Unauthorized');
+            return;
+          }
           send(socket, { type: 'pong', timestamp: Date.now() });
         }
       } catch {

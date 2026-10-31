@@ -12,6 +12,5 @@ export {
   listTravelingTripsByStations,
   listTravelingTripsInBounds,
   recordTripSettleFailure,
-  sumHomeboundGroupSize,
   updateTripCargo,
 } from './repositories/spacecraft-trips.js';

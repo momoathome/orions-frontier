@@ -4,6 +4,12 @@ const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api`
 
 type Query = Record<string, string | number | boolean | null | undefined>;
 
+// The auth store's token; read from memory so another tab's login does not switch this tab's account.
+let authToken: string | null = null;
+export const setAuthToken = (token: string | null) => {
+  authToken = token;
+};
+
 // Replaced by the auth store on load; until then a 401 has no session to end.
 let sessionExpired: () => void = () => undefined;
 /** The auth store ends the session when the server rejects the token (HTTP 401, WS 4401). */
@@ -40,7 +46,7 @@ async function request<T>(method: string, path: string, body?: object, params?: 
     if (value !== null && value !== undefined) url.searchParams.set(key, String(value));
   }
 
-  const token = localStorage.getItem('auth_token');
+  const token = authToken;
   const response = await fetch(url, {
     method,
     headers: {

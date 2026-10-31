@@ -21,6 +21,7 @@ import { debounced } from '../../shared/lib/debounce';
 import { live } from '../../shared/lib/live.js';
 import { WorldRenderer } from './world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from './world/WorldRenderer.js';
+import type { AsteroidHit } from './world/AsteroidLayer.js';
 import type { ActiveMovement } from './world/TripLayer.js';
 import type {
   DebrisField,
@@ -185,6 +186,28 @@ function openFromResearch(section: StationSection) {
   if (stationId.value) openStation(stationId.value, section);
 }
 
+const NEAREST_ASTEROIDS = 10;
+const asteroidList = ref<AsteroidHit[] | null>(null);
+const distanceTo = (asteroid: AsteroidHit) =>
+  stationInfo.value
+    ? Math.round(Math.hypot(asteroid.x - stationInfo.value.x, asteroid.y - stationInfo.value.y))
+    : 0;
+
+/** Lists the nearest loaded asteroids as buttons, so mining works without the canvas. */
+function toggleAsteroidList() {
+  const origin = stationInfo.value;
+  asteroidList.value =
+    asteroidList.value || !renderer || !origin
+      ? null
+      : renderer.nearestAsteroids(origin.x, origin.y, NEAREST_ASTEROIDS);
+}
+
+function selectAsteroid(id: string) {
+  asteroidList.value = null;
+  stationPanelOpen.value = false;
+  selectedEntity.value = { type: 'asteroid', id };
+}
+
 function openAccountModal(kind: 'logbook' | 'ranking') {
   accountModal.value = kind;
   if (kind === 'logbook') logbook.markLogbookSeen();
@@ -204,7 +227,24 @@ const unsubscribers = [
     scheduleMiningRefresh();
   }),
   wsClient.on('mining_tick_completed', scheduleMiningRefresh),
+  // Chunks or trips that failed to load while offline are never retried on their own.
+  wsClient.onReconnected(() => {
+    scheduleChunkRefresh();
+    scheduleMiningRefresh();
+  }),
 ];
+
+// A destroyed station drops out of the list; reload to pick another one or found a new one.
+watch(
+  () => stationStore.state.stations.map((station) => station.id).join(),
+  () => {
+    if (!stationId.value || stationStore.state.stations.some((s) => s.id === stationId.value)) {
+      return;
+    }
+    localStorage.removeItem('active_station_id');
+    window.location.reload();
+  }
+);
 
 onMounted(async () => {
   await stationStore.stationsLoaded();
@@ -243,10 +283,7 @@ onMounted(async () => {
   };
 
   // Asteroid clicked → select it and close the station panel
-  world.onAsteroidClick = (id) => {
-    stationPanelOpen.value = false;
-    selectedEntity.value = { type: 'asteroid', id };
-  };
+  world.onAsteroidClick = selectAsteroid;
 
   // Station clicked → open station panel
   world.onStationClick = () => {
@@ -357,15 +394,42 @@ watch(canBypassScanner, (allowed) => {
         <!-- PixiJS canvas mount point -->
         <div ref="worldRef" class="absolute inset-0" />
 
-        <button
-          v-if="stationId && canBypassScanner"
-          type="button"
-          class="ui-btn absolute left-3 top-3 z-10 h-8 bg-ui-panel/80 px-3 text-xs"
-          :class="scannerBypass ? 'border-ui-amber text-ui-amber' : ''"
-          @click.stop="toggleScannerBypass"
-        >
-          Scanner {{ scannerBypass ? 'off' : 'on' }}
-        </button>
+        <div v-if="stationId" class="absolute left-3 top-3 z-10 flex flex-col items-start gap-2">
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="ui-btn h-8 bg-ui-panel/80 px-3 text-xs"
+              :aria-expanded="asteroidList !== null"
+              @click.stop="toggleAsteroidList"
+            >
+              Nearby asteroids
+            </button>
+            <button
+              v-if="canBypassScanner"
+              type="button"
+              class="ui-btn h-8 bg-ui-panel/80 px-3 text-xs"
+              :class="scannerBypass ? 'border-ui-amber text-ui-amber' : ''"
+              @click.stop="toggleScannerBypass"
+            >
+              Scanner {{ scannerBypass ? 'off' : 'on' }}
+            </button>
+          </div>
+          <ul
+            v-if="asteroidList"
+            class="flex cursor-default flex-col gap-1 rounded-md border border-ui-line bg-ui-panel/90 p-2 text-xs backdrop-blur-sm"
+          >
+            <li v-if="asteroidList.length === 0" class="px-2 text-ui-muted">None loaded</li>
+            <li v-for="asteroid in asteroidList" :key="asteroid.id">
+              <button
+                type="button"
+                class="ui-btn h-7 w-full px-2 text-left"
+                @click.stop="selectAsteroid(asteroid.id)"
+              >
+                Asteroid · {{ distanceTo(asteroid) }} u
+              </button>
+            </li>
+          </ul>
+        </div>
 
         <div
           v-if="stationId"

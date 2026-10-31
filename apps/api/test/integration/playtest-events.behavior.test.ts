@@ -62,6 +62,7 @@ before(async () => {
       startedAt: new Date('2055-01-01T00:00:00.000Z'),
       completesAt: completedAt,
       paidByStationId: stationId,
+      paidCost: [],
     });
 });
 

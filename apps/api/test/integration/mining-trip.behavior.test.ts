@@ -216,6 +216,16 @@ test('hides mining groups from players without their own presence at the asteroi
     null,
   ]);
 
+  // Co-miners see each other's cargo only in resources they researched themselves.
+  await getDb()
+    .update(spacecraftTrips)
+    .set({ cargoManifest: { carbon: 10, kyber_crystal: 5 } })
+    .where(eq(spacecraftTrips.stationSpacecraftId, stationSpacecraftId));
+  const cargoView = await getAsteroidById(asteroidId, secondUserId);
+  const foreignTrip = cargoView?.assignments.find((assignment) => assignment.stationId === null);
+  assert.deepEqual(foreignTrip?.activeTrip?.cargoManifest, { carbon: 10 });
+  assert.equal(cargoView?.inTransit['kyber_crystal'], undefined);
+
   await resetMiningState();
 });
 

@@ -9,12 +9,7 @@ import {
   sumAsteroidRemainingAmount,
   updateAsteroidAssignment,
 } from '../map/index.js';
-import {
-  insertTrip,
-  sumHomeboundGroupSize,
-  updateTripCargo,
-  type TripRow,
-} from '../fleet/index.js';
+import { insertTrip, updateTripCargo, type TripRow } from '../fleet/index.js';
 import { assignIdleMiners, claimMiningCargo, largestResource } from '../mining/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { requireSpacecraft } from '@orions-frontier/game-config';
@@ -59,12 +54,9 @@ export async function handleMineArrival(
   if (!assignment) return;
   const spacecraft = requireSpacecraft(assignment.spacecraftKey);
 
-  // Miners already heading home absorb recalls first; any recall left over turns this
-  // miner back empty. The assignment row lock keeps parallel arrivals from double-counting.
-  const homebound = await sumHomeboundGroupSize(tx, assignment.id);
+  // Recalled miners of the group fly back empty; the rest claim cargo.
   const groupSize = Math.min(trip.groupSize, assignment.assignedAmount);
-  const unclaimedRecall = Math.max(0, assignment.recallRequestedAmount - homebound);
-  const activeGroupSize = Math.max(0, groupSize - unclaimedRecall);
+  const activeGroupSize = Math.max(0, groupSize - assignment.recallRequestedAmount);
   const modifiers = await getStationResearchModifiers(tx, assignment.stationId);
   const effectiveCargo = spacecraft.cargo * modifiers.cargo;
   const cargoCapacity = Math.floor(activeGroupSize * effectiveCargo);

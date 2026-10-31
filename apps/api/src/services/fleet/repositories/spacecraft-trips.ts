@@ -123,21 +123,6 @@ export async function cancelTrip(tx: Tx, id: string) {
   await tx.update(spacecraftTrips).set({ status: 'cancelled' }).where(eq(spacecraftTrips.id, id));
 }
 
-/** Ships of the assignment that are already flying home. */
-export async function sumHomeboundGroupSize(db: QueryDb, assignmentId: string) {
-  const [homebound] = await db
-    .select({ amount: sql<number>`coalesce(sum(${spacecraftTrips.groupSize}), 0)::int` })
-    .from(spacecraftTrips)
-    .where(
-      and(
-        eq(spacecraftTrips.assignmentId, assignmentId),
-        eq(spacecraftTrips.purpose, 'mining_return'),
-        eq(spacecraftTrips.status, 'traveling')
-      )
-    );
-  return homebound?.amount ?? 0;
-}
-
 export function listTravelingTripsBySpacecraft(db: QueryDb, stationSpacecraftIds: string[]) {
   return db
     .select()

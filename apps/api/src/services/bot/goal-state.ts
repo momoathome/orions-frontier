@@ -84,6 +84,8 @@ export interface GoalBotState {
     resources: ResourceMap;
   }[];
   combatReports: CombatReport[];
+  /** Raid target the bot learned is protected; raid candidates skip it for a while. */
+  blockedRaidTarget?: string;
   /** Authoritative diagnostic inputs which never participate in candidate selection. */
   conflictDiagnostics: {
     protectedOwnerIds: string[];

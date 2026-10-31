@@ -81,6 +81,27 @@ test('station founding creates one starter pocket and configured sector bots exa
     .innerJoin(users, eq(stations.userId, users.id))
     .where(and(eq(stations.sectorId, sectorId), eq(users.role, 'bot')));
   assert.equal(botStations.length, WORLD_CONFIG.SECTOR.BOTS_PER_SETTLEMENT);
+
+  // A destroyed bot station frees its slot but must not come back on the next provisioning.
+  const destroyedId = botStations[0]!.stationId;
+  await db.update(stations).set({ destroyedAt: new Date() }).where(eq(stations.id, destroyedId));
+  await db.update(spawnSlots).set({ stationId: null }).where(eq(spawnSlots.stationId, destroyedId));
+  const asteroidsBeforeReseed = await db
+    .select({ id: asteroids.id })
+    .from(asteroids)
+    .where(eq(asteroids.sectorId, sectorId));
+  await seedBotsForSector(sectorId);
+  const botStationsAfter = await db
+    .select({ stationId: stations.id })
+    .from(stations)
+    .innerJoin(users, eq(stations.userId, users.id))
+    .where(and(eq(stations.sectorId, sectorId), eq(users.role, 'bot')));
+  assert.equal(botStationsAfter.length, WORLD_CONFIG.SECTOR.BOTS_PER_SETTLEMENT);
+  const asteroidsAfterReseed = await db
+    .select({ id: asteroids.id })
+    .from(asteroids)
+    .where(eq(asteroids.sectorId, sectorId));
+  assert.equal(asteroidsAfterReseed.length, asteroidsBeforeReseed.length);
 });
 
 test('opening the next settlement creates configured player and bot slots', async () => {

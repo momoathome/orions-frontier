@@ -1,7 +1,7 @@
 import { buildApp } from './app.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
-import { runWorldTick, startSimulationScheduler } from './services/simulation/index.js';
+import { runExclusiveWorldTick, startSimulationScheduler } from './services/simulation/index.js';
 import { seedAsteroidWorld, seedDevUser } from './seed.js';
 import { seedBotsForOccupiedSectors } from './services/bot/index.js';
 import { assertKnownSpacecraftKeys } from './services/station/index.js';
@@ -44,7 +44,7 @@ export const start = async () => {
     const fastify = await buildApp();
 
     // Complete overdue work before accepting traffic, then poll PostgreSQL.
-    await runWorldTick();
+    await runExclusiveWorldTick();
     const simulationScheduler = startSimulationScheduler();
     fastify.addHook('onClose', async () => {
       clearInterval(simulationScheduler);

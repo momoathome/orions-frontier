@@ -1,4 +1,4 @@
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive } from 'vue';
 import {
   getMiningTripPhase,
   getMiningTripPhaseEndsAt,
@@ -78,25 +78,10 @@ const scheduleProgress = debounced(
   500
 );
 
-// The defender gets no event when a battle resolves, so reload once at the next arrival.
-let arrivalTimer: ReturnType<typeof setTimeout> | undefined;
-function scheduleNextArrival(): void {
-  clearTimeout(arrivalTimer);
-  const next = Math.min(
-    ...combat.state.combats
-      .filter((report) => report.status === 'traveling')
-      .map((report) => Date.parse(report.arrivesAt))
-  );
-  if (Number.isFinite(next)) {
-    arrivalTimer = setTimeout(scheduleAll, Math.max(0, next - Date.now()) + 2_000);
-  }
-}
-
 /** Loads the account overview (stations, trips, combats, logbook, ranking) and keeps it current. */
 function start(): () => void {
   const stopStations = station.start();
   void station.stationsLoaded().then(refreshRest);
-  const stopArrival = watch(() => combat.state.combats, scheduleNextArrival);
   const clock = window.setInterval(() => (live.now = Date.now()), 1_000);
   const unsubscribers = [
     wsClient.on('mining_tick_completed', scheduleAll),
@@ -113,8 +98,6 @@ function start(): () => void {
   ];
   return () => {
     stopStations();
-    stopArrival();
-    clearTimeout(arrivalTimer);
     window.clearInterval(clock);
     scheduleAll.cancel();
     scheduleProgress.cancel();

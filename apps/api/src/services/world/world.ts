@@ -140,7 +140,14 @@ const isInsideWorldBounds = (
   point.y >= bounds.minY &&
   point.y < bounds.maxY;
 
-const MILITARY_TRIP_PURPOSES = new Set<WorldTripPurpose>(['combat', 'combat_return', 'relocate']);
+// Salvage reveals where a battle happened, so it stays hidden outside the scanner too.
+const MILITARY_TRIP_PURPOSES = new Set<WorldTripPurpose>([
+  'combat',
+  'combat_return',
+  'relocate',
+  'salvage',
+  'salvage_return',
+]);
 
 export async function getVisibleWorldMovements(
   range: WorldChunkRange,

@@ -28,13 +28,14 @@ export interface AuthenticatedUser {
 
 export const RegisterRequestSchema = z.object({
   username: z.string().min(3).max(50),
-  email: z.email(),
+  // Lowercased, so Bob@x.com and bob@x.com are one account.
+  email: z.email().toLowerCase(),
   password: z.string().min(12).max(128),
 });
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 
 export const LoginRequestSchema = z.object({
-  email: z.email(),
+  email: z.email().toLowerCase(),
   password: z.string().min(1),
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;

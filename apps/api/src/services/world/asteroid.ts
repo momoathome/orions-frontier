@@ -5,6 +5,7 @@ import {
   isOneOf,
   resourceKeys as allResourceKeys,
   type ResourceKey,
+  type ResourceMap,
 } from '@orions-frontier/shared';
 import type {
   AsteroidDetail,
@@ -120,11 +121,13 @@ export const getAsteroidById = async (
       )
   );
 
+  // Cargo of unresearched resources stays hidden, also in co-miners' manifests.
+  const visibleCargo = (cargo: ResourceMap): ResourceMap =>
+    Object.fromEntries(Object.entries(cargo).filter(([key]) => isOneOf(visibleResources, key)));
   const inTransit: Record<string, number> = {};
   for (const trip of travelingTrips) {
     if (!trip.cargoManifest) continue;
-    for (const [key, amount] of Object.entries(trip.cargoManifest)) {
-      if (!isOneOf(visibleResources, key)) continue;
+    for (const [key, amount] of Object.entries(visibleCargo(trip.cargoManifest))) {
       inTransit[key] = (inTransit[key] ?? 0) + amount;
     }
   }
@@ -157,7 +160,7 @@ export const getAsteroidById = async (
             groupSize: activeTrip.groupSize,
             departedAt: activeTrip.departedAt.toISOString(),
             arrivesAt: activeTrip.arrivesAt.toISOString(),
-            cargoManifest: activeTrip.cargoManifest,
+            cargoManifest: activeTrip.cargoManifest && visibleCargo(activeTrip.cargoManifest),
           }
         : null,
     };

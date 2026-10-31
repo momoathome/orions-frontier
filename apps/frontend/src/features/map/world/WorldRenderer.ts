@@ -4,7 +4,7 @@ import type { Texture } from 'pixi.js';
 import { Application, Assets, Container, CullerPlugin, extensions, Graphics, Text } from 'pixi.js';
 import { Camera } from './Camera.js';
 import { ChunkStreamer } from './ChunkStreamer.js';
-import { AsteroidLayer } from './AsteroidLayer.js';
+import { AsteroidLayer, type AsteroidHit } from './AsteroidLayer.js';
 import { RouteLayer } from './RouteLayer.js';
 import { TripLayer, type ActiveMovement } from './TripLayer.js';
 import { StationLayer } from './StationLayer.js';
@@ -282,6 +282,11 @@ export class WorldRenderer {
         }));
       this.routeLayer.setRoutes(routes);
     }
+  }
+
+  /** Loaded asteroids nearest to a world point; the keyboard alternative to clicking. */
+  nearestAsteroids(x: number, y: number, count: number): AsteroidHit[] {
+    return this.asteroidLayer.nearest(x, y, count);
   }
 
   /** Set the currently selected asteroid (redraws selection ring). Pass null to clear. */

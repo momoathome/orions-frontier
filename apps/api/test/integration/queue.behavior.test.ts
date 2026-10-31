@@ -224,6 +224,32 @@ test('cancelling a ship order refunds it and moves later orders up', async () =>
   assert.deepEqual(await stock(), STOCK);
 });
 
+test('a cancel refunds what was paid, not what the config costs today', async () => {
+  const db = getDb();
+  await setLevel('laboratory', 3);
+  const context = createRealtimeExecutionContext();
+  await buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 2 }], context);
+  await startResearch(userId, stationId, 'weapons');
+  const paidOnce = await stock();
+  // A balance patch after the payment must not change the refund.
+  await db
+    .update(spacecraftBuildOrders)
+    .set({ unitCost: [{ resourceKey: 'carbon', amount: 1 }] })
+    .where(eq(spacecraftBuildOrders.stationId, stationId));
+  await db
+    .update(userResearch)
+    .set({ paidCost: [{ resourceKey: 'carbon', amount: 7 }] })
+    .where(eq(userResearch.userId, userId));
+  const [order] = await db
+    .select()
+    .from(spacecraftBuildOrders)
+    .where(eq(spacecraftBuildOrders.stationId, stationId));
+
+  await cancelBuildOrder(stationId, userId, order!.id, context);
+  await cancelResearch(userId, 'weapons', creditStationResources);
+  assert.deepEqual(await stock(), { ...paidOnce, carbon: (paidOnce['carbon'] ?? 0) + 2 + 7 });
+});
+
 test('ordered ships finish one at a time and cancelling keeps the finished ones', async () => {
   const db = getDb();
   const context = createRealtimeExecutionContext();
@@ -369,6 +395,7 @@ test('finishing Parallel Construction starts a waiting upgrade in the new slot',
       startedAt: new Date(now.getTime() - 60_000),
       completesAt: new Date(now.getTime() - 1_000),
       paidByStationId: stationId,
+      paidCost: [],
     });
   await runWorldTick(now);
 

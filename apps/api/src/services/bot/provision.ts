@@ -65,6 +65,8 @@ export async function seedBotsForSector(
     });
     const user = createdUser ?? (await findUserByEmail(db, email));
     if (!user) continue;
+    // A destroyed bot station stays destroyed; only a bot that never had one here gets one.
+    if (existingBots.some((bot) => bot.userId === user.id)) continue;
 
     await insertBotControllerIfAbsent(db, {
       userId: user.id,

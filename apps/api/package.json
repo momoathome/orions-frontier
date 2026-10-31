@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "tsx watch --include ../../packages/shared/dist --include ../../packages/game-config/dist src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
     "clean": "rm -rf dist",
     "test:unit": "node --import tsx --test test/unit/*.test.ts",
     "test:integration": "node --import tsx --test --test-concurrency=1 test/integration/*.test.ts",

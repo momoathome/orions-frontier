@@ -187,7 +187,7 @@ export async function queryDatabaseInvariantState(
       .where(
         and(
           inArray(worldMissions.userId, controlledUserIds),
-          ne(worldMissions.status, 'arrived'),
+          inArray(worldMissions.status, ['traveling', 'returning']),
           lte(worldMissions.arrivesAt, now)
         )
       ),
@@ -222,7 +222,7 @@ export async function queryDatabaseInvariantState(
       .where(
         and(
           inArray(worldMissions.userId, controlledUserIds),
-          ne(worldMissions.status, 'arrived'),
+          inArray(worldMissions.status, ['traveling', 'returning']),
           or(lte(stationSpacecrafts.amount, 0), lte(stationSpacecrafts.lockedAmount, 0))
         )
       ),

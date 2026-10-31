@@ -293,6 +293,7 @@ export const buildSpacecrafts = async (
         spacecraftKey: def.key,
         amount: order.amount,
         orderedAmount: order.amount,
+        unitCost: def.costs,
         slot,
         stepMs,
         nextAt,
@@ -365,7 +366,7 @@ export const cancelBuildOrder = async (
     }
 
     const refund: ResourceMap = {};
-    for (const cost of getSpacecraft(order.spacecraftKey)?.costs ?? []) {
+    for (const cost of order.unitCost) {
       refund[cost.resourceKey] = (refund[cost.resourceKey] ?? 0) + cost.amount * unbuilt;
     }
     await creditStationResources(tx, stationId, refund);

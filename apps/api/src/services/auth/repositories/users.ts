@@ -1,5 +1,4 @@
 import { eq } from 'drizzle-orm';
-import { required } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { users } from '../../../lib/db/schema/users.js';
 
@@ -34,9 +33,10 @@ export async function hasUserWithUsername(db: QueryDb, username: string) {
   return rows.length > 0;
 }
 
+/** The new user, or undefined if a parallel signup took the username or email first. */
 export async function insertUser(db: QueryDb, values: typeof users.$inferInsert) {
-  const [row] = await db.insert(users).values(values).returning();
-  return required(row, 'user');
+  const [row] = await db.insert(users).values(values).onConflictDoNothing().returning();
+  return row;
 }
 
 export async function updateUser(tx: Tx, id: string, values: Partial<typeof users.$inferInsert>) {

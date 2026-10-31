@@ -69,5 +69,6 @@ export const registerUser = async (
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   const user = await insertUser(getDb(), { username, email, passwordHash });
+  if (!user) throw new AppError(ErrorCode.ALREADY_EXISTS, 'Username or email already taken');
   return toAuthenticatedUser(user);
 };

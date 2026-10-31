@@ -4,7 +4,7 @@ import {
   resolveGameExecutionContext,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
-import { getDb } from '../../lib/db/index.js';
+import { getDb, withExclusiveLock } from '../../lib/db/index.js';
 import { listDueTripsWithOwner, recordTripSettleFailure } from '../fleet/index.js';
 import { logger as rootLogger } from '../../lib/logger.js';
 import { publishUserEvent } from '../../lib/realtime.js';
@@ -226,12 +226,17 @@ export async function runWorldTick(
   };
 }
 
+/** One world tick across all API processes; a process that finds another ticking skips this one. */
+export function runExclusiveWorldTick(): Promise<WorldTickResult | undefined> {
+  return withExclusiveLock('world-tick', () => runWorldTick(createRealtimeExecutionContext()));
+}
+
 export function startSimulationScheduler(intervalMs = 1_000): NodeJS.Timeout {
   let running = false;
   return setInterval(() => {
     if (running) return;
     running = true;
-    void runWorldTick(createRealtimeExecutionContext())
+    void runExclusiveWorldTick()
       .catch((error: unknown) => {
         logger.error({ error }, 'Simulation tick failed');
       })

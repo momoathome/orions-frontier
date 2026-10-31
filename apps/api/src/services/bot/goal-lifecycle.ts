@@ -26,6 +26,7 @@ import {
   colonizationCost,
 } from './goals/expansion.js';
 import {
+  availableFighterAttack,
   generateFortifyCandidate,
   generateBuildStrikeForceCandidate,
   stepFortifyStation,
@@ -98,15 +99,6 @@ export async function checkUrgentMaintenance(
     };
   }
   return null;
-}
-
-function availableFighterAttack(station: StationSnapshot): number {
-  return station.fleets.reduce((sum, fleet) => {
-    const definition = getSpacecraft(fleet.spacecraftKey);
-    return definition?.role === 'fighter'
-      ? sum + (fleet.amount - fleet.lockedAmount) * definition.attack
-      : sum;
-  }, 0);
 }
 
 function findStationForGoal(

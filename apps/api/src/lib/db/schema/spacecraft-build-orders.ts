@@ -1,4 +1,5 @@
-import { pgTable, uuid, integer, timestamp, index, varchar } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, integer, timestamp, index, varchar, jsonb } from 'drizzle-orm/pg-core';
+import type { SpacecraftDefinitionCost } from '@orions-frontier/shared';
 import { stations } from './stations.js';
 
 export const spacecraftBuildOrders = pgTable(
@@ -12,6 +13,8 @@ export const spacecraftBuildOrders = pgTable(
     /** Ships still to build; drops by one each step. */
     amount: integer('amount').notNull(),
     orderedAmount: integer('ordered_amount').notNull(),
+    /** What one ship of this order cost; a cancel refunds this per unbuilt ship. */
+    unitCost: jsonb('unit_cost').$type<SpacecraftDefinitionCost[]>().notNull(),
     /** Shipyard production slot the order runs in; each slot builds one order at a time. */
     slot: integer('slot').notNull().default(0),
     /** Time per ship; 0 for orders from before ships came one at a time. */

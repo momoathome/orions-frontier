@@ -5,7 +5,12 @@ import type {
   LoginRequest,
   AuthResponse,
 } from '@orions-frontier/shared';
-import { apiClient, apiErrorMessage, onSessionExpired } from '../../shared/api/api-client.js';
+import {
+  apiClient,
+  apiErrorMessage,
+  onSessionExpired,
+  setAuthToken,
+} from '../../shared/api/api-client.js';
 
 const TOKEN_KEY = 'auth_token';
 const user = ref<AuthenticatedUser | null>(null);
@@ -14,14 +19,19 @@ const isLoading = ref(false);
 const error = ref<string | null>(null);
 const isAuthenticated = computed(() => token.value !== null && user.value !== null);
 
+function setToken(value: string | null) {
+  token.value = value;
+  setAuthToken(value);
+}
+
 function setSession(response: AuthResponse) {
-  token.value = response.token;
+  setToken(response.token);
   user.value = response.user;
   localStorage.setItem(TOKEN_KEY, response.token);
 }
 
 function clearSession() {
-  token.value = null;
+  setToken(null);
   user.value = null;
   localStorage.removeItem(TOKEN_KEY);
 }
@@ -45,13 +55,13 @@ async function restoreSession() {
   const storedToken = localStorage.getItem(TOKEN_KEY);
   if (!storedToken) return;
 
-  token.value = storedToken;
+  setToken(storedToken);
   isLoading.value = true;
   try {
     user.value = await apiClient.get<AuthenticatedUser>('/auth/me');
   } catch {
     // A 401 already ended the session; on a network error the stored token stays for the next load.
-    token.value = null;
+    setToken(null);
   } finally {
     isLoading.value = false;
   }

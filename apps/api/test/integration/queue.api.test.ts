@@ -85,6 +85,7 @@ test('DELETE ship build order: only the owner cancels it', async () => {
       spacecraftKey: 'mole',
       amount: 1,
       orderedAmount: 1,
+      unitCost: [],
       nextAt: new Date(Date.now() + 3_600_000),
       endsAt: new Date(Date.now() + 3_600_000),
     });

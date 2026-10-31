@@ -291,6 +291,7 @@ test('simulation tick completes due building and spacecraft work exactly once', 
       spacecraftKey,
       amount: 3,
       orderedAmount: 3,
+      unitCost: [],
       nextAt: new Date(now.getTime() - 1_000),
       endsAt: new Date(now.getTime() - 1_000),
     })
