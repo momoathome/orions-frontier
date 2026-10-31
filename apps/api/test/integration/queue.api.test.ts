@@ -98,6 +98,8 @@ test('DELETE ship build order: only the owner cancels it', async () => {
       stationId,
       spacecraftKey: 'mole',
       amount: 1,
+      orderedAmount: 1,
+      nextAt: new Date(Date.now() + 3_600_000),
       endsAt: new Date(Date.now() + 3_600_000),
     });
   const url = `/api/stations/${stationId}/spacecrafts/orders/${orderId}`;

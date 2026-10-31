@@ -381,6 +381,8 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
     stationId,
     spacecraftKey: 'collector',
     amount: 2,
+    orderedAmount: 2,
+    nextAt: new Date(Date.now() + 60_000),
     endsAt: new Date(Date.now() + 60_000),
   });
   await db
@@ -400,7 +402,7 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
   const completedAt = new Date();
   await db
     .update(spacecraftBuildOrders)
-    .set({ endsAt: completedAt })
+    .set({ nextAt: completedAt, endsAt: completedAt })
     .where(eq(spacecraftBuildOrders.stationId, stationId));
   await runSimulationTick(completedAt);
   assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 20 });

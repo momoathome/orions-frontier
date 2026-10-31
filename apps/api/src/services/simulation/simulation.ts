@@ -6,10 +6,7 @@ import {
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 import { getDb } from '../../lib/db/index.js';
-import {
-  claimDueBuildOrder,
-  listDueBuildOrders,
-} from '../../repositories/spacecraft-build-orders.js';
+import { claimBuiltShips, listDueBuildOrders } from '../../repositories/spacecraft-build-orders.js';
 import { listDueTripsWithOwner } from '../../repositories/spacecraft-trips.js';
 import {
   completeBuildingUpgrade,
@@ -189,26 +186,31 @@ async function completeDueSpacecraft(
   const events: PlaytestCompletionEvent[] = [];
 
   for (const order of dueBuildOrders) {
+    // Ships come one per step; a late tick catches up on every step that has passed.
+    const built =
+      order.stepMs > 0
+        ? Math.min(
+            order.amount,
+            Math.floor((context.now.getTime() - order.nextAt.getTime()) / order.stepMs) + 1
+          )
+        : order.amount;
+    const builtAt = new Date(order.nextAt.getTime() + (built - 1) * order.stepMs);
+    const nextAt = new Date(builtAt.getTime() + order.stepMs);
+    const finished = built >= order.amount;
     try {
       const completed = await db.transaction(async (tx) => {
-        if (!(await claimDueBuildOrder(tx, order.id, context.now))) return false;
+        if (!(await claimBuiltShips(tx, order.id, order.amount, built, nextAt))) return false;
 
-        await addBuiltSpacecraft(
-          tx,
-          order.stationId,
-          order.spacecraftKey,
-          order.amount,
-          order.endsAt
-        );
+        await addBuiltSpacecraft(tx, order.stationId, order.spacecraftKey, built, builtAt);
         // The Autonomous Mining Fleet sends new miners out right away.
         const assigned = await assignIdleMiners(
           tx,
           {
             stationId: order.stationId,
             spacecraftKey: order.spacecraftKey,
-            amount: order.amount,
+            amount: built,
             resourceKey: null,
-            departedAt: order.endsAt,
+            departedAt: builtAt,
           },
           context
         );
@@ -217,21 +219,24 @@ async function completeDueSpacecraft(
 
       if (completed) {
         completedCount += 1;
-        events.push({
-          type: 'spacecraft_completed',
-          eventId: completionEventId('spacecraft_completed', order.id),
-          occurredAt: order.endsAt,
-          userId: order.userId,
-          stationId: order.stationId,
-          orderId: order.id,
-          spacecraftKey: order.spacecraftKey,
-          amount: order.amount,
-        });
+        // The logbook notes the whole order once its last ship is done.
+        if (finished) {
+          events.push({
+            type: 'spacecraft_completed',
+            eventId: completionEventId('spacecraft_completed', order.id),
+            occurredAt: builtAt,
+            userId: order.userId,
+            stationId: order.stationId,
+            orderId: order.id,
+            spacecraftKey: order.spacecraftKey,
+            amount: order.orderedAmount,
+          });
+        }
         if (completed.assigned) events.push(completed.assigned);
         publishUserEvent(order.userId, 'spacecraft_build_completed', {
           stationId: order.stationId,
           spacecraftKey: order.spacecraftKey,
-          amount: order.amount,
+          amount: built,
           orderId: order.id,
         });
       }

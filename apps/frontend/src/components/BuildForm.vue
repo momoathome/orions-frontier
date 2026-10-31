@@ -68,12 +68,9 @@ const lacksResources = computed(
     totalCosts.value.some((cost) => (playerResources.value?.[cost.resourceKey] ?? 0) < cost.amount)
 );
 const locked = computed(() => ship.blockers.length > 0);
-const buildSeconds = computed(() =>
-  Math.ceil(
-    Math.ceil(amount.value / Math.max(1, productionSlots)) *
-      ship.definition.buildTime *
-      buildTimeFactor
-  )
+// An order runs in one slot, its ships one after another, as on the server.
+const buildSeconds = computed(
+  () => amount.value * Math.ceil(ship.definition.buildTime * buildTimeFactor)
 );
 const canSubmit = computed(
   () =>

@@ -8,11 +8,11 @@ import {
 } from '../../repositories/station-spacecrafts.js';
 import {
   deleteBuildOrderBefore,
-  findLatestBuildOrderEnd,
   insertBuildOrder,
   listBuildOrderAmounts,
   listBuildOrders,
-  updateBuildOrderEnd,
+  listBuildSlotEnds,
+  updateBuildOrderTimes,
   type BuildOrderRow,
 } from '../../repositories/spacecraft-build-orders.js';
 import {
@@ -285,16 +285,27 @@ export const buildSpacecrafts = async (
 
     const buildTimeMultiplier = shipBuildFactor(shipyardLevel, unlocks.modifiers.shipBuildBonus);
     const slots = calculateProductionSlots(shipyardLevel);
-    // One queue per station: each order starts when the previous one ends.
-    let queueEnd = Math.max(
-      (await findLatestBuildOrderEnd(tx, stationId))?.getTime() ?? 0,
-      context.now.getTime()
-    );
+    // Each production slot builds one order at a time, its ships one after another. A new order
+    // goes to the slot that is free first.
+    const slotEnds = Array.from({ length: slots }, () => context.now.getTime());
+    for (const { slot, endsAt } of await listBuildSlotEnds(tx, stationId)) {
+      if (slot < slots && endsAt)
+        slotEnds[slot] = Math.max(context.now.getTime(), endsAt.getTime());
+    }
     const orderEndsAt = orders.map((order) => {
       const def = required(defByKey.get(order.spacecraftKey), 'defByKey.get(order.spacecraftKey)');
-      queueEnd +=
-        Math.ceil(Math.ceil(order.amount / slots) * def.buildTime * buildTimeMultiplier) * 1000;
-      return { order, def, endsAt: new Date(queueEnd) };
+      const start = Math.min(...slotEnds);
+      const slot = slotEnds.indexOf(start);
+      const stepMs = Math.ceil(def.buildTime * buildTimeMultiplier) * 1000;
+      slotEnds[slot] = start + stepMs * order.amount;
+      return {
+        order,
+        def,
+        slot,
+        stepMs,
+        nextAt: new Date(start + stepMs),
+        endsAt: new Date(start + stepMs * order.amount),
+      };
     });
 
     for (const [resourceKey, amount] of totalCosts.entries()) {
@@ -302,12 +313,16 @@ export const buildSpacecrafts = async (
       currentResources.set(resourceKey, (currentResources.get(resourceKey) ?? 0) - amount);
     }
 
-    for (const { order, def, endsAt } of orderEndsAt) {
+    for (const { order, def, slot, stepMs, nextAt, endsAt } of orderEndsAt) {
       await insertBuildOrder(tx, {
         id: context.nextId('spacecraft-build-order'),
         stationId,
         spacecraftKey: def.key,
         amount: order.amount,
+        orderedAmount: order.amount,
+        slot,
+        stepMs,
+        nextAt,
         endsAt,
         createdAt: context.now,
       });
@@ -334,8 +349,9 @@ export const buildSpacecrafts = async (
 };
 
 /**
- * Cancels one build order with a full refund, as far as storage allows. Later orders move up by
- * the time it no longer takes: all of it while it waited, the rest of it while it ran.
+ * Cancels one build order; finished ships stay and the rest is refunded in full, as far as storage
+ * allows. Later orders in its slot move up by the time it no longer takes: all of it while it
+ * waited, the rest of it while it ran.
  */
 export const cancelBuildOrder = async (
   stationId: string,
@@ -346,13 +362,17 @@ export const cancelBuildOrder = async (
   const resources = await getDb().transaction(async (tx) => {
     const station = await findOwnedStationForUpdate(tx, stationId, userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-    const orders = (await listBuildOrders(tx, stationId)).sort(
-      (a, b) => a.endsAt.getTime() - b.endsAt.getTime()
-    );
+    const stationOrders = await listBuildOrders(tx, stationId);
+    const slot = stationOrders.find((order) => order.id === orderId)?.slot;
+    const orders = stationOrders
+      .filter((order) => order.slot === slot)
+      .sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime());
     const index = orders.findIndex((order) => order.id === orderId);
     const order = orders[index];
     if (!order) throw new AppError(ErrorCode.NOT_FOUND, 'Build order not found');
-    if (!(await deleteBuildOrderBefore(tx, order.id, context.now))) {
+    // The amount as deleted, so a ship a concurrent tick just finished is not refunded too.
+    const unbuilt = await deleteBuildOrderBefore(tx, order.id, context.now);
+    if (unbuilt === undefined) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Build order is already completing');
     }
 
@@ -363,12 +383,17 @@ export const cancelBuildOrder = async (
     );
     const saved = order.endsAt.getTime() - startedAt;
     for (const later of orders.slice(index + 1)) {
-      await updateBuildOrderEnd(tx, later.id, new Date(later.endsAt.getTime() - saved));
+      await updateBuildOrderTimes(
+        tx,
+        later.id,
+        new Date(later.nextAt.getTime() - saved),
+        new Date(later.endsAt.getTime() - saved)
+      );
     }
 
     const refund: ResourceMap = {};
     for (const cost of getSpacecraft(order.spacecraftKey)?.costs ?? []) {
-      refund[cost.resourceKey] = (refund[cost.resourceKey] ?? 0) + cost.amount * order.amount;
+      refund[cost.resourceKey] = (refund[cost.resourceKey] ?? 0) + cost.amount * unbuilt;
     }
     await creditStationResources(tx, stationId, refund);
     return listStationResources(tx, stationId);

@@ -173,12 +173,12 @@ export async function queryDatabaseInvariantState(
         id: spacecraftBuildOrders.id,
         userId: stations.userId,
         stationId: spacecraftBuildOrders.stationId,
-        dueAt: spacecraftBuildOrders.endsAt,
+        dueAt: spacecraftBuildOrders.nextAt,
       })
       .from(spacecraftBuildOrders)
       .innerJoin(stations, eq(stations.id, spacecraftBuildOrders.stationId))
       .where(
-        and(inArray(stations.userId, controlledUserIds), lte(spacecraftBuildOrders.endsAt, now))
+        and(inArray(stations.userId, controlledUserIds), lte(spacecraftBuildOrders.nextAt, now))
       ),
     db
       .select({

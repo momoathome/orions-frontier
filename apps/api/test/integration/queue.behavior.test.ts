@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import {
   calculateBuildingBuildTime,
   calculateResearchDuration,
+  getSpacecraft,
 } from '@orions-frontier/game-config';
 import { QUEUE_LIMIT, type ResourceMap } from '@orions-frontier/shared';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
@@ -238,6 +239,107 @@ test('cancelling a ship order refunds it and moves later orders up', async () =>
   );
   await cancelBuildOrder(stationId, userId, second!.id, context);
   assert.deepEqual(await stock(), STOCK);
+});
+
+test('ordered ships finish one at a time and cancelling keeps the finished ones', async () => {
+  const db = getDb();
+  const context = createRealtimeExecutionContext();
+  await buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 3 }], context);
+  await buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }], context);
+  const orders = async () =>
+    (
+      await db
+        .select()
+        .from(spacecraftBuildOrders)
+        .where(eq(spacecraftBuildOrders.stationId, stationId))
+    ).sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime());
+  const moles = async () =>
+    (
+      await db
+        .select({ amount: stationSpacecrafts.amount })
+        .from(stationSpacecrafts)
+        .where(
+          and(
+            eq(stationSpacecrafts.stationId, stationId),
+            eq(stationSpacecrafts.spacecraftKey, 'mole')
+          )
+        )
+    )[0]?.amount ?? 0;
+  const logged = async () =>
+    (
+      await db
+        .select()
+        .from(logbookEntries)
+        .where(
+          and(eq(logbookEntries.userId, userId), eq(logbookEntries.type, 'spacecraft_completed'))
+        )
+    ).length;
+  const [mass, later] = await orders();
+  assert.ok(mass && later);
+  assert.equal(mass.endsAt.getTime() - mass.nextAt.getTime(), 2 * mass.stepMs);
+  const molesBefore = await moles();
+  const loggedBefore = await logged();
+
+  // Two steps have passed: two ships are done, also when a second tick runs at the same time.
+  const twoBuilt = new Date(mass.nextAt.getTime() + mass.stepMs);
+  await Promise.all([runWorldTick(twoBuilt), runWorldTick(twoBuilt)]);
+  assert.equal(await moles(), molesBefore + 2);
+  const [running] = await orders();
+  assert.equal(running?.amount, 1);
+  assert.equal(await logged(), loggedBefore);
+
+  // Cancelling refunds only the ship still in the works and moves the later order up.
+  await setTestResources(stationId, STOCK);
+  await cancelBuildOrder(stationId, userId, mass.id, context.at(twoBuilt));
+  assert.equal(await moles(), molesBefore + 2);
+  const [moved] = await orders();
+  assert.equal(moved?.id, later.id);
+  assert.equal(
+    moved.endsAt.getTime(),
+    later.endsAt.getTime() - (mass.endsAt.getTime() - twoBuilt.getTime())
+  );
+  const refunded = await stock();
+  for (const cost of getSpacecraft('mole')!.costs) {
+    assert.equal(refunded[cost.resourceKey], STOCK[cost.resourceKey]! + cost.amount);
+  }
+
+  // The last order logs once, when its ship is done.
+  await runWorldTick(moved.endsAt);
+  assert.equal(await moles(), molesBefore + 3);
+  assert.equal(await logged(), loggedBefore + 1);
+});
+
+test('a second ship order runs in a free production slot instead of waiting', async () => {
+  await setLevel('shipyard', 5); // two production slots
+  await setLevel('hangar', 5); // crew for the ships earlier tests built
+  const context = createRealtimeExecutionContext();
+  await buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 3 }], context);
+  await buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }], context);
+  await buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }], context);
+  const [single, queued, mass] = (
+    await getDb()
+      .select()
+      .from(spacecraftBuildOrders)
+      .where(eq(spacecraftBuildOrders.stationId, stationId))
+  ).sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime());
+  assert.ok(single && queued && mass);
+
+  // The mass order keeps its slot; the next order starts at once in the other slot.
+  assert.notEqual(single.slot, mass.slot);
+  assert.equal(single.nextAt.getTime() - context.now.getTime(), single.stepMs);
+  assert.equal(mass.endsAt.getTime() - context.now.getTime(), 3 * mass.stepMs);
+  assert.equal(queued.slot, single.slot);
+
+  // Cancelling the mass order leaves the other slot's orders where they are.
+  await cancelBuildOrder(stationId, userId, mass.id, context);
+  const [stillSingle, stillQueued] = (
+    await getDb()
+      .select()
+      .from(spacecraftBuildOrders)
+      .where(eq(spacecraftBuildOrders.stationId, stationId))
+  ).sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime());
+  assert.equal(stillSingle?.endsAt.getTime(), single.endsAt.getTime());
+  assert.equal(stillQueued?.endsAt.getTime(), queued.endsAt.getTime());
 });
 
 test('queue jobs of another station or account cannot be removed or refunded', async () => {

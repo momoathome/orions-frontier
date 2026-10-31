@@ -253,6 +253,8 @@ test('simulation tick completes due building and spacecraft work exactly once', 
       stationId,
       spacecraftKey,
       amount: 3,
+      orderedAmount: 3,
+      nextAt: new Date(now.getTime() - 1_000),
       endsAt: new Date(now.getTime() - 1_000),
     })
     .returning({ id: spacecraftBuildOrders.id });
