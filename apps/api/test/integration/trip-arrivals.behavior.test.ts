@@ -14,6 +14,7 @@ import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { settleTripArrival } from '../../src/services/transport/trip-arrivals.js';
+import { assertKnownSpacecraftKeys } from '../../src/services/station/index.js';
 import { runSimulationTick } from '../../src/services/simulation/simulation.js';
 import {
   listDueTripsWithOwner,
@@ -255,6 +256,19 @@ test('a failing due trip does not block later simulation work', async () => {
     .update(spacecraftTrips)
     .set({ status: 'cancelled' })
     .where(eq(spacecraftTrips.id, poisonTrip.id));
+});
+
+test('the API refuses to start while ships of a removed type exist', async () => {
+  await assertKnownSpacecraftKeys();
+  const [row] = await getDb()
+    .insert(stationSpacecrafts)
+    .values({ stationId, spacecraftKey: 'retired_hull', amount: 1 })
+    .returning();
+  try {
+    await assert.rejects(assertKnownSpacecraftKeys(), /retired_hull/);
+  } finally {
+    await getDb().delete(stationSpacecrafts).where(eq(stationSpacecrafts.id, row!.id));
+  }
 });
 
 test('simulation tick completes due building and spacecraft work exactly once', async () => {

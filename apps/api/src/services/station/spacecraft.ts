@@ -5,6 +5,7 @@ import {
   insertStationSpacecrafts,
   listSpacecraftAmounts,
   listStationSpacecrafts,
+  listUsedSpacecraftKeys,
 } from './repositories/station-spacecrafts.js';
 import {
   deleteBuildOrderBefore,
@@ -375,3 +376,15 @@ export const cancelBuildOrder = async (
     resources: Object.fromEntries(resources.map((row) => [row.resourceKey, row.amount])),
   });
 };
+
+/**
+ * Arrivals, combat and build completion look up every ship type they touch. A type removed from
+ * the config while ships of it exist would make that work fail on every retry, so the API refuses
+ * to start until a migration has moved those rows to a known type.
+ */
+export async function assertKnownSpacecraftKeys(): Promise<void> {
+  const unknown = (await listUsedSpacecraftKeys(getDb())).filter((key) => !getSpacecraft(key));
+  if (unknown.length > 0) {
+    throw new Error(`Spacecraft types missing from the game config: ${unknown.join(', ')}`);
+  }
+}

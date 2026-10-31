@@ -14,6 +14,7 @@ export {
   getStationStorageCapacity,
 } from './resources.js';
 export {
+  assertKnownSpacecraftKeys,
   buildSpacecrafts,
   cancelBuildOrder,
   getStationHangar,

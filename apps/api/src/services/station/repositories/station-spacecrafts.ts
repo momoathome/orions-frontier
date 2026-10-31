@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { getDb, QueryDb, Tx } from '../../../lib/db/index.js';
+import { spacecraftBuildOrders } from '../../../lib/db/schema/spacecraft-build-orders.js';
 import { stationSpacecrafts } from '../../../lib/db/schema/station-spacecrafts.js';
 
 export type StationSpacecraftRow = typeof stationSpacecrafts.$inferSelect;
@@ -281,4 +282,13 @@ export async function addBuiltSpacecraft(
         eq(stationSpacecrafts.spacecraftKey, spacecraftKey)
       )
     );
+}
+
+/** Every ship type that has a fleet row or a build order anywhere. */
+export async function listUsedSpacecraftKeys(db: QueryDb): Promise<string[]> {
+  const [fleetKeys, orderKeys] = await Promise.all([
+    db.selectDistinct({ key: stationSpacecrafts.spacecraftKey }).from(stationSpacecrafts),
+    db.selectDistinct({ key: spacecraftBuildOrders.spacecraftKey }).from(spacecraftBuildOrders),
+  ]);
+  return [...new Set([...fleetKeys, ...orderKeys].map((row) => row.key))];
 }

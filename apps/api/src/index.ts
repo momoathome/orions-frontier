@@ -4,6 +4,7 @@ import { initDb } from './lib/db/index.js';
 import { runWorldTick, startSimulationScheduler } from './services/simulation/index.js';
 import { seedAsteroidWorld, seedDevUser } from './seed.js';
 import { seedBotsForOccupiedSectors } from './services/bot/index.js';
+import { assertKnownSpacecraftKeys } from './services/station/index.js';
 import { runMigrations } from './lib/db/migrate.js';
 import { parseEnv } from './lib/env.js';
 
@@ -25,6 +26,9 @@ export const start = async () => {
     // Run migrations before any seeding or queries
     await runMigrations();
     logger.info('Migrations applied');
+
+    // Ships of a removed type would make their arrivals fail forever; stop before the scheduler.
+    await assertKnownSpacecraftKeys();
 
     await seedAsteroidWorld();
     logger.info('Asteroid world seeded');
