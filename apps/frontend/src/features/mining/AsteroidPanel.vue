@@ -6,14 +6,20 @@ import { debounced } from '../../shared/lib/debounce';
 import {
   activeMiners,
   estimateAssignmentCycle,
-  getMiningTripPhase,
-  getMiningTripPhaseEndsAt,
   type AsteroidDetail,
   type AsteroidVein,
   type MiningCycleEstimate,
 } from '@orions-frontier/shared';
 import AssignMinersForm from './AssignMinersForm.vue';
 import RecallMinersForm from './RecallMinersForm.vue';
+import {
+  groupAssignments,
+  phaseDeadline as phaseDeadlineAt,
+  phaseDescription as phaseDescriptionAt,
+  phaseLabel as phaseLabelAt,
+  type Assignment,
+  type OperationGroup,
+} from './miner-groups';
 import { resourceColor, resourceName } from '../../shared/lib/resources';
 import UiModal from '../../shared/ui/UiModal.vue';
 import CostList from '../../shared/ui/CostList.vue';
@@ -107,44 +113,9 @@ function onChanged() {
   refreshAsteroid();
 }
 
-type Assignment = AsteroidDetail['assignments'][number];
-// Also the shape RecallMinersForm takes as AssignmentGroup.
-interface OperationGroup {
-  key: string;
-  stationId: string | null;
-  spacecraftName: string;
-  assignments: Assignment[];
-  members: { id: string; availableAmount: number }[];
-  totalAmount: number;
-  activeAmount: number;
-  recallRequestedAmount: number;
-  isOwn: boolean;
-}
-
-const operationGroups = computed<OperationGroup[]>(() => {
-  const groups = new Map<string, OperationGroup>();
-  for (const assignment of asteroid.value?.assignments ?? []) {
-    const key = `${assignment.stationId}:${assignment.spacecraftKey}`;
-    const group = groups.get(key) ?? {
-      key,
-      stationId: assignment.stationId,
-      spacecraftName: assignment.spacecraftName,
-      assignments: [],
-      members: [],
-      totalAmount: 0,
-      activeAmount: 0,
-      recallRequestedAmount: 0,
-      isOwn: assignment.stationId === stationId,
-    };
-    group.assignments.push(assignment);
-    group.members.push({ id: assignment.id, availableAmount: activeMiners(assignment) });
-    group.totalAmount += assignment.assignedAmount;
-    group.activeAmount += activeMiners(assignment);
-    group.recallRequestedAmount += assignment.recallRequestedAmount;
-    groups.set(key, group);
-  }
-  return [...groups.values()];
-});
+const operationGroups = computed(() =>
+  groupAssignments(asteroid.value?.assignments ?? [], stationId)
+);
 
 const ownGroups = computed(() =>
   operationGroups.value.filter(
@@ -232,46 +203,9 @@ const estimatedDepletionHours = computed(() =>
   totalExtractionPerHour.value > 0 ? totalRemaining.value / totalExtractionPerHour.value : 0
 );
 
-function phaseLabel(assignment: Assignment): string {
-  const trip = assignment.activeTrip;
-  if (!trip) return 'WAITING';
-  return (
-    getMiningTripPhase(
-      {
-        purpose: trip.purpose,
-        departedAt: Date.parse(trip.departedAt),
-        arrivesAt: Date.parse(trip.arrivesAt),
-      },
-      now.value
-    )?.toUpperCase() ?? 'WAITING'
-  );
-}
-
-function phaseDeadline(assignment: Assignment): number | null {
-  const trip = assignment.activeTrip;
-  if (!trip) return null;
-  return getMiningTripPhaseEndsAt(
-    {
-      purpose: trip.purpose,
-      departedAt: Date.parse(trip.departedAt),
-      arrivesAt: Date.parse(trip.arrivesAt),
-    },
-    now.value
-  );
-}
-
-function phaseDescription(assignment: Assignment): string {
-  switch (phaseLabel(assignment)) {
-    case 'OUTBOUND':
-      return 'Asteroid arrival';
-    case 'MINING':
-      return 'Return begins';
-    case 'RETURNING':
-      return 'Station arrival';
-    default:
-      return 'Awaiting next trip';
-  }
-}
+const phaseLabel = (assignment: Assignment) => phaseLabelAt(assignment, now.value);
+const phaseDeadline = (assignment: Assignment) => phaseDeadlineAt(assignment, now.value);
+const phaseDescription = (assignment: Assignment) => phaseDescriptionAt(assignment, now.value);
 
 function phaseCount(group: OperationGroup, phase: string): number {
   return group.assignments.reduce(
