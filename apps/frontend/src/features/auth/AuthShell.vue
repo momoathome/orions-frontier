@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import Wordmark from './Wordmark.vue';
+
 defineProps<{ title: string; lead: string }>();
 defineSlots<{ default(): unknown; switch(): unknown }>();
 </script>
@@ -6,9 +8,7 @@ defineSlots<{ default(): unknown; switch(): unknown }>();
 <template>
   <div class="flex min-h-screen flex-col bg-ui-bg text-left text-ui-text">
     <header class="flex h-16 shrink-0 items-center justify-between px-6">
-      <router-link to="/" class="text-[17px] font-medium text-ui-bright">
-        Orion's Frontier
-      </router-link>
+      <router-link to="/" class="text-[15px]"><Wordmark /></router-link>
       <slot name="switch" />
     </header>
 
