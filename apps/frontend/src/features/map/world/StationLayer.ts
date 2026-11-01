@@ -69,7 +69,7 @@ export class StationLayer {
   }
 
   hitTest(x: number, y: number, tolerance: number): VisibleStation | null {
-    // ponytail: a sector contains few stations; add a spatial index when that stops being true.
+    // known-limit: a sector contains few stations; add a spatial index when that stops being true.
     let nearest: VisibleStation | null = null;
     let nearestDistance = Infinity;
     for (const stations of this.stationsByChunk.values()) {

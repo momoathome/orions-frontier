@@ -15,7 +15,7 @@ import { listUserResearchByUsers } from '../research/index.js';
 /** Server-wide ranking by the Influence of every station and ship a player owns. */
 export async function getRanking(userId: string, limit: number): Promise<Ranking> {
   const db = getDb();
-  // ponytail: loads every station's levels and fleet per request; cache or materialize once player counts grow.
+  // known-limit: loads every station's levels and fleet per request; cache or materialize once player counts grow.
   const owners = await listActiveStationOwners(db);
   const stationIds = owners.map((owner) => owner.stationId);
   const userIds = [...new Set(owners.map((owner) => owner.userId))];

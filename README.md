@@ -2,6 +2,8 @@
 
 # Orion's Frontier
 
+[![CI](https://github.com/momoathome/orions-frontier/actions/workflows/ci.yml/badge.svg)](https://github.com/momoathome/orions-frontier/actions/workflows/ci.yml)
+
 **Mein persönliches Space-Game-Projekt**
 
 Seit vielen Jahren wollte ich ein eigenes Browsergame erschaffen – inspiriert von den großen
@@ -53,6 +55,38 @@ Platz im Herzen des Orion. Alle nutzen dieselben persistenten Reise-, Kosten- un
 - **Sprache und Werkzeuge:** TypeScript, npm Workspaces, ESLint, Prettier, dependency-cruiser,
   Node Test Runner
 - **Infrastruktur:** Docker Compose
+
+## Architektur
+
+Die API ist ein modularer Monolith. Die Fachlogik liegt in Service-Ordnern unter
+`apps/api/src/services`, die in festen Schichten aufeinander aufbauen:
+
+```text
+auth, research, map, logbook, fleet
+  → station → missions → world, mining, combat, ranking → transport → bot → simulation
+```
+
+Ein Ordner importiert nur Ordner tieferer Schichten und nur über deren `index.ts`; `lib` ist die
+Basis und kennt keine Services. dependency-cruiser erzwingt diese Regeln bei jedem `npm run check`,
+im Frontend ebenso die Grenzen zwischen den Feature-Ordnern unter `apps/frontend/src/features`.
+Details: [services/README.md](apps/api/src/services/README.md).
+
+### Invarianten
+
+- PostgreSQL ist die einzige Quelle der Wahrheit; Zustandswechsel laufen atomar, auch unter
+  Konkurrenz.
+- Zeitgesteuerte Vorgänge überstehen Neustarts und werden höchstens einmal abgeschlossen.
+- Bots nutzen dieselben Services, Kosten, Besitz- und Sichtregeln wie Spieler.
+- Private und scannerbegrenzte Daten filtert der Server, nie der Client.
+- Weltgenerierung und Regelberechnungen sind deterministisch.
+
+### Sicherheit
+
+Die Anmeldung nutzt ein JWT mit sieben Tagen Laufzeit im `localStorage`. Bewusst so gewählt: Rolle
+und Kontostatus liest die API bei jeder Anfrage aus der Datenbank, das Token allein gewährt also
+keine Rechte, die der Account nicht mehr hat. Das Frontend rendert kein `v-html`, und eine strikte
+Content Security Policy (Build-Zeit im Frontend, `default-src 'none'` in der API) begrenzt die
+Folgen einer XSS-Lücke.
 
 ## Getting Started
 
@@ -160,6 +194,36 @@ npm run dev --workspace @orions-frontier/api
 Die API benötigt dabei die Werte aus `.env` sowie laufendes PostgreSQL. Für die normale
 Entwicklung ist deshalb Docker Compose der vorgesehene Einstieg. WebSocket und Simulation laufen
 direkt im API-Prozess; fällige Vorgänge werden aus PostgreSQL nachgeholt.
+
+## Teststrategie
+
+- **Unit (API):** reine Spiellogik ohne Infrastruktur, `apps/api/test/unit`, Node Test Runner.
+- **Integration (API):** gegen eine echte, flüchtige PostgreSQL-Instanz; prüft Routen, Konkurrenz,
+  Besitz, Sichtbarkeit und zeitgesteuerte Abschlüsse.
+- **Playtest:** beschleunigte Simulation ganzer Welten mit Bots, bricht bei Invariantenverletzungen
+  ab (siehe unten).
+- **Unit (Frontend):** Vitest für Stores und Hilfslogik, `apps/frontend/test/unit`.
+- **E2E (Frontend):** Playwright-Smoke-Test über Registrierung, Stationsgründung und Karte.
+  Braucht den laufenden Dev-Stack (`npm run dev`) und legt dort Test-Accounts an:
+
+  ```bash
+  npm run test:e2e
+  ```
+
+GitHub Actions führt bei jedem Push und Pull Request Checks, Audit, Unit-Tests, Build und die
+Integrationstests aus.
+
+## KI-gestützte Entwicklung
+
+Das Projekt entsteht weitgehend mit KI-Agenten (Claude Code, Codex). Damit das tragfähig bleibt,
+sind die Leitplanken maschinell geprüft statt nur dokumentiert:
+
+- [AGENTS.md](AGENTS.md) hält Produktziel, Invarianten und Arbeitsregeln für Agenten fest.
+- Ein Pre-commit-Hook führt `npm run check` aus: Typecheck, strenges ESLint (u. a. keine
+  `as`-Casts, keine Modul-Mocks), Modulgrenzen und Prettier.
+- `npm run verify` ist das Gate für neue oder geänderte Mechaniken: alle Checks, beide
+  Testgruppen und der Playtest-E2E.
+- Bewusst akzeptierte Grenzen stehen als `known-limit:`-Kommentar direkt im Code.
 
 ## Beschleunigter Spieltest
 

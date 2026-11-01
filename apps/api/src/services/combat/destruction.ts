@@ -188,7 +188,7 @@ async function rehomeWorldMissions(
       await updateWorldMission(tx, mission.id, { status: 'cancelled' });
       continue;
     }
-    // ponytail: the mission keeps its timing and only changes home; a returning ship jumps to the new path.
+    // known-limit: the mission keeps its timing and only changes home; a returning ship jumps to the new path.
     const rowId = await addLockedShips(tx, target.id, mission.spacecraftKey, 1, context);
     await updateWorldMission(tx, mission.id, {
       stationSpacecraftId: rowId,

@@ -66,7 +66,7 @@ const card = computed(() => {
   const affordable = canQueue && !locked && shortfall.missing.length === 0;
   const startsNow = stationStore.startsNow(stationId, item);
   const ready = affordable && startsNow;
-  // ponytail: assumes today's Core and Construction Robotics levels; a level reached mid-upgrade
+  // known-limit: assumes today's Core and Construction Robotics levels; a level reached mid-upgrade
   // makes the bar jump. Send `upgradeStartedAt` from the API if that ever matters.
   const durationMs = buildSeconds(item.level + 1) * 1_000;
   const queuedSeconds = defense.value

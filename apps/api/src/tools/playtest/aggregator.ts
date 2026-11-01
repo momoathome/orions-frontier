@@ -307,7 +307,7 @@ function eliminateBot(state: BotAggregationState, capturedAt: string): void {
   metrics.development.buildingLevelTotal = 0;
   metrics.development.defenseLevelTotal = 0;
   metrics.development.spacecraftUnits = 0;
-  // ponytail: influence also drops its research share; recompute from research if reports need it.
+  // known-limit: influence also drops its research share; recompute from research if reports need it.
   metrics.development.influence = 0;
   metrics.expansion.stations = 0;
 }

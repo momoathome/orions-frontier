@@ -89,7 +89,7 @@ export async function createDebrisFromLosses(
   }
   if (Object.keys(resources).length === 0) return null;
 
-  // ponytail: every fight adds its own field at the same point; merging would lock the existing
+  // known-limit: every fight adds its own field at the same point; merging would lock the existing
   // field after the fleet rows and deadlock against startSalvage (debris, then fleet).
   const x = station.x + 90;
   const y = station.y + 70;

@@ -49,7 +49,7 @@ const research = useResearchStore();
 
 const stationName = (id: string) => state.stations.find((s) => s.id === id)?.name ?? 'Station';
 
-// ponytail: one asteroid request per mined asteroid; add a station income endpoint if stations
+// known-limit: one asteroid request per mined asteroid; add a station income endpoint if stations
 // regularly mine more than a handful of asteroids.
 async function loadStationIncome(
   id: string

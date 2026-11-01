@@ -64,7 +64,7 @@ const PURPOSE_COLOR: Record<Exclude<ActiveTrip['purpose'], 'mine' | 'mining_retu
   relocate: 0x88ccaa,
 };
 
-// ponytail: cap per-trip dots; switch to batched sprites if exact larger formations matter.
+// known-limit: cap per-trip dots; switch to batched sprites if exact larger formations matter.
 const MAX_VISIBLE_SHIPS = 25;
 const SHIP_RADIUS = 3;
 const SHIP_SPACING = 8;

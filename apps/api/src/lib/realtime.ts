@@ -23,7 +23,7 @@ interface ServerMessage {
   timestamp: number;
 }
 
-// ponytail: process-local fan-out assumes one API instance; add a broker when horizontally scaling.
+// known-limit: process-local fan-out assumes one API instance; add a broker when horizontally scaling.
 const clients = new Map<string, Set<WebSocket>>();
 
 function send(socket: WebSocket, message: ServerMessage): void {

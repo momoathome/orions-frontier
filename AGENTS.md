@@ -23,6 +23,7 @@ gameplay need.
 - Schema changes include the matching SQL migration and schema export.
 - API code follows the folders and layers in `apps/api/src/services/README.md`; `npm run check`
   enforces them.
+- A known, accepted limit gets a one-line `known-limit:` comment that names it and when to lift it.
 - Non-trivial game behavior gets one focused automated check, especially for concurrency, ownership,
   visibility, costs, and time-based completion.
 

@@ -164,7 +164,7 @@ function entriesFor(event: PlaytestCompletionEvent, defenderUserId?: string): Ne
 
 /**
  * Records completion events in the owning players' logbooks. Idempotent per event id.
- * ponytail: written after the completing transaction; a crash in between loses that entry only.
+ * known-limit: written after the completing transaction; a crash in between loses that entry only.
  */
 export async function recordLogbookEvents(events: readonly PlaytestCompletionEvent[]) {
   if (events.length === 0) return;
