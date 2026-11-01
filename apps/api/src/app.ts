@@ -37,7 +37,13 @@ export async function buildApp(
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  await app.register(helmet, { contentSecurityPolicy: false });
+  // The API answers JSON only, so nothing may load or frame it; the app's CSP is in vite.config.ts.
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
+    },
+  });
   // Map chunks are large, repetitive JSON; brotli 4 shrinks them several times at little CPU.
   await app.register(compress, {
     threshold: 1_024,

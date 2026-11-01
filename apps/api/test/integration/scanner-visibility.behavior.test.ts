@@ -570,14 +570,27 @@ test('dev scanner bypass projects the requested chunks without scanner coverage'
   const app = await buildTestApp();
   try {
     await app.ready();
-    const response = await app.inject({
-      method: 'GET',
-      url: `/api/asteroids/${hiddenAsteroidId}?scannerBypass=true`,
-      headers: { authorization: `Bearer ${app.jwt.sign({ userId: viewerId, role: 'admin' })}` },
-    });
+    // The token claims admin, but only the role stored for the account counts.
+    const request = () =>
+      app.inject({
+        method: 'GET',
+        url: `/api/asteroids/${hiddenAsteroidId}?scannerBypass=true`,
+        headers: { authorization: `Bearer ${app.jwt.sign({ userId: viewerId, role: 'admin' })}` },
+      });
 
-    assert.equal(response.statusCode, 200);
-    assert.equal(response.json().id, hiddenAsteroidId);
+    const asPlayer = await request();
+    assert.equal(asPlayer.statusCode, 200);
+    assert.equal(asPlayer.json().scanned, false);
+
+    await getDb().update(users).set({ role: 'admin' }).where(eq(users.id, viewerId));
+    try {
+      const asAdmin = await request();
+      assert.equal(asAdmin.statusCode, 200);
+      assert.equal(asAdmin.json().id, hiddenAsteroidId);
+      assert.equal(asAdmin.json().scanned, true);
+    } finally {
+      await getDb().update(users).set({ role: 'player' }).where(eq(users.id, viewerId));
+    }
   } finally {
     await app.close();
   }

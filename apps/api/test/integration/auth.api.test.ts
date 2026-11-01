@@ -48,6 +48,10 @@ test('auth endpoints reject invalid and unauthenticated requests', async () => {
   const unauthenticated = await app.inject({ method: 'GET', url: '/api/auth/me' });
   assert.equal(unauthenticated.statusCode, 401);
   assert.equal(unauthenticated.json().error.code, 'UNAUTHORIZED');
+  assert.equal(
+    unauthenticated.headers['content-security-policy'],
+    "default-src 'none';frame-ancestors 'none'"
+  );
 });
 
 test('a user can register, login and load their authenticated profile', async () => {
