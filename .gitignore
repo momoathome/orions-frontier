@@ -66,3 +66,7 @@ compose.override.yml
 
 # Lokales Gedächtnis der Audit-Schleife (.claude/workflows/audit-loop.js), nicht öffentlich
 docs/audit-ledger.md
+
+# Playwright
+test-results/
+playwright-report/
