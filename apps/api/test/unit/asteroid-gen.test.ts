@@ -4,7 +4,7 @@ import { resources as gameResources, spacecrafts } from '@orions-frontier/game-c
 import type { ResourceKey } from '@orions-frontier/shared';
 import { calculateMiningCycle } from '../../src/lib/mining-cycle.js';
 import { calcDistance } from '../../src/lib/travel.js';
-import { WORLD_CONFIG } from '../../src/lib/world-config.js';
+import { DEV_WORLD_SEED, WORLD_CONFIG } from '../../src/lib/world-config.js';
 import { buildAsteroid } from '../../src/lib/world-gen/asteroid-gen.js';
 import { SeededRng } from '../../src/lib/world-gen/rng.js';
 import {
@@ -37,8 +37,8 @@ test('generates one finite resource budget distributed across all veins', () => 
 });
 
 test('generates the same valid sector for the same seed', () => {
-  const first = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
-  const second = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
+  const first = generateSector(0, 0, DEV_WORLD_SEED, 'settlement');
+  const second = generateSector(0, 0, DEV_WORLD_SEED, 'settlement');
   assert.deepEqual(first, second);
 
   const halfWidth = WORLD_CONFIG.SECTOR.WIDTH / 2;
@@ -62,8 +62,8 @@ test('generates the same valid sector for the same seed', () => {
 });
 
 test('only settlement sectors contain local player and bot slots', () => {
-  const settlement = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
-  const frontier = generateSector(1, 0, WORLD_CONFIG.WORLD_SEED, 'frontier');
+  const settlement = generateSector(0, 0, DEV_WORLD_SEED, 'settlement');
+  const frontier = generateSector(1, 0, DEV_WORLD_SEED, 'frontier');
 
   assert.equal(settlement.spawnSlots.length, WORLD_CONFIG.SECTOR.STATION_CAPACITY);
   assert.equal(
@@ -78,7 +78,7 @@ test('only settlement sectors contain local player and bot slots', () => {
 });
 
 test('settlement sectors are dense and mostly contain small asteroids', () => {
-  const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
+  const sector = generateSector(0, 0, DEV_WORLD_SEED, 'settlement');
   const smallCount = sector.asteroids.filter((asteroid) => asteroid.size === 'small').length;
 
   assert.ok(sector.asteroids.length >= 50);
@@ -86,7 +86,7 @@ test('settlement sectors are dense and mostly contain small asteroids', () => {
 });
 
 test('starter pocket is separate and guarantees all three core resources', () => {
-  const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
+  const sector = generateSector(0, 0, DEV_WORLD_SEED, 'settlement');
   const pocket = generateStarterPocket(sector.spawnSlots[0]!, sector.seed);
   assert.equal(pocket.length, 5);
   assert.deepEqual(pocket.map((asteroid) => asteroid.veins[0]!.resourceKey).sort(), [
@@ -99,8 +99,8 @@ test('starter pocket is separate and guarantees all three core resources', () =>
 });
 
 test('orthogonal sectors contain opposite rare resources without cross-contamination', () => {
-  const even = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
-  const odd = generateSector(1, 0, WORLD_CONFIG.WORLD_SEED, 'frontier');
+  const even = generateSector(0, 0, DEV_WORLD_SEED, 'settlement');
+  const odd = generateSector(1, 0, DEV_WORLD_SEED, 'frontier');
   const resources = (sector: typeof even) =>
     new Set(sector.asteroids.flatMap((asteroid) => asteroid.veins.map((vein) => vein.resourceKey)));
 
@@ -116,7 +116,7 @@ test('initial rare fields do not contain massive primary deposits', () => {
   for (let sectorX = -1; sectorX <= 1; sectorX += 1) {
     for (let sectorY = -1; sectorY <= 1; sectorY += 1) {
       const role = sectorX === 0 && sectorY === 0 ? 'settlement' : 'frontier';
-      const sector = generateSector(sectorX, sectorY, WORLD_CONFIG.WORLD_SEED, role);
+      const sector = generateSector(sectorX, sectorY, DEV_WORLD_SEED, role);
       const rareResource = rareResourceForSector(sectorX, sectorY);
       const massiveRareDeposits = sector.asteroids.filter(
         (asteroid) => asteroid.size === 'massive' && asteroid.veins[0]!.resourceKey === rareResource
@@ -153,7 +153,7 @@ test('massive asteroids keep rare resources out of primary and secondary veins',
 
 test('starter miners make substantial trips and deplete small asteroids within hours', () => {
   const mole = spacecrafts.find((spacecraft) => spacecraft.key === 'mole')!;
-  const sector = generateSector(0, 0, WORLD_CONFIG.WORLD_SEED, 'settlement');
+  const sector = generateSector(0, 0, DEV_WORLD_SEED, 'settlement');
   const pockets = sector.spawnSlots.flatMap((slot) =>
     generateStarterPocket(slot, sector.seed).map((asteroid) => ({ slot, asteroid }))
   );

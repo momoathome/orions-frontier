@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseEnv } from '../../src/lib/env.js';
+import { DEV_WORLD_SEED, worldSeed } from '../../src/lib/world-config.js';
 
 const production = {
   NODE_ENV: 'production',
@@ -12,6 +13,22 @@ const production = {
 
 test('production needs its own world seed', () => {
   assert.throws(() => parseEnv({ ...production, WORLD_SEED: undefined }), /WORLD_SEED/);
+});
+
+test('world seed is read on use, so a later .env load still counts', (t) => {
+  const saved = process.env;
+  process.env = { ...saved };
+  t.after(() => {
+    process.env = saved;
+  });
+  delete process.env['WORLD_SEED'];
+  process.env['NODE_ENV'] = 'development';
+  assert.equal(worldSeed(), DEV_WORLD_SEED);
+  process.env['WORLD_SEED'] = 'c'.repeat(16);
+  assert.equal(worldSeed(), 'c'.repeat(16));
+  delete process.env['WORLD_SEED'];
+  process.env['NODE_ENV'] = 'production';
+  assert.throws(() => worldSeed(), /WORLD_SEED/);
 });
 
 test('production refuses placeholder and short JWT secrets', () => {

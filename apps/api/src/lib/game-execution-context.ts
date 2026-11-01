@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { WORLD_CONFIG } from './world-config.js';
+import { worldSeed as readWorldSeed } from './world-config.js';
 
 export interface GameExecutionContext {
   readonly now: Date;
@@ -74,7 +74,7 @@ function createContext(now: Date, worldSeed: string, ids: IdSequence): GameExecu
 
 export function createRealtimeExecutionContext(
   now = new Date(),
-  worldSeed = WORLD_CONFIG.WORLD_SEED
+  worldSeed = readWorldSeed()
 ): GameExecutionContext {
   const ids: IdSequence = {
     next(namespace: string): string {

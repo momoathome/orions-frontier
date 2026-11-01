@@ -1,4 +1,4 @@
-/** Abhängigkeitsregeln der API (nach xitavis-next). Schichten und Ordner: apps/api/src/services/README.md. */
+/** Abhängigkeitsregeln der API. Schichten und Ordner: apps/api/src/services/README.md. */
 /**
  * Schichten der Service-Ordner, von unten nach oben. Ein Ordner importiert nur Ordner
  * niedrigerer Schichten, nie die eigene oder eine höhere. Bezüge nach oben laufen über

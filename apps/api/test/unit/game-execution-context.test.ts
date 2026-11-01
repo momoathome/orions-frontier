@@ -5,7 +5,7 @@ import {
   createSeededExecutionContext,
   resolveGameExecutionContext,
 } from '../../src/lib/game-execution-context.js';
-import { WORLD_CONFIG } from '../../src/lib/world-config.js';
+import { worldSeed } from '../../src/lib/world-config.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -62,7 +62,7 @@ test('realtime context keeps production defaults and returns random UUIDs', () =
   const second = context.nextId('station');
 
   assert.equal(context.now.toISOString(), now.toISOString());
-  assert.equal(context.worldSeed, WORLD_CONFIG.WORLD_SEED);
+  assert.equal(context.worldSeed, worldSeed());
   assert.notEqual(first, second);
   assert.match(first, /^[0-9a-f-]{36}$/);
 });

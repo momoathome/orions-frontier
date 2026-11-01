@@ -1,4 +1,4 @@
-import { WORLD_CONFIG } from '../lib/world-config.js';
+import { WORLD_CONFIG, worldSeed } from '../lib/world-config.js';
 import { calcDistance } from '../lib/travel.js';
 import { generateSector } from '../lib/world-gen/sector-gen.js';
 
@@ -17,7 +17,7 @@ const rows = [];
 for (let sectorY = -radius; sectorY <= radius; sectorY += 1) {
   for (let sectorX = -radius; sectorX <= radius; sectorX += 1) {
     const role = sectorX === 0 && sectorY === 0 ? 'settlement' : 'frontier';
-    const sector = generateSector(sectorX, sectorY, WORLD_CONFIG.WORLD_SEED, role);
+    const sector = generateSector(sectorX, sectorY, worldSeed(), role);
     const reserve = reserveByResource(sector);
     const origins = sector.spawnSlots.length
       ? sector.spawnSlots

@@ -63,3 +63,6 @@ compose.override.yml
 .cache/
 .turbo/
 .vercel/
+
+# Lokales Gedächtnis der Audit-Schleife (.claude/workflows/audit-loop.js), nicht öffentlich
+docs/audit-ledger.md

@@ -1,7 +1,18 @@
+/** Public default for development and tests; production sets its own so maps cannot be precomputed. */
+export const DEV_WORLD_SEED = 'orions-frontier-v7';
+
+/** Read on use, not on import: index.ts loads .env only after this module is imported. */
+export function worldSeed(): string {
+  const seed = process.env['WORLD_SEED'];
+  if (seed) return seed;
+  if (process.env['NODE_ENV'] === 'production') {
+    throw new Error('WORLD_SEED is required in production');
+  }
+  return DEV_WORLD_SEED;
+}
+
 export const WORLD_CONFIG = {
   CHUNK_SIZE: 1000,
-  // Public default for development; production sets its own so maps cannot be precomputed.
-  WORLD_SEED: process.env['WORLD_SEED'] ?? 'orions-frontier-v7',
   INITIAL_SECTOR_RADIUS: 1,
 
   SECTOR: {

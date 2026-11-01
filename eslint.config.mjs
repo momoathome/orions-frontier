@@ -1,4 +1,4 @@
-// Regeln nach xitavis-next (apps/api, apps/web); Projektspezifisches (Modulgrenzen, vue-i18n) fehlt bewusst.
+// Lint-Regeln für API und Frontend; Modulgrenzen prüft dependency-cruiser.
 import { fileURLToPath } from 'node:url';
 import { globalIgnores } from 'eslint/config';
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript';
