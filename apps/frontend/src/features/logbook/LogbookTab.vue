@@ -100,35 +100,40 @@ const timeline = computed(() =>
     >
       No entries yet
     </p>
-    <ol
-      v-else
-      class="relative ml-1.5 min-h-0 flex-1 overflow-y-auto border-l border-ui-line-strong"
-    >
-      <li v-for="entry in timeline" :key="entry.id" class="relative pb-3 pl-4">
-        <span class="absolute -left-[4.5px] top-1 h-2 w-2 rounded-full" :class="entry.style.dot" />
-        <component
-          :is="entry.combatId ? 'button' : 'div'"
-          :type="entry.combatId ? 'button' : undefined"
-          class="flex w-full items-baseline gap-3 text-left"
-          :class="{ 'group cursor-pointer': entry.combatId }"
-          @click="entry.combatId && (openCombatId = entry.combatId)"
-        >
-          <time class="shrink-0 tabular-nums text-ui-muted" :datetime="entry.occurredAt">
-            {{ entry.time }}
-          </time>
-          <span class="w-16 shrink-0 uppercase tracking-[0.08em] text-xs text-ui-muted">
-            {{ entry.style.label }}
-          </span>
-          <span class="text-ui-text" :class="{ 'group-hover:text-ui-bright': entry.combatId }">
-            {{ entry.summary }}
-          </span>
-          <span v-if="entry.otherStation" class="shrink-0 text-xs text-ui-muted">
-            {{ stationStore.stationName(entry.stationId ?? '') }}
-          </span>
-          <span v-if="entry.combatId" class="ml-auto shrink-0 text-xs text-ui-cyan">Report ›</span>
-        </component>
-      </li>
-    </ol>
+    <!-- Scrolls outside the list: overflow on the <ol> would clip the dots on its left edge. -->
+    <div v-else class="min-h-0 flex-1 overflow-y-auto">
+      <ol class="relative ml-1.5 border-l border-ui-line-strong">
+        <li v-for="entry in timeline" :key="entry.id" class="relative pb-3 pl-4">
+          <span
+            class="absolute -left-[4.5px] top-1 h-2 w-2 rounded-full"
+            :class="entry.style.dot"
+          />
+          <component
+            :is="entry.combatId ? 'button' : 'div'"
+            :type="entry.combatId ? 'button' : undefined"
+            class="flex w-full items-baseline gap-3 text-left"
+            :class="{ 'group cursor-pointer': entry.combatId }"
+            @click="entry.combatId && (openCombatId = entry.combatId)"
+          >
+            <time class="shrink-0 tabular-nums text-ui-muted" :datetime="entry.occurredAt">
+              {{ entry.time }}
+            </time>
+            <span class="w-16 shrink-0 uppercase tracking-[0.08em] text-xs text-ui-muted">
+              {{ entry.style.label }}
+            </span>
+            <span class="text-ui-text" :class="{ 'group-hover:text-ui-bright': entry.combatId }">
+              {{ entry.summary }}
+            </span>
+            <span v-if="entry.otherStation" class="shrink-0 text-xs text-ui-muted">
+              {{ stationStore.stationName(entry.stationId ?? '') }}
+            </span>
+            <span v-if="entry.combatId" class="ml-auto shrink-0 text-xs text-ui-cyan"
+              >Report ›</span
+            >
+          </component>
+        </li>
+      </ol>
+    </div>
     <LoadMoreButton v-if="logbook.hasOlderLogbook()" :load="logbook.loadOlderLogbook" />
   </div>
 </template>
