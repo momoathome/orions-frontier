@@ -83,6 +83,16 @@
   .ui-btn-icon {
     @apply h-9 w-9 px-0;
   }
+  .ui-btn-group {
+    @apply flex;
+  }
+  .ui-btn-group > .ui-btn {
+    @apply relative -ml-px rounded-none first:ml-0 first:rounded-l-md last:rounded-r-md hover:z-10 focus-visible:z-10;
+  }
+  /* Paints an image's alpha in the text colour, so raster icons follow hover like the SVG ones. */
+  .ui-mask-icon {
+    @apply shrink-0 bg-current mask-contain mask-center mask-no-repeat;
+  }
   .ui-input {
     @apply h-10 rounded-md border border-ui-line-strong bg-ui-card px-3 text-sm text-ui-text focus:border-ui-cyan focus:outline-none;
   }

@@ -68,9 +68,19 @@ const runningResearch = computed(() => {
       <span class="text-[11px] font-semibold uppercase tracking-[0.2em] text-ui-dim">
         Orion's Frontier
       </span>
-      <span class="truncate text-[15px] font-semibold text-ui-bright">{{
-        stationStore.stationName(stationId)
-      }}</span>
+      <div class="flex min-w-0 items-center gap-2">
+        <span
+          class="h-2 w-2 shrink-0 rounded-full"
+          :class="live.online ? 'bg-ui-green' : 'bg-ui-red'"
+          :title="live.online ? 'Online' : 'Offline'"
+        />
+        <span class="truncate text-[15px] font-semibold text-ui-bright">{{
+          stationStore.stationName(stationId)
+        }}</span>
+        <span class="shrink-0 text-xs" :class="live.online ? 'sr-only' : 'text-ui-red'">{{
+          live.online ? 'Online' : 'Offline'
+        }}</span>
+      </div>
     </div>
 
     <ul
@@ -80,14 +90,11 @@ const runningResearch = computed(() => {
       <li
         v-for="entry in entries"
         :key="entry.key"
-        class="flex min-w-0 flex-col gap-1.5 py-2"
+        class="flex min-w-0 max-w-[180px] flex-1 flex-col gap-1.5 py-2"
         :title="entry.name"
       >
         <div class="flex items-center gap-2">
           <img :src="entry.image" :alt="entry.name" class="h-5 w-5 shrink-0 object-contain" />
-          <span class="hidden truncate text-xs text-ui-muted 2xl:inline" aria-hidden="true">{{
-            entry.name
-          }}</span>
           <span
             v-if="entry.rate > 0"
             class="ui-num text-xs text-ui-green"
@@ -99,7 +106,9 @@ const runningResearch = computed(() => {
           <span class="ui-num text-base font-semibold text-ui-bright">{{
             formatAmount(entry.amount)
           }}</span>
-          <span class="ui-num text-xs text-ui-dim">/ {{ formatAmount(entry.capacity) }}</span>
+          <span class="ui-num text-xs whitespace-nowrap text-ui-dim"
+            >/ {{ formatAmount(entry.capacity) }}</span
+          >
         </div>
         <div class="h-[3px] w-full overflow-hidden rounded-full bg-ui-line">
           <div
@@ -111,45 +120,76 @@ const runningResearch = computed(() => {
       <li v-if="entries.length === 0" class="text-sm text-ui-dim">Loading resources…</li>
     </ul>
 
-    <nav class="flex shrink-0 items-center gap-2">
-      <button type="button" class="ui-btn" @click="research.openView()">
-        Research
-        <template v-if="runningResearch">
-          <span class="hidden max-w-[140px] truncate text-xs font-normal text-ui-soft xl:inline">{{
-            runningResearch.name
-          }}</span>
-          <span
-            class="ui-num text-xs text-ui-amber"
-            :title="`${runningResearch.name} in progress`"
-            >{{ runningResearch.countdown }}</span
-          >
-        </template>
-      </button>
-      <button type="button" class="ui-btn" @click="emit('logbook')">
-        Logbook
-        <span
-          v-if="logbook.unseenLogbook.length > 0"
-          class="ui-num rounded-full bg-[#10333c] px-2 py-0.5 text-xs text-ui-cyan"
+    <nav class="flex shrink-0 items-center gap-3">
+      <!-- Below 1440px the labels collapse to icons so five resources keep their room. -->
+      <div class="ui-btn-group">
+        <button
+          type="button"
+          class="ui-btn"
+          :title="runningResearch ? `${runningResearch.name} in progress` : 'Research'"
+          @click="research.openView()"
         >
-          {{ logbook.unseenLogbook.length }} new
-        </span>
-      </button>
-      <button type="button" class="ui-btn" @click="emit('ranking')">
-        Ranking
-        <span v-if="rank" class="ui-num text-ui-bright">
-          #{{ rank.rank
-          }}<span class="text-ui-dim"> / {{ rankingStore.state.ranking?.totalPlayers }}</span>
-        </span>
-      </button>
-      <span
-        class="ml-2 flex items-center gap-1.5 text-xs"
-        :class="live.online ? 'text-ui-green' : 'text-ui-red'"
-      >
-        <span class="h-2 w-2 rounded-full" :class="live.online ? 'bg-ui-green' : 'bg-ui-red'" />
-        {{ live.online ? 'Online' : 'Offline' }}
-      </span>
+          <span
+            class="ui-mask-icon size-4 mask-[url(/assets/navigation/research.webp)]"
+            aria-hidden="true"
+          />
+          <span class="sr-only min-[1440px]:not-sr-only">Research</span>
+          <span v-if="runningResearch" class="ui-num text-xs text-ui-amber">{{
+            runningResearch.countdown
+          }}</span>
+        </button>
+        <button type="button" class="ui-btn" title="Logbook" @click="emit('logbook')">
+          <span
+            class="ui-mask-icon size-4 mask-[url(/assets/navigation/logbook.webp)]"
+            aria-hidden="true"
+          />
+          <span class="sr-only min-[1440px]:not-sr-only">Logbook</span>
+          <span
+            v-if="logbook.unseenLogbook.length > 0"
+            class="ui-num rounded-full bg-[#10333c] px-1.5 py-0.5 text-xs text-ui-cyan"
+          >
+            {{ logbook.unseenLogbook.length }}<span class="sr-only"> new</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="ui-btn"
+          :title="
+            rank ? `Rank ${rank.rank} of ${rankingStore.state.ranking?.totalPlayers}` : 'Ranking'
+          "
+          @click="emit('ranking')"
+        >
+          <span
+            class="ui-mask-icon size-5 mask-[url(/assets/navigation/ranking.webp)]"
+            aria-hidden="true"
+          />
+          <span class="sr-only min-[1440px]:not-sr-only">Ranking</span>
+          <span v-if="rank" class="ui-num text-ui-bright">#{{ rank.rank }}</span>
+        </button>
+      </div>
       <!-- App.vue sends the player to the login once the token is cleared. -->
-      <button type="button" class="ui-btn" @click="useAuthStore().logout()">Log out</button>
+      <button
+        type="button"
+        class="ui-btn w-10 px-0"
+        aria-label="Log out"
+        title="Log out"
+        @click="useAuthStore().logout()"
+      >
+        <svg
+          class="size-4"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M6.5 2.5h-3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3" />
+          <path d="M10.5 11 13.5 8l-3-3" />
+          <path d="M13.5 8h-7" />
+        </svg>
+      </button>
     </nav>
   </header>
 </template>
