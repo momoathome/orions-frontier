@@ -78,8 +78,8 @@ afterEach(async () => {
 after(closeDb);
 
 test('combat resolves attacker and defender losses', async () => {
-  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 9 });
-  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 20, used: 6 });
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 25, used: 9 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 25, used: 6 });
 
   const report = await resolveAttack();
 
@@ -94,8 +94,8 @@ test('combat resolves attacker and defender losses', async () => {
   ]);
   assert.deepEqual(attackerFleet, { amount: 2, lockedAmount: 0 });
   assert.deepEqual(defenderFleet, { amount: 0, lockedAmount: 0 });
-  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 8 });
-  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 20, used: 0 });
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 25, used: 8 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 25, used: 0 });
 });
 
 test('combat and salvage returns discard cargo above warehouse capacity', async () => {
@@ -417,7 +417,7 @@ test('an attack cancelled without a battle keeps its fleet hidden from the defen
 
 test('Fleet Coordination raises the hangar crew capacity', async () => {
   await grantResearch(defenderUserId, { fleet_coordination: 2 });
-  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 22, used: 6 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 27, used: 6 });
 });
 
 test('Cargo Compression lets a salvager carry more debris', async () => {

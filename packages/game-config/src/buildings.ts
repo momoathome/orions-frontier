@@ -238,9 +238,12 @@ export const calculateStorageCapacity = (warehouseLevel: number): number =>
 /** Stock per resource that attackers cannot loot. */
 export const calculateProtectedStorage = (warehouseLevel: number): number => warehouseLevel * 100;
 
-/** Crew places provided by a station hangar; the square term keeps late levels worth their cost. */
+/**
+ * Crew places provided by a station hangar; the square term keeps late levels worth their cost,
+ * and the 1.25 leaves room for a strike force beside the miners.
+ */
 export const calculateHangarCapacity = (hangarLevel: number): number =>
-  10 + hangarLevel * 10 + Math.max(0, hangarLevel - 1) ** 2;
+  Math.floor((10 + hangarLevel * 10 + Math.max(0, hangarLevel - 1) ** 2) * 1.25);
 
 /** Crew the hangar holds once Fleet Coordination (`crewFactor`) is applied. */
 export const calculateCrewCapacity = (hangarLevel: number, crewFactor: number): number =>

@@ -2,6 +2,7 @@ import {
   required,
   AppError,
   ErrorCode,
+  type AttackForecast,
   type CombatReport,
   type ResourceMap,
 } from '@orions-frontier/shared';
@@ -26,7 +27,8 @@ import {
 import { insertTrip, updateTripCargo, type TripRow } from '../fleet/index.js';
 import { findUserForUpdate, updateUser } from '../auth/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
-import { resolveBattle } from './battle.js';
+import { lootFromStock, resolveBattle } from './battle.js';
+import { forecastAttack } from './forecast.js';
 import { createDebrisFromLosses } from './salvage.js';
 import { destroyStation } from './destruction.js';
 import { publishUserEvent } from '../../lib/realtime.js';
@@ -44,11 +46,14 @@ import {
   removeSpacecraft,
   reserveSpacecraft,
   findActiveStation,
+  findOwnedStation,
   findOwnedStationForUpdate,
   findStation,
   findStationForUpdate,
   updateStation,
+  getStationVisualProfiles,
   getUserScannerCoverages,
+  listStationResources,
 } from '../station/index.js';
 import {
   applyTravelSpeed,
@@ -237,6 +242,39 @@ export async function startAttack(params: {
   return toReport(mission.mission, mission.defenderUserId, mission.arrivesAt, params.userId, false);
 }
 
+/** What the scanner lets the attacker expect from this fleet; changes nothing. */
+export async function getAttackForecast(params: {
+  userId: string;
+  stationId: string;
+  targetStationId: string;
+  fleet: Record<string, number>;
+}): Promise<AttackForecast> {
+  const { groups } = parseAttackFleet(params.fleet);
+  const db = getDb();
+  const attacker = await findOwnedStation(db, params.stationId, params.userId);
+  if (!attacker) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+  const defender = await findActiveStation(db, params.targetStationId);
+  if (!defender || defender.userId === params.userId) {
+    throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid attack target');
+  }
+  const coverages = await getUserScannerCoverages(params.userId, db);
+  if (!isPointVisible(coverages, defender)) {
+    throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
+  }
+  const [profiles, research, warehouseLevel, resources] = await Promise.all([
+    getStationVisualProfiles([defender.id]),
+    getStationResearchModifiers(db, attacker.id),
+    findBuildingLevel(db, defender.id, 'warehouse'),
+    listStationResources(db, defender.id),
+  ]);
+  return forecastAttack(
+    groups.map(([key, amount]) => ({ key, amount, spacecraft: requireSpacecraft(key) })),
+    required(profiles.get(defender.id), 'target profile'),
+    research,
+    { resources, protectedAmount: calculateProtectedStorage(warehouseLevel ?? 0) }
+  );
+}
+
 /** Newest first, one page at a time; incoming attacks are always on the first page. */
 export async function getUserCombatReports(
   userId: string,
@@ -280,26 +318,20 @@ interface CombatOutcome {
   stationDestroyed: boolean;
 }
 
-/** A won wave takes 10% of every unprotected resource, in key order, until the cargo is full. */
+/** Plunders the defender in key order; see `lootFromStock`. */
 async function plunderStation(
   tx: Tx,
   defenderStationId: string,
   cargoCapacity: number
 ): Promise<Record<string, number>> {
-  const loot: Record<string, number> = {};
-  let cargoLeft = cargoCapacity;
   const protectedAmount = calculateProtectedStorage(
     (await findBuildingLevel(tx, defenderStationId, 'warehouse')) ?? 0
   );
   const resources = await listStationResourcesInKeyOrderForUpdate(tx, defenderStationId);
-  for (const resource of resources) {
-    if (cargoLeft <= 0) break;
-    const available = Math.max(0, resource.amount - protectedAmount);
-    const amount = Math.min(cargoLeft, Math.floor(available * 0.1));
-    if (amount <= 0) continue;
-    loot[resource.resourceKey] = amount;
-    cargoLeft -= amount;
-    await deductStationResource(tx, defenderStationId, resource.resourceKey, amount);
+  const loot = lootFromStock(resources, protectedAmount, cargoCapacity);
+  for (const { resourceKey } of resources) {
+    const amount = loot[resourceKey];
+    if (amount) await deductStationResource(tx, defenderStationId, resourceKey, amount);
   }
   return loot;
 }

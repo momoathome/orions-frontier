@@ -382,7 +382,7 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
     .where(eq(stationSpacecrafts.stationId, stationId));
   await db
     .update(stationSpacecrafts)
-    .set({ amount: 7 })
+    .set({ amount: 9 })
     .where(
       and(eq(stationSpacecrafts.stationId, stationId), eq(stationSpacecrafts.spacecraftKey, 'mole'))
     );
@@ -401,14 +401,14 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
   });
   await setTestResources(stationId, 100_000);
 
-  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 18 });
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 25, used: 22 });
 
   const results = await Promise.allSettled([
     buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }]),
     buildSpacecrafts(stationId, userId, [{ spacecraftKey: 'mole', amount: 1 }]),
   ]);
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
-  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 20 });
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 25, used: 24 });
 
   const completedAt = new Date();
   await db
@@ -416,7 +416,7 @@ test('weighted fleet and queue crew cannot exceed hangar capacity concurrently',
     .set({ nextAt: completedAt, endsAt: completedAt })
     .where(eq(spacecraftBuildOrders.stationId, stationId));
   await runWorldTick(completedAt);
-  assert.deepEqual(await getStationHangar(stationId), { capacity: 20, used: 20 });
+  assert.deepEqual(await getStationHangar(stationId), { capacity: 25, used: 24 });
 });
 
 test('parallel station creation claims different spawn slots atomically', async () => {

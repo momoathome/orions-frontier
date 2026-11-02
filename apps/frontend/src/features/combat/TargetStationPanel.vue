@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { VisibleStation } from '@orions-frontier/shared';
+import type { AttackForecast, VisibleStation } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { resourceName } from '../../shared/lib/resources';
 import { useStationStore } from '../station/index.js';
 import PanelShell from '../../shared/ui/PanelShell.vue';
 
@@ -37,6 +38,33 @@ watch(
   () => {
     amounts.value = {};
     feedback.value = null;
+  }
+);
+
+const forecast = ref<AttackForecast | null>(null);
+const chanceLabel = { high: 'High', medium: 'Medium', low: 'Low' } as const;
+const chanceClass = { high: 'text-ui-green', medium: 'text-ui-amber', low: 'text-ui-red' } as const;
+let forecastTimer: ReturnType<typeof setTimeout> | undefined;
+let forecastRequest = 0;
+// The server predicts from what the scanner sees; typing in the amounts waits for a short pause.
+watch(
+  () => [origin?.id, station.id, fleet.value] as const,
+  ([originId, targetId, selected]) => {
+    clearTimeout(forecastTimer);
+    const request = ++forecastRequest;
+    forecast.value = null;
+    if (!originId || !station.scanned || Object.keys(selected).length === 0) return;
+    forecastTimer = setTimeout(async () => {
+      try {
+        const result = await apiClient.post<AttackForecast>(
+          `/stations/${originId}/attacks/forecast`,
+          { targetStationId: targetId, fleet: selected }
+        );
+        if (request === forecastRequest) forecast.value = result;
+      } catch {
+        // No forecast is shown; launching the attack reports the actual problem.
+      }
+    }, 300);
   }
 );
 
@@ -115,6 +143,21 @@ async function attack() {
         <p v-else class="text-ui-soft">
           No fighter or bomber is ready. Build them in the Shipyard (Fleet).
         </p>
+        <dl v-if="forecast" class="flex flex-col gap-1 text-sm" aria-live="polite">
+          <div class="flex justify-between">
+            <dt class="text-ui-soft">Win chance</dt>
+            <dd :class="chanceClass[forecast.winChance]">{{ chanceLabel[forecast.winChance] }}</dd>
+          </div>
+          <div v-for="(range, key) in forecast.loot" :key="key" class="flex justify-between">
+            <dt class="text-ui-soft">Expected {{ resourceName(key) }}</dt>
+            <dd class="ui-num text-ui-bright">
+              {{ range.min.toLocaleString('en-US') }}–{{ range.max.toLocaleString('en-US') }}
+            </dd>
+          </div>
+          <p class="text-xs text-ui-muted">
+            Estimated from the scanned station defense; docked ships and research stay unseen.
+          </p>
+        </dl>
         <p v-if="feedback" class="text-ui-soft">{{ feedback }}</p>
       </section>
     </div>

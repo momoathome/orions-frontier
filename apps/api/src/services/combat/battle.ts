@@ -64,3 +64,22 @@ export function resolveBattle(
     survivorTotal > 0 && attackerPower > defenderPower ? 'attacker' : 'defender';
   return { attackerLosses, defenderLosses, winner, attackerPower, defenderPower };
 }
+
+/** A won wave takes 10% of every unprotected resource, in the given order, until the cargo is full. */
+export function lootFromStock(
+  resources: readonly { resourceKey: string; amount: number }[],
+  protectedAmount: number,
+  cargoCapacity: number
+): Record<string, number> {
+  const loot: Record<string, number> = {};
+  let cargoLeft = cargoCapacity;
+  for (const resource of resources) {
+    if (cargoLeft <= 0) break;
+    const available = Math.max(0, resource.amount - protectedAmount);
+    const amount = Math.min(cargoLeft, Math.floor(available * 0.1));
+    if (amount <= 0) continue;
+    loot[resource.resourceKey] = amount;
+    cargoLeft -= amount;
+  }
+  return loot;
+}

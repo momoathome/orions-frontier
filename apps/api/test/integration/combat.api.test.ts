@@ -168,3 +168,28 @@ async function settleTrip(tripId: string): Promise<void> {
   const [trip] = await getDb().select().from(spacecraftTrips).where(eq(spacecraftTrips.id, tripId));
   assert.equal((await settleTripArrival(trip!)).settled, true);
 }
+
+test('the attack forecast answers only for stations inside the scanner', async () => {
+  const forecast = await app.inject({
+    method: 'POST',
+    url: `/api/stations/${attackerStationId}/attacks/forecast`,
+    headers,
+    payload: { targetStationId: defenderStationId, fleet: { merlin: 3 } },
+  });
+  assert.equal(forecast.statusCode, 200);
+  assert.equal(forecast.json<{ winChance: string }>().winChance, 'high');
+
+  const hidden = await createTestStation({
+    userId: defenderUserId,
+    sectorId,
+    name: 'Hidden',
+    x: 50_000,
+  });
+  const unseen = await app.inject({
+    method: 'POST',
+    url: `/api/stations/${attackerStationId}/attacks/forecast`,
+    headers,
+    payload: { targetStationId: hidden.id, fleet: { merlin: 3 } },
+  });
+  assert.equal(unseen.statusCode, 404);
+});

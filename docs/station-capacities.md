@@ -25,7 +25,8 @@ lohnendes Raid-Ziel.
 
 ## Hangar und Crew
 
-Die `hangar_capacity` bezeichnet Crewplätze. Jedes Schiff belegt die in seiner Definition
+Die `hangar_capacity` bezeichnet Crewplätze: `⌊(10 + 10 × Stufe + (Stufe − 1)²) × 1,25⌋` (Stufe 1:
+25, Stufe 5: 95, Stufe 10: 238, Stufe 20: 713). Jedes Schiff belegt die in seiner Definition
 angegebene Crewzahl. Zur Belegung zählen alle vorhandenen Schiffe einschließlich reisender und
 gesperrter Schiffe sowie alle Schiffe in der Bauqueue.
 

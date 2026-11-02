@@ -21,3 +21,11 @@ export interface CombatReport {
   createdAt: string;
   resolvedAt: string | null;
 }
+
+/** Before an attack: what the own scanner lets the server predict about the fight. */
+export interface AttackForecast {
+  /** Against the scanner's upper estimate of the target's station defense. */
+  winChance: 'high' | 'medium' | 'low';
+  /** Expected loot per resource if the attack wins, as a coarse range; empty if it loses. */
+  loot: Record<string, { min: number; max: number }>;
+}
