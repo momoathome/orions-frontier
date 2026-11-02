@@ -116,12 +116,15 @@ const RESERVE_RATIO: Record<BotProfile, number> = {
   warlord: 0.375,
 };
 
-/** Safety margins on estimated target defense per profile (GB-17). */
+/**
+ * Safety margins on estimated target defense per profile (GB-17). The winner loses
+ * `(1 / margin)^1.5` at most: about 50% for the Industrialist, 67% for the Warlord.
+ */
 export const SAFETY_MARGIN: Record<BotProfile, number> = {
-  industrialist: 1.4,
-  pioneer: 1.3,
-  technocrat: 1.25,
-  warlord: 1.15,
+  industrialist: 1.6,
+  pioneer: 1.5,
+  technocrat: 1.5,
+  warlord: 1.3,
 };
 
 const RECENT_ATTACK_BONUS = 0.15;

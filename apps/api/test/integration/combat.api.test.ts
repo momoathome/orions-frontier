@@ -105,9 +105,10 @@ test('combat endpoints validate, start and expose attack and salvage missions', 
     .where(eq(debrisFields.sectorId, sectorId));
   const debris = await app.inject({ method: 'GET', url: `/api/debris/${field!.id}`, headers });
   assert.equal(debris.statusCode, 200);
+  // Only the three Moles fell; the Merlins won without a loss.
   assert.deepEqual(debris.json().resources, {
-    carbon: 108,
-    titanium: 78,
+    carbon: 72,
+    titanium: 54,
     hydrogenium: 45,
   });
 

@@ -25,6 +25,7 @@ import {
   createTestStation,
   createTestUser,
   deleteTestData,
+  setTestResources,
 } from '../helpers/fixtures.js';
 
 let attackerUserId = '';
@@ -387,6 +388,8 @@ test('a player who lost every station restarts with fresh attack protection', as
 
 test('a returning mixed fleet relocates per ship type and delivers its loot once', async () => {
   const db = getDb();
+  // Above the warehouse's protected 300, so the raid has something to carry home.
+  await setTestResources(defenderStationId, { carbon: 1_000 });
   const raid = await startAttack({
     userId: attackerUserId,
     stationId: attackerStationId,

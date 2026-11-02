@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, ne, or, sql } from 'drizzle-orm';
 import { required } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { combatMissions } from '../../../lib/db/schema/combat-missions.js';
@@ -98,4 +98,21 @@ export function listUnresolvedCombatMissionsByUser(db: QueryDb, userId: string) 
     .select()
     .from(combatMissions)
     .where(and(eq(combatMissions.userId, userId), ne(combatMissions.status, 'resolved')));
+}
+
+/** What the user's newest surviving wave against this station reported, if any. */
+export async function findLatestScouting(db: QueryDb, userId: string, defenderStationId: string) {
+  const [row] = await db
+    .select({ scouting: combatMissions.scouting })
+    .from(combatMissions)
+    .where(
+      and(
+        eq(combatMissions.userId, userId),
+        eq(combatMissions.defenderStationId, defenderStationId),
+        isNotNull(combatMissions.scouting)
+      )
+    )
+    .orderBy(desc(combatMissions.createdAt), desc(combatMissions.id))
+    .limit(1);
+  return row?.scouting ?? null;
 }

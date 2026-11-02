@@ -20,8 +20,8 @@ zwei Regeln:
   sein. Mit drei Start-Moles auf zwei Ressourcen (je etwa 570/h) reicht Stufe 1 knapp 9 Stunden.
   Wer das Warehouse hinter der Flotte zurücklässt, muss öfter reinschauen.
 
-`protected_storage` bleibt bei `Stufe × 100` und ist bewusst klein: Ein volles Lager ist ein
-lohnendes Raid-Ziel.
+`protected_storage` ist `Stufe × 300` und bewusst klein: Ein volles Lager ist ein lohnendes
+Raid-Ziel, eine Welle nimmt 30 % vom ungeschützten Rest.
 
 ## Hangar und Crew
 

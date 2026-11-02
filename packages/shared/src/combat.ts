@@ -38,4 +38,6 @@ export interface AttackForecast {
   winChance: 'high' | 'medium' | 'low';
   /** Expected loot per resource if the attack wins, as a coarse range; empty if it loses. */
   loot: Record<string, { min: number; max: number }>;
+  /** `last_report`: outside the scanner, from the user's newest combat report on the target. */
+  basis: 'scanner' | 'last_report';
 }

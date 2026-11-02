@@ -69,6 +69,8 @@ beforeEach(async () => {
         eq(stationSpacecrafts.spacecraftKey, 'mole')
       )
     );
+  // Above the warehouse's protected 300: 60 Carbon and 210 Hydrogenium are up for plunder.
+  await setTestResources(defenderStationId, { carbon: 500, hydrogenium: 1_000 });
 });
 
 afterEach(async () => {
@@ -85,18 +87,19 @@ test('combat resolves attacker and defender losses', async () => {
 
   assert.equal(report.status, 'resolved');
   assert.equal(report.winner, 'attacker');
-  assert.equal(report.attackerLosses, 1);
+  // 45 attack against 9 defense: (9/45)^1.5 of 3 Merlins rounds down to none.
+  assert.equal(report.attackerLosses, 0);
   assert.equal(report.defenderLosses, 3);
-  // The two surviving Merlins report the docked ships they met.
+  // The surviving Merlins report the docked ships they met.
   assert.deepEqual(report.scouting, { stationDefense: 0, dockedShips: { mole: 3 } });
 
   const [attackerFleet, defenderFleet] = await Promise.all([
     getFleet(attackerStationId, 'merlin'),
     getFleet(defenderStationId, 'mole'),
   ]);
-  assert.deepEqual(attackerFleet, { amount: 2, lockedAmount: 0 });
+  assert.deepEqual(attackerFleet, { amount: 3, lockedAmount: 0 });
   assert.deepEqual(defenderFleet, { amount: 0, lockedAmount: 0 });
-  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 25, used: 8 });
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 25, used: 9 });
   assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 25, used: 0 });
 });
 
@@ -173,14 +176,15 @@ test('a resolved attack transfers bounded loot and creates debris', async () => 
 
   const report = await resolveAttack();
 
-  assert.deepEqual(report.loot, { carbon: 15, hydrogenium: 5 });
-  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 15);
-  assert.equal(await getCarbon(defenderStationId), defenderCarbonBefore - 15);
+  // 150 cargo: all 60 Carbon, then 90 of 210 Hydrogenium.
+  assert.deepEqual(report.loot, { carbon: 60, hydrogenium: 90 });
+  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 60);
+  assert.equal(await getCarbon(defenderStationId), defenderCarbonBefore - 60);
   const [field] = await getDb()
     .select()
     .from(debrisFields)
     .where(eq(debrisFields.sectorId, sectorId));
-  assert.deepEqual(field?.resources, { carbon: 108, titanium: 78, hydrogenium: 45 });
+  assert.deepEqual(field?.resources, { carbon: 72, titanium: 54, hydrogenium: 45 });
 });
 
 test('debris can be salvaged and combat does not change station ownership', async () => {
@@ -199,7 +203,7 @@ test('debris can be salvaged and combat does not change station ownership', asyn
   });
   await resolveSalvage(field.id);
 
-  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 15 + 108);
+  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 60 + 72);
   assert.equal(
     (await getDb().select().from(debrisFields).where(eq(debrisFields.id, field.id))).length,
     0
@@ -217,7 +221,7 @@ test('debris can be salvaged and combat does not change station ownership', asyn
   assert.equal(defenderStation?.userId, defenderUserId);
 });
 
-// 3 Merlins (attack 15, defense 8, cargo 10) against Moles (defense 3) and defense upgrades.
+// 3 Merlins (attack 15, cargo 50) against Moles (defense 3) and defense upgrades.
 const researchCases: {
   name: string;
   attacker?: ResearchLevels;
@@ -227,43 +231,47 @@ const researchCases: {
   expected: Partial<CombatReport>;
 }[] = [
   {
-    name: 'without research 45 attack destroys 15 Moles',
+    // 45 against 60: the wave falls and takes (45/60)^1.5 of 20 Moles with it.
+    name: 'without research 45 attack loses to 20 Moles and destroys 12',
     moles: 20,
-    expected: { defenderLosses: 15 },
+    expected: { winner: 'defender', attackerLosses: 3, defenderLosses: 12 },
   },
   {
     name: 'Weapons raises the attack',
     attacker: { weapons: 4 },
     moles: 20,
-    expected: { defenderLosses: 18 },
+    expected: { defenderLosses: 17 },
   },
   {
     name: 'Armor protects defending ships',
     defender: { armor: 4 },
     moles: 20,
-    expected: { defenderLosses: 12 },
+    expected: { defenderLosses: 9 },
   },
   {
-    name: 'Armor protects attacking ships',
+    name: 'Armor does not protect attacking ships',
     attacker: { armor: 4 },
-    expected: { attackerLosses: 0 },
+    moles: 0,
+    armorPlating: 5,
+    expected: { attackerLosses: 1 },
   },
   {
     name: 'Cargo Compression carries more loot',
     attacker: { cargo_compression: 4 },
-    expected: { loot: { carbon: 15, hydrogenium: 9 } },
+    expected: { loot: { carbon: 60, hydrogenium: 120 } },
   },
   {
-    name: 'without research Armor Plating 2 destroys one Merlin',
+    // 30 against 45: (30/45)^1.5 of 3 Merlins.
+    name: 'without research Armor Plating 5 destroys one Merlin',
     moles: 0,
-    armorPlating: 2,
+    armorPlating: 5,
     expected: { attackerLosses: 1 },
   },
   {
     name: 'Shields raise the station defense',
     defender: { shields: 7 },
     moles: 0,
-    armorPlating: 2,
+    armorPlating: 5,
     expected: { attackerLosses: 2 },
   },
 ];

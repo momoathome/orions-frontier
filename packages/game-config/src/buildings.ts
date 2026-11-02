@@ -236,7 +236,7 @@ export const calculateStorageCapacity = (warehouseLevel: number): number =>
   Math.round((5000 * 1.45 ** (warehouseLevel - 1)) / 100) * 100;
 
 /** Stock per resource that attackers cannot loot. */
-export const calculateProtectedStorage = (warehouseLevel: number): number => warehouseLevel * 100;
+export const calculateProtectedStorage = (warehouseLevel: number): number => warehouseLevel * 300;
 
 /**
  * Crew places provided by a station hangar; the square term keeps late levels worth their cost,

@@ -57,14 +57,15 @@ const chanceLabel = { high: 'High', medium: 'Medium', low: 'Low' } as const;
 const chanceClass = { high: 'text-ui-green', medium: 'text-ui-amber', low: 'text-ui-red' } as const;
 let forecastTimer: ReturnType<typeof setTimeout> | undefined;
 let forecastRequest = 0;
-// The server predicts from what the scanner sees; typing in the amounts waits for a short pause.
+// The server predicts from what the scanner sees, outside it from the last combat report; typing
+// in the amounts waits for a short pause.
 watch(
-  () => [origin?.id, station.id, fleet.value] as const,
-  ([originId, targetId, selected]) => {
+  () => [origin?.id, station.id, fleet.value, lastScouting.value] as const,
+  ([originId, targetId, selected, scouting]) => {
     clearTimeout(forecastTimer);
     const request = ++forecastRequest;
     forecast.value = null;
-    if (!originId || !station.scanned || Object.keys(selected).length === 0) return;
+    if (!originId || (!station.scanned && !scouting) || Object.keys(selected).length === 0) return;
     forecastTimer = setTimeout(async () => {
       try {
         const result = await apiClient.post<AttackForecast>(
@@ -154,7 +155,7 @@ async function attack() {
         <p v-else class="text-ui-soft">
           No fighter or bomber is ready. Build them in the Shipyard (Fleet).
         </p>
-        <p v-if="!station.scanned && hasShips" class="text-sm text-ui-soft">
+        <p v-if="!station.scanned && !lastScouting && hasShips" class="text-sm text-ui-soft">
           Win chance unknown: the station is outside your scanner, so the fleet flies blind.
           Survivors report what they saw.
         </p>
@@ -169,7 +170,11 @@ async function attack() {
               {{ range.min.toLocaleString('en-US') }}–{{ range.max.toLocaleString('en-US') }}
             </dd>
           </div>
-          <p class="text-xs text-ui-muted">
+          <p v-if="forecast.basis === 'last_report'" class="text-xs text-ui-muted">
+            Outside your scanner: estimated from the last report. The target may have built up
+            since, and its stock is unseen.
+          </p>
+          <p v-else class="text-xs text-ui-muted">
             Estimated from the scanned station defense; docked ships and research stay unseen.
           </p>
         </dl>

@@ -1,6 +1,7 @@
 import { entriesOf } from '@orions-frontier/shared';
 import type {
   AttackForecast,
+  CombatScouting,
   DefenseUpgradeKey,
   StationVisualProfile,
 } from '@orions-frontier/shared';
@@ -51,8 +52,8 @@ export function estimateDefenseScore(profile: StationVisualProfile): number {
 /** A forecast of "high" still wins against this much more defense than the estimate. */
 const HIGH_CHANCE_MARGIN = 1.4;
 
-// known-limit: docked defending ships and the defender's research are unseen and left out; lift
-// once the scanner reveals them.
+// known-limit: the defender's research is unseen and counts as none (a combat report's station
+// defense already includes it), and the scanner misses docked ships; lift once the scanner shows them.
 const UNSEEN_DEFENDER = { shipDefense: 1, stationDefense: 1 };
 
 /** Leading-digit step that holds the amount: 1,234 → 1,000–2,000, 450 → 400–500. */
@@ -62,35 +63,41 @@ export function lootRange(amount: number): { min: number; max: number } {
   return { min, max: min + step };
 }
 
+interface ForecastGroup {
+  key: string;
+  amount: number;
+  spacecraft: { attack: number; cargo: number };
+}
+
+/** "high" when the attack beats the expected defense by `HIGH_CHANCE_MARGIN`. */
+function winChance(battle: ReturnType<typeof resolveBattle>): AttackForecast['winChance'] {
+  if (battle.winner === 'defender') return 'low';
+  return battle.attackerPower > battle.defenderPower * HIGH_CHANCE_MARGIN ? 'high' : 'medium';
+}
+
 /**
  * The battle and plunder rules run against what the scanner shows: the upper estimate of the
  * station defense and the target's current stock. The target keeps producing and may be raided
  * by others before arrival, so the loot is only a range.
  */
 export function forecastAttack(
-  groups: readonly {
-    key: string;
-    amount: number;
-    spacecraft: { attack: number; defense: number; cargo: number };
-  }[],
+  groups: readonly ForecastGroup[],
   targetProfile: StationVisualProfile,
-  attackerResearch: Pick<ResearchModifiers, 'attack' | 'shipDefense' | 'cargo'>,
+  attackerResearch: Pick<ResearchModifiers, 'attack' | 'cargo'>,
   targetStock: {
     resources: readonly { resourceKey: string; amount: number }[];
     protectedAmount: number;
   }
 ): AttackForecast {
-  const estimatedDefense = estimateDefenseScore(targetProfile);
-  const battle = resolveBattle(groups, [], estimatedDefense, attackerResearch, UNSEEN_DEFENDER);
-  if (battle.winner === 'defender') return { winChance: 'low', loot: {} };
-
-  const safe = resolveBattle(
+  const battle = resolveBattle(
     groups,
     [],
-    estimatedDefense * HIGH_CHANCE_MARGIN,
+    estimateDefenseScore(targetProfile),
     attackerResearch,
     UNSEEN_DEFENDER
   );
+  if (battle.winner === 'defender') return { winChance: 'low', loot: {}, basis: 'scanner' };
+
   const cargoCapacity = Math.floor(
     groups.reduce(
       (sum, group) =>
@@ -106,7 +113,33 @@ export function forecastAttack(
   );
   const loot = lootFromStock(resources, targetStock.protectedAmount, cargoCapacity);
   return {
-    winChance: safe.winner === 'attacker' ? 'high' : 'medium',
+    winChance: winChance(battle),
     loot: Object.fromEntries(Object.entries(loot).map(([key, amount]) => [key, lootRange(amount)])),
+    basis: 'scanner',
   };
+}
+
+/**
+ * Outside the scanner: the defense and docked ships the last surviving wave saw. The stock is
+ * unseen, so there is no loot estimate; the target may have built up since.
+ */
+export function forecastFromScouting(
+  groups: readonly ForecastGroup[],
+  scouting: CombatScouting,
+  attackerResearch: Pick<ResearchModifiers, 'attack'>
+): AttackForecast {
+  const docked = Object.entries(scouting.dockedShips).map(([key, amount]) => ({
+    id: key,
+    spacecraftKey: key,
+    amount,
+    lockedAmount: 0,
+  }));
+  const battle = resolveBattle(
+    groups,
+    docked,
+    scouting.stationDefense,
+    attackerResearch,
+    UNSEEN_DEFENDER
+  );
+  return { winChance: winChance(battle), loot: {}, basis: 'last_report' };
 }

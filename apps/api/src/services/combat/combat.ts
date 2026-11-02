@@ -18,6 +18,7 @@ import {
 } from '@orions-frontier/game-config';
 import { getDb, type Tx } from '../../lib/db/index.js';
 import {
+  findLatestScouting,
   findReturningCombatMissionForUpdate,
   findTravelingCombatMissionForUpdate,
   insertCombatMission,
@@ -29,7 +30,7 @@ import { insertTrip, updateTripCargo, type TripRow } from '../fleet/index.js';
 import { findUserForUpdate, updateUser } from '../auth/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
 import { lootFromStock, resolveBattle } from './battle.js';
-import { forecastAttack } from './forecast.js';
+import { forecastAttack, forecastFromScouting } from './forecast.js';
 import { createDebrisFromLosses } from './salvage.js';
 import { destroyStation } from './destruction.js';
 import { publishUserEvent } from '../../lib/realtime.js';
@@ -258,7 +259,17 @@ export async function getAttackForecast(params: {
   }
   const coverages = await getUserScannerCoverages(params.userId, db);
   if (!isPointVisible(coverages, defender)) {
-    throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
+    // Outside the scanner only the user's own last combat report tells anything about the target.
+    const [scouting, research] = await Promise.all([
+      findLatestScouting(db, params.userId, defender.id),
+      getStationResearchModifiers(db, attacker.id),
+    ]);
+    if (!scouting) throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
+    return forecastFromScouting(
+      groups.map(([key, amount]) => ({ key, amount, spacecraft: requireSpacecraft(key) })),
+      scouting,
+      research
+    );
   }
   const [profiles, research, warehouseLevel, resources] = await Promise.all([
     getStationVisualProfiles([defender.id]),
