@@ -90,11 +90,17 @@ const runningResearch = computed(() => {
       <li
         v-for="entry in entries"
         :key="entry.key"
-        class="flex min-w-0 max-w-[180px] flex-1 flex-col gap-1.5 py-2"
+        class="@container flex min-w-0 max-w-[180px] flex-1 flex-col gap-1.5 py-2"
         :title="entry.name"
       >
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1.5">
           <img :src="entry.image" :alt="entry.name" class="h-5 w-5 shrink-0 object-contain" />
+          <!-- Only once the column fits the longest name, so names never truncate again. -->
+          <span
+            class="hidden text-[11px] whitespace-nowrap text-ui-muted @[150px]:inline"
+            aria-hidden="true"
+            >{{ entry.name }}</span
+          >
           <span
             v-if="entry.rate > 0"
             class="ui-num text-xs text-ui-green"
