@@ -37,6 +37,7 @@ const makeReport = (overrides: Partial<CombatReport> & { id: string }): CombatRe
   integrityDamage: 0,
   defenderIntegrity: null,
   stationDestroyed: false,
+  scouting: null,
   ...overrides,
 });
 

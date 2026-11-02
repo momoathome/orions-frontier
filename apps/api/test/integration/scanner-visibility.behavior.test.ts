@@ -423,7 +423,7 @@ test('blind mining reveals an unscanned asteroid once the first cargo heads home
   });
 });
 
-test('salvage and attacks still require scanner coverage', async () => {
+test('salvage still requires scanner coverage, an attack flies blind', async () => {
   await assert.rejects(
     startSalvage({
       userId: viewerId,
@@ -441,7 +441,8 @@ test('salvage and attacks still require scanner coverage', async () => {
       targetStationId: hiddenTargetStationId,
       fleet: { javelin: 1 },
     }),
-    /Target station not found/
+    // Past the scanner: only the new owner's attack protection stops this one.
+    /Target account is protected from attacks/
   );
 });
 

@@ -1,4 +1,4 @@
-import type { CombatReport, ResourceMap } from '@orions-frontier/shared';
+import type { CombatReport, CombatScouting, ResourceMap } from '@orions-frontier/shared';
 import {
   boolean,
   index,
@@ -44,6 +44,8 @@ export const combatMissions = pgTable(
     /** Defender integrity after this wave; null when no battle took place. */
     defenderIntegrity: integer('defender_integrity'),
     stationDestroyed: boolean('station_destroyed').notNull().default(false),
+    /** What surviving attackers saw at the target; null without survivors. */
+    scouting: jsonb('scouting').$type<CombatScouting>(),
     status: varchar('status', { length: 16 })
       .$type<CombatReport['status']>()
       .notNull()

@@ -87,6 +87,8 @@ test('combat resolves attacker and defender losses', async () => {
   assert.equal(report.winner, 'attacker');
   assert.equal(report.attackerLosses, 1);
   assert.equal(report.defenderLosses, 3);
+  // The two surviving Merlins report the docked ships they met.
+  assert.deepEqual(report.scouting, { stationDefense: 0, dockedShips: { mole: 3 } });
 
   const [attackerFleet, defenderFleet] = await Promise.all([
     getFleet(attackerStationId, 'merlin'),
@@ -161,6 +163,7 @@ test('station defense score can repel an attack without defending spacecraft', a
   assert.equal(report.winner, 'defender');
   assert.equal(report.attackerLosses, 3);
   assert.equal(report.defenderLosses, 0);
+  assert.equal(report.scouting, null, 'a wiped-out wave reports nothing');
   assert.deepEqual(await getFleet(attackerStationId, 'merlin'), { amount: 0, lockedAmount: 0 });
 });
 

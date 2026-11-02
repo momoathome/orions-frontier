@@ -1,3 +1,11 @@
+/** What surviving attackers saw at the target when the wave hit. */
+export interface CombatScouting {
+  /** Station defense the wave faced, with the defender's research. */
+  stationDefense: number;
+  /** Docked ships per spacecraft key before the battle. */
+  dockedShips: Record<string, number>;
+}
+
 export interface CombatReport {
   id: string;
   attackerStationId: string;
@@ -15,6 +23,8 @@ export interface CombatReport {
   integrityDamage: number;
   defenderIntegrity: number | null;
   stationDestroyed: boolean;
+  /** Null without a battle or when no attacker survived to report back. */
+  scouting: CombatScouting | null;
   status: 'traveling' | 'returning' | 'resolved';
   /** Arrival of the attack at the defender. */
   arrivesAt: string;

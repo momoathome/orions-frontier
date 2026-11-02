@@ -4,6 +4,7 @@ import {
   ErrorCode,
   type AttackForecast,
   type CombatReport,
+  type CombatScouting,
   type ResourceMap,
 } from '@orions-frontier/shared';
 import {
@@ -103,6 +104,7 @@ const toReport = (
     integrityDamage: row.integrityDamage,
     defenderIntegrity,
     stationDestroyed: row.stationDestroyed,
+    scouting: row.scouting,
     status: row.status,
     arrivesAt: arrivesAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
@@ -177,10 +179,7 @@ export async function startAttack(params: {
     if (!defender || defender.userId === params.userId) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid attack target');
     }
-    const coverages = await getUserScannerCoverages(params.userId, tx);
-    if (!isPointVisible(coverages, defender)) {
-      throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
-    }
+    // Any station on the map is a target, like a blind mining run; only the forecast needs the scanner.
     await lockUsersAndCheckProtection(tx, params.userId, defender.userId, context.now);
 
     const rows = await listStationSpacecraftIdsByKeys(
@@ -316,6 +315,7 @@ interface CombatOutcome {
   integrityDamage: number;
   defenderIntegrity: number | null;
   stationDestroyed: boolean;
+  scouting: CombatScouting | null;
 }
 
 /** Plunders the defender in key order; see `lootFromStock`. */
@@ -491,6 +491,7 @@ async function resolveOutboundCombat(
     integrityDamage: 0,
     defenderIntegrity: null,
     stationDestroyed: false,
+    scouting: null,
   };
   let debrisResources: ResourceMap = {};
 
@@ -501,14 +502,26 @@ async function resolveOutboundCombat(
       getStationResearchModifiers(tx, mission.defenderStationId),
     ]);
     const defenderRows = await listStationSpacecraftsForUpdate(tx, mission.defenderStationId);
+    const stationDefense = await getStationDefenseScore(tx, mission.defenderStationId);
     const battle = resolveBattle(
       groups,
       defenderRows,
-      await getStationDefenseScore(tx, mission.defenderStationId),
+      stationDefense,
       attackerResearch,
       defenderResearch
     );
     outcome.winner = battle.winner;
+    // Only a ship that survives can report what it saw; a wiped-out wave learns nothing.
+    if (groups.some((group) => (battle.attackerLosses.get(group.key) ?? 0) < group.amount)) {
+      outcome.scouting = {
+        stationDefense: Math.round(stationDefense * defenderResearch.stationDefense),
+        dockedShips: Object.fromEntries(
+          defenderRows
+            .map((row) => [row.spacecraftKey, row.amount - row.lockedAmount] as const)
+            .filter(([, docked]) => docked > 0)
+        ),
+      };
+    }
     for (const group of groups) {
       const losses = battle.attackerLosses.get(group.key) ?? 0;
       if (losses === 0) continue;

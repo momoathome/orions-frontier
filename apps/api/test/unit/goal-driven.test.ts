@@ -1247,6 +1247,7 @@ const combatReport = (
   integrityDamage: 0,
   defenderIntegrity: null,
   stationDestroyed: false,
+  scouting: null,
   status: 'resolved',
   arrivesAt: createdAt.toISOString(),
   createdAt: createdAt.toISOString(),

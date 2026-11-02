@@ -169,6 +169,13 @@
       "when": 1784984400000,
       "tag": "0023_bot_raid_blocked_owners",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1784988000000,
+      "tag": "0024_combat_scouting",
+      "breakpoints": true
     }
   ]
 }

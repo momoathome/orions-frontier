@@ -4,6 +4,8 @@ import type { AttackForecast, VisibleStation } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
 import { resourceName } from '../../shared/lib/resources';
 import { useStationStore } from '../station/index.js';
+import { scoutingSummary } from './scouting.js';
+import { useCombatStore } from './store.js';
 import PanelShell from '../../shared/ui/PanelShell.vue';
 
 const { origin, station } = defineProps<{
@@ -13,6 +15,15 @@ const { origin, station } = defineProps<{
 
 const emit = defineEmits<{ close: []; launched: [] }>();
 const stationStore = useStationStore();
+const combat = useCombatStore();
+
+// Reports come newest first: the latest wave that brought something back from this target.
+const lastScouting = computed(
+  () =>
+    combat.state.combats.find(
+      (report) => report.defenderStationId === station.id && report.scouting !== null
+    )?.scouting ?? null
+);
 
 const distance = computed(() =>
   origin ? Math.hypot(station.x - origin.x, station.y - origin.y) : null
@@ -115,10 +126,10 @@ async function attack() {
 
       <section class="flex flex-col gap-3">
         <h3 class="ui-label">Attack</h3>
-        <p v-if="!station.scanned" class="text-ui-soft">
-          Outside scanner range. Upgrade a scanner or found a station nearby to target it.
+        <p v-if="lastScouting" class="text-xs text-ui-muted">
+          Last report: {{ scoutingSummary(lastScouting) }}
         </p>
-        <template v-else-if="fighters.length > 0">
+        <template v-if="fighters.length > 0">
           <label
             v-for="fighter in fighters"
             :key="fighter.definition.key"
@@ -143,6 +154,10 @@ async function attack() {
         <p v-else class="text-ui-soft">
           No fighter or bomber is ready. Build them in the Shipyard (Fleet).
         </p>
+        <p v-if="!station.scanned && hasShips" class="text-sm text-ui-soft">
+          Win chance unknown: the station is outside your scanner, so the fleet flies blind.
+          Survivors report what they saw.
+        </p>
         <dl v-if="forecast" class="flex flex-col gap-1 text-sm" aria-live="polite">
           <div class="flex justify-between">
             <dt class="text-ui-soft">Win chance</dt>
@@ -162,10 +177,7 @@ async function attack() {
       </section>
     </div>
 
-    <div
-      v-if="station.scanned && fighters.length > 0"
-      class="border-t border-ui-line px-[18px] py-4"
-    >
+    <div v-if="fighters.length > 0" class="border-t border-ui-line px-[18px] py-4">
       <button
         type="button"
         :disabled="sending || !hasShips"

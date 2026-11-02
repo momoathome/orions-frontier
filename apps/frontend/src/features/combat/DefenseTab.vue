@@ -9,6 +9,7 @@ import { live } from '../../shared/lib/live.js';
 import LoadMoreButton from '../../shared/ui/LoadMoreButton.vue';
 import { BuildSlots, UpgradeCard } from '../station/index.js';
 import { useResearchStore } from '../research/index.js';
+import { scoutingSummary } from './scouting.js';
 import { useCombatStore } from './store.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
@@ -154,6 +155,12 @@ onUnmounted(() => {
         </span>
       </div>
       <span class="text-[13px] text-ui-soft">{{ reportSummary(report) }}</span>
+      <span
+        v-if="report.attackerStationId === stationId && report.scouting"
+        class="text-xs text-ui-muted"
+      >
+        Scouted: {{ scoutingSummary(report.scouting) }}
+      </span>
     </article>
     <LoadMoreButton v-if="combat.hasOlderCombats()" :load="combat.loadOlderCombats" />
   </div>

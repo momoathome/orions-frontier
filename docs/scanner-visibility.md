@@ -42,7 +42,10 @@ selbst aus.
 
 - Miner dürfen unscannte Asteroiden blind anfliegen. Zusammensetzung und Reserve werden für den
   Spieler sichtbar, sobald eine eigene Zuweisung dort ihre erste Ladung auf den Rückweg schickt.
-- Trümmerfelder, fremde Bewegungen, Bergung und Angriffe bleiben an die Abdeckung gebunden.
+- Angriffe dürfen jede Station auf der Karte treffen, auch außerhalb der Abdeckung. Die
+  Kampfprognose gibt es nur in der Abdeckung; außerhalb fliegt die Flotte blind, und erst der
+  Kampfbericht zeigt, was Überlebende beim Ziel gesehen haben.
+- Trümmerfelder, fremde Bewegungen und Bergung bleiben an die Abdeckung gebunden.
 - Fremde Stationsintegrität ist nur in der Abdeckung sichtbar und dann grob in vier Stufen.
 - Ausnahme: Ein Angriff auf eine eigene Station ist sofort als eingehender Angriff mit Ankunftszeit
   sichtbar, ohne Zusammensetzung der Flotte.
