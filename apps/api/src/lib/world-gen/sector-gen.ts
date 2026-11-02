@@ -67,11 +67,15 @@ const sectorBounds = (sectorX: number, sectorY: number) => {
   };
 };
 
-function generateSpawnSlots(
+/** Seeded tries per slot to clear `obstacles`; a slot that finds no clear spot is left out. */
+const SPAWN_SLOT_ATTEMPTS = 32;
+
+export function generateSpawnSlots(
   sectorX: number,
   sectorY: number,
   sectorSeed: string,
-  role: SectorRole
+  role: SectorRole,
+  obstacles: readonly Point[] = []
 ): GeneratedSpawnSlot[] {
   if (role === 'frontier') return [];
 
@@ -84,21 +88,27 @@ function generateSpawnSlots(
   const cellHeight = HEIGHT / rows;
   const playerSlots = STATION_CAPACITY - BOTS_PER_SETTLEMENT;
 
-  return Array.from({ length: STATION_CAPACITY }, (_, slotIndex) => {
-    const rng = new SeededRng(`${sectorSeed}:spawn:${slotIndex}`);
-    const column = slotIndex % columns;
-    const row = Math.floor(slotIndex / columns);
-    const cellLeft = bounds.minX + column * cellWidth;
-    const cellTop = bounds.minY + row * cellHeight;
-    const marginX = Math.max(cellWidth * 0.15, SAFE_SPAWN_RADIUS);
-    const marginY = Math.max(cellHeight * 0.15, SAFE_SPAWN_RADIUS);
-    return {
-      slotIndex,
-      slotType: slotIndex < playerSlots ? 'player' : 'bot',
-      x: Math.round(rng.nextFloat(cellLeft + marginX, cellLeft + cellWidth - marginX)),
-      y: Math.round(rng.nextFloat(cellTop + marginY, cellTop + cellHeight - marginY)),
-    };
-  });
+  return Array.from({ length: STATION_CAPACITY }, (_, slotIndex) => slotIndex).flatMap(
+    (slotIndex): GeneratedSpawnSlot[] => {
+      const rng = new SeededRng(`${sectorSeed}:spawn:${slotIndex}`);
+      const column = slotIndex % columns;
+      const row = Math.floor(slotIndex / columns);
+      const cellLeft = bounds.minX + column * cellWidth;
+      const cellTop = bounds.minY + row * cellHeight;
+      const marginX = Math.max(cellWidth * 0.15, SAFE_SPAWN_RADIUS);
+      const marginY = Math.max(cellHeight * 0.15, SAFE_SPAWN_RADIUS);
+      for (let attempt = 0; attempt < SPAWN_SLOT_ATTEMPTS; attempt += 1) {
+        const point = {
+          x: Math.round(rng.nextFloat(cellLeft + marginX, cellLeft + cellWidth - marginX)),
+          y: Math.round(rng.nextFloat(cellTop + marginY, cellTop + cellHeight - marginY)),
+        };
+        if (isOutsideSpawnZones(point, obstacles)) {
+          return [{ slotIndex, slotType: slotIndex < playerSlots ? 'player' : 'bot', ...point }];
+        }
+      }
+      return [];
+    }
+  );
 }
 
 function isInsideSector(point: Point, bounds: ReturnType<typeof sectorBounds>): boolean {
@@ -110,7 +120,7 @@ function isInsideSector(point: Point, bounds: ReturnType<typeof sectorBounds>): 
   );
 }
 
-function isOutsideSpawnZones(point: Point, slots: GeneratedSpawnSlot[]): boolean {
+function isOutsideSpawnZones(point: Point, slots: readonly Point[]): boolean {
   const minimumDistanceSquared = WORLD_CONFIG.SECTOR.SAFE_SPAWN_RADIUS ** 2;
   return slots.every(
     (slot) => (slot.x - point.x) ** 2 + (slot.y - point.y) ** 2 >= minimumDistanceSquared

@@ -1,7 +1,9 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
-import type { getDb, QueryDb } from '../../../lib/db/index.js';
+import { and, asc, eq, notExists, sql } from 'drizzle-orm';
+import type { getDb, QueryDb, Tx } from '../../../lib/db/index.js';
 import { sectors } from '../../../lib/db/schema/sectors.js';
 import { spawnSlots } from '../../../lib/db/schema/spawn-slots.js';
+import { stations } from '../../../lib/db/schema/stations.js';
+import { worldMissions } from '../../../lib/db/schema/world-missions.js';
 
 /** Narrowed db so world generation can pass a transaction or a stub. */
 type InsertDb = Pick<ReturnType<typeof getDb>, 'insert'>;
@@ -34,6 +36,45 @@ export async function findSectorByCoordinates(db: SelectDb, sectorX: number, sec
 
 export function listSectorCoordinates(db: SelectDb) {
   return db.select({ sectorX: sectors.sectorX, sectorY: sectors.sectorY }).from(sectors);
+}
+
+/** A frontier sector without an active station or a colonization on its way there. */
+const isUnsettledFrontier = () =>
+  and(
+    eq(sectors.role, 'frontier'),
+    notExists(
+      sql`(select 1 from ${stations} where ${stations.sectorId} = ${sectors.id} and ${stations.destroyedAt} is null)`
+    ),
+    notExists(
+      sql`(select 1 from ${worldMissions} where ${worldMissions.missionType} = 'colonization' and ${worldMissions.status} = 'traveling' and ${worldMissions.targetSectorX} = ${sectors.sectorX} and ${worldMissions.targetSectorY} = ${sectors.sectorY})`
+    )
+  );
+
+export function listUnsettledFrontierSectors(db: QueryDb) {
+  return db
+    .select({
+      id: sectors.id,
+      sectorX: sectors.sectorX,
+      sectorY: sectors.sectorY,
+      seed: sectors.seed,
+    })
+    .from(sectors)
+    .where(isUnsettledFrontier());
+}
+
+/** Turns an unsettled frontier sector into a settlement; false if it no longer qualifies. */
+export async function claimFrontierSectorForSettlement(tx: Tx, id: string): Promise<boolean> {
+  const claimed = await tx
+    .update(sectors)
+    .set({ role: 'settlement' })
+    .where(and(eq(sectors.id, id), isUnsettledFrontier()))
+    .returning({ id: sectors.id });
+  return claimed.length > 0;
+}
+
+/** Serializes colonizing and settling one sector for the rest of the transaction. */
+export async function lockSectorColonization(tx: Tx, sectorId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'colony:' + sectorId}))`);
 }
 
 /** Undiscovered coordinates next to known sectors, nearest to `origin` first. */
