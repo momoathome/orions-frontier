@@ -288,6 +288,7 @@ import {
 } from '../../src/services/bot/goals/salvage.js';
 import {
   prioritizeStationsForStabilization,
+  scannerCouldFindCosts,
   selectBestAsteroid,
 } from '../../src/services/bot/goals/shared.js';
 import type { GoalBotState } from '../../src/services/bot/goal-state.js';
@@ -440,6 +441,24 @@ test('asteroid selection ignores resources that the station cannot store', () =>
   assert.equal(selectBestAsteroid(state, station, 'mole')?.id, 'titanium-open');
 });
 
+test('a scanner only helps for a missing resource the account can see and has not found', () => {
+  const station = baseStation({ resources: { carbon: 0, titanium: 0, hydrogenium: 0 } });
+  const state = baseState(station);
+  const find = (resourceKey: ResourceKey, research = {}) =>
+    scannerCouldFindCosts(
+      { ...state, research: { ...state.research, levels: research } },
+      station,
+      [{ resourceKey, amount: 100 }]
+    );
+
+  // Astatine stays hidden until Deep Spectral Analysis, so scanning cannot reveal it.
+  assert.equal(find('astatine'), false);
+  assert.equal(find('astatine', { deep_spectral_analysis: 1 }), true);
+  // Carbon already lies on a visible asteroid: the bot needs a miner, not a scanner.
+  assert.equal(find('carbon'), false);
+  assert.equal(find('titanium'), true);
+});
+
 test('warlords without foreign contact prioritize scanner reach', () => {
   const station = baseStation();
   const state = baseState(station);
@@ -517,7 +536,7 @@ test('income expansion prepares enough hangar crew for a Titan', async () => {
   assert.equal(result.intent.buildingKey, 'hangar');
 });
 
-test('income goal hands a Titan that only lacks research to the research goal', () => {
+test('income goal hands a Titan that lacks research to the research goal', () => {
   const fleets = [{ spacecraftKey: 'mole', amount: 3, lockedAmount: 0 }];
   const resources = { carbon: 10_000, titanium: 10_000, hydrogenium: 10_000, kyber_crystal: 1_000 };
   const shipyard = (level: number) =>
@@ -527,12 +546,20 @@ test('income goal hands a Titan that only lacks research to the research goal', 
   const income = (station: ReturnType<typeof baseStation>) =>
     generateIncreaseIncomeCandidate(baseState(station), station)?.goalType;
 
-  // The Shipyard upgrade stays this goal's step.
+  // Research comes before the Shipyard; once it stands, the Shipyard upgrade is this goal's step.
+  assert.equal(income(baseStation({ resources, fleets, buildings: shipyard(1) })), undefined);
+  assert.equal(income(baseStation({ resources, fleets, buildings: shipyard(5) })), undefined);
   assert.equal(
-    income(baseStation({ resources, fleets, buildings: shipyard(1) })),
+    income(
+      baseStation({
+        resources,
+        fleets,
+        buildings: shipyard(1),
+        research: { extraction_algorithms: 4, cargo_compression: 3 },
+      })
+    ),
     'increase_income'
   );
-  assert.equal(income(baseStation({ resources, fleets, buildings: shipyard(5) })), undefined);
   assert.equal(
     income(
       baseStation({
@@ -842,6 +869,40 @@ test('a warlord without Weapons researches Weapons before it builds Merlins', as
   assert.equal(best?.targetRef, 'tech:station-1:weapons:1');
 });
 
+test('a strike force with Weapons but no Shipyard 2 upgrades the Shipyard for its Merlins', async () => {
+  const station = baseStation({
+    buildings: shipyardAt(1),
+    resources: { carbon: 1_000, titanium: 1_000, hydrogenium: 1_000 },
+    research: { weapons: 1 },
+  });
+  const state = baseState(station);
+  assert.equal(
+    generateBuildStrikeForceCandidate(state, station, 'warlord')?.goalType,
+    'build_strike_force'
+  );
+  const result = await stepBuildStrikeForce(state, station, `station:${station.id}`, 'warlord');
+  assert.equal(result.type, 'success');
+  assert.equal(result.intent.type, 'upgrade_building');
+  assert.equal(result.intent.buildingKey, 'shipyard');
+});
+
+test('research candidates keep their cost on the 0-100 scale', () => {
+  const station = baseStation({
+    buildings: shipyardAt(1, 5),
+    resources: { carbon: 2_000, titanium: 2_000, hydrogenium: 2_000 },
+    research: { ion_propulsion: 2, sensor_arrays: 1 },
+  });
+  const costs = generateResearchCandidates(baseState(station), station, 'pioneer').map(
+    (candidate) => [candidate.targetRef, candidate.cost] as const
+  );
+  // Long-Range Survey (Tier 2, 2,100 resources) stays a mid-range cost the scorer can weigh.
+  assert.deepEqual(
+    costs.find(([targetRef]) => targetRef === 'tech:station-1:long_range_survey:1'),
+    ['tech:station-1:long_range_survey:1', 42]
+  );
+  assert.ok(costs.every(([, cost]) => cost >= 0 && cost <= 100));
+});
+
 test('a needed research behind the laboratory cap upgrades the laboratory first', async () => {
   const station = baseStation({
     buildings: shipyardAt(5, 3),
@@ -1133,7 +1194,7 @@ import {
 } from '../../src/services/bot/goals/conflict.js';
 import { stepBuildStrikeForce, stepFortifyStation } from '../../src/services/bot/goals/military.js';
 import { getBuilding } from '@orions-frontier/game-config';
-import type { CombatReport } from '@orions-frontier/shared';
+import type { CombatReport, ResourceKey } from '@orions-frontier/shared';
 
 const foreignStation = (id: string, ownerId: string) => ({
   id,
@@ -1359,6 +1420,54 @@ test('a full Hangar at its maximum level neither offers nor loops a strike force
   assert.equal(generateBuildStrikeForceCandidate(state, station), null);
   const result = await stepBuildStrikeForce(state, station, 'station:station-1', 'warlord');
   assert.equal(result.type, 'blocked');
+});
+
+import { estimateDefenseScore } from '../../src/services/bot/conflict-intel.js';
+import { isEligibleAttackSource } from '../../src/services/bot/goals/conflict.js';
+
+test('a warlord builds Merlins until it can raid the weakest visible station', () => {
+  const visible = foreignStation('target-1', 'player-2');
+  const target = {
+    ...visible,
+    visualProfile: {
+      ...visible.visualProfile,
+      defense: { ...visible.visualProfile.defense, armor_plating: 2 as const },
+    },
+  };
+  const withMerlins = (amount: number) =>
+    baseStation({
+      buildings: shipyardAt(2).map((building) =>
+        building.buildingKey === 'hangar' ? { ...building, level: 5 } : building
+      ),
+      research: { weapons: 1 },
+      fleets: [{ spacecraftKey: 'merlin', amount, lockedAmount: 0 }],
+    });
+  const stateWith = (station: StationSnapshot) => baseState(station, { visibleStations: [target] });
+  // Every bot station in the time-lapse run looked like this: Armor Plating 6, estimated 54 defense.
+  // The fixed force of 80 attack (6 Merlins) cannot raid it after the warlord reserve.
+  assert.equal(estimateDefenseScore(target.visualProfile), 54);
+  const fixedForce = withMerlins(6);
+  assert.equal(generateBuildStrikeForceCandidate(stateWith(fixedForce), fixedForce), null);
+  assert.equal(
+    isEligibleAttackSource(stateWith(fixedForce), fixedForce, 'target-1', 'warlord'),
+    false
+  );
+  assert.notEqual(
+    generateBuildStrikeForceCandidate(stateWith(fixedForce), fixedForce, 'warlord'),
+    null
+  );
+
+  let amount = 6;
+  for (; amount < 100; amount += 1) {
+    const station = withMerlins(amount);
+    if (!generateBuildStrikeForceCandidate(stateWith(station), station, 'warlord')) break;
+    assert.equal(isEligibleAttackSource(stateWith(station), station, 'target-1', 'warlord'), false);
+  }
+  const strikeForce = withMerlins(amount);
+  assert.equal(
+    isEligibleAttackSource(stateWith(strikeForce), strikeForce, 'target-1', 'warlord'),
+    true
+  );
 });
 
 test('a Collector in the shipyard counts as owned for salvage', async () => {

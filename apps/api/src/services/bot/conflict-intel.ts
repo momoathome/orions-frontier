@@ -152,6 +152,14 @@ const RESERVE_RATIO: Record<BotProfile, number> = {
   warlord: 0.375,
 };
 
+/** Safety margins on estimated target defense per profile (GB-17). */
+export const SAFETY_MARGIN: Record<BotProfile, number> = {
+  industrialist: 1.4,
+  pioneer: 1.3,
+  technocrat: 1.25,
+  warlord: 1.15,
+};
+
 const RECENT_ATTACK_BONUS = 0.15;
 const UNSTABLE_COLONY_BONUS = 0.1;
 const RESERVE_CAP = 0.9;
@@ -165,11 +173,18 @@ export function calculateReserve(
   hasRecentAttack: boolean,
   isUnstableColony: boolean
 ): number {
+  return Math.round(localFighterAttack * reserveRatio(profile, hasRecentAttack, isUnstableColony));
+}
+
+function reserveRatio(
+  profile: BotProfile,
+  hasRecentAttack: boolean,
+  isUnstableColony: boolean
+): number {
   let ratio = RESERVE_RATIO[profile];
   if (hasRecentAttack) ratio += RECENT_ATTACK_BONUS;
   if (isUnstableColony) ratio += UNSTABLE_COLONY_BONUS;
-  ratio = Math.min(ratio, RESERVE_CAP);
-  return Math.round(localFighterAttack * ratio);
+  return Math.min(ratio, RESERVE_CAP);
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +249,23 @@ export function scoreConflictTarget(params: {
 // ---------------------------------------------------------------------------
 // Available excess attack power
 // ---------------------------------------------------------------------------
+
+/**
+ * Fighter attack a station needs so that the part above its reserve fits a raid group on
+ * `defense`: the margin, rounded up to whole ships of `shipAttack`, plus one for the rounded reserve.
+ */
+export function raidStrikeAttack(
+  defense: number,
+  profile: BotProfile,
+  shipAttack: number,
+  hasRecentAttack: boolean,
+  isUnstableColony: boolean
+): number {
+  const required = Math.max(1, Math.round(defense * SAFETY_MARGIN[profile]));
+  const group = shipAttack > 0 ? Math.ceil(required / shipAttack) * shipAttack : required;
+  const ratio = reserveRatio(profile, hasRecentAttack, isUnstableColony);
+  return Math.ceil((group + 1) / (1 - ratio));
+}
 
 /**
  * Calculate how much attack power is available for offensive actions

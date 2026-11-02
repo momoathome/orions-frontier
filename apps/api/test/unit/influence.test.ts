@@ -16,7 +16,7 @@ test('influence counts invested resources per category, the fleet at half its bu
       { key: 'armor_plating', level: 1 },
       { key: 'unknown_building', level: 9 },
     ],
-    // Weapons 1 and 2 cost 150 + 230 Hydrogenium.
+    // Weapons 1 and 2 cost 530 + 800 in Hydrogenium, Carbon and Titanium.
     research: { weapons: 2 },
     // Two Merlins cost 400, counted at 50%.
     spacecrafts: [
@@ -24,7 +24,7 @@ test('influence counts invested resources per category, the fleet at half its bu
       { key: 'unknown_ship', amount: 5 },
     ],
   });
-  assert.deepEqual(influence, { buildings: 21, research: 4, defense: 2, fleet: 2, total: 29 });
+  assert.deepEqual(influence, { buildings: 21, research: 13, defense: 2, fleet: 2, total: 38 });
 });
 
 test('invested upgrade costs list every paid upgrade above the free starting level', () => {
