@@ -175,6 +175,12 @@ export async function recordLogbookEvents(events: readonly PlaytestCompletionEve
   await insertLogbookEntries(getDb(), rows);
 }
 
+const COMBAT_ENTRY_TYPES = new Set<LogbookEntryType>([
+  'combat_resolved',
+  'combat_defended',
+  'loot_delivered',
+]);
+
 export async function getLogbook(
   userId: string,
   page: { limit: number; offset: number }
@@ -186,5 +192,7 @@ export async function getLogbook(
     stationId: row.stationId,
     summary: row.summary,
     occurredAt: row.occurredAt.toISOString(),
+    // Combat event ids are `kind:missionId:stage` (completionEventId), so the entry links its report.
+    combatId: COMBAT_ENTRY_TYPES.has(row.type) ? (row.eventId.split(':')[1] ?? null) : null,
   }));
 }

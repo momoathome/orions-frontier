@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { and, eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
@@ -10,7 +11,11 @@ import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
-import { getUserCombatReports, startAttack } from '../../src/services/combat/combat.js';
+import {
+  getUserCombatReport,
+  getUserCombatReports,
+  startAttack,
+} from '../../src/services/combat/combat.js';
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
 import { getDebrisById, startSalvage } from '../../src/services/combat/salvage.js';
 import { resolveSalvageMissionByTrip } from '../../src/services/combat/repositories/debris-fields.js';
@@ -92,6 +97,13 @@ test('combat resolves attacker and defender losses', async () => {
   assert.equal(report.defenderLosses, 3);
   // The surviving Merlins report the docked ships they met.
   assert.deepEqual(report.scouting, { stationDefense: 0, dockedShips: { mole: 3 } });
+  assert.deepEqual(report.attackerShipLosses, {});
+  assert.deepEqual(report.defenderShipLosses, { mole: 3 });
+  assert.equal(report.defender.stationName, 'Defender');
+  // After the battle the defender learns where the wave came from.
+  const seen = await getUserCombatReport(defenderUserId, report.id);
+  assert.equal(seen.attacker?.stationName, 'Attacker');
+  await assert.rejects(getUserCombatReport(randomUUID(), report.id), /not found/);
 
   const [attackerFleet, defenderFleet] = await Promise.all([
     getFleet(attackerStationId, 'merlin'),
@@ -167,6 +179,11 @@ test('station defense score can repel an attack without defending spacecraft', a
   assert.equal(report.attackerLosses, 3);
   assert.equal(report.defenderLosses, 0);
   assert.equal(report.scouting, null, 'a wiped-out wave reports nothing');
+  assert.equal(report.defenderShipLosses, null);
+  assert.deepEqual(report.attackerShipLosses, { merlin: 3 });
+  // The defender still sees what it fought with.
+  const defended = await getUserCombatReport(defenderUserId, started.id);
+  assert.equal(defended.scouting?.stationDefense, 48);
   assert.deepEqual(await getFleet(attackerStationId, 'merlin'), { amount: 0, lockedAmount: 0 });
 });
 

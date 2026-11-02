@@ -1,9 +1,11 @@
-import { and, desc, eq, gte, isNotNull, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { required } from '@orions-frontier/shared';
 import type { QueryDb, Tx } from '../../../lib/db/index.js';
 import { combatMissions } from '../../../lib/db/schema/combat-missions.js';
 import { spacecraftTrips } from '../../../lib/db/schema/spacecraft-trips.js';
 import { stations } from '../../../lib/db/schema/stations.js';
+import { users } from '../../../lib/db/schema/users.js';
 
 export type CombatMissionRow = typeof combatMissions.$inferSelect;
 
@@ -12,11 +14,18 @@ export async function insertCombatMission(tx: Tx, values: typeof combatMissions.
   return required(row, 'created');
 }
 
-/** Missions the user flew or defended against, newest first, with defender and arrival time. */
+const attackerStations = alias(stations, 'attacker_station');
+const attackerUsers = alias(users, 'attacker_user');
+const defenderUsers = alias(users, 'defender_user');
+
+/**
+ * Missions the user flew or defended against, newest first, with both sides' station and player
+ * names and the arrival time; `id` narrows it to one mission.
+ */
 export function listCombatMissionsByUser(
   db: QueryDb,
   userId: string,
-  { since, limit, offset }: { since?: Date; limit: number; offset: number }
+  { since, limit, offset, id }: { since?: Date; limit: number; offset: number; id?: string }
 ) {
   return (
     db
@@ -24,14 +33,30 @@ export function listCombatMissionsByUser(
         mission: combatMissions,
         defenderUserId: stations.userId,
         arrivesAt: spacecraftTrips.arrivesAt,
+        attacker: {
+          userName: attackerUsers.username,
+          stationName: attackerStations.name,
+          x: attackerStations.x,
+          y: attackerStations.y,
+        },
+        defender: {
+          userName: defenderUsers.username,
+          stationName: stations.name,
+          x: stations.x,
+          y: stations.y,
+        },
       })
       .from(combatMissions)
       .innerJoin(stations, eq(combatMissions.defenderStationId, stations.id))
+      .innerJoin(attackerStations, eq(combatMissions.attackerStationId, attackerStations.id))
+      .innerJoin(attackerUsers, eq(combatMissions.userId, attackerUsers.id))
+      .innerJoin(defenderUsers, eq(stations.userId, defenderUsers.id))
       .innerJoin(spacecraftTrips, eq(combatMissions.outboundTripId, spacecraftTrips.id))
       .where(
         and(
           or(eq(combatMissions.userId, userId), eq(stations.userId, userId)),
-          since ? gte(combatMissions.createdAt, since) : undefined
+          since ? gte(combatMissions.createdAt, since) : undefined,
+          id ? eq(combatMissions.id, id) : undefined
         )
       )
       // Traveling missions first, so an incoming attack is never pushed off the first page.
@@ -100,7 +125,7 @@ export function listUnresolvedCombatMissionsByUser(db: QueryDb, userId: string) 
     .where(and(eq(combatMissions.userId, userId), ne(combatMissions.status, 'resolved')));
 }
 
-/** What the user's newest surviving wave against this station reported, if any. */
+/** What the user's newest wave with survivors against this station reported, if any. */
 export async function findLatestScouting(db: QueryDb, userId: string, defenderStationId: string) {
   const [row] = await db
     .select({ scouting: combatMissions.scouting })
@@ -109,7 +134,9 @@ export async function findLatestScouting(db: QueryDb, userId: string, defenderSt
       and(
         eq(combatMissions.userId, userId),
         eq(combatMissions.defenderStationId, defenderStationId),
-        isNotNull(combatMissions.scouting)
+        isNotNull(combatMissions.scouting),
+        // A wiped-out wave saw the target but brought nothing home.
+        lt(combatMissions.attackerLosses, combatMissions.attackerAmount)
       )
     )
     .orderBy(desc(combatMissions.createdAt), desc(combatMissions.id))

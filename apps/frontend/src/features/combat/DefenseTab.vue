@@ -6,10 +6,8 @@ import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
 import { wsClient } from '../../shared/api/ws-client';
 import { formatCountdown } from '../../shared/lib/format';
 import { live } from '../../shared/lib/live.js';
-import LoadMoreButton from '../../shared/ui/LoadMoreButton.vue';
 import { BuildSlots, UpgradeCard } from '../station/index.js';
 import { useResearchStore } from '../research/index.js';
-import { scoutingSummary } from './scouting.js';
 import { useCombatStore } from './store.js';
 
 const { stationId } = defineProps<{ stationId: string }>();
@@ -41,19 +39,6 @@ function incomingComposition(report: CombatReport): string {
   const fleet = Object.entries(report.attackerFleet ?? {}).filter(([, amount]) => amount > 0);
   if (fleet.length === 0) return 'composition unknown';
   return fleet.map(([key, amount]) => `${amount}× ${getSpacecraft(key)?.name ?? key}`).join(', ');
-}
-
-function reportSummary(report: CombatReport): string {
-  if (report.status === 'traveling') return `En route, arrives in ${arrivesIn(report)}`;
-  if (report.winner === null) return 'Target already destroyed, fleet turned back';
-  const sent = report.attackerAmount === null ? '' : `${report.attackerAmount} sent, `;
-  const integrity = report.stationDestroyed
-    ? ', station destroyed'
-    : report.integrityDamage > 0
-      ? // Attackers only learn the upper bound of the integrity tier.
-        `, integrity −${report.integrityDamage} to ${report.defenderStationId === stationId ? '' : '≤'}${report.defenderIntegrity}`
-      : '';
-  return `${sent}${report.attackerLosses} attacker losses, ${report.defenderLosses} defender losses${integrity}`;
 }
 
 // Combat multiplies the upgrades' score by Shield Technology, so the shown score does too.
@@ -139,29 +124,5 @@ onUnmounted(() => {
         </div>
       </template>
     </UpgradeCard>
-
-    <h3 class="ui-label mt-2">Combat reports</h3>
-    <p v-if="!loading && relevantReports.length === 0" class="text-ui-soft">No combat recorded.</p>
-    <article v-for="report in relevantReports" :key="report.id" class="ui-card gap-1">
-      <div class="flex items-baseline justify-between gap-2">
-        <span class="font-semibold text-ui-bright">
-          {{ report.attackerStationId === stationId ? 'Attack' : 'Defense' }}
-        </span>
-        <span
-          class="text-xs"
-          :class="report.winner === 'attacker' ? 'text-ui-amber' : 'text-ui-green'"
-        >
-          {{ report.status === 'resolved' ? report.winner : report.status }}
-        </span>
-      </div>
-      <span class="text-[13px] text-ui-soft">{{ reportSummary(report) }}</span>
-      <span
-        v-if="report.attackerStationId === stationId && report.scouting"
-        class="text-xs text-ui-muted"
-      >
-        Scouted: {{ scoutingSummary(report.scouting) }}
-      </span>
-    </article>
-    <LoadMoreButton v-if="combat.hasOlderCombats()" :load="combat.loadOlderCombats" />
   </div>
 </template>

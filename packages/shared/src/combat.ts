@@ -6,6 +6,14 @@ export interface CombatScouting {
   dockedShips: Record<string, number>;
 }
 
+/** One side of a combat as the report names it. */
+export interface CombatParty {
+  userName: string;
+  stationName: string;
+  x: number;
+  y: number;
+}
+
 export interface CombatReport {
   id: string;
   attackerStationId: string;
@@ -15,15 +23,22 @@ export interface CombatReport {
   /** Sent fleet; null for the defender while the attack is still incoming. */
   attackerFleet: Record<string, number> | null;
   attackerAmount: number | null;
+  /** Null for the defender until the battle, like the fleet. */
+  attacker: CombatParty | null;
+  defender: CombatParty;
   attackerLosses: number;
   defenderLosses: number;
+  /** Destroyed ships per spacecraft key; null before the battle. */
+  attackerShipLosses: Record<string, number> | null;
+  /** Null before the battle, for older reports, and for an attacker whose wave was wiped out. */
+  defenderShipLosses: Record<string, number> | null;
   winner: 'attacker' | 'defender' | null;
   loot: Record<string, number>;
   /** Integrity the wave removed and the defender's integrity afterwards. */
   integrityDamage: number;
   defenderIntegrity: number | null;
   stationDestroyed: boolean;
-  /** Null without a battle or when no attacker survived to report back. */
+  /** Null without a battle; for the attacker also when no ship survived to report back. */
   scouting: CombatScouting | null;
   status: 'traveling' | 'returning' | 'resolved';
   /** Arrival of the attack at the defender. */

@@ -49,7 +49,10 @@ selbst aus.
 - Trümmerfelder, fremde Bewegungen und Bergung bleiben an die Abdeckung gebunden.
 - Fremde Stationsintegrität ist nur in der Abdeckung sichtbar und dann grob in vier Stufen.
 - Ausnahme: Ein Angriff auf eine eigene Station ist sofort als eingehender Angriff mit Ankunftszeit
-  sichtbar, ohne Zusammensetzung der Flotte.
+  sichtbar, ohne Zusammensetzung der Flotte. Nach dem Kampf zeigt der Kampfbericht im Logbuch dem
+  Verteidiger Angreifer, Herkunftsstation und Koordinaten.
+- Der Angreifer sieht Verteidigung, angedockte Schiffe und deren Verluste nur, wenn mindestens ein
+  Schiff heimkehrt; sonst nur die Gesamtzahl der Verteidigerverluste.
 - `visualProfile` enthält keine exakten Gebäudelevel, Flottenzahlen, Fracht- oder Auftragsdaten.
 - Ein Radarkontakt enthält keine Start- und Zielkoordinaten, keine Fracht, keine Assignment-ID,
   keinen Missionsbesitzer und keine exakte Gruppengröße. Der Client interpoliert kurz zwischen den

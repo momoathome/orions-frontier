@@ -1,5 +1,6 @@
 export {
   getAttackForecast,
+  getUserCombatReport,
   getUserCombatReports,
   handleCombatTripArrival,
   startAttack,
