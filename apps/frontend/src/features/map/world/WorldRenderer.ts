@@ -24,8 +24,8 @@ export interface AssignedAsteroid {
   asteroidId: string;
   x: number;
   y: number;
-  /** Size category used to derive the visual ring radius; null outside scanner range */
-  size: string | null;
+  /** Size category used to derive the visual ring radius */
+  size: string;
 }
 
 // WorldRenderer
@@ -38,6 +38,7 @@ export interface AssignedAsteroid {
 // Skips chunk containers outside the viewport; they opt in through `cullable`.
 extensions.add(CullerPlugin);
 
+const SCANNER_GLOW_STEPS = 5;
 /** ProMotion displays tick at 120 Hz; the map gains nothing visible from more than 60. */
 const MAX_FPS = 60;
 
@@ -208,6 +209,10 @@ export class WorldRenderer {
     this.routeLayer = new RouteLayer();
     this.worldContainer.addChild(this.routeLayer.graphics);
 
+    // Scanner coverage — a soft glow below everything it covers
+    this.stationRingsG = new Graphics();
+    this.worldContainer.addChild(this.stationRingsG);
+
     // Asteroid layer lives in world space
     this.worldContainer.addChild(this.asteroidLayer.container);
 
@@ -225,10 +230,6 @@ export class WorldRenderer {
     // Assignment rings — above asteroids, below hover/selection rings
     this.assignmentRingsG = new Graphics();
     this.worldContainer.addChild(this.assignmentRingsG);
-
-    // Station rings — concentric distance markers (world-space)
-    this.stationRingsG = new Graphics();
-    this.worldContainer.addChild(this.stationRingsG);
 
     // Label for the first ring ("500 u") — screen-space so it's always readable
     this.stationRingLabel = new Text({
@@ -411,8 +412,13 @@ export class WorldRenderer {
       g.clear();
       for (const station of this.scannerStations) {
         const active = station.id === this.stationInfo.id;
+        // Stacked discs fade the coverage out over its last few percent instead of a hard line.
+        for (let step = 0; step < SCANNER_GLOW_STEPS; step += 1) {
+          g.circle(station.x, station.y, station.scannerRange * (1 - step * 0.02));
+          g.fill({ color: 0x35d8ff, alpha: active ? 0.014 : 0.008 });
+        }
         g.circle(station.x, station.y, station.scannerRange);
-        g.stroke({ color: 0x35d8ff, alpha: active ? 0.42 : 0.18, width: active ? 1.6 : 1 });
+        g.stroke({ color: 0x35d8ff, alpha: active ? 0.16 : 0.08, width: 1 });
       }
       this.stationRingsDirty = false;
     }
@@ -423,7 +429,7 @@ export class WorldRenderer {
     );
     this.stationRingLabel.text = `${this.stationInfo.scannerRange.toLocaleString()} u`;
     this.stationRingLabel.position.set(screenPos.x + 6, screenPos.y - 8);
-    this.stationRingLabel.visible = true;
+    this.stationRingLabel.visible = this._hoveredStation || this._selectedStation;
   }
 
   destroy() {
@@ -456,6 +462,7 @@ export class WorldRenderer {
     this.routeLayer.redraw(this._routePhase);
 
     // Animate in-flight spacecraft dots
+    this.tripLayer.setZoom(this.camera.zoom);
     this.tripLayer.redraw();
 
     const now = Date.now();

@@ -217,8 +217,12 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
 export const calculateConstructionSpeedBonus = (coreLevel: number): number =>
   Math.max(0, coreLevel - 1) * 2;
 
+/**
+ * +500 up to level 4, then +200: the scanner identifies, it does not gate sight, so late levels
+ * grow to about one sector (6,000 wide) instead of far past it.
+ */
 export const calculateScannerRange = (level: number): number =>
-  level <= 0 ? 0 : 1_000 + (level - 1) * 500;
+  level <= 0 ? 0 : 1_000 + Math.min(level - 1, 3) * 500 + Math.max(level - 4, 0) * 200;
 
 /** Ships the Shipyard builds at the same time. */
 export const calculateProductionSlots = (shipyardLevel: number): number =>

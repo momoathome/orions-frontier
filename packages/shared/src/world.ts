@@ -124,7 +124,7 @@ export interface RadarContact {
   velocityX: number;
   /** World units per second. */
   velocityY: number;
-  /** Null outside scanner coverage: an anonymous civil contact. */
+  /** Null outside scanner coverage: an anonymous contact, civil or military. */
   signature: SpacecraftRole | null;
 }
 

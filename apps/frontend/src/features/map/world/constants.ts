@@ -39,5 +39,3 @@ export const GRID_MIN_PX = 16;
 
 /** Neutral grey for asteroids outside scanner range: composition unknown. */
 export const UNSCANNED_ASTEROID_TINT = 0x9aa3b2;
-/** Uniform radius for unscanned asteroids so the map does not leak their size. */
-export const UNSCANNED_ASTEROID_RADIUS = 24;

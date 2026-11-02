@@ -73,7 +73,7 @@ export const getVisibleChunkAsteroids = async (
           chunkX: row.chunkX,
           chunkY: row.chunkY,
           scanned: false,
-          size: null,
+          size: row.size,
           primaryResourceKey: null,
           remainingFraction: null,
         }
@@ -114,7 +114,7 @@ export const getAsteroidById = async (
     chunkX: row.chunkX,
     chunkY: row.chunkY,
     scanned,
-    size: scanned ? row.size : null,
+    size: row.size,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     veins: (scanned ? veins : []).map((v): AsteroidVein => ({

@@ -1,6 +1,7 @@
 import { getDb } from '../../lib/db/index.js';
 import { interpolateWorldPosition } from '../../lib/travel.js';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
+import { gameNow } from '../../lib/game-execution-context.js';
 import { listTravelingTripsInBounds } from '../fleet/index.js';
 import { listMovingWorldMissionsInBounds } from '../missions/index.js';
 import {
@@ -9,7 +10,6 @@ import {
   ErrorCode,
   type VisibleStation,
   type VisibleWorldMovement,
-  type WorldTripPurpose,
 } from '@orions-frontier/shared';
 import {
   coarseIntegrity,
@@ -85,7 +85,7 @@ export async function getVisibleChunkStations(
 ): Promise<VisibleStation[]> {
   const db = getDb();
   const rows = await listStationsInChunks(db, range);
-  const now = combatDiagnostics?.now ?? new Date();
+  const now = combatDiagnostics?.now ?? gameNow();
   if (stats) stats.stationCandidates = rows.length;
 
   const visibleRows = rows.flatMap((station) => {
@@ -140,19 +140,10 @@ const isInsideWorldBounds = (
   point.y >= bounds.minY &&
   point.y < bounds.maxY;
 
-// Salvage reveals where a battle happened, so it stays hidden outside the scanner too.
-const MILITARY_TRIP_PURPOSES = new Set<WorldTripPurpose>([
-  'combat',
-  'combat_return',
-  'relocate',
-  'salvage',
-  'salvage_return',
-]);
-
 export async function getVisibleWorldMovements(
   range: WorldChunkRange,
   userId: string,
-  now = new Date(),
+  now = gameNow(),
   scannerBypass = false
 ): Promise<VisibleWorldMovement[]> {
   const db = getDb();
@@ -187,9 +178,8 @@ function projectTrip(trip: TripRow, viewer: MovementViewer): VisibleWorldMovemen
   if (!isInsideWorldBounds(position, viewer.bounds)) return null;
   const spacecraft = requireSpacecraft(trip.spacecraftKey);
   if (trip.userId !== viewer.userId) {
+    // Outside the scanner every movement is a bare blip: seen, but not what or whose.
     const scanned = viewer.scannerBypass || isPointVisible(viewer.coverages, position);
-    // Civil traffic outside the scanner is a bare blip; military traffic stays dark.
-    if (!scanned && MILITARY_TRIP_PURPOSES.has(trip.purpose)) return null;
     return {
       kind: 'radar_contact',
       id: trip.id,
@@ -235,15 +225,14 @@ function projectMission(mission: MissionRow, viewer: MovementViewer): VisibleWor
   const position = interpolateWorldPosition(path, viewer.now);
   if (!isInsideWorldBounds(position, viewer.bounds)) return null;
   if (mission.userId !== viewer.userId) {
-    return viewer.scannerBypass || isPointVisible(viewer.coverages, position)
-      ? {
-          kind: 'radar_contact',
-          id: mission.id,
-          ...position,
-          observedAt: viewer.now.toISOString(),
-          signature: spacecraft.role,
-        }
-      : null;
+    return {
+      kind: 'radar_contact',
+      id: mission.id,
+      ...position,
+      observedAt: viewer.now.toISOString(),
+      signature:
+        viewer.scannerBypass || isPointVisible(viewer.coverages, position) ? spacecraft.role : null,
+    };
   }
   return {
     kind: 'own_trip',
