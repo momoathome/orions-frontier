@@ -21,6 +21,7 @@ import {
   researchModifiers,
 } from '@orions-frontier/game-config';
 import { WORLD_CONFIG } from '../../lib/world-config.js';
+import { gameNow } from '../../lib/game-execution-context.js';
 import {
   isPointVisible,
   scannerChunkBounds,
@@ -54,7 +55,7 @@ interface StationRows {
 
 export async function loadGoalBotState(
   userId: string,
-  now = new Date()
+  now = gameNow()
 ): Promise<GoalBotState | null> {
   const db = getDb();
   const ownStationRows = await listActiveStationsWithSectorByUser(db, userId);

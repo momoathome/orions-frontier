@@ -265,6 +265,19 @@ Reproduzierbare Presets liegen unter `configs/playtest/`. Die technische Entwick
 npm run playtest:baseline
 ```
 
+### Zeitraffer zum Zuschauen
+
+```bash
+npm run time-lapse
+```
+
+Startet neben dem Dev-Stack eine eigene, wegwerfbare Welt, deren Spielzeit 60-mal schneller läuft:
+72 Spielstunden dauern 72 Minuten. Die Map läuft unter `http://localhost:5174/map`
+(`dev@orion.local` / `dev123`). Bots spielen über dieselben Services, alle 6 Spielstunden tritt
+einer von 12 synthetischen Spielern bei, und die Welt wächst um neue Sektoren. Der Dev-Nutzer ist
+ein Jahr Spielzeit vor Angriffen geschützt, solange er selbst nicht angreift. `Ctrl+C` löscht die
+Welt; `TIME_LAPSE_SCALE=120 npm run time-lapse` ändert das Tempo.
+
 ## Entwicklungsprinzip
 
 Wir erweitern den vorhandenen technischen Vorsprung nicht um weitere klassische

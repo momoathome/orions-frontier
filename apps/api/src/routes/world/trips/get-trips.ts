@@ -1,6 +1,7 @@
 import { authenticate } from '../../../middleware/auth.js';
 import { getVisibleWorldMovements, parseChunkRange } from '../../../services/world/index.js';
 import { defineRoute, chunkRangeQuery } from '../../../lib/route.js';
+import { gameNow } from '../../../lib/game-execution-context.js';
 
 // At the minimum map zoom a desktop viewport spans considerably more than the
 // 20 chunks used by static chunk batches. Active trips are already fetched as
@@ -16,7 +17,7 @@ export default defineRoute(async (app) => {
       const movements = await getVisibleWorldMovements(
         parseChunkRange(request.query, MAX_CHUNK_RANGE),
         request.user.userId,
-        new Date(),
+        gameNow(),
         scannerBypass
       );
       request.log.debug(

@@ -72,8 +72,19 @@ function createContext(now: Date, worldSeed: string, ids: IdSequence): GameExecu
   };
 }
 
+/**
+ * The game's wall clock. The dev time-lapse (`npm run time-lapse`) runs it TIME_LAPSE_SCALE times
+ * faster from TIME_LAPSE_STARTED_AT (epoch ms); both survive API restarts, so time never jumps back.
+ */
+export function gameNow(realNow = Date.now()): Date {
+  const scale = Number(process.env['TIME_LAPSE_SCALE'] || 1);
+  if (scale === 1) return new Date(realNow);
+  const startedAt = Number(process.env['TIME_LAPSE_STARTED_AT']);
+  return new Date(startedAt + (realNow - startedAt) * scale);
+}
+
 export function createRealtimeExecutionContext(
-  now = new Date(),
+  now = gameNow(),
   worldSeed = readWorldSeed()
 ): GameExecutionContext {
   const ids: IdSequence = {

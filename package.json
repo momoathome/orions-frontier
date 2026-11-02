@@ -34,6 +34,7 @@
     "playtest": "node scripts/run-playtest.mjs",
     "playtest:smoke": "npm run playtest -- --config configs/playtest/smoke.json",
     "playtest:baseline": "node scripts/run-playtest-baseline.mjs",
+    "time-lapse": "node scripts/run-time-lapse.mjs",
     "docker:rebuild": "docker compose up -d --build",
     "check:boundaries": "depcruise apps/api/src --config .dependency-cruiser.cjs && depcruise apps/frontend/src --config .dependency-cruiser.frontend.cjs"
   },
