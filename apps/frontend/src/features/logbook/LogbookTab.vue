@@ -45,6 +45,7 @@ const FILTERS = {
 type Filter = keyof typeof FILTERS;
 const filter = ref<Filter>('all');
 const openCombatId = ref<string | null>(null);
+const FRAME = 'flex h-[min(560px,calc(85vh-8rem))] flex-col gap-3 text-sm';
 
 const timeline = computed(() =>
   logbook.state.logbook
@@ -67,14 +68,20 @@ const timeline = computed(() =>
 </script>
 
 <template>
-  <div v-if="openCombatId" class="flex flex-col gap-3 text-sm">
-    <button type="button" class="ui-btn self-start" @click="openCombatId = null">
+  <!-- One fixed height for every tab and the report, so the centered modal never jumps. -->
+  <div v-if="openCombatId" :class="FRAME">
+    <button type="button" class="ui-btn shrink-0 self-start" @click="openCombatId = null">
       ← Back to logbook
     </button>
-    <CombatReportDetail :combat-id="openCombatId" />
+    <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+      <CombatReportDetail :combat-id="openCombatId" />
+    </div>
   </div>
-  <div v-else class="flex flex-col gap-3 text-sm">
-    <nav class="flex flex-wrap gap-1" aria-label="Logbook filter">
+  <div v-else :class="FRAME">
+    <nav
+      class="flex shrink-0 gap-1 overflow-x-auto border-b border-ui-line pb-3"
+      aria-label="Logbook filter"
+    >
       <button
         v-for="(option, key) in FILTERS"
         :key="key"
@@ -93,7 +100,10 @@ const timeline = computed(() =>
     >
       No entries yet
     </p>
-    <ol class="relative ml-1.5 border-l border-ui-line-strong">
+    <ol
+      v-else
+      class="relative ml-1.5 min-h-0 flex-1 overflow-y-auto border-l border-ui-line-strong"
+    >
       <li v-for="entry in timeline" :key="entry.id" class="relative pb-3 pl-4">
         <span class="absolute -left-[4.5px] top-1 h-2 w-2 rounded-full" :class="entry.style.dot" />
         <component
