@@ -1,0 +1,20 @@
+{$DOMAIN} {
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	# The API accepts WebSockets on any path; /ws keeps them apart from the app's routes.
+	handle /ws {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		# A meta tag cannot set frame-ancestors, see vite.config.ts.
+		header X-Frame-Options DENY
+		header Content-Security-Policy "frame-ancestors 'none'"
+		encode zstd gzip
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

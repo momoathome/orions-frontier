@@ -2,7 +2,7 @@ import { buildApp } from './app.js';
 import { logger } from './lib/logger.js';
 import { initDb } from './lib/db/index.js';
 import { runExclusiveWorldTick, startSimulationScheduler } from './services/simulation/index.js';
-import { seedAsteroidWorld, seedDevUser } from './seed.js';
+import { seedAdminUser, seedAsteroidWorld } from './seed.js';
 import { seedBotsForOccupiedSectors } from './services/bot/index.js';
 import { assertKnownSpacecraftKeys } from './services/station/index.js';
 import { runMigrations } from './lib/db/migrate.js';
@@ -33,9 +33,9 @@ export const start = async () => {
     await seedAsteroidWorld();
     logger.info('Asteroid world seeded');
 
-    if (env.NODE_ENV === 'development') {
-      await seedDevUser();
-      logger.info('Dev user seeded');
+    if (env.ADMIN_EMAIL && env.ADMIN_PASSWORD) {
+      await seedAdminUser(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
+      logger.info('Admin user seeded');
     }
 
     await seedBotsForOccupiedSectors();

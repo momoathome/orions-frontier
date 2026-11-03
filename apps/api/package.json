@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch --include ../../packages/shared/dist --include ../../packages/game-config/dist src/index.ts",
     "dev:time-lapse": "tsx watch --include ../../packages/shared/dist --include ../../packages/game-config/dist src/tools/time-lapse/main.ts",
-    "build": "tsc",
+    "build": "tsc && cp -R src/lib/db/migrations dist/lib/db/",
     "clean": "rm -rf dist",
     "test:unit": "node --import tsx --test test/unit/*.test.ts",
     "test:integration": "node --import tsx --test --test-concurrency=1 test/integration/*.test.ts",

@@ -11,6 +11,27 @@ const production = {
   WORLD_SEED: 'b'.repeat(16),
 };
 
+test('admin account is optional, but needs both values and no placeholder in production', () => {
+  const adminPassword = 'c'.repeat(12);
+  assert.equal(
+    parseEnv({ ...production, ADMIN_EMAIL: '', ADMIN_PASSWORD: '' }).ADMIN_EMAIL,
+    undefined
+  );
+  assert.throws(() => parseEnv({ ...production, ADMIN_EMAIL: 'a@b.de' }), /ADMIN_PASSWORD/);
+  assert.throws(() => parseEnv({ ...production, ADMIN_PASSWORD: adminPassword }), /ADMIN_PASSWORD/);
+  assert.throws(
+    () =>
+      parseEnv({
+        ...production,
+        ADMIN_EMAIL: 'a@b.de',
+        ADMIN_PASSWORD: 'change-this-admin-password',
+      }),
+    /ADMIN_PASSWORD/
+  );
+  const env = parseEnv({ ...production, ADMIN_EMAIL: 'A@B.de', ADMIN_PASSWORD: adminPassword });
+  assert.equal(env.ADMIN_EMAIL, 'a@b.de');
+});
+
 test('production needs its own world seed', () => {
   assert.throws(() => parseEnv({ ...production, WORLD_SEED: undefined }), /WORLD_SEED/);
 });

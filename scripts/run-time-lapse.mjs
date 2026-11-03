@@ -21,7 +21,7 @@ const composeArgs = [
 ];
 
 console.log(
-  `Time-lapse ${scale}x: open http://localhost:5174/map as dev@orion.local / dev123. ` +
+  `Time-lapse ${scale}x: open http://localhost:5174/map with ADMIN_EMAIL / ADMIN_PASSWORD from .env. ` +
     `72 game hours take ${Math.round((72 * 60) / Number(scale))} minutes. Ctrl+C deletes the world.`
 );
 

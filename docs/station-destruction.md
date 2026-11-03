@@ -164,7 +164,7 @@ zweite Station nach 1–2 Tagen für einen gelegentlichen Spieler.
 ## 7. Neustart nach der letzten Station
 
 - Ein Spieler ohne Station sieht statt der Karte einen Neustart-Dialog.
-- Neustart gründet eine Starterstation wie bei der Registrierung (`seedDevUser` bzw. der
+- Neustart gründet eine Starterstation wie bei der Registrierung (`seedAdminUser` bzw. der
   Registrierungspfad: Spawn-Slot in einem Ansiedlungssektor, drei Mole, Startgebäude).
 - Der Angriffsschutz von 24 Stunden gilt danach erneut. Dafür wird die Schutzprüfung von
   `users.created_at` auf eine neue Spalte `users.protected_until` umgestellt.

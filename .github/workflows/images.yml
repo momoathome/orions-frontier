@@ -1,0 +1,47 @@
+name: Images
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Production images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: deploy/smoke-test.sh
+
+  publish:
+    name: Publish images
+    needs: smoke
+    if: github.event_name == 'push' && vars.PUBLIC_DOMAIN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        env:
+          PUBLIC_DOMAIN: ${{ vars.PUBLIC_DOMAIN }}
+        run: |
+          for target in api web; do
+            image="ghcr.io/momoathome/orions-frontier-$target:$GITHUB_SHA"
+            docker build --target "$target" \
+              --build-arg "PUBLIC_DOMAIN=$PUBLIC_DOMAIN" \
+              --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              -t "$image" .
+            docker push "$image"
+          done

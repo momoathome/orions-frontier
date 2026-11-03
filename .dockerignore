@@ -1,18 +1,19 @@
 # Docker ignore file
-node_modules
-dist
-build
+**/node_modules
+**/dist
+**/build
+**/*.tsbuildinfo
 .git
 .gitignore
-.env
-.env.local
-*.log
+**/.env
+**/.env.local
+**/*.log
 coverage
 artifacts
-.DS_Store
+**/.DS_Store
 README.md
 .vscode
 .idea
-*.md
+**/*.md
 postgres-data
 redis-data
