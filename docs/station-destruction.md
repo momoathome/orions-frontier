@@ -62,11 +62,15 @@ POST attack  { stationId, targetStationId, fleet: { merlin: 40, hammer: 4 } }
   `attacker_amount` eine Spalte `attacker_fleet jsonb` (`{ key: amount }`). Die Hin- und
   Rückreise bleibt eine einzige `spacecraft_trip`. Deren `station_spacecraft_id` zeigt auf die
   langsamste Gruppe, `group_size` ist die Gesamtzahl.
-- **Verluste des Angreifers** verteilen sich anteilig: Jede Gruppe verliert denselben Anteil
-  `min(1, Verteidigungskraft / Summe(Anzahl × Verteidigung))`, abgerundet je Gruppe. Das ist
-  nachvollziehbar und schützt Bomber nicht künstlich.
-- Angriffskraft = Summe(Anzahl × effektiver Angriff) aller Gruppen. Verteidigerverluste,
-  Siegbedingung, Beute (nur Frachtraum der Überlebenden) und Trümmer bleiben wie bisher.
+- Angriffskraft = Summe(Anzahl × effektiver Angriff) aller Gruppen. Verteidigungskraft =
+  Stationsverteidigung + angedockte Schiffe × Verteidigung, jeweils mit Forschung. Die
+  Verteidigung eines Schiffs zählt nur zu Hause.
+- Die stärkere Seite gewinnt, bei Gleichstand der Verteidiger. Der Verlierer verliert alle
+  beteiligten Schiffe (beim Verteidiger die angedockten). Der Sieger verliert je Gruppe den Anteil
+  `(Verlierer-Kraft / Sieger-Kraft)^1,5`, abgerundet: bei doppelter Übermacht etwa 35 %, bei
+  vierfacher etwa 12 %. Die Stationsverteidigung wird nie zerstört.
+- Beute: 30 % jeder ungeschützten Ressource, bis der Frachtraum der Überlebenden voll ist.
+  Trümmer bleiben wie bisher.
 - Bots verwenden dieselbe Route und denselben Service.
 
 ## 3. Integrität

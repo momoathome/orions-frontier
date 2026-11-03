@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   createRealtimeExecutionContext,
   createSeededExecutionContext,
+  gameNow,
   resolveGameExecutionContext,
 } from '../../src/lib/game-execution-context.js';
 import { worldSeed } from '../../src/lib/world-config.js';
@@ -90,4 +91,20 @@ test('context resolution ignores callback indices and other unrelated values', (
   const context = resolveGameExecutionContext(0);
   assert.equal(typeof context.at, 'function');
   assert.equal(typeof context.nextId, 'function');
+});
+
+test('the time-lapse game clock runs scaled from its start and the real clock without one', (t) => {
+  const saved = process.env;
+  process.env = { ...saved };
+  t.after(() => {
+    process.env = saved;
+  });
+  delete process.env['TIME_LAPSE_SCALE'];
+  assert.equal(gameNow(5_000).getTime(), 5_000);
+
+  process.env['TIME_LAPSE_SCALE'] = '60';
+  process.env['TIME_LAPSE_STARTED_AT'] = '1000';
+  assert.equal(gameNow(1_000).getTime(), 1_000);
+  // One real minute is one game hour.
+  assert.equal(gameNow(1_000 + 60_000).getTime(), 1_000 + 3_600_000);
 });

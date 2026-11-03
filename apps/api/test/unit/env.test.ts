@@ -59,3 +59,14 @@ test('TRUST_PROXY is off by default and takes a flag, a hop count or proxy addre
   assert.equal(oneHop('10.0.0.1', 0), true);
   assert.equal(oneHop('10.0.0.1', 1), false);
 });
+
+test('the time-lapse moves every timestamp ahead, so production refuses it', () => {
+  assert.throws(
+    () => parseEnv({ ...production, TIME_LAPSE_SCALE: '60', TIME_LAPSE_STARTED_AT: '1' }),
+    /TIME_LAPSE_SCALE/
+  );
+  assert.throws(
+    () => parseEnv({ ...production, NODE_ENV: 'development', TIME_LAPSE_SCALE: '60' }),
+    /TIME_LAPSE_STARTED_AT/
+  );
+});

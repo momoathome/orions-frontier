@@ -1,7 +1,7 @@
 # Forschung
 
-Forschung gilt für den ganzen Account und hat Stufen. Sie kostet Hydrogenium, ab Tier 3 auch Kyber
-und ab Tier 5 Astatine. Schiffe und Verteidigung werden nicht erforscht. Sie werden frei, sobald die
+Forschung gilt für den ganzen Account und hat Stufen. Sie kostet vor allem Hydrogenium, dazu Carbon
+und Titanium, ab Tier 3 auch Kyber und ab Tier 5 Astatine. Schiffe und Verteidigung werden nicht erforscht. Sie werden frei, sobald die
 nötigen Forschungs- und Gebäudestufen erreicht sind. Alle Formeln stehen pur in
 `@orions-frontier/game-config` (`research.ts`, `research-effects.ts`). API, Bots, Playtest und
 Frontend verwenden dieselben Funktionen.
@@ -21,13 +21,16 @@ Gespeichert wird in `user_research`: eine Zeile pro Account und Technologie, mit
 
 ## Tiers, Kosten und Dauer
 
-| Tier | Gate                         | Kosten Stufe 1            | Dauer Stufe 1 |
-| ---- | ---------------------------- | ------------------------- | ------------- |
-| 1    | Laboratory 1                 | 150 H                     | 10 min        |
-| 2    | Laboratory 3                 | 400 H                     | 30 min        |
-| 3    | Laboratory 5, Spectral       | 900 H, 150 Kyber          | 1,5 h         |
-| 4    | Laboratory 8                 | 2.000 H, 400 Kyber        | 4 h           |
-| 5    | Laboratory 11, Deep Spectral | 4.500 H, 1.000 K, 200 Ast | 10 h          |
+| Tier | Gate                         | Kosten Stufe 1                                 | Dauer Stufe 1 |
+| ---- | ---------------------------- | ---------------------------------------------- | ------------- |
+| 1    | Laboratory 1                 | 300 H, 150 C, 80 Ti                            | 10 min        |
+| 2    | Laboratory 3                 | 1.200 H, 600 C, 300 Ti                         | 30 min        |
+| 3    | Laboratory 5, Spectral       | 4.500 H, 2.200 C, 1.100 Ti, 150 K              | 1,5 h         |
+| 4    | Laboratory 8                 | 10.000 H, 5.000 C, 2.500 Ti, 400 K             | 4 h           |
+| 5    | Laboratory 11, Deep Spectral | 22.500 H, 11.000 C, 5.500 Ti, 1.000 K, 200 Ast | 10 h          |
+
+- Forschung ist der Hauptverbraucher von Hydrogenium und bindet auch Carbon und Titanium, damit der
+  Abbau einen Abnehmer hat.
 
 - Jede weitere Stufe kostet und dauert das 1,5-Fache der vorigen. Kosten werden auf 10 gerundet.
 - Das Laboratory deckelt jede Forschungsstufe auf seine eigene Stufe. Jede Stufe über 1 verkürzt

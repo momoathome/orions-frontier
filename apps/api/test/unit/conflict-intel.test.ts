@@ -26,8 +26,12 @@ const makeReport = (overrides: Partial<CombatReport> & { id: string }): CombatRe
   defenderUserId: defenderId,
   attackerFleet: { merlin: 5 },
   attackerAmount: 5,
+  attacker: { userName: 'Pilot', stationName: 'Station', x: 0, y: 0 },
+  defender: { userName: 'Pilot', stationName: 'Station', x: 0, y: 0 },
   attackerLosses: 2,
   defenderLosses: 1,
+  attackerShipLosses: null,
+  defenderShipLosses: null,
   winner: 'attacker',
   loot: {},
   status: 'resolved',
@@ -37,6 +41,7 @@ const makeReport = (overrides: Partial<CombatReport> & { id: string }): CombatRe
   integrityDamage: 0,
   defenderIntegrity: null,
   stationDestroyed: false,
+  scouting: null,
   ...overrides,
 });
 

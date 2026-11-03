@@ -182,7 +182,7 @@ export interface StationMiningAssignment {
   asteroidX: number;
   asteroidY: number;
   /** Size, resource and reserve stay null unless the asteroid is scanned; blind mining is allowed. */
-  asteroidSize: AsteroidSize | null;
+  asteroidSize: AsteroidSize;
   asteroidPrimaryResourceKey: string | null;
   asteroidRemainingAmount: number | null;
   spacecraftKey: string;
@@ -218,7 +218,7 @@ export const getStationMiningAssignments = async (
       asteroidId: r.asteroidId,
       asteroidX: r.asteroidX,
       asteroidY: r.asteroidY,
-      asteroidSize: scanned ? r.asteroidSize : null,
+      asteroidSize: r.asteroidSize,
       asteroidPrimaryResourceKey: scanned ? r.asteroidPrimaryResourceKey : null,
       asteroidRemainingAmount: scanned ? r.asteroidRemainingAmount : null,
       spacecraftKey: r.spacecraftKey,

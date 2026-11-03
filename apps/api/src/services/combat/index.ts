@@ -1,4 +1,11 @@
-export { getUserCombatReports, handleCombatTripArrival, startAttack } from './combat.js';
+export {
+  getAttackForecast,
+  getUserCombatReport,
+  getUserCombatReports,
+  handleCombatTripArrival,
+  startAttack,
+} from './combat.js';
+export { estimateDefenseScore } from './forecast.js';
 export { handleRelocateArrival } from './destruction.js';
 export {
   getDebrisById,

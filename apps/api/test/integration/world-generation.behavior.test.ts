@@ -12,13 +12,18 @@ import { stations } from '../../src/lib/db/schema/stations.js';
 import { users } from '../../src/lib/db/schema/users.js';
 import { WORLD_CONFIG } from '../../src/lib/world-config.js';
 import { seedBotsForSector } from '../../src/services/bot/provision.js';
-import { ensureSector, openNextSettlementSector } from '../../src/services/map/sector.js';
+import {
+  ensureSector,
+  openNextSettlementSector,
+  settleFrontierSector,
+} from '../../src/services/map/sector.js';
 import { createStation } from '../../src/services/station/station.js';
 import { deleteTestData } from '../helpers/fixtures.js';
 
 const userId = randomUUID();
 let sectorId = '';
 let openedSectorId = '';
+const frontierSectorIds: string[] = [];
 
 before(async () => {
   await runMigrations();
@@ -36,7 +41,7 @@ before(async () => {
 });
 
 after(async () => {
-  const testSectorIds = [sectorId, openedSectorId].filter(Boolean);
+  const testSectorIds = [sectorId, openedSectorId, ...frontierSectorIds].filter(Boolean);
   // Bots seeded into the test sectors belong to this test, so their owners go too.
   const owners = await getDb()
     .select({ userId: stations.userId })
@@ -119,4 +124,36 @@ test('opening the next settlement creates configured player and bot slots', asyn
     slots.filter((slot) => slot.slotType === 'bot').length,
     WORLD_CONFIG.SECTOR.BOTS_PER_SETTLEMENT
   );
+});
+
+test('an empty explored frontier sector becomes a settlement with slots clear of its asteroids', async () => {
+  const db = getDb();
+  const [empty, inhabited] = await db.transaction(async (tx) => [
+    await ensureSector(tx, 430, 420, 'frontier'),
+    await ensureSector(tx, 431, 420, 'frontier'),
+  ]);
+  frontierSectorIds.push(empty.id, inhabited.id);
+  const sectorRows = await db.select().from(sectors).where(inArray(sectors.id, frontierSectorIds));
+  const sectorRow = (id: string) => sectorRows.find((row) => row.id === id)!;
+  await db.insert(stations).values({ userId, name: 'Colony', sectorId: inhabited.id, x: 0, y: 0 });
+
+  assert.equal(
+    await db.transaction((tx) => settleFrontierSector(tx, sectorRow(inhabited.id))),
+    false
+  );
+  assert.equal(await db.transaction((tx) => settleFrontierSector(tx, sectorRow(empty.id))), true);
+
+  const [settled] = await db.select().from(sectors).where(eq(sectors.id, empty.id));
+  assert.equal(settled?.role, 'settlement');
+  const rocks = await db.select().from(asteroids).where(eq(asteroids.sectorId, empty.id));
+  assert.ok(rocks.length > 0, 'the explored asteroids stay');
+  const slots = await db.select().from(spawnSlots).where(eq(spawnSlots.sectorId, empty.id));
+  assert.ok(slots.some((slot) => slot.slotType === 'player'));
+  for (const slot of slots) {
+    for (const rock of rocks) {
+      assert.ok(
+        Math.hypot(rock.x - slot.x, rock.y - slot.y) >= WORLD_CONFIG.SECTOR.SAFE_SPAWN_RADIUS
+      );
+    }
+  }
 });

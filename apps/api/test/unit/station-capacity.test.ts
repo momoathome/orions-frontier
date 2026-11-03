@@ -9,9 +9,9 @@ import {
 } from '@orions-frontier/game-config';
 
 test('hangar capacity and spacecraft crew requirements match the balancing contract', () => {
-  assert.equal(calculateHangarCapacity(1), 20);
-  assert.equal(calculateHangarCapacity(10), 191);
-  assert.equal(calculateHangarCapacity(20), 571);
+  assert.equal(calculateHangarCapacity(1), 25);
+  assert.equal(calculateHangarCapacity(10), 238);
+  assert.equal(calculateHangarCapacity(20), 713);
   assert.deepEqual(Object.fromEntries(spacecrafts.map(({ key, crew }) => [key, crew])), {
     merlin: 1,
     comet: 2,

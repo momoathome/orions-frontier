@@ -23,8 +23,7 @@ export interface MiningAssignment {
   asteroidId: string;
   asteroidX: number;
   asteroidY: number;
-  /** Null while the asteroid is outside scanner range. */
-  asteroidSize: string | null;
+  asteroidSize: string;
 }
 
 export interface StationDetail {

@@ -1,0 +1,19 @@
+# Merged over compose.yaml by `npm run time-lapse`: game time runs TIME_LAPSE_SCALE times faster.
+services:
+  api:
+    command:
+      - sh
+      - -c
+      - |
+        npm run build:packages
+        npm run dev --workspace @orions-frontier/shared &
+        npm run dev --workspace @orions-frontier/game-config &
+        exec npm run dev:time-lapse --workspace @orions-frontier/api
+    environment:
+      TIME_LAPSE_SCALE: ${TIME_LAPSE_SCALE}
+      TIME_LAPSE_STARTED_AT: ${TIME_LAPSE_STARTED_AT}
+
+  frontend:
+    environment:
+      VITE_TIME_LAPSE_SCALE: ${TIME_LAPSE_SCALE}
+      VITE_TIME_LAPSE_STARTED_AT: ${TIME_LAPSE_STARTED_AT}

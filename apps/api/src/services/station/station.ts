@@ -33,6 +33,7 @@ import { getResearchModifiers } from '../research/index.js';
 import { getStationVisualProfiles, starterStationVisualProfile } from './visual.js';
 import {
   createRealtimeExecutionContext,
+  gameNow,
   type GameExecutionContext,
 } from '../../lib/game-execution-context.js';
 
@@ -49,7 +50,7 @@ const toStation = (
   y: row.y,
   scannerRange,
   visualProfile,
-  integrity: currentIntegrity(row.integrity, row.integrityUpdatedAt, new Date()),
+  integrity: currentIntegrity(row.integrity, row.integrityUpdatedAt, gameNow()),
   createdAt: row.createdAt.toISOString(),
 });
 

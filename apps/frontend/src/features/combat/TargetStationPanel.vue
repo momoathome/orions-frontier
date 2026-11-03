@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { VisibleStation } from '@orions-frontier/shared';
+import type { AttackForecast, VisibleStation } from '@orions-frontier/shared';
 import { apiClient, apiErrorMessage } from '../../shared/api/api-client';
+import { resourceName } from '../../shared/lib/resources';
 import { useStationStore } from '../station/index.js';
+import { scoutingSummary } from './scouting.js';
+import { useCombatStore } from './store.js';
 import PanelShell from '../../shared/ui/PanelShell.vue';
 
 const { origin, station } = defineProps<{
@@ -12,6 +15,15 @@ const { origin, station } = defineProps<{
 
 const emit = defineEmits<{ close: []; launched: [] }>();
 const stationStore = useStationStore();
+const combat = useCombatStore();
+
+// Reports come newest first: the latest wave that brought something back from this target.
+const lastScouting = computed(
+  () =>
+    combat.state.combats.find(
+      (report) => report.defenderStationId === station.id && report.scouting !== null
+    )?.scouting ?? null
+);
 
 const distance = computed(() =>
   origin ? Math.hypot(station.x - origin.x, station.y - origin.y) : null
@@ -37,6 +49,34 @@ watch(
   () => {
     amounts.value = {};
     feedback.value = null;
+  }
+);
+
+const forecast = ref<AttackForecast | null>(null);
+const chanceLabel = { high: 'High', medium: 'Medium', low: 'Low' } as const;
+const chanceClass = { high: 'text-ui-green', medium: 'text-ui-amber', low: 'text-ui-red' } as const;
+let forecastTimer: ReturnType<typeof setTimeout> | undefined;
+let forecastRequest = 0;
+// The server predicts from what the scanner sees, outside it from the last combat report; typing
+// in the amounts waits for a short pause.
+watch(
+  () => [origin?.id, station.id, fleet.value, lastScouting.value] as const,
+  ([originId, targetId, selected, scouting]) => {
+    clearTimeout(forecastTimer);
+    const request = ++forecastRequest;
+    forecast.value = null;
+    if (!originId || (!station.scanned && !scouting) || Object.keys(selected).length === 0) return;
+    forecastTimer = setTimeout(async () => {
+      try {
+        const result = await apiClient.post<AttackForecast>(
+          `/stations/${originId}/attacks/forecast`,
+          { targetStationId: targetId, fleet: selected }
+        );
+        if (request === forecastRequest) forecast.value = result;
+      } catch {
+        // No forecast is shown; launching the attack reports the actual problem.
+      }
+    }, 300);
   }
 );
 
@@ -87,10 +127,10 @@ async function attack() {
 
       <section class="flex flex-col gap-3">
         <h3 class="ui-label">Attack</h3>
-        <p v-if="!station.scanned" class="text-ui-soft">
-          Outside scanner range. Upgrade a scanner or found a station nearby to target it.
+        <p v-if="lastScouting" class="text-xs text-ui-muted">
+          Last report: {{ scoutingSummary(lastScouting) }}
         </p>
-        <template v-else-if="fighters.length > 0">
+        <template v-if="fighters.length > 0">
           <label
             v-for="fighter in fighters"
             :key="fighter.definition.key"
@@ -115,14 +155,34 @@ async function attack() {
         <p v-else class="text-ui-soft">
           No fighter or bomber is ready. Build them in the Shipyard (Fleet).
         </p>
+        <p v-if="!station.scanned && !lastScouting && hasShips" class="text-sm text-ui-soft">
+          Win chance unknown: the station is outside your scanner, so the fleet flies blind.
+          Survivors report what they saw.
+        </p>
+        <dl v-if="forecast" class="flex flex-col gap-1 text-sm" aria-live="polite">
+          <div class="flex justify-between">
+            <dt class="text-ui-soft">Win chance</dt>
+            <dd :class="chanceClass[forecast.winChance]">{{ chanceLabel[forecast.winChance] }}</dd>
+          </div>
+          <div v-for="(range, key) in forecast.loot" :key="key" class="flex justify-between">
+            <dt class="text-ui-soft">Expected {{ resourceName(key) }}</dt>
+            <dd class="ui-num text-ui-bright">
+              {{ range.min.toLocaleString('en-US') }}–{{ range.max.toLocaleString('en-US') }}
+            </dd>
+          </div>
+          <p v-if="forecast.basis === 'last_report'" class="text-xs text-ui-muted">
+            Outside your scanner: estimated from the last report. The target may have built up
+            since, and its stock is unseen.
+          </p>
+          <p v-else class="text-xs text-ui-muted">
+            Estimated from the scanned station defense; docked ships and research stay unseen.
+          </p>
+        </dl>
         <p v-if="feedback" class="text-ui-soft">{{ feedback }}</p>
       </section>
     </div>
 
-    <div
-      v-if="station.scanned && fighters.length > 0"
-      class="border-t border-ui-line px-[18px] py-4"
-    >
+    <div v-if="fighters.length > 0" class="border-t border-ui-line px-[18px] py-4">
       <button
         type="button"
         :disabled="sending || !hasShips"

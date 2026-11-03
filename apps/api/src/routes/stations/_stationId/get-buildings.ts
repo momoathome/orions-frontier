@@ -1,6 +1,7 @@
 import { authenticate } from '../../../middleware/auth.js';
 import { getBuildSlots, getStationBuildings, ownStation } from '../../../services/station/index.js';
 import { defineRoute, stationParams } from '../../../lib/route.js';
+import { gameNow } from '../../../lib/game-execution-context.js';
 
 /**
  * GET /api/stations/:stationId/buildings
@@ -17,7 +18,7 @@ export default defineRoute(async (app) => {
 
       const [buildings, buildSlots] = await Promise.all([
         getStationBuildings(ownedStationId),
-        getBuildSlots(ownedStationId, new Date()),
+        getBuildSlots(ownedStationId, gameNow()),
       ]);
 
       return { stationId: ownedStationId, buildings, buildSlots };

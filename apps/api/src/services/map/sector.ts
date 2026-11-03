@@ -1,14 +1,25 @@
 import { required } from '@orions-frontier/shared';
-import type { getDb } from '../../lib/db/index.js';
-import { insertAsteroids, insertAsteroidVeins } from './repositories/asteroids.js';
+import type { getDb, Tx } from '../../lib/db/index.js';
 import {
+  insertAsteroids,
+  insertAsteroidVeins,
+  listAsteroidPositionsInSector,
+} from './repositories/asteroids.js';
+import {
+  claimFrontierSectorForSettlement,
   findSectorByCoordinates,
   insertSectorIfAbsent,
   listSectorCoordinates,
+  listUnsettledFrontierSectors,
+  lockSectorColonization,
 } from './repositories/sectors.js';
 import { insertSpawnSlots } from './repositories/spawn-slots.js';
-import { generateSector } from '../../lib/world-gen/sector-gen.js';
-import type { GeneratedAsteroid, SectorRole } from '../../lib/world-gen/types.js';
+import { generateSector, generateSpawnSlots } from '../../lib/world-gen/sector-gen.js';
+import type {
+  GeneratedAsteroid,
+  GeneratedSpawnSlot,
+  SectorRole,
+} from '../../lib/world-gen/types.js';
 import {
   createRealtimeExecutionContext,
   type GameExecutionContext,
@@ -77,30 +88,68 @@ export async function ensureSector(
   }
 
   await insertGeneratedAsteroids(db, created.id, generated.asteroids, context);
-  if (generated.spawnSlots.length > 0) {
-    await insertSpawnSlots(
-      db,
-      generated.spawnSlots.map((slot) => ({
-        id: context.nextId('spawn-slot'),
-        sectorId: created.id,
-        slotIndex: slot.slotIndex,
-        slotType: slot.slotType,
-        x: slot.x,
-        y: slot.y,
-        createdAt: context.now,
-      }))
-    );
-  }
+  await insertSectorSpawnSlots(db, created.id, generated.spawnSlots, context);
   return { id: created.id, created: true, role };
 }
 
+async function insertSectorSpawnSlots(
+  db: Pick<SectorDb, 'insert'>,
+  sectorId: string,
+  slots: GeneratedSpawnSlot[],
+  context: GameExecutionContext
+): Promise<void> {
+  if (slots.length === 0) return;
+  await insertSpawnSlots(
+    db,
+    slots.map((slot) => ({
+      id: context.nextId('spawn-slot'),
+      sectorId,
+      slotIndex: slot.slotIndex,
+      slotType: slot.slotType,
+      x: slot.x,
+      y: slot.y,
+      createdAt: context.now,
+    }))
+  );
+}
+
+/**
+ * Turns an explored frontier sector without stations into a settlement. Its asteroids stay, so the
+ * spawn slots search around them; false if no player slot fits or the sector no longer qualifies.
+ */
+export async function settleFrontierSector(
+  tx: Tx,
+  sector: { id: string; sectorX: number; sectorY: number; seed: string },
+  context: GameExecutionContext = createRealtimeExecutionContext()
+): Promise<boolean> {
+  await lockSectorColonization(tx, sector.id);
+  const slots = generateSpawnSlots(
+    sector.sectorX,
+    sector.sectorY,
+    sector.seed,
+    'settlement',
+    await listAsteroidPositionsInSector(tx, sector.id)
+  );
+  if (!slots.some((slot) => slot.slotType === 'player')) return false;
+  if (!(await claimFrontierSectorForSettlement(tx, sector.id))) return false;
+  await insertSectorSpawnSlots(tx, sector.id, slots, context);
+  return true;
+}
+
+/**
+ * Opens the settlement nearest the world center: a new sector next to a known one, or an explored
+ * frontier sector nobody lives in, so exploration does not push new players outward.
+ */
 export async function openNextSettlementSector(
-  db: SectorDb,
+  tx: Tx,
   context: GameExecutionContext = createRealtimeExecutionContext()
 ): Promise<string> {
-  const existing = await listSectorCoordinates(db);
+  const existing = await listSectorCoordinates(tx);
   const occupied = new Set(existing.map(({ sectorX, sectorY }) => `${sectorX},${sectorY}`));
-  const candidateMap = new Map<string, { sectorX: number; sectorY: number }>();
+  const candidateMap = new Map<
+    string,
+    { sectorX: number; sectorY: number; frontier?: Parameters<typeof settleFrontierSector>[1] }
+  >();
   for (const { sectorX, sectorY } of existing) {
     for (const candidate of [
       { sectorX: sectorX + 1, sectorY },
@@ -112,6 +161,9 @@ export async function openNextSettlementSector(
       if (!occupied.has(key)) candidateMap.set(key, candidate);
     }
   }
+  for (const frontier of await listUnsettledFrontierSectors(tx)) {
+    candidateMap.set(`${frontier.sectorX},${frontier.sectorY}`, { ...frontier, frontier });
+  }
   const candidates = [...candidateMap.values()].sort(
     (left, right) =>
       Math.max(Math.abs(left.sectorX), Math.abs(left.sectorY)) -
@@ -119,14 +171,20 @@ export async function openNextSettlementSector(
       Math.abs(left.sectorX) +
         Math.abs(left.sectorY) -
         (Math.abs(right.sectorX) + Math.abs(right.sectorY)) ||
+      // At the same distance a fresh sector wins: all its slots are free of asteroids.
+      Number(left.frontier !== undefined) - Number(right.frontier !== undefined) ||
       left.sectorY - right.sectorY ||
       left.sectorX - right.sectorX
   );
   if (candidates.length === 0) candidates.push({ sectorX: 0, sectorY: 0 });
 
   for (const candidate of candidates) {
+    if (candidate.frontier) {
+      if (await settleFrontierSector(tx, candidate.frontier, context)) return candidate.frontier.id;
+      continue;
+    }
     const sector = await ensureSector(
-      db,
+      tx,
       candidate.sectorX,
       candidate.sectorY,
       'settlement',

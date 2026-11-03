@@ -8,6 +8,7 @@ import {
   calculateReserve,
   estimateDefenseScore,
   availableOffensivePower,
+  SAFETY_MARGIN,
   scoreConflictTarget,
 } from '../conflict-intel.js';
 import { availableFighterAttack, wasRecentlyAttacked } from './military.js';
@@ -16,14 +17,6 @@ import { hasActiveMining, stationModifiers } from './shared.js';
 // ---------------------------------------------------------------------------
 // Raid & Retaliate
 // ---------------------------------------------------------------------------
-
-/** Safety margins on estimated target defense per profile (GB-17). */
-const SAFETY_MARGIN: Record<BotProfile, number> = {
-  industrialist: 1.4,
-  pioneer: 1.3,
-  technocrat: 1.25,
-  warlord: 1.15,
-};
 
 /** Cooldown durations in ms. */
 const COOLDOWN_WIN_MS = 6 * 3_600_000;

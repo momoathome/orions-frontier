@@ -1,4 +1,4 @@
-import type { CombatReport, ResourceMap } from '@orions-frontier/shared';
+import type { CombatReport, CombatScouting, ResourceMap } from '@orions-frontier/shared';
 import {
   boolean,
   index,
@@ -38,12 +38,16 @@ export const combatMissions = pgTable(
     attackerAmount: integer('attacker_amount').notNull(),
     attackerLosses: integer('attacker_losses').notNull().default(0),
     defenderLosses: integer('defender_losses').notNull().default(0),
+    /** Destroyed defending ships per key; null before the battle and for older missions. */
+    defenderShipLosses: jsonb('defender_ship_losses').$type<Record<string, number>>(),
     winner: varchar('winner', { length: 16 }).$type<'attacker' | 'defender'>(),
     loot: jsonb('loot').$type<ResourceMap>(),
     integrityDamage: integer('integrity_damage').notNull().default(0),
     /** Defender integrity after this wave; null when no battle took place. */
     defenderIntegrity: integer('defender_integrity'),
     stationDestroyed: boolean('station_destroyed').notNull().default(false),
+    /** What the wave met at the target; the attacker only learns it with survivors. */
+    scouting: jsonb('scouting').$type<CombatScouting>(),
     status: varchar('status', { length: 16 })
       .$type<CombatReport['status']>()
       .notNull()

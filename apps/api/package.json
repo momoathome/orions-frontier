@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --include ../../packages/shared/dist --include ../../packages/game-config/dist src/index.ts",
+    "dev:time-lapse": "tsx watch --include ../../packages/shared/dist --include ../../packages/game-config/dist src/tools/time-lapse/main.ts",
     "build": "tsc",
     "clean": "rm -rf dist",
     "test:unit": "node --import tsx --test test/unit/*.test.ts",

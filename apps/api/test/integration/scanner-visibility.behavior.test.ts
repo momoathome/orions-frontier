@@ -260,7 +260,7 @@ test('each station keeps its own scanner range', async () => {
       .sort((left, right) => left.stationId.localeCompare(right.stationId)),
     [
       { stationId: viewerStationId, scannerRange: 2_000 },
-      { stationId: remoteViewerStationId, scannerRange: 3_000 },
+      { stationId: remoteViewerStationId, scannerRange: 2_700 },
     ].sort((left, right) => left.stationId.localeCompare(right.stationId))
   );
 });
@@ -286,7 +286,7 @@ test('the map lists everything while the scanner decides the detail level', asyn
       chunkX: 2,
       chunkY: 0,
       scanned: false,
-      size: null,
+      size: 'small',
       primaryResourceKey: null,
       remainingFraction: null,
     }
@@ -312,7 +312,8 @@ test('the map lists everything while the scanner decides the detail level', asyn
   assert.equal((await getAsteroidById(visibleAsteroidId, viewerId))?.veins.length, 1);
   const hiddenDetail = await getAsteroidById(hiddenAsteroidId, viewerId);
   assert.equal(hiddenDetail?.scanned, false);
-  assert.equal(hiddenDetail.size, null);
+  // Size shows from afar; composition needs the scanner.
+  assert.equal(hiddenDetail.size, 'small');
   assert.deepEqual(hiddenDetail.veins, []);
   assert.ok(await getDebrisById(visibleDebrisId, viewerId));
   assert.equal(await getDebrisById(hiddenDebrisId, viewerId), null);
@@ -329,7 +330,7 @@ test('blind mining reveals an unscanned asteroid once the first cargo heads home
   assert.ok('id' in created);
   assert.equal((await getAsteroidById(hiddenAsteroidId, viewerId))?.scanned, false);
 
-  // The station's assignment list keeps the blind asteroid's size, resource and reserve hidden.
+  // The station's assignment list keeps the blind asteroid's resource and reserve hidden.
   const [scannedAssignment] = await getDb()
     .insert(asteroidAssignments)
     .values({ asteroidId: visibleAsteroidId, stationId: viewerStationId, spacecraftKey: 'mole' })
@@ -339,7 +340,7 @@ test('blind mining reveals an unscanned asteroid once the first cargo heads home
   const known = listed.find(({ id }) => id === scannedAssignment?.id);
   assert.deepEqual(
     [blind?.asteroidSize, blind?.asteroidPrimaryResourceKey, blind?.asteroidRemainingAmount],
-    [null, null, null]
+    ['small', null, null]
   );
   assert.deepEqual(
     [known?.asteroidSize, known?.asteroidPrimaryResourceKey, known?.asteroidRemainingAmount],
@@ -422,7 +423,7 @@ test('blind mining reveals an unscanned asteroid once the first cargo heads home
   });
 });
 
-test('salvage and attacks still require scanner coverage', async () => {
+test('salvage still requires scanner coverage, an attack flies blind', async () => {
   await assert.rejects(
     startSalvage({
       userId: viewerId,
@@ -440,21 +441,20 @@ test('salvage and attacks still require scanner coverage', async () => {
       targetStationId: hiddenTargetStationId,
       fleet: { javelin: 1 },
     }),
-    /Target station not found/
+    // Past the scanner: only the new owner's attack protection stops this one.
+    /Target account is protected from attacks/
   );
 });
 
 test('foreign movement is a route-free contact while the owner keeps its full trip', async () => {
-  assert.equal(
-    (await getVisibleWorldMovements(range, viewerId, new Date(now.getTime() - 5_000))).some(
-      ({ id }) => id === tripId
-    ),
-    false
-  );
-  const [contact] = (await getVisibleWorldMovements(range, viewerId, now)).filter(
-    ({ id }) => id === tripId
-  );
+  const contactAt = async (when: Date) =>
+    (await getVisibleWorldMovements(range, viewerId, when)).find(({ id }) => id === tripId);
+  // Outside the scanner an attack is still seen moving, but not identified.
+  const departing = await contactAt(new Date(now.getTime() - 5_000));
+  assert.equal(departing?.kind === 'radar_contact' && departing.signature, null);
+  const contact = await contactAt(now);
   assert.equal(contact?.kind, 'radar_contact');
+  assert.equal(contact.signature, 'miner');
   assert.deepEqual(
     { x: contact.x, y: contact.y },
     {
@@ -472,12 +472,8 @@ test('foreign movement is a route-free contact while the owner keeps its full tr
   ]) {
     assert.equal(privateField in contact, false);
   }
-  assert.equal(
-    (await getVisibleWorldMovements(range, viewerId, new Date(now.getTime() + 5_000))).some(
-      ({ id }) => id === tripId
-    ),
-    false
-  );
+  // On arrival it sits at x -2,500, outside the requested chunks.
+  assert.equal(await contactAt(new Date(now.getTime() + 5_000)), undefined);
 
   const [ownTrip] = (await getVisibleWorldMovements(range, targetId, now)).filter(
     ({ id }) => id === tripId

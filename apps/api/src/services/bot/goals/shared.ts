@@ -105,6 +105,27 @@ export function canAcquireCosts(
     });
 }
 
+/**
+ * A scanner upgrade only helps when a missing resource is one the account can see at all and no
+ * visible asteroid holds it yet; Kyber and Astatine stay hidden until their research.
+ */
+export function scannerCouldFindCosts(
+  state: GoalBotState,
+  station: StationSnapshot,
+  costs: readonly ResourceCost[]
+): boolean {
+  const { visibleResources } = researchModifiers(state.research.levels);
+  return costs.some(
+    (cost) =>
+      (station.resources[cost.resourceKey] ?? 0) < cost.amount &&
+      cost.amount <= station.storageCapacity &&
+      visibleResources.includes(cost.resourceKey) &&
+      !state.visibleAsteroids.some(
+        (asteroid) => (asteroid.remainingByResource[cost.resourceKey] ?? 0) > 0
+      )
+  );
+}
+
 export function waitForCosts(
   state: GoalBotState,
   station: StationSnapshot,

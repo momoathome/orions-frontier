@@ -9,7 +9,7 @@ import {
 import { apiClient } from '../../shared/api/api-client.js';
 import { wsClient } from '../../shared/api/ws-client.js';
 import { debounced } from '../../shared/lib/debounce.js';
-import { guarded, live } from '../../shared/lib/live.js';
+import { gameNow, guarded, live } from '../../shared/lib/live.js';
 import { resourceName } from '../../shared/lib/resources.js';
 import { useCombatStore } from '../combat/index.js';
 import { useLogbookStore } from '../logbook/index.js';
@@ -87,7 +87,7 @@ const scheduleProgress = debounced(
 function start(): () => void {
   const stopStations = station.start();
   void station.stationsLoaded().then(refreshRest);
-  const clock = window.setInterval(() => (live.now = Date.now()), 1_000);
+  const clock = window.setInterval(() => (live.now = gameNow()), 1_000);
   const unsubscribers = [
     wsClient.on('mining_tick_completed', scheduleAll),
     wsClient.on('transport_tick_completed', scheduleAll),

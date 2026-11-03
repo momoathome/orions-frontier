@@ -2,7 +2,9 @@ import {
   required,
   AppError,
   ErrorCode,
+  type AttackForecast,
   type CombatReport,
+  type CombatScouting,
   type ResourceMap,
 } from '@orions-frontier/shared';
 import {
@@ -16,6 +18,7 @@ import {
 } from '@orions-frontier/game-config';
 import { getDb, type Tx } from '../../lib/db/index.js';
 import {
+  findLatestScouting,
   findReturningCombatMissionForUpdate,
   findTravelingCombatMissionForUpdate,
   insertCombatMission,
@@ -26,7 +29,8 @@ import {
 import { insertTrip, updateTripCargo, type TripRow } from '../fleet/index.js';
 import { findUserForUpdate, updateUser } from '../auth/index.js';
 import { calcArrivesAt, calcDistance } from '../../lib/travel.js';
-import { resolveBattle } from './battle.js';
+import { lootFromStock, resolveBattle } from './battle.js';
+import { forecastAttack, forecastFromScouting } from './forecast.js';
 import { createDebrisFromLosses } from './salvage.js';
 import { destroyStation } from './destruction.js';
 import { publishUserEvent } from '../../lib/realtime.js';
@@ -44,11 +48,14 @@ import {
   removeSpacecraft,
   reserveSpacecraft,
   findActiveStation,
+  findOwnedStation,
   findOwnedStationForUpdate,
   findStation,
   findStationForUpdate,
   updateStation,
+  getStationVisualProfiles,
   getUserScannerCoverages,
+  listStationResources,
 } from '../station/index.js';
 import {
   applyTravelSpeed,
@@ -67,10 +74,10 @@ import {
 
 type Trip = TripRow;
 
+type CombatMissionListRow = Awaited<ReturnType<typeof listCombatMissionsByUser>>[number];
+
 const toReport = (
-  row: CombatMissionRow,
-  defenderUserId: string,
-  arrivesAt: Date,
+  { mission: row, defenderUserId, arrivesAt, attacker, defender }: CombatMissionListRow,
   viewerUserId: string,
   signatureAnalysis: boolean
 ): CombatReport => {
@@ -83,6 +90,9 @@ const toReport = (
       : row.integrityDamage > 0
         ? coarseIntegrity(row.defenderIntegrity)
         : null;
+  // Only ships that fly home tell the attacker what they met.
+  const sawTarget = viewerUserId !== row.userId || row.attackerLosses < row.attackerAmount;
+  const survivors = row.attackerSurvivors;
   return {
     id: row.id,
     attackerStationId: row.attackerStationId,
@@ -91,13 +101,25 @@ const toReport = (
     defenderUserId,
     attackerFleet: hidden ? null : row.attackerFleet,
     attackerAmount: hidden ? null : row.attackerAmount,
+    // The defender learns where the wave came from only from the battle.
+    attacker: row.winner === null && viewerUserId !== row.userId ? null : attacker,
+    defender,
     attackerLosses: row.attackerLosses,
     defenderLosses: row.defenderLosses,
+    attackerShipLosses: survivors
+      ? Object.fromEntries(
+          Object.entries(row.attackerFleet)
+            .map(([key, amount]) => [key, amount - (survivors[key] ?? 0)] as const)
+            .filter(([, lost]) => lost > 0)
+        )
+      : null,
+    defenderShipLosses: sawTarget ? row.defenderShipLosses : null,
     winner: row.winner,
     loot: row.loot ?? {},
     integrityDamage: row.integrityDamage,
     defenderIntegrity,
     stationDestroyed: row.stationDestroyed,
+    scouting: sawTarget ? row.scouting : null,
     status: row.status,
     arrivesAt: arrivesAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
@@ -172,10 +194,7 @@ export async function startAttack(params: {
     if (!defender || defender.userId === params.userId) {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid attack target');
     }
-    const coverages = await getUserScannerCoverages(params.userId, tx);
-    if (!isPointVisible(coverages, defender)) {
-      throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
-    }
+    // Any station on the map is a target, like a blind mining run; only the forecast needs the scanner.
     await lockUsersAndCheckProtection(tx, params.userId, defender.userId, context.now);
 
     const rows = await listStationSpacecraftIdsByKeys(
@@ -234,7 +253,50 @@ export async function startAttack(params: {
     defenderStationId: mission.mission.defenderStationId,
     arrivesAt: mission.arrivesAt.toISOString(),
   });
-  return toReport(mission.mission, mission.defenderUserId, mission.arrivesAt, params.userId, false);
+  return getUserCombatReport(params.userId, mission.mission.id);
+}
+
+/** What the scanner lets the attacker expect from this fleet; changes nothing. */
+export async function getAttackForecast(params: {
+  userId: string;
+  stationId: string;
+  targetStationId: string;
+  fleet: Record<string, number>;
+}): Promise<AttackForecast> {
+  const { groups } = parseAttackFleet(params.fleet);
+  const db = getDb();
+  const attacker = await findOwnedStation(db, params.stationId, params.userId);
+  if (!attacker) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
+  const defender = await findActiveStation(db, params.targetStationId);
+  if (!defender || defender.userId === params.userId) {
+    throw new AppError(ErrorCode.VALIDATION_ERROR, 'Invalid attack target');
+  }
+  const coverages = await getUserScannerCoverages(params.userId, db);
+  if (!isPointVisible(coverages, defender)) {
+    // Outside the scanner only the user's own last combat report tells anything about the target.
+    const [scouting, research] = await Promise.all([
+      findLatestScouting(db, params.userId, defender.id),
+      getStationResearchModifiers(db, attacker.id),
+    ]);
+    if (!scouting) throw new AppError(ErrorCode.NOT_FOUND, 'Target station not found');
+    return forecastFromScouting(
+      groups.map(([key, amount]) => ({ key, amount, spacecraft: requireSpacecraft(key) })),
+      scouting,
+      research
+    );
+  }
+  const [profiles, research, warehouseLevel, resources] = await Promise.all([
+    getStationVisualProfiles([defender.id]),
+    getStationResearchModifiers(db, attacker.id),
+    findBuildingLevel(db, defender.id, 'warehouse'),
+    listStationResources(db, defender.id),
+  ]);
+  return forecastAttack(
+    groups.map(([key, amount]) => ({ key, amount, spacecraft: requireSpacecraft(key) })),
+    required(profiles.get(defender.id), 'target profile'),
+    research,
+    { resources, protectedAmount: calculateProtectedStorage(warehouseLevel ?? 0) }
+  );
 }
 
 /** Newest first, one page at a time; incoming attacks are always on the first page. */
@@ -247,9 +309,18 @@ export async function getUserCombatReports(
     listCombatMissionsByUser(db, userId, { since, limit, offset }),
     getResearchModifiers(userId, db),
   ]);
-  return rows.map(({ mission, defenderUserId, arrivesAt }) =>
-    toReport(mission, defenderUserId, arrivesAt, userId, modifiers.signatureAnalysis)
-  );
+  return rows.map((row) => toReport(row, userId, modifiers.signatureAnalysis));
+}
+
+/** One report the user flew or defended against; 404 for anyone else. */
+export async function getUserCombatReport(userId: string, id: string): Promise<CombatReport> {
+  const db = getDb();
+  const [[row], modifiers] = await Promise.all([
+    listCombatMissionsByUser(db, userId, { id, limit: 1, offset: 0 }),
+    getResearchModifiers(userId, db),
+  ]);
+  if (!row) throw new AppError(ErrorCode.NOT_FOUND, 'Combat report not found');
+  return toReport(row, userId, modifiers.signatureAnalysis);
 }
 
 /** Attacking groups with their station fleet rows, slowest first. */
@@ -278,28 +349,24 @@ interface CombatOutcome {
   integrityDamage: number;
   defenderIntegrity: number | null;
   stationDestroyed: boolean;
+  scouting: CombatScouting | null;
+  defenderShipLosses: Record<string, number> | null;
 }
 
-/** A won wave takes 10% of every unprotected resource, in key order, until the cargo is full. */
+/** Plunders the defender in key order; see `lootFromStock`. */
 async function plunderStation(
   tx: Tx,
   defenderStationId: string,
   cargoCapacity: number
 ): Promise<Record<string, number>> {
-  const loot: Record<string, number> = {};
-  let cargoLeft = cargoCapacity;
   const protectedAmount = calculateProtectedStorage(
     (await findBuildingLevel(tx, defenderStationId, 'warehouse')) ?? 0
   );
   const resources = await listStationResourcesInKeyOrderForUpdate(tx, defenderStationId);
-  for (const resource of resources) {
-    if (cargoLeft <= 0) break;
-    const available = Math.max(0, resource.amount - protectedAmount);
-    const amount = Math.min(cargoLeft, Math.floor(available * 0.1));
-    if (amount <= 0) continue;
-    loot[resource.resourceKey] = amount;
-    cargoLeft -= amount;
-    await deductStationResource(tx, defenderStationId, resource.resourceKey, amount);
+  const loot = lootFromStock(resources, protectedAmount, cargoCapacity);
+  for (const { resourceKey } of resources) {
+    const amount = loot[resourceKey];
+    if (amount) await deductStationResource(tx, defenderStationId, resourceKey, amount);
   }
   return loot;
 }
@@ -459,6 +526,8 @@ async function resolveOutboundCombat(
     integrityDamage: 0,
     defenderIntegrity: null,
     stationDestroyed: false,
+    scouting: null,
+    defenderShipLosses: null,
   };
   let debrisResources: ResourceMap = {};
 
@@ -469,14 +538,26 @@ async function resolveOutboundCombat(
       getStationResearchModifiers(tx, mission.defenderStationId),
     ]);
     const defenderRows = await listStationSpacecraftsForUpdate(tx, mission.defenderStationId);
+    const stationDefense = await getStationDefenseScore(tx, mission.defenderStationId);
     const battle = resolveBattle(
       groups,
       defenderRows,
-      await getStationDefenseScore(tx, mission.defenderStationId),
+      stationDefense,
       attackerResearch,
       defenderResearch
     );
     outcome.winner = battle.winner;
+    // Stored for both sides; the report shows it to the attacker only if a ship flew home.
+    outcome.scouting = {
+      stationDefense: Math.round(stationDefense * defenderResearch.stationDefense),
+      dockedShips: Object.fromEntries(
+        defenderRows
+          .map((row) => [row.spacecraftKey, row.amount - row.lockedAmount] as const)
+          .filter(([, docked]) => docked > 0)
+      ),
+    };
+    const defenderShipLosses: Record<string, number> = {};
+    outcome.defenderShipLosses = defenderShipLosses;
     for (const group of groups) {
       const losses = battle.attackerLosses.get(group.key) ?? 0;
       if (losses === 0) continue;
@@ -491,6 +572,7 @@ async function resolveOutboundCombat(
         'defender fleet'
       );
       outcome.defenderLosses += losses;
+      defenderShipLosses[row.spacecraftKey] = (defenderShipLosses[row.spacecraftKey] ?? 0) + losses;
       addDestroyed(row.spacecraftKey, losses);
       await removeSpacecraft(tx, rowId, losses);
     }

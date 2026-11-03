@@ -151,7 +151,7 @@ export async function generateGoalCandidates(
         explore,
         colony,
         fortify: generateFortifyCandidate(state, station),
-        strike: generateBuildStrikeForceCandidate(state, station),
+        strike: generateBuildStrikeForceCandidate(state, station, usedProfile),
       };
     })
   );

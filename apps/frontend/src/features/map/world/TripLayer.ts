@@ -6,6 +6,7 @@ import {
   type WorldTripPurpose,
 } from '@orions-frontier/shared';
 import { ASTEROID_DEFAULT_RADIUS } from './constants.js';
+import { gameNow } from '../../../shared/lib/live.js';
 
 // TripLayer
 // Renders in-flight spacecraft as animated dots moving along their trip path.
@@ -72,6 +73,31 @@ const ORBIT_MARGIN = 8;
 const ORBIT_PERIOD_MS = 120_000;
 /** Time a mining group needs to fan out around the orbit after arrival, and to regroup before leaving. */
 const ORBIT_FAN_MS = 4_000;
+/** Unidentified traffic: neutral, but bright enough to read at the widest zoom. */
+const CONTACT_COLOR = 0xc8d2e0;
+/** A wake shows where a contact came from over the last seconds, capped for fast ships. */
+const WAKE_SECONDS = 6;
+const WAKE_MAX_LENGTH = 90;
+const WAKE_SEGMENTS = 3;
+/**
+ * Ships are a few world units wide; zoomed far out they keep at least this radius on screen.
+ * Stations do not grow, so ships stay a speck beside them instead of outgrowing them.
+ */
+const MIN_SHIP_PX = 1;
+const MIN_WAKE_PX = 8;
+
+/**
+ * Corners for a dot of this on-screen radius. Pixi sizes circles by world radius, so markers
+ * grown for a wide zoom would tessellate four times the vertices they need.
+ */
+const dotSides = (screenRadius: number) => Math.min(32, Math.max(8, Math.ceil(screenRadius * 2)));
+
+/** Stable start angle per contact, so blips sharing an asteroid spread around it. */
+const idAngle = (id: string) => {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) | 0;
+  return ((hash >>> 0) % 360) * (Math.PI / 180);
+};
 
 /** Visual radius of the loaded asteroid at a position, or null if none is loaded there. */
 export type AsteroidRadiusLookup = (x: number, y: number) => number | null;
@@ -84,6 +110,9 @@ export class TripLayer {
   private trips: ActiveMovement[] = [];
   /** Null in the admin scanner bypass: every identified contact is drawn. */
   private scannerCircles: ScannerCircle[] | null = [];
+  private zoom = 1;
+  /** Grows ship markers once the camera zooms out far enough to shrink them below MIN_SHIP_PX. */
+  private scale = 1;
 
   constructor(private asteroidRadiusAt: AsteroidRadiusLookup) {
     this.container.addChild(this.graphics);
@@ -97,20 +126,29 @@ export class TripLayer {
     this.scannerCircles = circles;
   }
 
+  /** Call each frame with the camera zoom. */
+  setZoom(zoom: number) {
+    this.zoom = zoom;
+    this.scale = Math.max(1, MIN_SHIP_PX / (SHIP_RADIUS * zoom));
+  }
+
   private drawFormation(x: number, y: number, color: number, groupSize: number) {
     const shipCount = Math.min(Math.max(groupSize, 1), MAX_VISIBLE_SHIPS);
     const columns = Math.ceil(Math.sqrt(shipCount));
     const rows = Math.ceil(shipCount / columns);
+    const radius = SHIP_RADIUS * this.scale;
+    // Spacing stays in world units: zoomed out, a group merges into one speck.
+    const spacing = SHIP_SPACING;
 
     for (let row = 0; row < rows; row += 1) {
       const rowCount = Math.min(columns, shipCount - row * columns);
       for (let column = 0; column < rowCount; column += 1) {
-        const shipX = x + (column - (rowCount - 1) / 2) * SHIP_SPACING;
-        const shipY = y + (row - (rows - 1) / 2) * SHIP_SPACING;
+        const shipX = x + (column - (rowCount - 1) / 2) * spacing;
+        const shipY = y + (row - (rows - 1) / 2) * spacing;
 
-        this.graphics.circle(shipX, shipY, SHIP_RADIUS + 3);
+        this.graphics.circle(shipX, shipY, radius * 2);
         this.graphics.fill({ color, alpha: 0.2 });
-        this.graphics.circle(shipX, shipY, SHIP_RADIUS);
+        this.graphics.circle(shipX, shipY, radius);
         this.graphics.fill({ color, alpha: 0.9 });
       }
     }
@@ -140,15 +178,100 @@ export class TripLayer {
     const travelled = (elapsed / duration) * laps * Math.PI * 2;
     const fan = Math.max(0, Math.min(1, Math.min(elapsed, trip.departedAt - now) / ORBIT_FAN_MS));
     const shipCount = Math.min(Math.max(trip.groupSize, 1), MAX_VISIBLE_SHIPS);
+    const radius = SHIP_RADIUS * this.scale;
 
     for (let index = 0; index < shipCount; index += 1) {
       const angle = approach.angle + travelled + fan * (index / shipCount) * Math.PI * 2;
       const shipX = trip.fromX + Math.cos(angle) * approach.radius;
       const shipY = trip.fromY + Math.sin(angle) * approach.radius;
-      this.graphics.circle(shipX, shipY, SHIP_RADIUS + 3);
+      this.graphics.circle(shipX, shipY, radius * 2);
       this.graphics.fill({ color: PHASE_COLOR.mining, alpha: 0.2 });
-      this.graphics.circle(shipX, shipY, SHIP_RADIUS);
+      this.graphics.circle(shipX, shipY, radius);
       this.graphics.fill({ color: PHASE_COLOR.mining, alpha: 0.9 });
+    }
+  }
+
+  /**
+   * Foreign traffic: a blip with a fading wake along its heading; a halted blip at an asteroid
+   * circles it, so mining shows. The scanner only adds the signature colour and pulse.
+   * Contacts are batched per colour: one path per style keeps a busy sky to a few draw calls.
+   */
+  private drawContacts(contacts: ActiveRadarContact[], now: number) {
+    const buckets = new Map<number, { blips: number[]; wakes: number[]; identified: boolean }>();
+    for (const contact of contacts) {
+      const elapsedSeconds = Math.max(0, Math.min(7.5, (now - contact.observedAt) / 1_000));
+      let x = contact.x + contact.velocityX * elapsedSeconds;
+      let y = contact.y + contact.velocityY * elapsedSeconds;
+      const inScanner =
+        this.scannerCircles?.some((circle) => {
+          const dx = x - circle.x;
+          const dy = y - circle.y;
+          return dx * dx + dy * dy <= circle.range * circle.range;
+        }) ?? true;
+      // A contact extrapolated past the scanner edge falls back to an anonymous blip.
+      const signature = inScanner ? contact.signature : null;
+      const color =
+        signature === null ? CONTACT_COLOR : signature === 'fighter' ? 0xff5555 : 0x66ddff;
+      let bucket = buckets.get(color);
+      if (!bucket) {
+        bucket = { blips: [], wakes: [], identified: signature !== null };
+        buckets.set(color, bucket);
+      }
+
+      const speed = Math.hypot(contact.velocityX, contact.velocityY);
+      if (speed > 0) {
+        const wake =
+          Math.max(Math.min(speed * WAKE_SECONDS, WAKE_MAX_LENGTH), MIN_WAKE_PX / this.zoom) /
+          speed;
+        bucket.wakes.push(x, y, -contact.velocityX * wake, -contact.velocityY * wake);
+      } else {
+        const asteroidRadius = this.asteroidRadiusAt(contact.x, contact.y);
+        if (asteroidRadius !== null) {
+          const radius = asteroidRadius * 1.2 + ORBIT_MARGIN;
+          const angle = (now / ORBIT_PERIOD_MS) * Math.PI * 2 + idAngle(contact.id);
+          x = contact.x + Math.cos(angle) * radius;
+          y = contact.y + Math.sin(angle) * radius;
+        }
+      }
+      bucket.blips.push(x, y);
+    }
+
+    const g = this.graphics;
+    const { scale } = this;
+    const radius = SHIP_RADIUS * scale;
+    const pulse = (9 + Math.sin(now / 180)) * scale;
+    const coreSides = dotSides(radius * this.zoom);
+    const haloSides = dotSides(radius * 2 * this.zoom);
+    const pulseSides = dotSides(pulse * this.zoom);
+    for (const [color, { blips, wakes, identified }] of buckets) {
+      // The wake fades in segments, oldest part faintest.
+      for (let segment = 0; segment < WAKE_SEGMENTS; segment += 1) {
+        const from = (segment + 1) / WAKE_SEGMENTS;
+        const to = segment / WAKE_SEGMENTS;
+        for (let index = 0; index < wakes.length; index += 4) {
+          const x = wakes[index] ?? 0;
+          const y = wakes[index + 1] ?? 0;
+          const dx = wakes[index + 2] ?? 0;
+          const dy = wakes[index + 3] ?? 0;
+          g.moveTo(x + dx * from, y + dy * from);
+          g.lineTo(x + dx * to, y + dy * to);
+        }
+        if (wakes.length > 0) g.stroke({ color, alpha: 0.35 * (1 - to), width: 1.5 * scale });
+      }
+      if (identified) {
+        for (let index = 0; index < blips.length; index += 2) {
+          g.regularPoly(blips[index] ?? 0, blips[index + 1] ?? 0, pulse, pulseSides);
+        }
+        g.stroke({ color, alpha: 0.55, width: scale });
+      }
+      for (let index = 0; index < blips.length; index += 2) {
+        g.regularPoly(blips[index] ?? 0, blips[index + 1] ?? 0, radius * 2, haloSides);
+      }
+      g.fill({ color, alpha: 0.15 });
+      for (let index = 0; index < blips.length; index += 2) {
+        g.regularPoly(blips[index] ?? 0, blips[index + 1] ?? 0, radius, coreSides);
+      }
+      g.fill({ color, alpha: identified ? 0.9 : 0.75 });
     }
   }
 
@@ -158,34 +281,14 @@ export class TripLayer {
    */
   redraw() {
     this.graphics.clear();
-    const now = Date.now();
+    const now = gameNow();
+    this.drawContacts(
+      this.trips.filter((trip) => trip.kind === 'radar_contact'),
+      now
+    );
 
     for (const trip of this.trips) {
-      if (trip.kind === 'radar_contact') {
-        const elapsedSeconds = Math.max(0, Math.min(7.5, (now - trip.observedAt) / 1_000));
-        const x = trip.x + trip.velocityX * elapsedSeconds;
-        const y = trip.y + trip.velocityY * elapsedSeconds;
-        const visible =
-          this.scannerCircles?.some((circle) => {
-            const dx = x - circle.x;
-            const dy = y - circle.y;
-            return dx * dx + dy * dy <= circle.range * circle.range;
-          }) ?? true;
-        // Unidentified civil traffic shows as a faint dot anywhere on the map.
-        if (trip.signature === null) {
-          this.graphics.circle(x, y, 2);
-          this.graphics.fill({ color: 0xaab4c0, alpha: 0.45 });
-          continue;
-        }
-        if (!visible) continue;
-        const color = trip.signature === 'fighter' ? 0xff5555 : 0x66ddff;
-        const pulse = 2 + Math.sin(now / 180);
-        this.graphics.circle(x, y, 7 + pulse);
-        this.graphics.stroke({ color, alpha: 0.55, width: 1 });
-        this.graphics.circle(x, y, 3);
-        this.graphics.fill({ color, alpha: 0.9 });
-        continue;
-      }
+      if (trip.kind === 'radar_contact') continue;
       const miningPhase = getMiningTripPhase(trip, now);
 
       if (miningPhase === 'mining') {
@@ -224,8 +327,8 @@ export class TripLayer {
         continue;
       }
 
-      const radius = 4 + Math.min(trip.groupSize - 1, 4);
-      this.graphics.circle(x, y, radius + 3);
+      const radius = Math.max(4 + Math.min(trip.groupSize - 1, 4), SHIP_RADIUS * this.scale);
+      this.graphics.circle(x, y, radius + 3 * this.scale);
       this.graphics.fill({ color, alpha: 0.2 });
       this.graphics.circle(x, y, radius);
       this.graphics.fill({ color, alpha: 0.9 });

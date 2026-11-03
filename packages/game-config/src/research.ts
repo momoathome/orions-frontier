@@ -24,18 +24,28 @@ export const RESEARCH_TIERS: Record<
 > = {
   1: {
     requirements: { buildings: { laboratory: 1 } },
-    costs: [{ resourceKey: 'hydrogenium', amount: 150 }],
+    costs: [
+      { resourceKey: 'hydrogenium', amount: 300 },
+      { resourceKey: 'carbon', amount: 150 },
+      { resourceKey: 'titanium', amount: 80 },
+    ],
     minutes: 10,
   },
   2: {
     requirements: { buildings: { laboratory: 3 } },
-    costs: [{ resourceKey: 'hydrogenium', amount: 400 }],
+    costs: [
+      { resourceKey: 'hydrogenium', amount: 1_200 },
+      { resourceKey: 'carbon', amount: 600 },
+      { resourceKey: 'titanium', amount: 300 },
+    ],
     minutes: 30,
   },
   3: {
     requirements: { buildings: { laboratory: 5 }, research: { spectral_analysis: 1 } },
     costs: [
-      { resourceKey: 'hydrogenium', amount: 900 },
+      { resourceKey: 'hydrogenium', amount: 4_500 },
+      { resourceKey: 'carbon', amount: 2_200 },
+      { resourceKey: 'titanium', amount: 1_100 },
       { resourceKey: 'kyber_crystal', amount: 150 },
     ],
     minutes: 90,
@@ -43,7 +53,9 @@ export const RESEARCH_TIERS: Record<
   4: {
     requirements: { buildings: { laboratory: 8 } },
     costs: [
-      { resourceKey: 'hydrogenium', amount: 2_000 },
+      { resourceKey: 'hydrogenium', amount: 10_000 },
+      { resourceKey: 'carbon', amount: 5_000 },
+      { resourceKey: 'titanium', amount: 2_500 },
       { resourceKey: 'kyber_crystal', amount: 400 },
     ],
     minutes: 240,
@@ -51,7 +63,9 @@ export const RESEARCH_TIERS: Record<
   5: {
     requirements: { buildings: { laboratory: 11 }, research: { deep_spectral_analysis: 1 } },
     costs: [
-      { resourceKey: 'hydrogenium', amount: 4_500 },
+      { resourceKey: 'hydrogenium', amount: 22_500 },
+      { resourceKey: 'carbon', amount: 11_000 },
+      { resourceKey: 'titanium', amount: 5_500 },
       { resourceKey: 'kyber_crystal', amount: 1_000 },
       { resourceKey: 'astatine', amount: 200 },
     ],
@@ -333,7 +347,7 @@ const requireResearchDefinition = (key: ResearchKey): ResearchDefinition =>
 
 export const isResearchKey = (key: string): key is ResearchKey => isOneOf(researchKeys, key);
 
-/** Hydrogenium in Tier 1 and 2, Kyber from Tier 3, Astatine in Tier 5; ×1.5 per level. */
+/** Hydrogenium, Carbon and Titanium in every tier, Kyber from Tier 3, Astatine in Tier 5; ×1.5 per level. */
 export function calculateResearchCost(key: ResearchKey, level: number): ResearchCost[] {
   const multiplier = LEVEL_FACTOR ** (level - 1);
   return RESEARCH_TIERS[requireResearchDefinition(key).tier].costs.map((cost) => ({

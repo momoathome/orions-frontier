@@ -35,6 +35,9 @@ const envSchema = z
     TRUST_PROXY: trustProxySchema,
     // Read by WORLD_CONFIG; validated here so production cannot start on the public default.
     WORLD_SEED: z.string().min(16).optional(),
+    // Dev time-lapse, read by gameNow().
+    TIME_LAPSE_SCALE: z.coerce.number().min(1).optional(),
+    TIME_LAPSE_STARTED_AT: z.coerce.number().int().positive().optional(),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
@@ -46,6 +49,14 @@ const envSchema = z
   .refine((env) => env.NODE_ENV !== 'production' || env.WORLD_SEED !== undefined, {
     path: ['WORLD_SEED'],
     message: 'required in production, otherwise anyone can compute the map from the public seed',
+  })
+  .refine((env) => env.NODE_ENV !== 'production' || env.TIME_LAPSE_SCALE === undefined, {
+    path: ['TIME_LAPSE_SCALE'],
+    message: 'not allowed in production, it moves every timestamp into the future',
+  })
+  .refine((env) => env.TIME_LAPSE_SCALE === undefined || env.TIME_LAPSE_STARTED_AT !== undefined, {
+    path: ['TIME_LAPSE_STARTED_AT'],
+    message: 'required with TIME_LAPSE_SCALE',
   })
   .refine(
     (env) =>

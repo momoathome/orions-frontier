@@ -84,14 +84,18 @@ test('research tree: keys match, prerequisites sit in the same or an earlier tie
 
 test('research cost and duration scale by tier and level, the Laboratory speeds research up', () => {
   assert.deepEqual(calculateResearchCost('weapons', 1), [
-    { resourceKey: 'hydrogenium', amount: 150 },
+    { resourceKey: 'hydrogenium', amount: 300 },
+    { resourceKey: 'carbon', amount: 150 },
+    { resourceKey: 'titanium', amount: 80 },
   ]);
   assert.deepEqual(calculateResearchCost('weapons', 2), [
-    { resourceKey: 'hydrogenium', amount: 230 },
+    { resourceKey: 'hydrogenium', amount: 450 },
+    { resourceKey: 'carbon', amount: 230 },
+    { resourceKey: 'titanium', amount: 120 },
   ]);
   assert.deepEqual(
     calculateResearchCost('fleet_coordination', 1).map((cost) => cost.resourceKey),
-    ['hydrogenium', 'kyber_crystal', 'astatine']
+    ['hydrogenium', 'carbon', 'titanium', 'kyber_crystal', 'astatine']
   );
   assert.equal(calculateResearchDuration('weapons', 1, 1), 600);
   assert.equal(calculateResearchDuration('weapons', 2, 1), 900);

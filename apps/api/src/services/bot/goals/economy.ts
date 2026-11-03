@@ -15,6 +15,7 @@ import {
   buildingCanUpgrade,
   buildingUpgradeCost,
   canAcquireCosts,
+  scannerCouldFindCosts,
   canAfford,
   freeCrewCapacity,
   getHangarLevel,
@@ -88,16 +89,14 @@ export function generateIncreaseIncomeCandidate(
 
   // If both milestones reached, no need for increase_income
   if (totalMoles >= 3 && hasTitan) return null;
-  // Only the Titan is left and only research gates it: the research goal unlocks it first.
-  // A missing Shipyard level stays this goal's step, the research goal waits for it.
+  // Only the Titan is left and research gates it: the research goal unlocks it first, so the
+  // Shipyard is not upgraded for a Titan whose research is still far away.
   const titanBlockers = requirementBlockers(
     requireSpacecraft('titan').requirements,
     station.research,
     stationBuildingLevels(station)
   );
-  const onlyResearchMissing =
-    titanBlockers.length > 0 && titanBlockers.every((blocker) => blocker.type === 'research');
-  if (totalMoles >= 3 && onlyResearchMissing) return null;
+  if (totalMoles >= 3 && titanBlockers.some((blocker) => blocker.type === 'research')) return null;
   const nextCosts = nextIncomeCosts(station);
   if (!canAfford(station, nextCosts) && !canAcquireCosts(state, station, nextCosts)) return null;
 
@@ -147,7 +146,11 @@ export function generateIncreaseCapacityCandidate(
   const nextDevelopmentCosts = nextIncomeCosts(station);
   const hasUnreachableCapacityCost = candidates.some((candidate) => {
     const costs = buildingUpgradeCost(station, candidate.key);
-    return !canAfford(station, costs) && !canAcquireCosts(state, station, costs);
+    return (
+      !canAfford(station, costs) &&
+      !canAcquireCosts(state, station, costs) &&
+      scannerCouldFindCosts(state, station, costs)
+    );
   });
   const defense = bestDefenseUpgrade(station);
   const defenseCosts = defense
@@ -156,7 +159,8 @@ export function generateIncreaseCapacityCandidate(
   const lacksVisibleDefenseResource =
     defenseCosts.length > 0 &&
     !canAfford(station, defenseCosts) &&
-    !canAcquireCosts(state, station, defenseCosts);
+    !canAcquireCosts(state, station, defenseCosts) &&
+    scannerCouldFindCosts(state, station, defenseCosts);
   const unlockedFighterDefinitions = unlockedFighters(station).flatMap((fighter) => {
     const definition = getSpacecraft(fighter.key);
     return definition ? [definition] : [];
@@ -166,11 +170,15 @@ export function generateIncreaseCapacityCandidate(
     !unlockedFighterDefinitions.some(
       (fighter) =>
         canAfford(station, fighter.costs) || canAcquireCosts(state, station, fighter.costs)
+    ) &&
+    unlockedFighterDefinitions.some((fighter) =>
+      scannerCouldFindCosts(state, station, fighter.costs)
     );
   const lacksVisibleDevelopmentResource =
     nextDevelopmentCosts.length > 0 &&
     !canAfford(station, nextDevelopmentCosts) &&
-    !canAcquireCosts(state, station, nextDevelopmentCosts);
+    !canAcquireCosts(state, station, nextDevelopmentCosts) &&
+    scannerCouldFindCosts(state, station, nextDevelopmentCosts);
   if (
     (hasUnreachableCapacityCost ||
       lacksVisibleDevelopmentResource ||

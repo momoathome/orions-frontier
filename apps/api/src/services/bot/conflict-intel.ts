@@ -1,4 +1,3 @@
-import { entriesOf } from '@orions-frontier/shared';
 /**
  * GB-16 – Conflict intelligence: hostility, target estimation, and reserve.
  *
@@ -6,8 +5,7 @@ import { entriesOf } from '@orions-frontier/shared';
  * No generators, no steps, no database queries — only math on already-loaded data.
  */
 import type { CombatReport, StationVisualProfile } from '@orions-frontier/shared';
-import type { DefenseUpgradeKey } from '@orions-frontier/shared';
-import { getDefenseUpgrade, calculateDefenseUpgradeEffect } from '@orions-frontier/game-config';
+import { estimateDefenseScore } from '../combat/index.js';
 import type { BotProfile } from '../../lib/db/schema/bot-controllers.js';
 import { PROFILE_PARAMS } from './profiles.js';
 
@@ -82,42 +80,8 @@ export function calculateHostility(
 // Target defense estimation (public data only)
 // ---------------------------------------------------------------------------
 
-/**
- * Upper-bound level for each visual tier.
- * Tier 0 = 0, Tier 1 = 4, Tier 2 = 9, Tier 3 = max level of the upgrade.
- */
-function tierMaxLevel(tier: number, upgradeKey: DefenseUpgradeKey): number {
-  switch (tier) {
-    case 0:
-      return 0;
-    case 1:
-      return 4;
-    case 2:
-      return 9;
-    case 3:
-      return getDefenseUpgrade(upgradeKey).maxLevel;
-    default:
-      return 0;
-  }
-}
-
-/**
- * Estimate a target station's defense score from its public visual profile.
- *
- * Uses upper-bound tier estimates so the bot does not underestimate
- * an opponent's strength (GB-16: "bekannten Obergrenzen der visuellen Tiers").
- */
-export function estimateDefenseScore(profile: StationVisualProfile): number {
-  let total = 0;
-
-  for (const [key, tier] of entriesOf(profile.defense)) {
-    const maxLvl = tierMaxLevel(tier, key);
-    const effect = calculateDefenseUpgradeEffect(key, maxLvl);
-    total += effect.reduce((s, e) => s + e.value, 0);
-  }
-
-  return total;
-}
+// The estimate lives in `combat`, where the attack forecast for players uses it too.
+export { estimateDefenseScore };
 
 /**
  * Rough loot estimate from a target station's scale tier.
@@ -152,6 +116,17 @@ const RESERVE_RATIO: Record<BotProfile, number> = {
   warlord: 0.375,
 };
 
+/**
+ * Safety margins on estimated target defense per profile (GB-17). The winner loses
+ * `(1 / margin)^1.5` at most: about 50% for the Industrialist, 67% for the Warlord.
+ */
+export const SAFETY_MARGIN: Record<BotProfile, number> = {
+  industrialist: 1.6,
+  pioneer: 1.5,
+  technocrat: 1.5,
+  warlord: 1.3,
+};
+
 const RECENT_ATTACK_BONUS = 0.15;
 const UNSTABLE_COLONY_BONUS = 0.1;
 const RESERVE_CAP = 0.9;
@@ -165,11 +140,18 @@ export function calculateReserve(
   hasRecentAttack: boolean,
   isUnstableColony: boolean
 ): number {
+  return Math.round(localFighterAttack * reserveRatio(profile, hasRecentAttack, isUnstableColony));
+}
+
+function reserveRatio(
+  profile: BotProfile,
+  hasRecentAttack: boolean,
+  isUnstableColony: boolean
+): number {
   let ratio = RESERVE_RATIO[profile];
   if (hasRecentAttack) ratio += RECENT_ATTACK_BONUS;
   if (isUnstableColony) ratio += UNSTABLE_COLONY_BONUS;
-  ratio = Math.min(ratio, RESERVE_CAP);
-  return Math.round(localFighterAttack * ratio);
+  return Math.min(ratio, RESERVE_CAP);
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +216,23 @@ export function scoreConflictTarget(params: {
 // ---------------------------------------------------------------------------
 // Available excess attack power
 // ---------------------------------------------------------------------------
+
+/**
+ * Fighter attack a station needs so that the part above its reserve fits a raid group on
+ * `defense`: the margin, rounded up to whole ships of `shipAttack`, plus one for the rounded reserve.
+ */
+export function raidStrikeAttack(
+  defense: number,
+  profile: BotProfile,
+  shipAttack: number,
+  hasRecentAttack: boolean,
+  isUnstableColony: boolean
+): number {
+  const required = Math.max(1, Math.round(defense * SAFETY_MARGIN[profile]));
+  const group = shipAttack > 0 ? Math.ceil(required / shipAttack) * shipAttack : required;
+  const ratio = reserveRatio(profile, hasRecentAttack, isUnstableColony);
+  return Math.ceil((group + 1) / (1 - ratio));
+}
 
 /**
  * Calculate how much attack power is available for offensive actions

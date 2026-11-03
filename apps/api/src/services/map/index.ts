@@ -38,6 +38,7 @@ export {
   listBotSettlementSectorIds,
   listFrontierCoordinates,
   listNearestSectors,
+  lockSectorColonization,
 } from './repositories/sectors.js';
 export {
   assignSpawnSlot,

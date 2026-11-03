@@ -12,6 +12,7 @@ import { type DefenseUpgradeKey } from '@orions-frontier/shared';
 import type { GoalBotState, StationSnapshot, GoalResult } from '../goal-state.js';
 import type { GoalCandidate } from '../goal-driven-v1.js';
 import { GOAL_CATEGORY } from '../goal-driven-v1.js';
+import { estimateDefenseScore, raidStrikeAttack } from '../conflict-intel.js';
 import {
   assignMinerTowardCosts,
   buildingCanUpgrade,
@@ -22,6 +23,7 @@ import {
   stationBuildingLevels,
   stationModifiers,
   stepTowardBuildingLevel,
+  stepTowardSpacecraft,
 } from './shared.js';
 
 // ---------------------------------------------------------------------------
@@ -116,6 +118,16 @@ export function unlockedFighters(station: StationSnapshot): { key: string; attac
         requirementBlockers(definition.requirements, station.research, buildings).length === 0
     )
     .map((definition) => ({ key: definition.key, attack: definition.attack }));
+}
+
+/** No fighter is unlocked yet, but the Merlin's research stands and only a building is missing. */
+function merlinWaitsOnBuildings(station: StationSnapshot): boolean {
+  const blockers = requirementBlockers(
+    requireSpacecraft('merlin').requirements,
+    station.research,
+    stationBuildingLevels(station)
+  );
+  return blockers.length > 0 && blockers.every((blocker) => blocker.type === 'building');
 }
 
 /** Unlocked fighter with the best attack per crew that fits the free crew and the filter. */
@@ -270,15 +282,48 @@ export async function stepFortifyStation(
 // Strike Force generators & steps
 // ---------------------------------------------------------------------------
 
+/**
+ * Fighter attack the strike force aims for. A warlord sizes it to raid the weakest unprotected
+ * visible station; the other profiles keep a fixed force and raid only weaker targets.
+ */
+function strikeAttackTarget(
+  state: GoalBotState,
+  station: StationSnapshot,
+  profile: BotProfile
+): number {
+  if (profile !== 'warlord') return TARGET_STRIKE_ATTACK;
+  const protectedOwnerIds = new Set(state.conflictDiagnostics.protectedOwnerIds);
+  const defenses = state.visibleStations
+    .filter((target) => !target.isOwn && !protectedOwnerIds.has(target.ownerId))
+    .map((target) => estimateDefenseScore(target.visualProfile));
+  if (defenses.length === 0) return TARGET_STRIKE_ATTACK;
+  const fighter = bestFighter(station, Infinity, () => true);
+  const shipAttack = Math.floor((fighter?.attack ?? 0) * stationModifiers(station).attack);
+  return Math.max(
+    TARGET_STRIKE_ATTACK,
+    raidStrikeAttack(
+      Math.min(...defenses),
+      profile,
+      shipAttack,
+      wasRecentlyAttacked(state, station, state.now),
+      !hasActiveMining(station)
+    )
+  );
+}
+
 export function generateBuildStrikeForceCandidate(
   _state: GoalBotState,
-  station: StationSnapshot
+  station: StationSnapshot,
+  profile: BotProfile = 'industrialist'
 ): GoalCandidate | null {
-  const unlocked = unlockedFighters(station);
-  if (unlocked.length === 0) return null;
+  const unlocked = unlockedFighters(station).map((fighter) => fighter.key);
+  // A Merlin that only waits on the Shipyard counts too: the step upgrades the Shipyard first.
+  const options =
+    unlocked.length > 0 ? unlocked : merlinWaitsOnBuildings(station) ? ['merlin'] : [];
+  if (options.length === 0) return null;
   if (
-    !unlocked.some((fighter) => {
-      const costs = getSpacecraft(fighter.key)?.costs ?? [];
+    !options.some((key) => {
+      const costs = getSpacecraft(key)?.costs ?? [];
       return canAfford(station, costs) || canAcquireCosts(_state, station, costs);
     })
   ) {
@@ -286,7 +331,8 @@ export function generateBuildStrikeForceCandidate(
   }
 
   const current = localFighterAttack(station);
-  if (current >= TARGET_STRIKE_ATTACK) return null;
+  const target = strikeAttackTarget(_state, station, profile);
+  if (current >= target) return null;
   // Without crew room and a Hangar level left the step could only block.
   if (
     !buildingCanUpgrade(station, 'hangar') &&
@@ -299,7 +345,7 @@ export function generateBuildStrikeForceCandidate(
   const isNewColony = !hasActiveMining(station);
   let baseNeed = 30;
   if (!isNewColony) baseNeed += 10; // Established stations more likely to build force
-  baseNeed += Math.round((1 - current / TARGET_STRIKE_ATTACK) * 30);
+  baseNeed += Math.round((1 - current / target) * 30);
 
   return {
     goalType: 'build_strike_force',
@@ -319,19 +365,23 @@ export async function stepBuildStrikeForce(
   _state: GoalBotState,
   station: StationSnapshot,
   _targetRef: string,
-  _profile: BotProfile
+  profile: BotProfile
 ): Promise<GoalResult> {
   const current = localFighterAttack(station);
-  if (current >= TARGET_STRIKE_ATTACK) {
+  const target = strikeAttackTarget(_state, station, profile);
+  if (current >= target) {
     return {
       type: 'complete',
       goalType: 'build_strike_force',
       targetRef: `station:${station.id}`,
-      reason: `Fighter attack ${current} meets target ${TARGET_STRIKE_ATTACK}`,
+      reason: `Fighter attack ${current} meets target ${target}`,
     };
   }
 
-  // The candidate requires an unlocked fighter (Shipyard included), and neither unlock can drop.
+  // Without an unlocked fighter the candidate came from a Merlin that waits on the Shipyard.
+  if (unlockedFighters(station).length === 0) {
+    return stepTowardSpacecraft(_state, station, 'merlin', 'strike force');
+  }
   const crew = freeCrewCapacity(station);
   if (!bestFighter(station, crew, () => true)) {
     return stepTowardBuildingLevel(_state, station, 'hangar', 'fighter crew');

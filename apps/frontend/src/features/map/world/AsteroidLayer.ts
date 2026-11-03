@@ -4,7 +4,6 @@ import {
   CHUNK_SIZE,
   ASTEROID_SIZE_RADIUS,
   ASTEROID_DEFAULT_RADIUS,
-  UNSCANNED_ASTEROID_RADIUS,
   UNSCANNED_ASTEROID_TINT,
 } from './constants.js';
 import { resourceColor } from '../../../shared/lib/resources.js';
@@ -13,17 +12,14 @@ import type { ChunkKey } from './ChunkStreamer.js';
 
 // AsteroidLayer
 // Manages one cullable PixiJS Container per loaded chunk. Unscanned asteroids of every
-// chunk share one blurred root, so the blur is a single filter pass per frame.
+// chunk share one softly blurred root, so the blur is a single filter pass per frame.
 
 /** Below this zoom asteroids are a few pixels wide and the blur pass buys nothing. */
 const BLUR_MIN_ZOOM = 0.25;
 /** Sprites reach past their chunk edge by up to the largest drawn radius. */
 const CULL_PADDING = 80;
 /** Largest hit radius, so a large asteroid in a neighbouring chunk still counts. */
-const MAX_ASTEROID_RADIUS = Math.max(
-  UNSCANNED_ASTEROID_RADIUS,
-  ...Object.values(ASTEROID_SIZE_RADIUS)
-);
+const MAX_ASTEROID_RADIUS = Math.max(...Object.values(ASTEROID_SIZE_RADIUS));
 
 export interface AsteroidHit {
   id: string;
@@ -32,9 +28,9 @@ export interface AsteroidHit {
   r: number;
 }
 
-/** Hit and ring radius; an unknown size (outside scanner range) gets the uniform unscanned one. */
-export const asteroidRadius = (size: string | null): number =>
-  size ? (ASTEROID_SIZE_RADIUS[size] ?? ASTEROID_DEFAULT_RADIUS) : UNSCANNED_ASTEROID_RADIUS;
+/** Hit and ring radius; size is visible from afar, only the composition needs the scanner. */
+export const asteroidRadius = (size: string): number =>
+  ASTEROID_SIZE_RADIUS[size] ?? ASTEROID_DEFAULT_RADIUS;
 
 export class AsteroidLayer {
   /** Root container — add this to the world container */
@@ -48,8 +44,8 @@ export class AsteroidLayer {
   private chunkAsteroidData = new Map<ChunkKey, AsteroidHit[]>();
   private asteroidById = new Map<string, AsteroidHit>();
 
-  /** Shared by every chunk: unscanned asteroids render as blurred, uniform silhouettes. */
-  private unscannedBlur = new BlurFilter({ strength: 2 });
+  /** Shared by every chunk: unscanned asteroids render as grey, slightly soft rock. */
+  private unscannedBlur = new BlurFilter({ strength: 1 });
 
   /** Asteroid textures (index 0–5 → asteroid1.webp–asteroid6.webp) */
   private textures: Texture[] = [];
@@ -94,17 +90,16 @@ export class AsteroidLayer {
       sprite.anchor.set(0.5, 0.5);
       sprite.position.set(a.x, a.y);
 
+      const r = asteroidRadius(a.size);
       if (!a.scanned) {
-        const size = UNSCANNED_ASTEROID_RADIUS * 2.4;
-        sprite.width = size;
-        sprite.height = size;
-        sprite.alpha = 0.7;
+        sprite.width = r * 2.4;
+        sprite.height = r * 2.4;
+        sprite.alpha = 0.85;
         sprite.tint = UNSCANNED_ASTEROID_TINT;
         unscannedContainer.addChild(sprite);
         continue;
       }
 
-      const r = asteroidRadius(a.size);
       const remaining = a.remainingFraction ?? 1;
       // diameter = 2 * r, with a slight visual margin; mined-out asteroids shrink and fade
       const size = r * 2.4 * (0.45 + 0.55 * remaining);

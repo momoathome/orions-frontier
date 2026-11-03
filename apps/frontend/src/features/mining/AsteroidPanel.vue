@@ -166,8 +166,9 @@ function phaseShare(hours: number, group: OperationGroup): string {
   return `${(hours / groupRoundTripHours(group)) * 100}%`;
 }
 
+/** Research makes cargo fractional; a lone miner claims the floored load, like the server. */
 function groupLoad(group: OperationGroup): number {
-  return referenceAssignment(group)?.spacecraftCargo ?? 0;
+  return Math.floor(referenceAssignment(group)?.spacecraftCargo ?? 0);
 }
 
 /** What leaves the asteroid per hour; depletion runs at this rate. */
@@ -280,7 +281,7 @@ const PHASES = [
   <PanelShell label="Asteroid details" @close="emit('close')">
     <template #eyebrow>
       Asteroid<template v-if="asteroid">
-        ({{ asteroid.size ? (SIZE_LABELS[asteroid.size] ?? asteroid.size) : 'Unknown size' }})
+        ({{ SIZE_LABELS[asteroid.size] ?? asteroid.size }})
       </template>
     </template>
     <template #title>

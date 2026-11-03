@@ -68,7 +68,7 @@ async function submit() {
       <p v-if="authStore.error" class="ui-error">{{ authStore.error }}</p>
       <button
         type="submit"
-        class="ui-btn ui-btn-primary mt-1 h-11 w-full text-[15px]"
+        class="ui-btn ui-btn-cta mt-1 h-11 w-full text-[15px]"
         :disabled="authStore.isLoading"
       >
         {{ authStore.isLoading ? 'Creating…' : 'Create account' }}

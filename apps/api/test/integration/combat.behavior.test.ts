@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { and, eq } from 'drizzle-orm';
 import { closeDb, getDb, initDb } from '../../src/lib/db/index.js';
@@ -10,7 +11,11 @@ import { stationBuildings } from '../../src/lib/db/schema/station-buildings.js';
 import { stationResources } from '../../src/lib/db/schema/station-resources.js';
 import { stationSpacecrafts } from '../../src/lib/db/schema/station-spacecrafts.js';
 import { stations } from '../../src/lib/db/schema/stations.js';
-import { getUserCombatReports, startAttack } from '../../src/services/combat/combat.js';
+import {
+  getUserCombatReport,
+  getUserCombatReports,
+  startAttack,
+} from '../../src/services/combat/combat.js';
 import { getStationHangar } from '../../src/services/station/spacecraft.js';
 import { getDebrisById, startSalvage } from '../../src/services/combat/salvage.js';
 import { resolveSalvageMissionByTrip } from '../../src/services/combat/repositories/debris-fields.js';
@@ -69,6 +74,8 @@ beforeEach(async () => {
         eq(stationSpacecrafts.spacecraftKey, 'mole')
       )
     );
+  // Above the warehouse's protected 300: 60 Carbon and 210 Hydrogenium are up for plunder.
+  await setTestResources(defenderStationId, { carbon: 500, hydrogenium: 1_000 });
 });
 
 afterEach(async () => {
@@ -78,24 +85,34 @@ afterEach(async () => {
 after(closeDb);
 
 test('combat resolves attacker and defender losses', async () => {
-  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 9 });
-  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 20, used: 6 });
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 25, used: 9 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 25, used: 6 });
 
   const report = await resolveAttack();
 
   assert.equal(report.status, 'resolved');
   assert.equal(report.winner, 'attacker');
-  assert.equal(report.attackerLosses, 1);
+  // 45 attack against 9 defense: (9/45)^1.5 of 3 Merlins rounds down to none.
+  assert.equal(report.attackerLosses, 0);
   assert.equal(report.defenderLosses, 3);
+  // The surviving Merlins report the docked ships they met.
+  assert.deepEqual(report.scouting, { stationDefense: 0, dockedShips: { mole: 3 } });
+  assert.deepEqual(report.attackerShipLosses, {});
+  assert.deepEqual(report.defenderShipLosses, { mole: 3 });
+  assert.equal(report.defender.stationName, 'Defender');
+  // After the battle the defender learns where the wave came from.
+  const seen = await getUserCombatReport(defenderUserId, report.id);
+  assert.equal(seen.attacker?.stationName, 'Attacker');
+  await assert.rejects(getUserCombatReport(randomUUID(), report.id), /not found/);
 
   const [attackerFleet, defenderFleet] = await Promise.all([
     getFleet(attackerStationId, 'merlin'),
     getFleet(defenderStationId, 'mole'),
   ]);
-  assert.deepEqual(attackerFleet, { amount: 2, lockedAmount: 0 });
+  assert.deepEqual(attackerFleet, { amount: 3, lockedAmount: 0 });
   assert.deepEqual(defenderFleet, { amount: 0, lockedAmount: 0 });
-  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 20, used: 8 });
-  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 20, used: 0 });
+  assert.deepEqual(await getStationHangar(attackerStationId), { capacity: 25, used: 9 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 25, used: 0 });
 });
 
 test('combat and salvage returns discard cargo above warehouse capacity', async () => {
@@ -161,6 +178,12 @@ test('station defense score can repel an attack without defending spacecraft', a
   assert.equal(report.winner, 'defender');
   assert.equal(report.attackerLosses, 3);
   assert.equal(report.defenderLosses, 0);
+  assert.equal(report.scouting, null, 'a wiped-out wave reports nothing');
+  assert.equal(report.defenderShipLosses, null);
+  assert.deepEqual(report.attackerShipLosses, { merlin: 3 });
+  // The defender still sees what it fought with.
+  const defended = await getUserCombatReport(defenderUserId, started.id);
+  assert.equal(defended.scouting?.stationDefense, 48);
   assert.deepEqual(await getFleet(attackerStationId, 'merlin'), { amount: 0, lockedAmount: 0 });
 });
 
@@ -170,14 +193,15 @@ test('a resolved attack transfers bounded loot and creates debris', async () => 
 
   const report = await resolveAttack();
 
-  assert.deepEqual(report.loot, { carbon: 15, hydrogenium: 5 });
-  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 15);
-  assert.equal(await getCarbon(defenderStationId), defenderCarbonBefore - 15);
+  // 150 cargo: all 60 Carbon, then 90 of 210 Hydrogenium.
+  assert.deepEqual(report.loot, { carbon: 60, hydrogenium: 90 });
+  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 60);
+  assert.equal(await getCarbon(defenderStationId), defenderCarbonBefore - 60);
   const [field] = await getDb()
     .select()
     .from(debrisFields)
     .where(eq(debrisFields.sectorId, sectorId));
-  assert.deepEqual(field?.resources, { carbon: 108, titanium: 78, hydrogenium: 45 });
+  assert.deepEqual(field?.resources, { carbon: 72, titanium: 54, hydrogenium: 45 });
 });
 
 test('debris can be salvaged and combat does not change station ownership', async () => {
@@ -196,7 +220,7 @@ test('debris can be salvaged and combat does not change station ownership', asyn
   });
   await resolveSalvage(field.id);
 
-  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 15 + 108);
+  assert.equal(await getCarbon(attackerStationId), attackerCarbonBefore + 60 + 72);
   assert.equal(
     (await getDb().select().from(debrisFields).where(eq(debrisFields.id, field.id))).length,
     0
@@ -214,7 +238,7 @@ test('debris can be salvaged and combat does not change station ownership', asyn
   assert.equal(defenderStation?.userId, defenderUserId);
 });
 
-// 3 Merlins (attack 15, defense 8, cargo 10) against Moles (defense 3) and defense upgrades.
+// 3 Merlins (attack 15, cargo 50) against Moles (defense 3) and defense upgrades.
 const researchCases: {
   name: string;
   attacker?: ResearchLevels;
@@ -224,43 +248,47 @@ const researchCases: {
   expected: Partial<CombatReport>;
 }[] = [
   {
-    name: 'without research 45 attack destroys 15 Moles',
+    // 45 against 60: the wave falls and takes (45/60)^1.5 of 20 Moles with it.
+    name: 'without research 45 attack loses to 20 Moles and destroys 12',
     moles: 20,
-    expected: { defenderLosses: 15 },
+    expected: { winner: 'defender', attackerLosses: 3, defenderLosses: 12 },
   },
   {
     name: 'Weapons raises the attack',
     attacker: { weapons: 4 },
     moles: 20,
-    expected: { defenderLosses: 18 },
+    expected: { defenderLosses: 17 },
   },
   {
     name: 'Armor protects defending ships',
     defender: { armor: 4 },
     moles: 20,
-    expected: { defenderLosses: 12 },
+    expected: { defenderLosses: 9 },
   },
   {
-    name: 'Armor protects attacking ships',
+    name: 'Armor does not protect attacking ships',
     attacker: { armor: 4 },
-    expected: { attackerLosses: 0 },
+    moles: 0,
+    armorPlating: 5,
+    expected: { attackerLosses: 1 },
   },
   {
     name: 'Cargo Compression carries more loot',
     attacker: { cargo_compression: 4 },
-    expected: { loot: { carbon: 15, hydrogenium: 9 } },
+    expected: { loot: { carbon: 60, hydrogenium: 120 } },
   },
   {
-    name: 'without research Armor Plating 2 destroys one Merlin',
+    // 30 against 45: (30/45)^1.5 of 3 Merlins.
+    name: 'without research Armor Plating 5 destroys one Merlin',
     moles: 0,
-    armorPlating: 2,
+    armorPlating: 5,
     expected: { attackerLosses: 1 },
   },
   {
     name: 'Shields raise the station defense',
     defender: { shields: 7 },
     moles: 0,
-    armorPlating: 2,
+    armorPlating: 5,
     expected: { attackerLosses: 2 },
   },
 ];
@@ -417,7 +445,7 @@ test('an attack cancelled without a battle keeps its fleet hidden from the defen
 
 test('Fleet Coordination raises the hangar crew capacity', async () => {
   await grantResearch(defenderUserId, { fleet_coordination: 2 });
-  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 22, used: 6 });
+  assert.deepEqual(await getStationHangar(defenderStationId), { capacity: 27, used: 6 });
 });
 
 test('Cargo Compression lets a salvager carry more debris', async () => {

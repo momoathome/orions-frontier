@@ -217,8 +217,12 @@ export function calculateBuildingEffect(buildingKey: BuildingKey, level: number)
 export const calculateConstructionSpeedBonus = (coreLevel: number): number =>
   Math.max(0, coreLevel - 1) * 2;
 
+/**
+ * +500 up to level 4, then +200: the scanner identifies, it does not gate sight, so late levels
+ * grow to about one sector (6,000 wide) instead of far past it.
+ */
 export const calculateScannerRange = (level: number): number =>
-  level <= 0 ? 0 : 1_000 + (level - 1) * 500;
+  level <= 0 ? 0 : 1_000 + Math.min(level - 1, 3) * 500 + Math.max(level - 4, 0) * 200;
 
 /** Ships the Shipyard builds at the same time. */
 export const calculateProductionSlots = (shipyardLevel: number): number =>
@@ -232,11 +236,14 @@ export const calculateStorageCapacity = (warehouseLevel: number): number =>
   Math.round((5000 * 1.45 ** (warehouseLevel - 1)) / 100) * 100;
 
 /** Stock per resource that attackers cannot loot. */
-export const calculateProtectedStorage = (warehouseLevel: number): number => warehouseLevel * 100;
+export const calculateProtectedStorage = (warehouseLevel: number): number => warehouseLevel * 300;
 
-/** Crew places provided by a station hangar; the square term keeps late levels worth their cost. */
+/**
+ * Crew places provided by a station hangar; the square term keeps late levels worth their cost,
+ * and the 1.25 leaves room for a strike force beside the miners.
+ */
 export const calculateHangarCapacity = (hangarLevel: number): number =>
-  10 + hangarLevel * 10 + Math.max(0, hangarLevel - 1) ** 2;
+  Math.floor((10 + hangarLevel * 10 + Math.max(0, hangarLevel - 1) ** 2) * 1.25);
 
 /** Crew the hangar holds once Fleet Coordination (`crewFactor`) is applied. */
 export const calculateCrewCapacity = (hangarLevel: number, crewFactor: number): number =>

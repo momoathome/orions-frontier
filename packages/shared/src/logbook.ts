@@ -21,4 +21,6 @@ export interface LogbookEntry {
   stationId: string | null;
   summary: string;
   occurredAt: string;
+  /** The combat report behind a combat or loot entry. */
+  combatId: string | null;
 }

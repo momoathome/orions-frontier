@@ -74,10 +74,9 @@ function unlockNeeds(state: GoalBotState, station: StationSnapshot): Set<Researc
 
   const buildings = stationBuildingLevels(station);
   const wanted = ['titan', 'collector', ...(unlockedFighters(station).length ? [] : ['merlin'])];
+  // Research comes first; the owning goal adds a missing building once the research stands.
   for (const key of wanted) {
     const blockers = requirementBlockers(requireSpacecraft(key).requirements, levels, buildings);
-    // A missing building is the owning goal's step; research only counts once buildings stand.
-    if (blockers.some((blocker) => blocker.type === 'building')) continue;
     for (const blocker of blockers) if (blocker.type === 'research') visit(blocker.key);
   }
   const modifiers = researchModifiers(levels);
@@ -119,7 +118,8 @@ export function generateResearchCandidates(
       opportunity: affordable ? 30 : 10,
       longTermValue: score,
       commitment: 0,
-      cost: Math.round(costs.reduce((sum, cost) => sum + cost.amount, 0) / 10),
+      // Into the 0-100 cost scale: a Tier 2 step lands near 40, Tier 3 and above saturate.
+      cost: Math.min(100, Math.round(costs.reduce((sum, cost) => sum + cost.amount, 0) / 50)),
       risk: 5,
       blockers: 0,
     });

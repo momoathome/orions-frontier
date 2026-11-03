@@ -18,7 +18,7 @@ import UiModal from '../../shared/ui/UiModal.vue';
 import { apiClient } from '../../shared/api/api-client';
 import { wsClient } from '../../shared/api/ws-client';
 import { debounced } from '../../shared/lib/debounce';
-import { live } from '../../shared/lib/live.js';
+import { live, timeLapse } from '../../shared/lib/live.js';
 import { WorldRenderer } from './world/WorldRenderer.js';
 import type { StationInfo, AssignedAsteroid } from './world/WorldRenderer.js';
 import type { AsteroidHit } from './world/AsteroidLayer.js';
@@ -223,6 +223,7 @@ let renderer: WorldRenderer | null = null;
 let world: WorldRenderer | null = null;
 
 let tripRefreshInterval: ReturnType<typeof setInterval> | null = null;
+let chunkRefreshInterval: ReturnType<typeof setInterval> | null = null;
 // Registered at once so an unmount during the bootstrap below still removes them.
 const unsubscribers = [
   // A settled trip can change the visible phase and the assignment, and it is the only event for
@@ -326,7 +327,10 @@ onMounted(async () => {
   drawAssignments();
   await loadTrips();
   if (isDisposed()) return;
-  tripRefreshInterval = setInterval(() => void loadTrips(), 5_000);
+  // Time-lapse flights last seconds; poll often enough to see them.
+  tripRefreshInterval = setInterval(() => void loadTrips(), timeLapse ? 1_000 : 5_000);
+  // Other players' new stations and sectors send no event; let the time-lapse show the map grow.
+  if (timeLapse) chunkRefreshInterval = setInterval(() => renderer?.refreshVisibleChunks(), 5_000);
 });
 
 // The station brackets follow the panel, however it was opened or closed.
@@ -351,6 +355,7 @@ onUnmounted(() => {
   scheduleChunkRefresh.cancel();
   for (const unsubscribe of unsubscribers) unsubscribe();
   if (tripRefreshInterval) clearInterval(tripRefreshInterval);
+  if (chunkRefreshInterval) clearInterval(chunkRefreshInterval);
   world?.destroy();
   world = renderer = null;
   deselect();

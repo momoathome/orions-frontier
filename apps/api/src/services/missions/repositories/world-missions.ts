@@ -80,11 +80,6 @@ export async function lockUserWorldMissions(tx: Tx, userId: string) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'world-missions:' + userId}))`);
 }
 
-/** Serializes colonization of one sector for the rest of the transaction. */
-export async function lockSectorColonization(tx: Tx, sectorId: string) {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${'colony:' + sectorId}))`);
-}
-
 /** True if the user already has a mission of that type traveling to the sector. */
 export async function hasTravelingWorldMission(
   db: QueryDb,

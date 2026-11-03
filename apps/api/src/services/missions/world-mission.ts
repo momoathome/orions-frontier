@@ -19,7 +19,6 @@ import {
   listDueWorldMissionIds,
   listReservedColonyPositions,
   listWorldMissionsByUser,
-  lockSectorColonization,
   lockUserWorldMissions,
   recordWorldMissionFailure,
   updateWorldMission,
@@ -53,6 +52,7 @@ import {
   isUnknownFrontierCoordinate,
   listFrontierCoordinates,
   listNearestSectors,
+  lockSectorColonization,
 } from '../map/index.js';
 import {
   applyTravelSpeed,
@@ -322,11 +322,14 @@ export async function startColonization(
     await lockUserWorldMissions(tx, params.userId);
     const station = await findOwnedStationWithSectorForUpdate(tx, params.stationId, params.userId);
     if (!station) throw new AppError(ErrorCode.NOT_FOUND, 'Station not found');
-    const targetSector = await findSectorByCoordinates(tx, params.sectorX, params.sectorY);
+    const found = await findSectorByCoordinates(tx, params.sectorX, params.sectorY);
+    if (found) await lockSectorColonization(tx, found.id);
+    // Read again under the lock: a new settlement may have claimed the sector meanwhile.
+    const targetSector =
+      found && (await findSectorByCoordinates(tx, params.sectorX, params.sectorY));
     if (targetSector?.role !== 'frontier') {
       throw new AppError(ErrorCode.VALIDATION_ERROR, 'Target is not a discovered frontier sector');
     }
-    await lockSectorColonization(tx, targetSector.id);
     const existing = await findOwnedStationInSector(tx, params.userId, targetSector.id);
     if (existing) throw new AppError(ErrorCode.ALREADY_EXISTS, 'You already have a station there');
     const { colonization } = await worldMissionLimits(tx, params.userId);
