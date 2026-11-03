@@ -7,6 +7,8 @@ const DEV_JWT_SECRETS = new Set([
   'change-this-in-production-to-a-secure-random-string',
 ]);
 
+const DEV_ADMIN_PASSWORD = 'change-this-admin-password';
+
 /**
  * Fastify's trustProxy: "true"/"false", a hop count, or a comma list of proxy IPs/CIDRs. Off by
  * default: without a proxy, a client could fake its address via X-Forwarded-For.
@@ -23,8 +25,13 @@ export const trustProxySchema = z
     return (_address, hop) => hop < hops;
   });
 
+/** Compose passes unset variables as empty strings. */
+const blankAsUnset = z.literal('').transform(() => undefined);
+
 const envSchema = z
   .object({
+    ADMIN_EMAIL: z.union([blankAsUnset, z.email().toLowerCase()]).optional(),
+    ADMIN_PASSWORD: z.union([blankAsUnset, z.string().min(12).max(128)]).optional(),
     NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
     DATABASE_URL: z.url(),
     JWT_SECRET: z.string().min(16),
@@ -41,6 +48,14 @@ const envSchema = z
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
+  })
+  .refine((env) => (env.ADMIN_EMAIL === undefined) === (env.ADMIN_PASSWORD === undefined), {
+    path: ['ADMIN_PASSWORD'],
+    message: 'ADMIN_EMAIL and ADMIN_PASSWORD must be set together',
+  })
+  .refine((env) => env.NODE_ENV !== 'production' || env.ADMIN_PASSWORD !== DEV_ADMIN_PASSWORD, {
+    path: ['ADMIN_PASSWORD'],
+    message: 'needs its own value in production, no placeholder',
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.CORS_ORIGIN !== undefined, {
     path: ['CORS_ORIGIN'],

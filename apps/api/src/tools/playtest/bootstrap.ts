@@ -36,13 +36,13 @@ export async function bootstrapPlaytestWorld(
   await seedAsteroidWorld(context);
 
   const db = getDb();
-  const [world, userCount, stationCount, unexpectedDevUser] = await Promise.all([
+  const [world, userCount, stationCount, unexpectedAdmin] = await Promise.all([
     calculatePlaytestWorldChecksum(),
     db.select({ count: sql<number>`count(*)::int` }).from(users),
     db.select({ count: sql<number>`count(*)::int` }).from(stations),
-    db.select({ id: users.id }).from(users).where(eq(users.email, 'dev@orion.local')).limit(1),
+    db.select({ id: users.id }).from(users).where(eq(users.role, 'admin')).limit(1),
   ]);
-  if (unexpectedDevUser.length > 0) throw new Error('Playtest bootstrap created a dev account');
+  if (unexpectedAdmin.length > 0) throw new Error('Playtest bootstrap created an admin account');
 
   return {
     ...world,

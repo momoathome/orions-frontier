@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { eq, or } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from './lib/db/index.js';
 import { sectors } from './lib/db/schema/sectors.js';
 import { users } from './lib/db/schema/users.js';
@@ -37,49 +37,39 @@ export const seedAsteroidWorld = async (
   logger.info({ radius, sectors: (radius * 2 + 1) ** 2 }, 'Initial world generated');
 };
 
-// seedDevUser
-// Creates a developer user with a fully equipped station for local testing.
-// Idempotent: skips if the dev user email already exists.
-//
-// Credentials:  dev@orion.local / dev123
-
-const DEV_EMAIL = 'dev@orion.local';
-const DEV_PASSWORD = 'dev123';
-export const seedDevUser = async (): Promise<void> => {
+// seedAdminUser
+// Creates the admin account with a station. Idempotent: on later starts it only applies the
+// configured email and password, so changing them in .env takes effect on the next start.
+export const seedAdminUser = async (email: string, password: string): Promise<void> => {
   const db = getDb();
+  const passwordHash = await bcrypt.hash(password, 10);
 
-  const existing = await db
+  const [existing] = await db
     .select({ id: users.id })
     .from(users)
-    .where(or(eq(users.email, DEV_EMAIL), eq(users.username, 'dev')))
+    .where(eq(users.role, 'admin'))
+    .orderBy(users.createdAt)
     .limit(1);
 
-  let devUserId: string;
+  let adminId: string;
 
-  if (existing.length > 0) {
-    devUserId = existing[0]!.id;
+  if (existing) {
+    adminId = existing.id;
+    await db.update(users).set({ email, passwordHash }).where(eq(users.id, adminId));
   } else {
-    // 1. Create user
-    const passwordHash = await bcrypt.hash(DEV_PASSWORD, 10);
-    const [devUser] = await db
+    const [admin] = await db
       .insert(users)
-      .values({
-        username: 'dev',
-        email: DEV_EMAIL,
-        passwordHash,
-        role: 'admin',
-        status: 'active',
-      })
+      .values({ username: 'admin', email, passwordHash, role: 'admin', status: 'active' })
       .returning({ id: users.id });
 
-    if (!devUser) throw new Error('Failed to create dev user');
-    devUserId = devUser.id;
+    if (!admin) throw new Error('Failed to create admin user');
+    adminId = admin.id;
   }
 
   const [existingStation] = await db
     .select({ id: stations.id })
     .from(stations)
-    .where(eq(stations.userId, devUserId))
+    .where(eq(stations.userId, adminId))
     .limit(1);
-  if (!existingStation) await createStation(devUserId, { name: 'Dev Station Alpha' });
+  if (!existingStation) await createStation(adminId, { name: 'Admin Station' });
 };

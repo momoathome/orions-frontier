@@ -24,10 +24,11 @@ await start();
 
 // Bots respect attack protection; the default 24 h would end after minutes of the time-lapse.
 const db = getDb();
-const devUser = await findUserByEmail(db, 'dev@orion.local');
-if (devUser) {
+const adminEmail = process.env['ADMIN_EMAIL']?.toLowerCase();
+const admin = adminEmail ? await findUserByEmail(db, adminEmail) : undefined;
+if (admin) {
   await db.transaction((tx) =>
-    updateUser(tx, devUser.id, {
+    updateUser(tx, admin.id, {
       protectedUntil: new Date(gameNow().getTime() + DEV_PROTECTION_MS),
       attackProtectionBrokenAt: null,
     })
